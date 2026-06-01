@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.swiftpm/
+.antigravitycli/
+temp_litter/
+DerivedData/
+*.xcuserstate
+*.xcuserdata/

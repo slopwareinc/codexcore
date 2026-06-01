@@ -1,0 +1,299 @@
+import Foundation
+
+// MARK: - JSON-RPC Wire Models
+
+public struct JSONRPCRequest: Codable, Sendable {
+    public var jsonrpc: String = "2.0"
+    public let id: Int64?
+    public let method: String
+    public let params: CodexJSONValue?
+
+    public init(id: Int64?, method: String, params: CodexJSONValue? = nil) {
+        self.id = id
+        self.method = method
+        self.params = params
+    }
+}
+
+public struct JSONRPCResponse: Codable, Sendable {
+    public let jsonrpc: String?
+    public let id: Int64?
+    public let result: CodexJSONValue?
+    public let error: JSONRPCError?
+}
+
+public struct JSONRPCError: Codable, Sendable, Error {
+    public let code: Int
+    public let message: String
+    public let data: CodexJSONValue?
+}
+
+public struct JSONRPCNotification: Codable, Sendable {
+    public let jsonrpc: String?
+    public let method: String
+    public let params: [String: CodexJSONValue]?
+}
+
+public enum CodexConnectionError: Error, Sendable, CustomStringConvertible {
+    case closed
+    case transportFailed(String)
+
+    public var description: String {
+        switch self {
+        case .closed:
+            return "Codex connection closed"
+        case .transportFailed(let message):
+            return "Codex transport failed: \(message)"
+        }
+    }
+}
+
+// A server→client request (server sends id + method, client must reply with a result/error)
+public struct JSONRPCServerRequest: Sendable {
+    public let id: Int64
+    public let method: String
+    public let params: [String: CodexJSONValue]
+}
+
+// MARK: - CodexConnection Actor
+
+public actor CodexConnection {
+    private let transport: any CodexTransport
+    private let reconnectionManager: CodexReconnectionManager
+
+    private var isInitialized = false
+    private var pendingNotifications: [JSONRPCNotification] = []
+    private var pendingRequests: [Int64: CheckedContinuation<CodexJSONValue, Error>] = [:]
+    private var requestIdCounter: Int64 = 0
+
+    // Callbacks for notification and server-request dispatching
+    private var onNotification: (@Sendable (JSONRPCNotification) -> Void)?
+    private var onServerRequest: (@Sendable (JSONRPCServerRequest) async -> CodexJSONValue)?
+
+    public init(transport: any CodexTransport) {
+        self.transport = transport
+        self.reconnectionManager = CodexReconnectionManager(transport: transport)
+    }
+
+    /// Starts the connection and performs the initialize handshake, buffering notifications.
+    public func start(
+        clientName: String = "CodexCoreSwift",
+        clientTitle: String = "Codex Core Swift Native SDK",
+        clientVersion: String = "1.0.0",
+        onNotification: @escaping @Sendable (JSONRPCNotification) -> Void,
+        onServerRequest: @escaping @Sendable (JSONRPCServerRequest) async -> CodexJSONValue
+    ) async throws {
+        self.onNotification = onNotification
+        self.onServerRequest = onServerRequest
+
+        await reconnectionManager.configure(
+            onMessage: { [weak self] msg in
+                guard let self else { return }
+                Task {
+                    await self.handleIncomingMessage(msg)
+                }
+            },
+            onError: { err in
+                print("[CodexConnection] Connection error: \(err)")
+                Task { [weak self] in
+                    await self?.failPendingRequests(CodexConnectionError.transportFailed(String(describing: err)))
+                }
+            },
+            onReconnected: { [weak self] in
+                guard let self else { return }
+                Task {
+                    try? await self.performInitializeHandshake(
+                        clientName: clientName,
+                        clientTitle: clientTitle,
+                        clientVersion: clientVersion
+                    )
+                }
+            }
+        )
+
+        try await reconnectionManager.start()
+
+        try await performInitializeHandshake(
+            clientName: clientName,
+            clientTitle: clientTitle,
+            clientVersion: clientVersion
+        )
+    }
+
+    /// Stop the transport connection.
+    public func stop() async {
+        failPendingRequests(CodexConnectionError.closed)
+        await transport.stop()
+    }
+
+    /// Send a strongly-typed JSON-RPC request and wait for the response.
+    public func request(method: String, params: [String: CodexJSONValue] = [:]) async throws -> CodexJSONValue {
+        requestIdCounter += 1
+        let requestId = requestIdCounter
+
+        let req = JSONRPCRequest(id: requestId, method: method, params: .dictionary(params))
+        let payload = try encodeRequest(req)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingRequests[requestId] = continuation
+
+            Task {
+                do {
+                    try await reconnectionManager.sendOrBuffer(payload)
+                } catch {
+                    pendingRequests.removeValue(forKey: requestId)
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Send a raw notification frame to the daemon (no id → no response expected).
+    public func notify(method: String, params: [String: CodexJSONValue] = [:]) async throws {
+        let req = JSONRPCRequest(id: nil, method: method, params: params.isEmpty ? nil : .dictionary(params))
+        let payload = try encodeRequest(req)
+        try await reconnectionManager.sendOrBuffer(payload)
+    }
+
+    /// Reply to a server-originated request (with result).
+    public func reply(id: Int64, result: CodexJSONValue) async throws {
+        let payload: [String: CodexJSONValue] = [
+            "jsonrpc": .string("2.0"),
+            "id": .int(Int(id)),
+            "result": result
+        ]
+        // Encode directly; no need for JSONRPCRequest
+        try await reconnectionManager.sendOrBuffer(payload)
+    }
+
+    // MARK: - Internal Handshake & Message Router
+
+    private func performInitializeHandshake(clientName: String, clientTitle: String, clientVersion: String) async throws {
+        isInitialized = false
+
+        // Build nested params as CodexJSONValue.dictionary — NOT double-encoded
+        let params: [String: CodexJSONValue] = [
+            "clientInfo": .dictionary([
+                "name": .string(clientName),
+                "version": .string(clientVersion),
+                "title": .string(clientTitle)
+            ]),
+            "capabilities": .dictionary([
+                "experimentalApi": .bool(true),
+                "requestAttestation": .bool(false)
+            ])
+        ]
+
+        _ = try await request(method: "initialize", params: params)
+
+        try await notify(method: "initialized", params: [:])
+
+        isInitialized = true
+        flushPendingNotifications()
+    }
+
+    private func handleIncomingMessage(_ message: String) {
+        guard let data = message.data(using: .utf8) else { return }
+        let decoder = JSONDecoder()
+
+        guard let payload = try? decoder.decode([String: CodexJSONValue].self, from: data) else {
+            print("[CodexConnection] Failed to parse payload: \(message.prefix(200))")
+            return
+        }
+
+        let hasMethod = payload["method"] != nil
+        let hasId = payload["id"] != nil
+
+        // Server→client request: has both "method" and "id"
+        if hasMethod && hasId {
+            guard let methodVal = payload["method"],
+                  case .string(let method) = methodVal,
+                  let idVal = payload["id"] else { return }
+
+            let requestId: Int64
+            switch idVal {
+            case .int(let i): requestId = Int64(i)
+            case .string(let s): requestId = Int64(s) ?? 0
+            default: return
+            }
+
+            var params: [String: CodexJSONValue] = [:]
+            if let paramsVal = payload["params"], case .dictionary(let d) = paramsVal {
+                params = d
+            }
+
+            let serverRequest = JSONRPCServerRequest(id: requestId, method: method, params: params)
+            let handler = self.onServerRequest
+
+            Task {
+                let result = await handler?(serverRequest) ?? .null
+                try? await self.reply(id: requestId, result: result)
+            }
+            return
+        }
+
+        // Notification: has "method" but no "id"
+        if hasMethod && !hasId {
+            if let notification = try? decoder.decode(JSONRPCNotification.self, from: data) {
+                if !isInitialized {
+                    pendingNotifications.append(notification)
+                } else {
+                    onNotification?(notification)
+                }
+            } else {
+                print("[CodexConnection] Failed to decode notification: \(message.prefix(200))")
+            }
+            return
+        }
+
+        // Response: has "id" and either "result" or "error"
+        if hasId {
+            if let response = try? decoder.decode(JSONRPCResponse.self, from: data) {
+                if let requestId = response.id, let continuation = pendingRequests.removeValue(forKey: requestId) {
+                    if let error = response.error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: response.result ?? .null)
+                    }
+                }
+            } else {
+                print("[CodexConnection] Failed to decode response: \(message.prefix(200))")
+            }
+            return
+        }
+
+        print("[CodexConnection] Unrecognized packet: \(message.prefix(200))")
+    }
+
+    private func flushPendingNotifications() {
+        let notifications = pendingNotifications
+        pendingNotifications.removeAll()
+
+        for notification in notifications {
+            onNotification?(notification)
+        }
+    }
+
+    private func failPendingRequests(_ error: Error) {
+        let requests = pendingRequests
+        pendingRequests.removeAll()
+        for continuation in requests.values {
+            continuation.resume(throwing: error)
+        }
+    }
+
+    private func encodeRequest(_ req: JSONRPCRequest) throws -> [String: CodexJSONValue] {
+        // Build the payload manually to avoid double-encoding
+        var payload: [String: CodexJSONValue] = [
+            "jsonrpc": .string("2.0"),
+            "method": .string(req.method)
+        ]
+        if let id = req.id {
+            payload["id"] = .int(Int(id))
+        }
+        if let params = req.params {
+            payload["params"] = params
+        }
+        return payload
+    }
+}
