@@ -35,12 +35,32 @@ actor MockTransport: CodexTransport {
             let reqIdString = idVal.description
             let result: String
             switch method {
+            case "initialize":
+                result = #"{"serverInfo":{"name":"codex","version":"1.0.0"},"userAgent":"codex/1.0.0"}"#
+            case "account/login/start":
+                result = #"{"type":"apiKey"}"#
+            case "account/read":
+                result = #"{"requiresOpenaiAuth":false,"account":null}"#
+            case "account/logout", "account/login/cancel", "thread/archive", "thread/name/set", "thread/compact/start", "turn/interrupt":
+                result = "{}"
             case "thread/start":
                 result = #"{"thread":{"id":"thread-mock"}}"#
             case "thread/resume":
                 result = #"{"thread":{"id":"thread-resumed"}}"#
+            case "thread/fork":
+                result = #"{"thread":{"id":"thread-fork"}}"#
+            case "thread/unarchive":
+                result = #"{"thread":{"id":"thread-unarchived"}}"#
+            case "thread/list":
+                result = #"{"data":[{"id":"thread-mock"}],"nextCursor":null,"backwardsCursor":null}"#
+            case "thread/read":
+                result = #"{"thread":{"id":"thread-mock"}}"#
             case "turn/start":
                 result = #"{"turn":{"id":"turn-mock"}}"#
+            case "turn/steer":
+                result = #"{"turnId":"turn-mock"}"#
+            case "model/list":
+                result = #"{"models":[]}"#
             case "command/exec":
                 result = #"{"exitCode":0,"stdout":"COMMAND_OK\n","stderr":""}"#
             default:
@@ -318,6 +338,97 @@ final class CodexClientTerminalTests: XCTestCase {
         } else {
             XCTFail("command/exec params missing")
         }
+    }
+
+    func testTypedClientMethodsUsePythonSDKWireMethods() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        let metadata = try await client.connect(clientName: "test", clientTitle: "Test", clientVersion: "0.1", experimentalApi: false)
+
+        XCTAssertEqual(metadata.serverInfo?.name, "codex")
+
+        _ = try await client.accountLoginStart(.apiKey("sk-test"))
+        let account = try await client.accountRead(GetAccountParams(refreshToken: true))
+        XCTAssertFalse(account.requiresOpenaiAuth)
+
+        let forked = try await client.threadFork(threadId: "thread-mock")
+        XCTAssertEqual(forked.thread.id, "thread-fork")
+
+        let listed = try await client.threadList(ThreadListParams(limit: 1, sortDirection: .desc, sortKey: .updatedAt))
+        XCTAssertEqual(listed.data?.first?.id, "thread-mock")
+
+        let models = try await client.modelList(includeHidden: true)
+        XCTAssertEqual(models.models?.count, 0)
+
+        let methods = await transport.sentPayloads.compactMap { $0["method"]?.description }
+        XCTAssertTrue(methods.contains("account/login/start"))
+        XCTAssertTrue(methods.contains("account/read"))
+        XCTAssertTrue(methods.contains("thread/fork"))
+        XCTAssertTrue(methods.contains("thread/list"))
+        XCTAssertTrue(methods.contains("model/list"))
+
+        let initialize = await transport.sentPayloads.first { $0["method"]?.description == "initialize" }
+        if case .dictionary(let params)? = initialize?["params"],
+           case .dictionary(let capabilities)? = params["capabilities"] {
+            XCTAssertEqual(capabilities["experimentalApi"], .bool(false))
+        } else {
+            XCTFail("initialize capabilities missing")
+        }
+
+        await client.disconnect()
+    }
+
+    func testHighLevelCodexThreadMethodsUseTypedPythonParitySurface() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let codex = try await Codex(transport: transport, store: store)
+
+        XCTAssertEqual(codex.metadata.userAgent, "codex/1.0.0")
+
+        try await codex.loginAPIKey("sk-test")
+        let account = try await codex.account(refreshToken: true)
+        XCTAssertFalse(account.requiresOpenaiAuth)
+
+        let thread = try await codex.threadStart(cwd: "/tmp", model: "test-model", sandbox: .workspaceWrite)
+        XCTAssertEqual(thread.id, "thread-mock")
+
+        let listed = try await codex.threadList(limit: 1)
+        XCTAssertEqual(listed.data?.first?.id, "thread-mock")
+
+        let forked = try await codex.threadFork(thread.id, sandbox: .readOnly)
+        XCTAssertEqual(forked.id, "thread-fork")
+
+        let unarchived = try await codex.threadUnarchive(thread.id)
+        XCTAssertEqual(unarchived.id, "thread-unarchived")
+
+        _ = try await codex.threadArchive(thread.id)
+        let modelList = try await codex.models(includeHidden: true)
+        XCTAssertEqual(modelList.models?.count, 0)
+
+        let handle = try await thread.turn([.text("hi"), .localImage(path: "/tmp/a.png")], model: "test-model", sandbox: .workspaceWrite)
+        XCTAssertEqual(handle.id, "turn-mock")
+
+        let sentPayloads = await transport.sentPayloads
+        let threadStartPayload = sentPayloads.last { $0["method"]?.description == "thread/start" }
+        if case .dictionary(let params)? = threadStartPayload?["params"] {
+            XCTAssertEqual(params["sandbox"], .string("workspace-write"))
+            XCTAssertEqual(params["approvalsReviewer"], .string("auto_review"))
+            XCTAssertEqual(params["approvalPolicy"], .string("on-request"))
+        } else {
+            XCTFail("thread/start params missing")
+        }
+
+        let turnStartPayload = sentPayloads.last { $0["method"]?.description == "turn/start" }
+        if case .dictionary(let params)? = turnStartPayload?["params"],
+           case .array(let input)? = params["input"] {
+            XCTAssertEqual(input.count, 2)
+            XCTAssertEqual(params["sandboxPolicy"], .dictionary(["type": .string("workspaceWrite")]))
+        } else {
+            XCTFail("turn/start params missing")
+        }
+
+        await codex.close()
     }
 
     func testStreamingCommandExecSessionRoutesOutputAndCompletion() async throws {

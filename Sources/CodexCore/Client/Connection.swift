@@ -76,13 +76,15 @@ public actor CodexConnection {
     }
 
     /// Starts the connection and performs the initialize handshake, buffering notifications.
+    @discardableResult
     public func start(
         clientName: String = "CodexCoreSwift",
         clientTitle: String = "Codex Core Swift Native SDK",
         clientVersion: String = "1.0.0",
+        experimentalApi: Bool = true,
         onNotification: @escaping @Sendable (JSONRPCNotification) -> Void,
         onServerRequest: @escaping @Sendable (JSONRPCServerRequest) async -> CodexJSONValue
-    ) async throws {
+    ) async throws -> InitializeResponse {
         self.onNotification = onNotification
         self.onServerRequest = onServerRequest
 
@@ -105,7 +107,8 @@ public actor CodexConnection {
                     try? await self.performInitializeHandshake(
                         clientName: clientName,
                         clientTitle: clientTitle,
-                        clientVersion: clientVersion
+                        clientVersion: clientVersion,
+                        experimentalApi: experimentalApi
                     )
                 }
             }
@@ -113,10 +116,11 @@ public actor CodexConnection {
 
         try await reconnectionManager.start()
 
-        try await performInitializeHandshake(
+        return try await performInitializeHandshake(
             clientName: clientName,
             clientTitle: clientTitle,
-            clientVersion: clientVersion
+            clientVersion: clientVersion,
+            experimentalApi: experimentalApi
         )
     }
 
@@ -127,11 +131,20 @@ public actor CodexConnection {
     }
 
     /// Send a strongly-typed JSON-RPC request and wait for the response.
+    public func request(method: String) async throws -> CodexJSONValue {
+        try await sendRequest(method: method, params: nil)
+    }
+
+    /// Send a strongly-typed JSON-RPC request and wait for the response.
     public func request(method: String, params: [String: CodexJSONValue] = [:]) async throws -> CodexJSONValue {
+        try await sendRequest(method: method, params: .dictionary(params))
+    }
+
+    private func sendRequest(method: String, params: CodexJSONValue?) async throws -> CodexJSONValue {
         requestIdCounter += 1
         let requestId = requestIdCounter
 
-        let req = JSONRPCRequest(id: requestId, method: method, params: .dictionary(params))
+        let req = JSONRPCRequest(id: requestId, method: method, params: params)
         let payload = try encodeRequest(req)
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -168,7 +181,12 @@ public actor CodexConnection {
 
     // MARK: - Internal Handshake & Message Router
 
-    private func performInitializeHandshake(clientName: String, clientTitle: String, clientVersion: String) async throws {
+    private func performInitializeHandshake(
+        clientName: String,
+        clientTitle: String,
+        clientVersion: String,
+        experimentalApi: Bool
+    ) async throws -> InitializeResponse {
         isInitialized = false
 
         // Build nested params as CodexJSONValue.dictionary — NOT double-encoded
@@ -179,17 +197,19 @@ public actor CodexConnection {
                 "title": .string(clientTitle)
             ]),
             "capabilities": .dictionary([
-                "experimentalApi": .bool(true),
+                "experimentalApi": .bool(experimentalApi),
                 "requestAttestation": .bool(false)
             ])
         ]
 
-        _ = try await request(method: "initialize", params: params)
+        let result = try await request(method: "initialize", params: params)
+        let response = try result.decode(InitializeResponse.self)
 
         try await notify(method: "initialized", params: [:])
 
         isInitialized = true
         flushPendingNotifications()
+        return response
     }
 
     private func handleIncomingMessage(_ message: String) {

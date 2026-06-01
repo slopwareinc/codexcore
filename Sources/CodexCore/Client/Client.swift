@@ -28,15 +28,18 @@ public actor CodexClient {
     }
 
     /// Establishes the connection and performs the initialize handshake.
+    @discardableResult
     public func connect(
         clientName: String = "CodexCoreSwift",
         clientTitle: String = "Codex Core Swift Native SDK",
-        clientVersion: String = "1.0.0"
-    ) async throws {
+        clientVersion: String = "1.0.0",
+        experimentalApi: Bool = true
+    ) async throws -> InitializeResponse {
         try await connection.start(
             clientName: clientName,
             clientTitle: clientTitle,
             clientVersion: clientVersion,
+            experimentalApi: experimentalApi,
             onNotification: { [weak self] notification in
                 guard let self else { return }
                 Task {
@@ -57,6 +60,163 @@ public actor CodexClient {
         try await connection.request(method: method, params: params)
     }
 
+    // MARK: - Python SDK typed request APIs
+
+    public func accountLoginStart(_ params: LoginAccountParams) async throws -> LoginAccountResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.accountLoginStart.rawValue,
+            params: params,
+            response: LoginAccountResponse.self
+        )
+    }
+
+    public func accountLoginCancel(loginId: String) async throws -> CancelLoginAccountResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.accountLoginCancel.rawValue,
+            params: ["loginId": CodexJSONValue.string(loginId)],
+            response: CancelLoginAccountResponse.self
+        )
+    }
+
+    public func accountRead(_ params: GetAccountParams = GetAccountParams()) async throws -> GetAccountResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.accountRead.rawValue,
+            params: params,
+            response: GetAccountResponse.self
+        )
+    }
+
+    public func accountLogout() async throws -> LogoutAccountResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.accountLogout.rawValue,
+            response: LogoutAccountResponse.self
+        )
+    }
+
+    public func threadStart(_ params: ThreadStartParams = ThreadStartParams()) async throws -> ThreadStartResponse {
+        let response: ThreadStartResponse = try await connection.request(
+            method: CodexAppServerClientMethod.threadStart.rawValue,
+            params: params,
+            response: ThreadStartResponse.self
+        )
+        await MainActor.run {
+            store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+        }
+        return response
+    }
+
+    public func threadResume(threadId: String, params: ThreadResumeParams = ThreadResumeParams()) async throws -> ThreadResumeResponse {
+        var payload = params
+        payload.threadId = threadId
+        let response: ThreadResumeResponse = try await connection.request(
+            method: CodexAppServerClientMethod.threadResume.rawValue,
+            params: payload,
+            response: ThreadResumeResponse.self
+        )
+        await MainActor.run {
+            store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+        }
+        return response
+    }
+
+    public func threadList(_ params: ThreadListParams = ThreadListParams()) async throws -> ThreadListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadList.rawValue,
+            params: params,
+            response: ThreadListResponse.self
+        )
+    }
+
+    public func threadRead(threadId: String, includeTurns: Bool = false) async throws -> ThreadReadResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadRead.rawValue,
+            params: ["threadId": CodexJSONValue.string(threadId), "includeTurns": .bool(includeTurns)],
+            response: ThreadReadResponse.self
+        )
+    }
+
+    public func threadFork(threadId: String, params: ThreadForkParams = ThreadForkParams()) async throws -> ThreadForkResponse {
+        var payload = params
+        payload.threadId = threadId
+        return try await connection.request(
+            method: CodexAppServerClientMethod.threadFork.rawValue,
+            params: payload,
+            response: ThreadForkResponse.self
+        )
+    }
+
+    public func threadArchive(threadId: String) async throws -> ThreadArchiveResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadArchive.rawValue,
+            params: ["threadId": CodexJSONValue.string(threadId)],
+            response: ThreadArchiveResponse.self
+        )
+    }
+
+    public func threadUnarchive(threadId: String) async throws -> ThreadUnarchiveResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadUnarchive.rawValue,
+            params: ["threadId": CodexJSONValue.string(threadId)],
+            response: ThreadUnarchiveResponse.self
+        )
+    }
+
+    public func threadSetName(threadId: String, name: String) async throws -> ThreadSetNameResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadNameSet.rawValue,
+            params: ["threadId": CodexJSONValue.string(threadId), "name": .string(name)],
+            response: ThreadSetNameResponse.self
+        )
+    }
+
+    public func threadCompact(threadId: String) async throws -> ThreadCompactStartResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadCompactStart.rawValue,
+            params: ["threadId": CodexJSONValue.string(threadId)],
+            response: ThreadCompactStartResponse.self
+        )
+    }
+
+    public func turnStart(_ params: TurnStartParams) async throws -> TurnStartResponse {
+        let response: TurnStartResponse = try await connection.request(
+            method: CodexAppServerClientMethod.turnStart.rawValue,
+            params: params,
+            response: TurnStartResponse.self
+        )
+        await MainActor.run {
+            store.dispatch(.turnStarted(threadId: params.threadId, turnId: response.turn.id))
+        }
+        return response
+    }
+
+    public func turnInterrupt(threadId: String, turnId: String) async throws -> TurnInterruptResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.turnInterrupt.rawValue,
+            params: ["threadId": CodexJSONValue.string(threadId), "turnId": .string(turnId)],
+            response: TurnInterruptResponse.self
+        )
+    }
+
+    public func turnSteer(threadId: String, expectedTurnId: String, input: [CodexInput]) async throws -> TurnSteerResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.turnSteer.rawValue,
+            params: [
+                "threadId": CodexJSONValue.string(threadId),
+                "expectedTurnId": .string(expectedTurnId),
+                "input": .array(input.map(\.jsonValue))
+            ],
+            response: TurnSteerResponse.self
+        )
+    }
+
+    public func modelList(includeHidden: Bool = false) async throws -> ModelListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.modelList.rawValue,
+            params: ["includeHidden": CodexJSONValue.bool(includeHidden)],
+            response: ModelListResponse.self
+        )
+    }
+
     /// Closes the client connection.
     public func disconnect() async {
         await connection.stop()
@@ -68,12 +228,8 @@ public actor CodexClient {
     /// Returns the thread ID.
     @discardableResult
     public func createThread(cwd: String, model: String? = nil) async throws -> String {
-        var params: [String: CodexJSONValue] = ["cwd": .string(cwd)]
-        if let model {
-            params["model"] = .string(model)
-        }
-
-        return try await startThread(params: params)
+        let response = try await threadStart(ThreadStartParams(cwd: cwd, model: model))
+        return response.thread.id
     }
 
     /// Creates or starts a thread with raw app-server `thread/start` params.

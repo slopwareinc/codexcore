@@ -9,6 +9,7 @@ public struct CodexConfig: Sendable {
     public let clientName: String
     public let clientTitle: String
     public let clientVersion: String
+    public let experimentalApi: Bool
 
     public init(
         codexBinaryPath: String? = nil,
@@ -18,7 +19,8 @@ public struct CodexConfig: Sendable {
         environment: [String: String] = [:],
         clientName: String = "codex_swift_sdk",
         clientTitle: String = "Codex Swift SDK",
-        clientVersion: String = "1.0.0"
+        clientVersion: String = "1.0.0",
+        experimentalApi: Bool = true
     ) {
         self.codexBinaryPath = codexBinaryPath
         self.launchArgumentsOverride = launchArgumentsOverride
@@ -28,6 +30,7 @@ public struct CodexConfig: Sendable {
         self.clientName = clientName
         self.clientTitle = clientTitle
         self.clientVersion = clientVersion
+        self.experimentalApi = experimentalApi
     }
 }
 
@@ -67,6 +70,7 @@ public struct CodexTurnResult: Sendable, Equatable {
 
 public final class Codex: @unchecked Sendable {
     public let store: CodexCoreStore
+    public let metadata: InitializeResponse
 
     private let client: CodexClient
     private let config: CodexConfig
@@ -82,65 +86,189 @@ public final class Codex: @unchecked Sendable {
         store: CodexCoreStore,
         config: CodexConfig = CodexConfig()
     ) async throws {
-        self.store = store
-        self.client = CodexClient(transport: transport, store: store)
-        self.config = config
+        let client = CodexClient(transport: transport, store: store)
+        let metadata: InitializeResponse
 
         do {
-            try await client.connect(
+            metadata = try await client.connect(
                 clientName: config.clientName,
                 clientTitle: config.clientTitle,
-                clientVersion: config.clientVersion
+                clientVersion: config.clientVersion,
+                experimentalApi: config.experimentalApi
             )
         } catch {
             await client.disconnect()
             throw error
         }
+
+        self.store = store
+        self.client = client
+        self.config = config
+        self.metadata = metadata
     }
 
     public func close() async {
         await client.disconnect()
     }
 
-    public func threadStart(
-        cwd: String? = nil,
-        model: String? = nil,
-        params additionalParams: [String: CodexJSONValue] = [:]
-    ) async throws -> CodexThread {
-        var params = additionalParams
-        if let cwd {
-            params["cwd"] = .string(cwd)
-        } else if let cwd = config.cwd {
-            params["cwd"] = .string(cwd)
-        }
-        if let model {
-            params["model"] = .string(model)
-        }
+    public func loginAPIKey(_ apiKey: String) async throws {
+        _ = try await client.accountLoginStart(.apiKey(apiKey))
+    }
 
-        let threadId = try await client.startThread(params: params)
-        return CodexThread(client: client, store: store, id: threadId)
+    public func loginApiKey(_ apiKey: String) async throws {
+        try await loginAPIKey(apiKey)
+    }
+
+    public func account(refreshToken: Bool = false) async throws -> GetAccountResponse {
+        try await client.accountRead(GetAccountParams(refreshToken: refreshToken))
+    }
+
+    public func logout() async throws {
+        _ = try await client.accountLogout()
+    }
+
+    public func threadStart(
+        approvalMode: ApprovalMode = .autoReview,
+        baseInstructions: String? = nil,
+        config threadConfig: [String: CodexJSONValue]? = nil,
+        cwd: String? = nil,
+        developerInstructions: String? = nil,
+        ephemeral: Bool? = nil,
+        model: String? = nil,
+        modelProvider: String? = nil,
+        personality: Personality? = nil,
+        sandbox: Sandbox? = nil,
+        serviceName: String? = nil,
+        serviceTier: String? = nil,
+        sessionStartSource: ThreadStartSource? = nil,
+        threadSource: ThreadSource? = nil
+    ) async throws -> CodexThread {
+        let approvals = approvalMode.settings
+        let response = try await client.threadStart(ThreadStartParams(
+            approvalPolicy: approvals.approvalPolicy,
+            approvalsReviewer: approvals.approvalsReviewer,
+            baseInstructions: baseInstructions,
+            config: threadConfig,
+            cwd: cwd ?? config.cwd,
+            developerInstructions: developerInstructions,
+            ephemeral: ephemeral,
+            model: model,
+            modelProvider: modelProvider,
+            personality: personality,
+            sandbox: sandbox?.threadMode,
+            serviceName: serviceName,
+            serviceTier: serviceTier,
+            sessionStartSource: sessionStartSource,
+            threadSource: threadSource
+        ))
+        return CodexThread(client: client, store: store, id: response.thread.id)
     }
 
     public func threadResume(
         _ threadId: String,
-        params additionalParams: [String: CodexJSONValue] = [:]
+        approvalMode: ApprovalMode? = nil,
+        baseInstructions: String? = nil,
+        config threadConfig: [String: CodexJSONValue]? = nil,
+        cwd: String? = nil,
+        developerInstructions: String? = nil,
+        model: String? = nil,
+        modelProvider: String? = nil,
+        personality: Personality? = nil,
+        sandbox: Sandbox? = nil,
+        serviceTier: String? = nil
     ) async throws -> CodexThread {
-        var params = additionalParams
-        params["threadId"] = .string(threadId)
-        let response = try await client.request(method: "thread/resume", params: params)
-        let resumedId = try Self.extractThreadId(from: response, method: "thread/resume") ?? threadId
-        await MainActor.run {
-            store.dispatch(.threadStarted(threadId: resumedId, name: nil, status: "idle"))
-        }
-        return CodexThread(client: client, store: store, id: resumedId)
+        let approvals = approvalMode?.settings ?? ApprovalSettings()
+        var params = ThreadResumeParams(threadId: threadId)
+        params.approvalPolicy = approvals.approvalPolicy
+        params.approvalsReviewer = approvals.approvalsReviewer
+        params.baseInstructions = baseInstructions
+        params.config = threadConfig
+        params.cwd = cwd
+        params.developerInstructions = developerInstructions
+        params.model = model
+        params.modelProvider = modelProvider
+        params.personality = personality
+        params.sandbox = sandbox?.threadMode
+        params.serviceTier = serviceTier
+
+        let response = try await client.threadResume(threadId: threadId, params: params)
+        return CodexThread(client: client, store: store, id: response.thread.id)
     }
 
-    public func threadList(params: [String: CodexJSONValue] = [:]) async throws -> CodexJSONValue {
-        try await client.request(method: "thread/list", params: params)
+    public func threadList(
+        archived: Bool? = nil,
+        cursor: String? = nil,
+        cwd: ThreadListCwdFilter? = nil,
+        limit: Int? = nil,
+        modelProviders: [String]? = nil,
+        searchTerm: String? = nil,
+        sortDirection: SortDirection? = nil,
+        sortKey: ThreadSortKey? = nil,
+        sourceKinds: [ThreadSourceKind]? = nil,
+        useStateDbOnly: Bool? = nil
+    ) async throws -> ThreadListResponse {
+        try await client.threadList(ThreadListParams(
+            archived: archived,
+            cursor: cursor,
+            cwd: cwd,
+            limit: limit,
+            modelProviders: modelProviders,
+            searchTerm: searchTerm,
+            sortDirection: sortDirection,
+            sortKey: sortKey,
+            sourceKinds: sourceKinds,
+            useStateDbOnly: useStateDbOnly
+        ))
     }
 
-    public func models(includeHidden: Bool = false) async throws -> CodexJSONValue {
-        try await client.request(method: "model/list", params: ["includeHidden": .bool(includeHidden)])
+    public func threadListRaw(params: [String: CodexJSONValue] = [:]) async throws -> CodexJSONValue {
+        try await client.request(method: CodexAppServerClientMethod.threadList.rawValue, params: params)
+    }
+
+    public func threadFork(
+        _ threadId: String,
+        approvalMode: ApprovalMode? = nil,
+        baseInstructions: String? = nil,
+        config threadConfig: [String: CodexJSONValue]? = nil,
+        cwd: String? = nil,
+        developerInstructions: String? = nil,
+        ephemeral: Bool? = nil,
+        model: String? = nil,
+        modelProvider: String? = nil,
+        sandbox: Sandbox? = nil,
+        serviceTier: String? = nil,
+        threadSource: ThreadSource? = nil
+    ) async throws -> CodexThread {
+        let approvals = approvalMode?.settings ?? ApprovalSettings()
+        var params = ThreadForkParams(threadId: threadId)
+        params.approvalPolicy = approvals.approvalPolicy
+        params.approvalsReviewer = approvals.approvalsReviewer
+        params.baseInstructions = baseInstructions
+        params.config = threadConfig
+        params.cwd = cwd
+        params.developerInstructions = developerInstructions
+        params.ephemeral = ephemeral
+        params.model = model
+        params.modelProvider = modelProvider
+        params.sandbox = sandbox?.threadMode
+        params.serviceTier = serviceTier
+        params.threadSource = threadSource
+
+        let response = try await client.threadFork(threadId: threadId, params: params)
+        return CodexThread(client: client, store: store, id: response.thread.id)
+    }
+
+    public func threadArchive(_ threadId: String) async throws -> ThreadArchiveResponse {
+        try await client.threadArchive(threadId: threadId)
+    }
+
+    public func threadUnarchive(_ threadId: String) async throws -> CodexThread {
+        let response = try await client.threadUnarchive(threadId: threadId)
+        return CodexThread(client: client, store: store, id: response.thread.id)
+    }
+
+    public func models(includeHidden: Bool = false) async throws -> ModelListResponse {
+        try await client.modelList(includeHidden: includeHidden)
     }
 
     public func execCommand(
@@ -239,15 +367,6 @@ public final class Codex: @unchecked Sendable {
         throw CodexSDKError.runtimeNotFound
     }
 
-    fileprivate static func extractThreadId(from response: CodexJSONValue, method: String) throws -> String? {
-        guard case .dictionary(let dict) = response else {
-            throw CodexSDKError.invalidResponse(method: method, value: response)
-        }
-        if case .dictionary(let thread)? = dict["thread"], case .string(let id)? = thread["id"] {
-            return id
-        }
-        return nil
-    }
 }
 
 public final class CodexThread: Identifiable, @unchecked Sendable {
@@ -266,7 +385,45 @@ public final class CodexThread: Identifiable, @unchecked Sendable {
         _ input: String,
         params additionalParams: [String: CodexJSONValue] = [:]
     ) async throws -> CodexTurnHandle {
-        try await turn(input: [.text(input)], params: additionalParams)
+        try await turn([CodexInput.text(input)], params: additionalParams)
+    }
+
+    public func turn(
+        _ input: [CodexInput],
+        approvalMode: ApprovalMode? = nil,
+        cwd: String? = nil,
+        effort: ReasoningEffort? = nil,
+        model: String? = nil,
+        outputSchema: CodexJSONValue? = nil,
+        personality: Personality? = nil,
+        sandbox: Sandbox? = nil,
+        serviceTier: String? = nil,
+        summary: ReasoningSummary? = nil,
+        params additionalParams: [String: CodexJSONValue] = [:]
+    ) async throws -> CodexTurnHandle {
+        let approvals = approvalMode?.settings ?? ApprovalSettings()
+        var params = TurnStartParams(threadId: id, input: input)
+        params.approvalPolicy = approvals.approvalPolicy
+        params.approvalsReviewer = approvals.approvalsReviewer
+        params.cwd = cwd
+        params.effort = effort
+        params.model = model
+        params.outputSchema = outputSchema
+        params.personality = personality
+        params.sandboxPolicy = sandbox?.turnPolicy
+        params.serviceTier = serviceTier
+        params.summary = summary
+
+        var payload = try CodexJSONValue(encoding: params).objectValue ?? [:]
+        for (key, value) in additionalParams {
+            payload[key] = value
+        }
+        let turnId = try await client.startTurn(
+            threadId: id,
+            input: input.map(\.jsonValue),
+            additionalParams: payload.filter { $0.key != "threadId" && $0.key != "input" }
+        )
+        return CodexTurnHandle(client: client, store: store, threadId: id, id: turnId)
     }
 
     public func turn(
@@ -290,19 +447,44 @@ public final class CodexThread: Identifiable, @unchecked Sendable {
         return try await handle.run(timeout: timeout)
     }
 
-    public func read(includeTurns: Bool = false) async throws -> CodexJSONValue {
-        try await client.request(
-            method: "thread/read",
-            params: ["threadId": .string(id), "includeTurns": .bool(includeTurns)]
+    public func run(
+        _ input: [CodexInput],
+        timeout: TimeInterval = 300,
+        approvalMode: ApprovalMode? = nil,
+        cwd: String? = nil,
+        effort: ReasoningEffort? = nil,
+        model: String? = nil,
+        outputSchema: CodexJSONValue? = nil,
+        personality: Personality? = nil,
+        sandbox: Sandbox? = nil,
+        serviceTier: String? = nil,
+        summary: ReasoningSummary? = nil
+    ) async throws -> CodexTurnResult {
+        let handle = try await turn(
+            input,
+            approvalMode: approvalMode,
+            cwd: cwd,
+            effort: effort,
+            model: model,
+            outputSchema: outputSchema,
+            personality: personality,
+            sandbox: sandbox,
+            serviceTier: serviceTier,
+            summary: summary
         )
+        return try await handle.run(timeout: timeout)
     }
 
-    public func setName(_ name: String) async throws -> CodexJSONValue {
-        try await client.request(method: "thread/name/set", params: ["threadId": .string(id), "name": .string(name)])
+    public func read(includeTurns: Bool = false) async throws -> ThreadReadResponse {
+        try await client.threadRead(threadId: id, includeTurns: includeTurns)
     }
 
-    public func compact() async throws -> CodexJSONValue {
-        try await client.request(method: "thread/compact/start", params: ["threadId": .string(id)])
+    public func setName(_ name: String) async throws -> ThreadSetNameResponse {
+        try await client.threadSetName(threadId: id, name: name)
+    }
+
+    public func compact() async throws -> ThreadCompactStartResponse {
+        try await client.threadCompact(threadId: id)
     }
 }
 
@@ -321,7 +503,12 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
     }
 
     public func steer(_ input: String) async throws -> CodexJSONValue {
-        try await steer(input: [.text(input)])
+        try await steer([CodexInput.text(input)])
+    }
+
+    public func steer(_ input: [CodexInput]) async throws -> CodexJSONValue {
+        let response = try await client.turnSteer(threadId: threadId, expectedTurnId: id, input: input)
+        return try CodexJSONValue(encoding: response)
     }
 
     public func steer(input: [CodexWireInputItem]) async throws -> CodexJSONValue {
