@@ -2,6 +2,7 @@
 .build/
 .swiftpm/
 .antigravitycli/
+projects/references/
 temp_litter/
 DerivedData/
 *.xcuserstate
