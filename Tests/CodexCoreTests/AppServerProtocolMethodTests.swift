@@ -50,8 +50,29 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFileCount, 259)
         XCTAssertEqual(CodexAppServerSchemaInventory.definitions.count, CodexAppServerSchemaInventory.definitionCount)
         XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFiles.count, CodexAppServerSchemaInventory.v2SchemaFileCount)
+        XCTAssertEqual(CodexAppServerSchemaInventory.clientRequestParamCount, 99)
+        XCTAssertEqual(CodexAppServerSchemaInventory.notificationPayloadCount, CodexAppServerProtocolInventory.notificationMethodCount)
+        XCTAssertEqual(CodexAppServerSchemaInventory.serverRequestParamCount, CodexAppServerProtocolInventory.serverRequestMethodCount)
+        XCTAssertEqual(CodexAppServerSchemaInventory.clientRequestParams.count, CodexAppServerSchemaInventory.clientRequestParamCount)
+        XCTAssertEqual(CodexAppServerSchemaInventory.notificationPayloads.count, CodexAppServerSchemaInventory.notificationPayloadCount)
+        XCTAssertEqual(CodexAppServerSchemaInventory.serverRequestParams.count, CodexAppServerSchemaInventory.serverRequestParamCount)
         XCTAssertEqual(Set(CodexAppServerSchemaInventory.definitions.map(\.name)).count, CodexAppServerSchemaInventory.definitionCount)
         XCTAssertEqual(Set(CodexAppServerSchemaInventory.definitions.map(\.typeName)).count, CodexAppServerSchemaInventory.definitionCount)
+
+        for method in CodexAppServerNotificationMethod.allCases {
+            let schema = method.schemaDefinition
+            XCTAssertNotNil(schema, "Missing notification schema for \(method.rawValue)")
+            XCTAssertEqual(schema?.method, method.rawValue)
+            XCTAssertFalse(schema?.definitionName.isEmpty ?? true)
+            XCTAssertFalse(schema?.typeName.isEmpty ?? true)
+        }
+
+        for method in CodexAppServerServerRequestMethod.allCases {
+            let schema = method.paramsSchemaDefinition
+            XCTAssertNotNil(schema, "Missing server request params schema for \(method.rawValue)")
+            XCTAssertEqual(schema?.method, method.rawValue)
+            XCTAssertFalse(schema?.definitionName.isEmpty ?? true)
+        }
 
         let names = Set(CodexAppServerSchemaInventory.definitions.map(\.name))
         XCTAssertTrue(names.contains("Thread"))

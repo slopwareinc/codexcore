@@ -33,6 +33,12 @@ public struct CodexAppServerSchemaDefinition: Sendable, Equatable {
     public let typeName: String
 }
 
+public struct CodexAppServerMethodSchemaDefinition: Sendable, Equatable {
+    public let method: String
+    public let definitionName: String
+    public let typeName: String
+}
+
 """
 
 
@@ -44,6 +50,21 @@ def swift_type_suffix(name: str) -> str:
     if suffix[:1].isdigit():
         suffix = "_" + suffix
     return suffix
+
+
+def load_method_param_refs(path: Path, type_names: dict[str, str]) -> list[tuple[str, str, str]]:
+    data = json.loads(path.read_text())
+    rows: list[tuple[str, str, str]] = []
+    for arm in data.get("oneOf", []):
+        properties = arm.get("properties", {})
+        enum_values = properties.get("method", {}).get("enum", [])
+        ref = properties.get("params", {}).get("$ref")
+        if not enum_values or not isinstance(ref, str) or not ref.startswith("#/definitions/"):
+            continue
+        definition_name = ref.removeprefix("#/definitions/")
+        type_name = type_names.get(definition_name, "")
+        rows.append((enum_values[0], definition_name, type_name))
+    return rows
 
 
 def main() -> None:
@@ -66,6 +87,12 @@ def main() -> None:
         type_name = base if count == 0 else f"{base}{count + 1}"
         rows.append((name, type_name))
 
+    type_names = dict(rows)
+
+    client_params = load_method_param_refs(args.schema_dir / "ClientRequest.json", type_names)
+    notification_payloads = load_method_param_refs(args.schema_dir / "ServerNotification.json", type_names)
+    server_request_params = load_method_param_refs(args.schema_dir / "ServerRequest.json", type_names)
+
     v2_files = sorted(path.name for path in (args.schema_dir / "v2").glob("*.json"))
 
     output = HEADER
@@ -79,10 +106,43 @@ def main() -> None:
     for name, type_name in rows:
         output += f"        CodexAppServerSchemaDefinition(name: {json.dumps(name)}, typeName: {json.dumps(type_name)}),\n"
     output += "    ]\n"
+    output += f"    public static let clientRequestParamCount = {len(client_params)}\n"
+    output += f"    public static let notificationPayloadCount = {len(notification_payloads)}\n"
+    output += f"    public static let serverRequestParamCount = {len(server_request_params)}\n"
+    output += "    public static let clientRequestParams: [CodexAppServerMethodSchemaDefinition] = [\n"
+    for method, definition_name, type_name in client_params:
+        output += f"        CodexAppServerMethodSchemaDefinition(method: {json.dumps(method)}, definitionName: {json.dumps(definition_name)}, typeName: {json.dumps(type_name)}),\n"
+    output += "    ]\n"
+    output += "    public static let notificationPayloads: [CodexAppServerMethodSchemaDefinition] = [\n"
+    for method, definition_name, type_name in notification_payloads:
+        output += f"        CodexAppServerMethodSchemaDefinition(method: {json.dumps(method)}, definitionName: {json.dumps(definition_name)}, typeName: {json.dumps(type_name)}),\n"
+    output += "    ]\n"
+    output += "    public static let serverRequestParams: [CodexAppServerMethodSchemaDefinition] = [\n"
+    for method, definition_name, type_name in server_request_params:
+        output += f"        CodexAppServerMethodSchemaDefinition(method: {json.dumps(method)}, definitionName: {json.dumps(definition_name)}, typeName: {json.dumps(type_name)}),\n"
+    output += "    ]\n"
+    output += "    public static let clientRequestParamByMethod: [String: CodexAppServerMethodSchemaDefinition] = Dictionary(uniqueKeysWithValues: clientRequestParams.map { ($0.method, $0) })\n"
+    output += "    public static let notificationPayloadByMethod: [String: CodexAppServerMethodSchemaDefinition] = Dictionary(uniqueKeysWithValues: notificationPayloads.map { ($0.method, $0) })\n"
+    output += "    public static let serverRequestParamByMethod: [String: CodexAppServerMethodSchemaDefinition] = Dictionary(uniqueKeysWithValues: serverRequestParams.map { ($0.method, $0) })\n"
     output += "    public static let v2SchemaFiles: [String] = [\n"
     for file_name in v2_files:
         output += f"        {json.dumps(file_name)},\n"
     output += "    ]\n"
+    output += "}\n"
+    output += "\npublic extension CodexAppServerNotificationMethod {\n"
+    output += "    var schemaDefinition: CodexAppServerMethodSchemaDefinition? {\n"
+    output += "        CodexAppServerSchemaInventory.notificationPayloadByMethod[rawValue]\n"
+    output += "    }\n"
+    output += "}\n"
+    output += "\npublic extension CodexAppServerClientMethod {\n"
+    output += "    var paramsSchemaDefinition: CodexAppServerMethodSchemaDefinition? {\n"
+    output += "        CodexAppServerSchemaInventory.clientRequestParamByMethod[rawValue]\n"
+    output += "    }\n"
+    output += "}\n"
+    output += "\npublic extension CodexAppServerServerRequestMethod {\n"
+    output += "    var paramsSchemaDefinition: CodexAppServerMethodSchemaDefinition? {\n"
+    output += "        CodexAppServerSchemaInventory.serverRequestParamByMethod[rawValue]\n"
+    output += "    }\n"
     output += "}\n"
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

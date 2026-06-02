@@ -743,6 +743,8 @@ final class CodexClientTerminalTests: XCTestCase {
             if case .unknown = notification.payload { return true }
             return false
         })
+        XCTAssertFalse(notifications.contains { $0.schemaDefinition == nil })
+        XCTAssertTrue(notifications.allSatisfy { $0.schemaValue.rawValue == .dictionary([:]) })
     }
 
     func testHighLevelTurnTextDeltasReplayPendingEvents() async throws {

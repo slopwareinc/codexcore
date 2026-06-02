@@ -8,6 +8,14 @@ public struct CodexNotification: Sendable, Equatable {
     public var knownMethod: CodexAppServerNotificationMethod? {
         CodexAppServerNotificationMethod(rawValue: method)
     }
+
+    public var schemaDefinition: CodexAppServerMethodSchemaDefinition? {
+        knownMethod?.schemaDefinition
+    }
+
+    public var schemaValue: CodexAppServerSchemaValue {
+        CodexAppServerSchemaValue(.dictionary(rawParams))
+    }
 }
 
 public enum CodexNotificationPayload: Sendable, Equatable {

@@ -22,6 +22,12 @@ public struct CodexAppServerSchemaDefinition: Sendable, Equatable {
     public let typeName: String
 }
 
+public struct CodexAppServerMethodSchemaDefinition: Sendable, Equatable {
+    public let method: String
+    public let definitionName: String
+    public let typeName: String
+}
+
 public typealias CodexSchemaAbsolutePathBuf = CodexAppServerSchemaValue
 public typealias CodexSchemaApprovalsReviewer = CodexAppServerSchemaValue
 public typealias CodexSchemaAskForApproval = CodexAppServerSchemaValue
@@ -1048,6 +1054,191 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ClientRequest", typeName: "CodexSchemaClientRequest"),
         CodexAppServerSchemaDefinition(name: "ServerNotification", typeName: "CodexSchemaServerNotification"),
     ]
+    public static let clientRequestParamCount = 99
+    public static let notificationPayloadCount = 64
+    public static let serverRequestParamCount = 10
+    public static let clientRequestParams: [CodexAppServerMethodSchemaDefinition] = [
+        CodexAppServerMethodSchemaDefinition(method: "initialize", definitionName: "InitializeParams", typeName: "CodexSchemaInitializeParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/start", definitionName: "ThreadStartParams", typeName: "CodexSchemaThreadStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/resume", definitionName: "ThreadResumeParams", typeName: "CodexSchemaThreadResumeParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/fork", definitionName: "ThreadForkParams", typeName: "CodexSchemaThreadForkParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/archive", definitionName: "ThreadArchiveParams", typeName: "CodexSchemaThreadArchiveParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/unsubscribe", definitionName: "ThreadUnsubscribeParams", typeName: "CodexSchemaThreadUnsubscribeParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/increment_elicitation", definitionName: "ThreadIncrementElicitationParams", typeName: "CodexSchemaThreadIncrementElicitationParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/decrement_elicitation", definitionName: "ThreadDecrementElicitationParams", typeName: "CodexSchemaThreadDecrementElicitationParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/name/set", definitionName: "ThreadSetNameParams", typeName: "CodexSchemaThreadSetNameParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/goal/set", definitionName: "ThreadGoalSetParams", typeName: "CodexSchemaThreadGoalSetParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/goal/get", definitionName: "ThreadGoalGetParams", typeName: "CodexSchemaThreadGoalGetParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/goal/clear", definitionName: "ThreadGoalClearParams", typeName: "CodexSchemaThreadGoalClearParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/metadata/update", definitionName: "ThreadMetadataUpdateParams", typeName: "CodexSchemaThreadMetadataUpdateParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/settings/update", definitionName: "ThreadSettingsUpdateParams", typeName: "CodexSchemaThreadSettingsUpdateParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/memoryMode/set", definitionName: "ThreadMemoryModeSetParams", typeName: "CodexSchemaThreadMemoryModeSetParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/unarchive", definitionName: "ThreadUnarchiveParams", typeName: "CodexSchemaThreadUnarchiveParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/compact/start", definitionName: "ThreadCompactStartParams", typeName: "CodexSchemaThreadCompactStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/shellCommand", definitionName: "ThreadShellCommandParams", typeName: "CodexSchemaThreadShellCommandParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/approveGuardianDeniedAction", definitionName: "ThreadApproveGuardianDeniedActionParams", typeName: "CodexSchemaThreadApproveGuardianDeniedActionParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/backgroundTerminals/clean", definitionName: "ThreadBackgroundTerminalsCleanParams", typeName: "CodexSchemaThreadBackgroundTerminalsCleanParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/rollback", definitionName: "ThreadRollbackParams", typeName: "CodexSchemaThreadRollbackParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/list", definitionName: "ThreadListParams", typeName: "CodexSchemaThreadListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/search", definitionName: "ThreadSearchParams", typeName: "CodexSchemaThreadSearchParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/loaded/list", definitionName: "ThreadLoadedListParams", typeName: "CodexSchemaThreadLoadedListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/read", definitionName: "ThreadReadParams", typeName: "CodexSchemaThreadReadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/turns/list", definitionName: "ThreadTurnsListParams", typeName: "CodexSchemaThreadTurnsListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/turns/items/list", definitionName: "ThreadTurnsItemsListParams", typeName: "CodexSchemaThreadTurnsItemsListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/inject_items", definitionName: "ThreadInjectItemsParams", typeName: "CodexSchemaThreadInjectItemsParams"),
+        CodexAppServerMethodSchemaDefinition(method: "skills/list", definitionName: "SkillsListParams", typeName: "CodexSchemaSkillsListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "hooks/list", definitionName: "HooksListParams", typeName: "CodexSchemaHooksListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "marketplace/add", definitionName: "MarketplaceAddParams", typeName: "CodexSchemaMarketplaceAddParams"),
+        CodexAppServerMethodSchemaDefinition(method: "marketplace/remove", definitionName: "MarketplaceRemoveParams", typeName: "CodexSchemaMarketplaceRemoveParams"),
+        CodexAppServerMethodSchemaDefinition(method: "marketplace/upgrade", definitionName: "MarketplaceUpgradeParams", typeName: "CodexSchemaMarketplaceUpgradeParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/list", definitionName: "PluginListParams", typeName: "CodexSchemaPluginListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/installed", definitionName: "PluginInstalledParams", typeName: "CodexSchemaPluginInstalledParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/read", definitionName: "PluginReadParams", typeName: "CodexSchemaPluginReadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/skill/read", definitionName: "PluginSkillReadParams", typeName: "CodexSchemaPluginSkillReadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/share/save", definitionName: "PluginShareSaveParams", typeName: "CodexSchemaPluginShareSaveParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/share/updateTargets", definitionName: "PluginShareUpdateTargetsParams", typeName: "CodexSchemaPluginShareUpdateTargetsParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/share/list", definitionName: "PluginShareListParams", typeName: "CodexSchemaPluginShareListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/share/checkout", definitionName: "PluginShareCheckoutParams", typeName: "CodexSchemaPluginShareCheckoutParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/share/delete", definitionName: "PluginShareDeleteParams", typeName: "CodexSchemaPluginShareDeleteParams"),
+        CodexAppServerMethodSchemaDefinition(method: "app/list", definitionName: "AppsListParams", typeName: "CodexSchemaAppsListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/readFile", definitionName: "FsReadFileParams", typeName: "CodexSchemaFsReadFileParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/writeFile", definitionName: "FsWriteFileParams", typeName: "CodexSchemaFsWriteFileParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/createDirectory", definitionName: "FsCreateDirectoryParams", typeName: "CodexSchemaFsCreateDirectoryParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/getMetadata", definitionName: "FsGetMetadataParams", typeName: "CodexSchemaFsGetMetadataParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/readDirectory", definitionName: "FsReadDirectoryParams", typeName: "CodexSchemaFsReadDirectoryParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/remove", definitionName: "FsRemoveParams", typeName: "CodexSchemaFsRemoveParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/copy", definitionName: "FsCopyParams", typeName: "CodexSchemaFsCopyParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/watch", definitionName: "FsWatchParams", typeName: "CodexSchemaFsWatchParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/unwatch", definitionName: "FsUnwatchParams", typeName: "CodexSchemaFsUnwatchParams"),
+        CodexAppServerMethodSchemaDefinition(method: "skills/config/write", definitionName: "SkillsConfigWriteParams", typeName: "CodexSchemaSkillsConfigWriteParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/install", definitionName: "PluginInstallParams", typeName: "CodexSchemaPluginInstallParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/uninstall", definitionName: "PluginUninstallParams", typeName: "CodexSchemaPluginUninstallParams"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/start", definitionName: "TurnStartParams", typeName: "CodexSchemaTurnStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/steer", definitionName: "TurnSteerParams", typeName: "CodexSchemaTurnSteerParams"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/interrupt", definitionName: "TurnInterruptParams", typeName: "CodexSchemaTurnInterruptParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/start", definitionName: "ThreadRealtimeStartParams", typeName: "CodexSchemaThreadRealtimeStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/appendAudio", definitionName: "ThreadRealtimeAppendAudioParams", typeName: "CodexSchemaThreadRealtimeAppendAudioParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/appendText", definitionName: "ThreadRealtimeAppendTextParams", typeName: "CodexSchemaThreadRealtimeAppendTextParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/stop", definitionName: "ThreadRealtimeStopParams", typeName: "CodexSchemaThreadRealtimeStopParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/listVoices", definitionName: "ThreadRealtimeListVoicesParams", typeName: "CodexSchemaThreadRealtimeListVoicesParams"),
+        CodexAppServerMethodSchemaDefinition(method: "review/start", definitionName: "ReviewStartParams", typeName: "CodexSchemaReviewStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "model/list", definitionName: "ModelListParams", typeName: "CodexSchemaModelListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "modelProvider/capabilities/read", definitionName: "ModelProviderCapabilitiesReadParams", typeName: "CodexSchemaModelProviderCapabilitiesReadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "experimentalFeature/list", definitionName: "ExperimentalFeatureListParams", typeName: "CodexSchemaExperimentalFeatureListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "permissionProfile/list", definitionName: "PermissionProfileListParams", typeName: "CodexSchemaPermissionProfileListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "experimentalFeature/enablement/set", definitionName: "ExperimentalFeatureEnablementSetParams", typeName: "CodexSchemaExperimentalFeatureEnablementSetParams"),
+        CodexAppServerMethodSchemaDefinition(method: "collaborationMode/list", definitionName: "CollaborationModeListParams", typeName: "CodexSchemaCollaborationModeListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mock/experimentalMethod", definitionName: "MockExperimentalMethodParams", typeName: "CodexSchemaMockExperimentalMethodParams"),
+        CodexAppServerMethodSchemaDefinition(method: "environment/add", definitionName: "EnvironmentAddParams", typeName: "CodexSchemaEnvironmentAddParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/oauth/login", definitionName: "McpServerOauthLoginParams", typeName: "CodexSchemaMcpServerOauthLoginParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServerStatus/list", definitionName: "ListMcpServerStatusParams", typeName: "CodexSchemaListMcpServerStatusParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/resource/read", definitionName: "McpResourceReadParams", typeName: "CodexSchemaMcpResourceReadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/tool/call", definitionName: "McpServerToolCallParams", typeName: "CodexSchemaMcpServerToolCallParams"),
+        CodexAppServerMethodSchemaDefinition(method: "windowsSandbox/setupStart", definitionName: "WindowsSandboxSetupStartParams", typeName: "CodexSchemaWindowsSandboxSetupStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "account/login/start", definitionName: "LoginAccountParams", typeName: "CodexSchemaLoginAccountParams"),
+        CodexAppServerMethodSchemaDefinition(method: "account/login/cancel", definitionName: "CancelLoginAccountParams", typeName: "CodexSchemaCancelLoginAccountParams"),
+        CodexAppServerMethodSchemaDefinition(method: "account/sendAddCreditsNudgeEmail", definitionName: "SendAddCreditsNudgeEmailParams", typeName: "CodexSchemaSendAddCreditsNudgeEmailParams"),
+        CodexAppServerMethodSchemaDefinition(method: "feedback/upload", definitionName: "FeedbackUploadParams", typeName: "CodexSchemaFeedbackUploadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "command/exec", definitionName: "CommandExecParams", typeName: "CodexSchemaCommandExecParams"),
+        CodexAppServerMethodSchemaDefinition(method: "command/exec/write", definitionName: "CommandExecWriteParams", typeName: "CodexSchemaCommandExecWriteParams"),
+        CodexAppServerMethodSchemaDefinition(method: "command/exec/terminate", definitionName: "CommandExecTerminateParams", typeName: "CodexSchemaCommandExecTerminateParams"),
+        CodexAppServerMethodSchemaDefinition(method: "command/exec/resize", definitionName: "CommandExecResizeParams", typeName: "CodexSchemaCommandExecResizeParams"),
+        CodexAppServerMethodSchemaDefinition(method: "process/spawn", definitionName: "ProcessSpawnParams", typeName: "CodexSchemaProcessSpawnParams"),
+        CodexAppServerMethodSchemaDefinition(method: "process/writeStdin", definitionName: "ProcessWriteStdinParams", typeName: "CodexSchemaProcessWriteStdinParams"),
+        CodexAppServerMethodSchemaDefinition(method: "process/kill", definitionName: "ProcessKillParams", typeName: "CodexSchemaProcessKillParams"),
+        CodexAppServerMethodSchemaDefinition(method: "process/resizePty", definitionName: "ProcessResizePtyParams", typeName: "CodexSchemaProcessResizePtyParams"),
+        CodexAppServerMethodSchemaDefinition(method: "config/read", definitionName: "ConfigReadParams", typeName: "CodexSchemaConfigReadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/detect", definitionName: "ExternalAgentConfigDetectParams", typeName: "CodexSchemaExternalAgentConfigDetectParams"),
+        CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/import", definitionName: "ExternalAgentConfigImportParams", typeName: "CodexSchemaExternalAgentConfigImportParams"),
+        CodexAppServerMethodSchemaDefinition(method: "config/value/write", definitionName: "ConfigValueWriteParams", typeName: "CodexSchemaConfigValueWriteParams"),
+        CodexAppServerMethodSchemaDefinition(method: "config/batchWrite", definitionName: "ConfigBatchWriteParams", typeName: "CodexSchemaConfigBatchWriteParams"),
+        CodexAppServerMethodSchemaDefinition(method: "account/read", definitionName: "GetAccountParams", typeName: "CodexSchemaGetAccountParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fuzzyFileSearch", definitionName: "FuzzyFileSearchParams", typeName: "CodexSchemaFuzzyFileSearchParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fuzzyFileSearch/sessionStart", definitionName: "FuzzyFileSearchSessionStartParams", typeName: "CodexSchemaFuzzyFileSearchSessionStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fuzzyFileSearch/sessionUpdate", definitionName: "FuzzyFileSearchSessionUpdateParams", typeName: "CodexSchemaFuzzyFileSearchSessionUpdateParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fuzzyFileSearch/sessionStop", definitionName: "FuzzyFileSearchSessionStopParams", typeName: "CodexSchemaFuzzyFileSearchSessionStopParams"),
+    ]
+    public static let notificationPayloads: [CodexAppServerMethodSchemaDefinition] = [
+        CodexAppServerMethodSchemaDefinition(method: "error", definitionName: "ErrorNotification", typeName: "CodexSchemaErrorNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/started", definitionName: "ThreadStartedNotification", typeName: "CodexSchemaThreadStartedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/status/changed", definitionName: "ThreadStatusChangedNotification", typeName: "CodexSchemaThreadStatusChangedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/archived", definitionName: "ThreadArchivedNotification", typeName: "CodexSchemaThreadArchivedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/unarchived", definitionName: "ThreadUnarchivedNotification", typeName: "CodexSchemaThreadUnarchivedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/closed", definitionName: "ThreadClosedNotification", typeName: "CodexSchemaThreadClosedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "skills/changed", definitionName: "SkillsChangedNotification", typeName: "CodexSchemaSkillsChangedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/name/updated", definitionName: "ThreadNameUpdatedNotification", typeName: "CodexSchemaThreadNameUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/goal/updated", definitionName: "ThreadGoalUpdatedNotification", typeName: "CodexSchemaThreadGoalUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/goal/cleared", definitionName: "ThreadGoalClearedNotification", typeName: "CodexSchemaThreadGoalClearedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/settings/updated", definitionName: "ThreadSettingsUpdatedNotification", typeName: "CodexSchemaThreadSettingsUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/tokenUsage/updated", definitionName: "ThreadTokenUsageUpdatedNotification", typeName: "CodexSchemaThreadTokenUsageUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/started", definitionName: "TurnStartedNotification", typeName: "CodexSchemaTurnStartedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "hook/started", definitionName: "HookStartedNotification", typeName: "CodexSchemaHookStartedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/completed", definitionName: "TurnCompletedNotification", typeName: "CodexSchemaTurnCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "hook/completed", definitionName: "HookCompletedNotification", typeName: "CodexSchemaHookCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/diff/updated", definitionName: "TurnDiffUpdatedNotification", typeName: "CodexSchemaTurnDiffUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/plan/updated", definitionName: "TurnPlanUpdatedNotification", typeName: "CodexSchemaTurnPlanUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/started", definitionName: "ItemStartedNotification", typeName: "CodexSchemaItemStartedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/autoApprovalReview/started", definitionName: "ItemGuardianApprovalReviewStartedNotification", typeName: "CodexSchemaItemGuardianApprovalReviewStartedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/autoApprovalReview/completed", definitionName: "ItemGuardianApprovalReviewCompletedNotification", typeName: "CodexSchemaItemGuardianApprovalReviewCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/completed", definitionName: "ItemCompletedNotification", typeName: "CodexSchemaItemCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/agentMessage/delta", definitionName: "AgentMessageDeltaNotification", typeName: "CodexSchemaAgentMessageDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/plan/delta", definitionName: "PlanDeltaNotification", typeName: "CodexSchemaPlanDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "command/exec/outputDelta", definitionName: "CommandExecOutputDeltaNotification", typeName: "CodexSchemaCommandExecOutputDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "process/outputDelta", definitionName: "ProcessOutputDeltaNotification", typeName: "CodexSchemaProcessOutputDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "process/exited", definitionName: "ProcessExitedNotification", typeName: "CodexSchemaProcessExitedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/commandExecution/outputDelta", definitionName: "CommandExecutionOutputDeltaNotification", typeName: "CodexSchemaCommandExecutionOutputDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/commandExecution/terminalInteraction", definitionName: "TerminalInteractionNotification", typeName: "CodexSchemaTerminalInteractionNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/fileChange/outputDelta", definitionName: "FileChangeOutputDeltaNotification", typeName: "CodexSchemaFileChangeOutputDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/fileChange/patchUpdated", definitionName: "FileChangePatchUpdatedNotification", typeName: "CodexSchemaFileChangePatchUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "serverRequest/resolved", definitionName: "ServerRequestResolvedNotification", typeName: "CodexSchemaServerRequestResolvedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/mcpToolCall/progress", definitionName: "McpToolCallProgressNotification", typeName: "CodexSchemaMcpToolCallProgressNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/oauthLogin/completed", definitionName: "McpServerOauthLoginCompletedNotification", typeName: "CodexSchemaMcpServerOauthLoginCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/startupStatus/updated", definitionName: "McpServerStatusUpdatedNotification", typeName: "CodexSchemaMcpServerStatusUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "account/updated", definitionName: "AccountUpdatedNotification", typeName: "CodexSchemaAccountUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "account/rateLimits/updated", definitionName: "AccountRateLimitsUpdatedNotification", typeName: "CodexSchemaAccountRateLimitsUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "app/list/updated", definitionName: "AppListUpdatedNotification", typeName: "CodexSchemaAppListUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "remoteControl/status/changed", definitionName: "RemoteControlStatusChangedNotification", typeName: "CodexSchemaRemoteControlStatusChangedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/import/completed", definitionName: "ExternalAgentConfigImportCompletedNotification", typeName: "CodexSchemaExternalAgentConfigImportCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/changed", definitionName: "FsChangedNotification", typeName: "CodexSchemaFsChangedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/reasoning/summaryTextDelta", definitionName: "ReasoningSummaryTextDeltaNotification", typeName: "CodexSchemaReasoningSummaryTextDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/reasoning/summaryPartAdded", definitionName: "ReasoningSummaryPartAddedNotification", typeName: "CodexSchemaReasoningSummaryPartAddedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/reasoning/textDelta", definitionName: "ReasoningTextDeltaNotification", typeName: "CodexSchemaReasoningTextDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/compacted", definitionName: "ContextCompactedNotification", typeName: "CodexSchemaContextCompactedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "model/rerouted", definitionName: "ModelReroutedNotification", typeName: "CodexSchemaModelReroutedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "model/verification", definitionName: "ModelVerificationNotification", typeName: "CodexSchemaModelVerificationNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "warning", definitionName: "WarningNotification", typeName: "CodexSchemaWarningNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "guardianWarning", definitionName: "GuardianWarningNotification", typeName: "CodexSchemaGuardianWarningNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "deprecationNotice", definitionName: "DeprecationNoticeNotification", typeName: "CodexSchemaDeprecationNoticeNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "configWarning", definitionName: "ConfigWarningNotification", typeName: "CodexSchemaConfigWarningNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "fuzzyFileSearch/sessionUpdated", definitionName: "FuzzyFileSearchSessionUpdatedNotification", typeName: "CodexSchemaFuzzyFileSearchSessionUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "fuzzyFileSearch/sessionCompleted", definitionName: "FuzzyFileSearchSessionCompletedNotification", typeName: "CodexSchemaFuzzyFileSearchSessionCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/started", definitionName: "ThreadRealtimeStartedNotification", typeName: "CodexSchemaThreadRealtimeStartedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/itemAdded", definitionName: "ThreadRealtimeItemAddedNotification", typeName: "CodexSchemaThreadRealtimeItemAddedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/transcript/delta", definitionName: "ThreadRealtimeTranscriptDeltaNotification", typeName: "CodexSchemaThreadRealtimeTranscriptDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/transcript/done", definitionName: "ThreadRealtimeTranscriptDoneNotification", typeName: "CodexSchemaThreadRealtimeTranscriptDoneNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/outputAudio/delta", definitionName: "ThreadRealtimeOutputAudioDeltaNotification", typeName: "CodexSchemaThreadRealtimeOutputAudioDeltaNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/sdp", definitionName: "ThreadRealtimeSdpNotification", typeName: "CodexSchemaThreadRealtimeSdpNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/error", definitionName: "ThreadRealtimeErrorNotification", typeName: "CodexSchemaThreadRealtimeErrorNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/realtime/closed", definitionName: "ThreadRealtimeClosedNotification", typeName: "CodexSchemaThreadRealtimeClosedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "windows/worldWritableWarning", definitionName: "WindowsWorldWritableWarningNotification", typeName: "CodexSchemaWindowsWorldWritableWarningNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "windowsSandbox/setupCompleted", definitionName: "WindowsSandboxSetupCompletedNotification", typeName: "CodexSchemaWindowsSandboxSetupCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "account/login/completed", definitionName: "AccountLoginCompletedNotification", typeName: "CodexSchemaAccountLoginCompletedNotification"),
+    ]
+    public static let serverRequestParams: [CodexAppServerMethodSchemaDefinition] = [
+        CodexAppServerMethodSchemaDefinition(method: "item/commandExecution/requestApproval", definitionName: "CommandExecutionRequestApprovalParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "item/fileChange/requestApproval", definitionName: "FileChangeRequestApprovalParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "item/tool/requestUserInput", definitionName: "ToolRequestUserInputParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/elicitation/request", definitionName: "McpServerElicitationRequestParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "item/permissions/requestApproval", definitionName: "PermissionsRequestApprovalParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "item/tool/call", definitionName: "DynamicToolCallParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "account/chatgptAuthTokens/refresh", definitionName: "ChatgptAuthTokensRefreshParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "attestation/generate", definitionName: "AttestationGenerateParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "applyPatchApproval", definitionName: "ApplyPatchApprovalParams", typeName: ""),
+        CodexAppServerMethodSchemaDefinition(method: "execCommandApproval", definitionName: "ExecCommandApprovalParams", typeName: ""),
+    ]
+    public static let clientRequestParamByMethod: [String: CodexAppServerMethodSchemaDefinition] = Dictionary(uniqueKeysWithValues: clientRequestParams.map { ($0.method, $0) })
+    public static let notificationPayloadByMethod: [String: CodexAppServerMethodSchemaDefinition] = Dictionary(uniqueKeysWithValues: notificationPayloads.map { ($0.method, $0) })
+    public static let serverRequestParamByMethod: [String: CodexAppServerMethodSchemaDefinition] = Dictionary(uniqueKeysWithValues: serverRequestParams.map { ($0.method, $0) })
     public static let v2SchemaFiles: [String] = [
         "AccountLoginCompletedNotification.json",
         "AccountRateLimitsUpdatedNotification.json",
@@ -1309,4 +1500,22 @@ public enum CodexAppServerSchemaInventory {
         "WindowsSandboxSetupStartResponse.json",
         "WindowsWorldWritableWarningNotification.json",
     ]
+}
+
+public extension CodexAppServerNotificationMethod {
+    var schemaDefinition: CodexAppServerMethodSchemaDefinition? {
+        CodexAppServerSchemaInventory.notificationPayloadByMethod[rawValue]
+    }
+}
+
+public extension CodexAppServerClientMethod {
+    var paramsSchemaDefinition: CodexAppServerMethodSchemaDefinition? {
+        CodexAppServerSchemaInventory.clientRequestParamByMethod[rawValue]
+    }
+}
+
+public extension CodexAppServerServerRequestMethod {
+    var paramsSchemaDefinition: CodexAppServerMethodSchemaDefinition? {
+        CodexAppServerSchemaInventory.serverRequestParamByMethod[rawValue]
+    }
 }
