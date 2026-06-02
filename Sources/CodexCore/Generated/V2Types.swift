@@ -586,6 +586,10 @@ public struct ThreadItem: Codable, Sendable, Equatable, Identifiable {
 public struct ThreadTokenUsage: Codable, Sendable, Equatable {
     public var raw: [String: CodexJSONValue]
 
+    public init(raw: [String: CodexJSONValue]) {
+        self.raw = raw
+    }
+
     public init(from decoder: Decoder) throws {
         self.raw = try [String: CodexJSONValue](from: decoder)
     }

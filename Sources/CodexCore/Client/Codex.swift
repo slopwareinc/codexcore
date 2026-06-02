@@ -41,6 +41,7 @@ public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
     case turnTimedOut(turnId: String)
     case turnFailed(CodexTurnResult)
     case loginStreamEnded(loginId: String)
+    case turnStreamEnded(turnId: String)
 
     public var description: String {
         switch self {
@@ -56,6 +57,8 @@ public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
             return result.error ?? "Turn \(result.id) failed."
         case .loginStreamEnded(let loginId):
             return "Login \(loginId) completed stream ended before a completion notification."
+        case .turnStreamEnded(let turnId):
+            return "Turn \(turnId) stream ended before a completion notification."
         }
     }
 }
@@ -69,6 +72,7 @@ public struct CodexTurnResult: Sendable, Equatable {
     public let duration: TimeInterval?
     public let finalResponse: String?
     public let items: [CodexTimelineItem]
+    public let usage: ThreadTokenUsage?
 }
 
 public final class Codex: @unchecked Sendable {
@@ -720,7 +724,8 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
             completedAt: snapshot.completedAt,
             duration: duration,
             finalResponse: snapshot.items.finalAssistantResponse,
-            items: snapshot.items
+            items: snapshot.items,
+            usage: snapshot.usage
         )
     }
 }

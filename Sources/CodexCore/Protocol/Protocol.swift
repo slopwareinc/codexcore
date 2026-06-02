@@ -131,7 +131,7 @@ public enum CodexServerEvent: Sendable {
     case reasoningDelta(threadId: String, turnId: String, itemId: String, delta: String)
     case planDelta(threadId: String, turnId: String, itemId: String, delta: String)
     case commandOutputDelta(threadId: String, turnId: String, itemId: String, delta: String)
-    case tokenUsageUpdated(threadId: String, used: Int, limit: Int)
+    case tokenUsageUpdated(threadId: String, turnId: String?, usage: ThreadTokenUsage)
     case serverError(message: String, threadId: String?)
     case unknown(method: String, params: [String: CodexJSONValue])
 }

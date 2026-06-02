@@ -83,6 +83,36 @@ public actor CodexClient {
         try await connection.request(method: method, params: params)
     }
 
+    public func notify(method: String, params: [String: CodexJSONValue] = [:]) async throws {
+        try await connection.notify(method: method, params: params)
+    }
+
+    public func waitForTurnCompleted(turnId: String) async throws -> TurnCompletedNotification {
+        await notificationRouter.registerTurn(turnId)
+        defer { Task { await self.notificationRouter.unregisterTurn(turnId) } }
+
+        for await notification in turnNotifications(turnId: turnId) {
+            if case .turnCompleted(let payload) = notification.payload, payload.turn.id == turnId {
+                return payload
+            }
+        }
+
+        throw CodexSDKError.turnStreamEnded(turnId: turnId)
+    }
+
+    public func waitForLoginCompleted(loginId: String) async throws -> AccountLoginCompletedNotification {
+        await notificationRouter.registerLogin(loginId)
+        defer { Task { await self.notificationRouter.unregisterLogin(loginId) } }
+
+        for await notification in loginNotifications(loginId: loginId) {
+            if case .accountLoginCompleted(let payload) = notification.payload, payload.loginId == loginId {
+                return payload
+            }
+        }
+
+        throw CodexSDKError.loginStreamEnded(loginId: loginId)
+    }
+
     // MARK: - Python SDK typed request APIs
 
     public func accountLoginStart(_ params: LoginAccountParams) async throws -> LoginAccountResponse {
@@ -238,6 +268,41 @@ public actor CodexClient {
             ],
             response: TurnSteerResponse.self
         )
+    }
+
+    public nonisolated func streamText(
+        threadId: String,
+        text: String,
+        params additionalParams: [String: CodexJSONValue] = [:]
+    ) -> AsyncThrowingStream<AgentMessageDeltaNotification, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let turnId = try await self.startTurn(
+                        threadId: threadId,
+                        input: [CodexInput.text(text).jsonValue],
+                        additionalParams: additionalParams
+                    )
+
+                    for await notification in self.turnNotifications(turnId: turnId) {
+                        switch notification.payload {
+                        case .agentMessageDelta(let payload) where payload.turnId == turnId:
+                            continuation.yield(payload)
+                        case .turnCompleted(let payload) where payload.turn.id == turnId:
+                            continuation.finish()
+                            return
+                        default:
+                            break
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     public func modelList(includeHidden: Bool = false) async throws -> ModelListResponse {
@@ -786,7 +851,7 @@ public actor CodexClient {
             return .commandOutputDelta(threadId: threadId, turnId: turnId, itemId: itemId, delta: str("delta"))
 
         case "thread/tokenUsage/updated":
-            return extractTokenUsage(params, threadId: threadId)
+            return extractTokenUsage(params, threadId: threadId, turnId: turnId.isEmpty ? nil : turnId)
 
         case "error":
             return .serverError(message: str("message"), threadId: threadId.isEmpty ? nil : threadId)
@@ -810,15 +875,12 @@ public actor CodexClient {
         return CodexServerItem(id: id, type: type, raw: raw)
     }
 
-    private func extractTokenUsage(_ params: [String: CodexJSONValue], threadId: String) -> CodexServerEvent {
-        if case .int(let used) = params["used"], case .int(let limit) = params["limit"] {
-            return .tokenUsageUpdated(threadId: threadId, used: used, limit: limit)
+    private func extractTokenUsage(_ params: [String: CodexJSONValue], threadId: String, turnId: String?) -> CodexServerEvent {
+        if let tokenUsage = params["tokenUsage"], let usage = try? tokenUsage.decode(ThreadTokenUsage.self) {
+            return .tokenUsageUpdated(threadId: threadId, turnId: turnId, usage: usage)
         }
-        if case .dictionary(let tu) = params["tokenUsage"],
-           case .dictionary(let total) = tu["total"],
-           case .int(let used) = total["inputTokens"] ?? total["outputTokens"] ?? total["totalTokens"],
-           case .int(let limit) = tu["maxTokens"] ?? tu["contextLimit"] ?? .int(128_000) {
-            return .tokenUsageUpdated(threadId: threadId, used: used, limit: limit)
+        if case .int(let used) = params["used"], case .int(let limit) = params["limit"] {
+            return .tokenUsageUpdated(threadId: threadId, turnId: turnId, usage: ThreadTokenUsage(raw: ["used": .int(used), "limit": .int(limit)]))
         }
         return .unknown(method: "thread/tokenUsage/updated", params: params)
     }

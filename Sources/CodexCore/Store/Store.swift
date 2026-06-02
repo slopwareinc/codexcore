@@ -24,14 +24,16 @@ public struct CodexTurnSnapshot: Identifiable, Codable, Sendable, Equatable {
     public var startedAt: Date
     public var completedAt: Date?
     public var items: [CodexTimelineItem]
+    public var usage: ThreadTokenUsage?
 
-    public init(id: String, status: CodexTurnStatus = .running, error: String? = nil, startedAt: Date = Date(), completedAt: Date? = nil, items: [CodexTimelineItem] = []) {
+    public init(id: String, status: CodexTurnStatus = .running, error: String? = nil, startedAt: Date = Date(), completedAt: Date? = nil, items: [CodexTimelineItem] = [], usage: ThreadTokenUsage? = nil) {
         self.id = id
         self.status = status
         self.error = error
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.items = items
+        self.usage = usage
     }
 }
 
@@ -219,7 +221,13 @@ public final class CodexCoreStore {
                 .commandExecution(id: itemId, command: "Running...", output: text, status: "active", timestamp: Date())
             }
 
-        case .tokenUsageUpdated(_, _, _), .serverError(_, _):
+        case .tokenUsageUpdated(let threadId, let turnId, let usage):
+            guard let turnId, var thread = activeThread, thread.id == threadId,
+                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+            thread.turns[idx].usage = usage
+            self.activeThread = thread
+
+        case .serverError(_, _):
             break
 
         case .unknown(let method, let params):

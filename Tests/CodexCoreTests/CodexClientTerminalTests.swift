@@ -326,7 +326,25 @@ final class CodexClientTerminalTests: XCTestCase {
         }
         """
 
+        let tokenUsage = """
+        {
+            "jsonrpc": "2.0",
+            "method": "thread/tokenUsage/updated",
+            "params": {
+                "threadId": "thread-mock",
+                "turnId": "turn-mock",
+                "tokenUsage": {
+                    "total": {
+                        "inputTokens": 7,
+                        "outputTokens": 3
+                    }
+                }
+            }
+        }
+        """
+
         await transport.receiveMessage(itemCompleted)
+        await transport.receiveMessage(tokenUsage)
         await transport.receiveMessage(turnCompleted)
 
         let result = try await runTask.value
@@ -334,6 +352,12 @@ final class CodexClientTerminalTests: XCTestCase {
         XCTAssertEqual(result.status, .completed)
         XCTAssertEqual(result.finalResponse, "hi")
         XCTAssertEqual(result.items.count, 1)
+        if case .dictionary(let total)? = result.usage?.raw["total"] {
+            XCTAssertEqual(total["inputTokens"], .int(7))
+            XCTAssertEqual(total["outputTokens"], .int(3))
+        } else {
+            XCTFail("Expected turn result token usage")
+        }
     }
 
     func testPendingRequestFailsOnTransportError() async throws {
@@ -412,6 +436,112 @@ final class CodexClientTerminalTests: XCTestCase {
 
         await client.disconnect()
         await retryClient.disconnect()
+    }
+
+    func testClientNotificationWaitAndTextStreamConveniences() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        try await client.notify(method: "initialized", params: ["ready": .bool(true)])
+        let notifyPayload = await transport.sentPayloads.last { $0["method"]?.description == "initialized" }
+        XCTAssertEqual(notifyPayload?["id"], nil)
+        if case .dictionary(let params)? = notifyPayload?["params"] {
+            XCTAssertEqual(params["ready"], .bool(true))
+        } else {
+            XCTFail("notify params missing")
+        }
+
+        let turnWait = Task {
+            try await client.waitForTurnCompleted(turnId: "turn-wait")
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-wait",
+                "turn": {
+                    "id": "turn-wait",
+                    "status": { "type": "completed" }
+                }
+            }
+        }
+        """)
+        let completed = try await turnWait.value
+        XCTAssertEqual(completed.turn.id, "turn-wait")
+
+        let loginWait = Task {
+            try await client.waitForLoginCompleted(loginId: "login-wait")
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "account/login/completed",
+            "params": {
+                "loginId": "login-wait",
+                "status": "success"
+            }
+        }
+        """)
+        let login = try await loginWait.value
+        XCTAssertEqual(login.loginId, "login-wait")
+
+        let textStream = client.streamText(
+            threadId: "thread-stream",
+            text: "hello",
+            params: ["model": .string("test-model")]
+        )
+        let deltas = Task { () throws -> [String] in
+            var chunks: [String] = []
+            for try await delta in textStream {
+                chunks.append(delta.delta)
+            }
+            return chunks
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "item/agentMessage/delta",
+            "params": {
+                "threadId": "thread-stream",
+                "turnId": "turn-mock",
+                "itemId": "item-stream",
+                "delta": "chunk"
+            }
+        }
+        """)
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-stream",
+                "turn": {
+                    "id": "turn-mock",
+                    "status": { "type": "completed" }
+                }
+            }
+        }
+        """)
+
+        let streamedDeltas = try await deltas.value
+        XCTAssertEqual(streamedDeltas, ["chunk"])
+        let turnStartPayload = await transport.sentPayloads.last { $0["method"]?.description == "turn/start" }
+        if case .dictionary(let params)? = turnStartPayload?["params"],
+           case .array(let input)? = params["input"] {
+            XCTAssertEqual(params["model"], .string("test-model"))
+            XCTAssertEqual(input, [.dictionary(["type": .string("text"), "text": .string("hello")])])
+        } else {
+            XCTFail("streamText turn/start params missing")
+        }
+
+        await client.disconnect()
     }
 
     func testBufferedCommandExecUsesOfficialMethod() async throws {
