@@ -81,7 +81,7 @@ public actor CodexConnection {
         clientName: String = "CodexCoreSwift",
         clientTitle: String = "Codex Core Swift Native SDK",
         clientVersion: String = "1.0.0",
-        experimentalApi: Bool = true,
+        experimentalAPI: Bool = true,
         onNotification: @escaping @Sendable (JSONRPCNotification) -> Void,
         onServerRequest: @escaping @Sendable (JSONRPCServerRequest) async -> CodexJSONValue
     ) async throws -> InitializeResponse {
@@ -108,7 +108,7 @@ public actor CodexConnection {
                         clientName: clientName,
                         clientTitle: clientTitle,
                         clientVersion: clientVersion,
-                        experimentalApi: experimentalApi
+                        experimentalAPI: experimentalAPI
                     )
                 }
             }
@@ -120,7 +120,7 @@ public actor CodexConnection {
             clientName: clientName,
             clientTitle: clientTitle,
             clientVersion: clientVersion,
-            experimentalApi: experimentalApi
+            experimentalAPI: experimentalAPI
         )
     }
 
@@ -185,7 +185,7 @@ public actor CodexConnection {
         clientName: String,
         clientTitle: String,
         clientVersion: String,
-        experimentalApi: Bool
+        experimentalAPI: Bool
     ) async throws -> InitializeResponse {
         isInitialized = false
 
@@ -197,7 +197,7 @@ public actor CodexConnection {
                 "title": .string(clientTitle)
             ]),
             "capabilities": .dictionary([
-                "experimentalApi": .bool(experimentalApi),
+                "experimentalApi": .bool(experimentalAPI),
                 "requestAttestation": .bool(false)
             ])
         ]

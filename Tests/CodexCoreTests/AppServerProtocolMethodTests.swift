@@ -42,7 +42,7 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.itemCommandExecutionRequestApproval))
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.itemToolRequestUserInput))
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.mcpServerElicitationRequest))
-        XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.accountChatgptAuthTokensRefresh))
+        XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.accountChatGPTAuthTokensRefresh))
     }
 
     func testGeneratedSchemaTypeInventoryMatchesCurrentAppServerSchema() {

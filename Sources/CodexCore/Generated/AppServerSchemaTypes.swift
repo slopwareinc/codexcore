@@ -48,7 +48,7 @@ public typealias CodexSchemaMessagePhase = CodexAppServerSchemaValue
 public typealias CodexSchemaReasoningItemContent = CodexAppServerSchemaValue
 public typealias CodexSchemaReasoningItemReasoningSummary = CodexAppServerSchemaValue
 public typealias CodexSchemaResponseItem = CodexAppServerSchemaValue
-public typealias CodexSchemaResponsesApiWebSearchAction = CodexAppServerSchemaValue
+public typealias CodexSchemaResponsesAPIWebSearchAction = CodexAppServerSchemaValue
 public typealias CodexSchemaThreadResumeParams = CodexAppServerSchemaValue
 public typealias CodexSchemaThreadForkParams = CodexAppServerSchemaValue
 public typealias CodexSchemaThreadArchiveParams = CodexAppServerSchemaValue
@@ -111,15 +111,15 @@ public typealias CodexSchemaPluginShareListParams = CodexAppServerSchemaValue
 public typealias CodexSchemaPluginShareCheckoutParams = CodexAppServerSchemaValue
 public typealias CodexSchemaPluginShareDeleteParams = CodexAppServerSchemaValue
 public typealias CodexSchemaAppsListParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsReadFileParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsWriteFileParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsCreateDirectoryParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsGetMetadataParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsReadDirectoryParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsRemoveParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsCopyParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsWatchParams = CodexAppServerSchemaValue
-public typealias CodexSchemaFsUnwatchParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSReadFileParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSWriteFileParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSCreateDirectoryParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSGetMetadataParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSReadDirectoryParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSRemoveParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSCopyParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSWatchParams = CodexAppServerSchemaValue
+public typealias CodexSchemaFSUnwatchParams = CodexAppServerSchemaValue
 public typealias CodexSchemaSkillsConfigWriteParams = CodexAppServerSchemaValue
 public typealias CodexSchemaPluginInstallParams = CodexAppServerSchemaValue
 public typealias CodexSchemaPluginUninstallParams = CodexAppServerSchemaValue
@@ -151,11 +151,11 @@ public typealias CodexSchemaExperimentalFeatureEnablementSetParams = CodexAppSer
 public typealias CodexSchemaCollaborationModeListParams = CodexAppServerSchemaValue
 public typealias CodexSchemaMockExperimentalMethodParams = CodexAppServerSchemaValue
 public typealias CodexSchemaEnvironmentAddParams = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerOauthLoginParams = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerStatusDetail = CodexAppServerSchemaValue
-public typealias CodexSchemaListMcpServerStatusParams = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpResourceReadParams = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerToolCallParams = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerOAuthLoginParams = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerStatusDetail = CodexAppServerSchemaValue
+public typealias CodexSchemaListMCPServerStatusParams = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPResourceReadParams = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerToolCallParams = CodexAppServerSchemaValue
 public typealias CodexSchemaWindowsSandboxSetupMode = CodexAppServerSchemaValue
 public typealias CodexSchemaWindowsSandboxSetupStartParams = CodexAppServerSchemaValue
 public typealias CodexSchemaLoginAccountParams = CodexAppServerSchemaValue
@@ -172,14 +172,14 @@ public typealias CodexSchemaProcessTerminalSize = CodexAppServerSchemaValue
 public typealias CodexSchemaProcessSpawnParams = CodexAppServerSchemaValue
 public typealias CodexSchemaProcessWriteStdinParams = CodexAppServerSchemaValue
 public typealias CodexSchemaProcessKillParams = CodexAppServerSchemaValue
-public typealias CodexSchemaProcessResizePtyParams = CodexAppServerSchemaValue
+public typealias CodexSchemaProcessResizePTYParams = CodexAppServerSchemaValue
 public typealias CodexSchemaConfigReadParams = CodexAppServerSchemaValue
 public typealias CodexSchemaExternalAgentConfigDetectParams = CodexAppServerSchemaValue
 public typealias CodexSchemaCommandMigration = CodexAppServerSchemaValue
 public typealias CodexSchemaExternalAgentConfigMigrationItem = CodexAppServerSchemaValue
 public typealias CodexSchemaExternalAgentConfigMigrationItemType = CodexAppServerSchemaValue
 public typealias CodexSchemaHookMigration = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerMigration = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerMigration = CodexAppServerSchemaValue
 public typealias CodexSchemaMigrationDetails = CodexAppServerSchemaValue
 public typealias CodexSchemaPluginsMigration = CodexAppServerSchemaValue
 public typealias CodexSchemaSessionMigration = CodexAppServerSchemaValue
@@ -205,9 +205,9 @@ public typealias CodexSchemaDynamicToolCallStatus = CodexAppServerSchemaValue
 public typealias CodexSchemaFileUpdateChange = CodexAppServerSchemaValue
 public typealias CodexSchemaGitInfo = CodexAppServerSchemaValue
 public typealias CodexSchemaHookPromptFragment = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpToolCallError = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpToolCallResult = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpToolCallStatus = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPToolCallError = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPToolCallResult = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPToolCallStatus = CodexAppServerSchemaValue
 public typealias CodexSchemaMemoryCitation = CodexAppServerSchemaValue
 public typealias CodexSchemaMemoryCitationEntry = CodexAppServerSchemaValue
 public typealias CodexSchemaNonSteerableTurnKind = CodexAppServerSchemaValue
@@ -217,7 +217,7 @@ public typealias CodexSchemaSessionSource = CodexAppServerSchemaValue
 public typealias CodexSchemaSubAgentSource = CodexAppServerSchemaValue
 public typealias CodexSchemaThread = CodexAppServerSchemaValue
 public typealias CodexSchemaThreadActiveFlag = CodexAppServerSchemaValue
-public typealias CodexSchemaThreadId = CodexAppServerSchemaValue
+public typealias CodexSchemaThreadID = CodexAppServerSchemaValue
 public typealias CodexSchemaThreadItem = CodexAppServerSchemaValue
 public typealias CodexSchemaThreadStatus = CodexAppServerSchemaValue
 public typealias CodexSchemaTurn = CodexAppServerSchemaValue
@@ -307,16 +307,16 @@ public typealias CodexSchemaAppMetadata = CodexAppServerSchemaValue
 public typealias CodexSchemaAppReview = CodexAppServerSchemaValue
 public typealias CodexSchemaAppScreenshot = CodexAppServerSchemaValue
 public typealias CodexSchemaAppsListResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsReadFileResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsWriteFileResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsCreateDirectoryResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsGetMetadataResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsReadDirectoryEntry = CodexAppServerSchemaValue
-public typealias CodexSchemaFsReadDirectoryResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsRemoveResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsCopyResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsWatchResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaFsUnwatchResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSReadFileResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSWriteFileResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSCreateDirectoryResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSGetMetadataResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSReadDirectoryEntry = CodexAppServerSchemaValue
+public typealias CodexSchemaFSReadDirectoryResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSRemoveResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSCopyResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSWatchResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaFSUnwatchResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaSkillsConfigWriteResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaPluginInstallResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaPluginUninstallResponse = CodexAppServerSchemaValue
@@ -352,17 +352,17 @@ public typealias CodexSchemaCollaborationModeMask = CodexAppServerSchemaValue
 public typealias CodexSchemaCollaborationModeListResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaMockExperimentalMethodResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaEnvironmentAddResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerOauthLoginResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerRefreshResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpAuthStatus = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerStatus = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerOAuthLoginResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerRefreshResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPAuthStatus = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerStatus = CodexAppServerSchemaValue
 public typealias CodexSchemaResource = CodexAppServerSchemaValue
 public typealias CodexSchemaResourceTemplate = CodexAppServerSchemaValue
 public typealias CodexSchemaTool = CodexAppServerSchemaValue
-public typealias CodexSchemaListMcpServerStatusResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaListMCPServerStatusResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaResourceContent = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpResourceReadResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerToolCallResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPResourceReadResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerToolCallResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaWindowsSandboxSetupStartResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaWindowsSandboxReadiness = CodexAppServerSchemaValue
 public typealias CodexSchemaWindowsSandboxReadinessResponse = CodexAppServerSchemaValue
@@ -386,7 +386,7 @@ public typealias CodexSchemaCommandExecResizeResponse = CodexAppServerSchemaValu
 public typealias CodexSchemaProcessSpawnResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaProcessWriteStdinResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaProcessKillResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaProcessResizePtyResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaProcessResizePTYResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaAnalyticsConfig = CodexAppServerSchemaValue
 public typealias CodexSchemaAppConfig = CodexAppServerSchemaValue
 public typealias CodexSchemaAppToolApproval = CodexAppServerSchemaValue
@@ -399,7 +399,7 @@ public typealias CodexSchemaConfig = CodexAppServerSchemaValue
 public typealias CodexSchemaConfigLayer = CodexAppServerSchemaValue
 public typealias CodexSchemaConfigLayerMetadata = CodexAppServerSchemaValue
 public typealias CodexSchemaConfigLayerSource = CodexAppServerSchemaValue
-public typealias CodexSchemaForcedChatgptWorkspaceIds = CodexAppServerSchemaValue
+public typealias CodexSchemaForcedChatGPTWorkspaceIDs = CodexAppServerSchemaValue
 public typealias CodexSchemaForcedLoginMethod = CodexAppServerSchemaValue
 public typealias CodexSchemaSandboxWorkspaceWrite = CodexAppServerSchemaValue
 public typealias CodexSchemaToolsV2 = CodexAppServerSchemaValue
@@ -486,19 +486,19 @@ public typealias CodexSchemaCommandExecutionOutputDeltaNotification = CodexAppSe
 public typealias CodexSchemaTerminalInteractionNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaFileChangeOutputDeltaNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaFileChangePatchUpdatedNotification = CodexAppServerSchemaValue
-public typealias CodexSchemaRequestId = CodexAppServerSchemaValue
+public typealias CodexSchemaRequestID = CodexAppServerSchemaValue
 public typealias CodexSchemaServerRequestResolvedNotification = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpToolCallProgressNotification = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerOauthLoginCompletedNotification = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerStartupState = CodexAppServerSchemaValue
-public typealias CodexSchemaMcpServerStatusUpdatedNotification = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPToolCallProgressNotification = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerOAuthLoginCompletedNotification = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerStartupState = CodexAppServerSchemaValue
+public typealias CodexSchemaMCPServerStatusUpdatedNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaAuthMode = CodexAppServerSchemaValue
 public typealias CodexSchemaAccountUpdatedNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaAccountRateLimitsUpdatedNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaAppListUpdatedNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaRemoteControlStatusChangedNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaExternalAgentConfigImportCompletedNotification = CodexAppServerSchemaValue
-public typealias CodexSchemaFsChangedNotification = CodexAppServerSchemaValue
+public typealias CodexSchemaFSChangedNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaReasoningSummaryTextDeltaNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaReasoningSummaryPartAddedNotification = CodexAppServerSchemaValue
 public typealias CodexSchemaReasoningTextDeltaNotification = CodexAppServerSchemaValue
@@ -563,7 +563,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ReasoningItemContent", typeName: "CodexSchemaReasoningItemContent"),
         CodexAppServerSchemaDefinition(name: "ReasoningItemReasoningSummary", typeName: "CodexSchemaReasoningItemReasoningSummary"),
         CodexAppServerSchemaDefinition(name: "ResponseItem", typeName: "CodexSchemaResponseItem"),
-        CodexAppServerSchemaDefinition(name: "ResponsesApiWebSearchAction", typeName: "CodexSchemaResponsesApiWebSearchAction"),
+        CodexAppServerSchemaDefinition(name: "ResponsesApiWebSearchAction", typeName: "CodexSchemaResponsesAPIWebSearchAction"),
         CodexAppServerSchemaDefinition(name: "ThreadResumeParams", typeName: "CodexSchemaThreadResumeParams"),
         CodexAppServerSchemaDefinition(name: "ThreadForkParams", typeName: "CodexSchemaThreadForkParams"),
         CodexAppServerSchemaDefinition(name: "ThreadArchiveParams", typeName: "CodexSchemaThreadArchiveParams"),
@@ -626,15 +626,15 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "PluginShareCheckoutParams", typeName: "CodexSchemaPluginShareCheckoutParams"),
         CodexAppServerSchemaDefinition(name: "PluginShareDeleteParams", typeName: "CodexSchemaPluginShareDeleteParams"),
         CodexAppServerSchemaDefinition(name: "AppsListParams", typeName: "CodexSchemaAppsListParams"),
-        CodexAppServerSchemaDefinition(name: "FsReadFileParams", typeName: "CodexSchemaFsReadFileParams"),
-        CodexAppServerSchemaDefinition(name: "FsWriteFileParams", typeName: "CodexSchemaFsWriteFileParams"),
-        CodexAppServerSchemaDefinition(name: "FsCreateDirectoryParams", typeName: "CodexSchemaFsCreateDirectoryParams"),
-        CodexAppServerSchemaDefinition(name: "FsGetMetadataParams", typeName: "CodexSchemaFsGetMetadataParams"),
-        CodexAppServerSchemaDefinition(name: "FsReadDirectoryParams", typeName: "CodexSchemaFsReadDirectoryParams"),
-        CodexAppServerSchemaDefinition(name: "FsRemoveParams", typeName: "CodexSchemaFsRemoveParams"),
-        CodexAppServerSchemaDefinition(name: "FsCopyParams", typeName: "CodexSchemaFsCopyParams"),
-        CodexAppServerSchemaDefinition(name: "FsWatchParams", typeName: "CodexSchemaFsWatchParams"),
-        CodexAppServerSchemaDefinition(name: "FsUnwatchParams", typeName: "CodexSchemaFsUnwatchParams"),
+        CodexAppServerSchemaDefinition(name: "FsReadFileParams", typeName: "CodexSchemaFSReadFileParams"),
+        CodexAppServerSchemaDefinition(name: "FsWriteFileParams", typeName: "CodexSchemaFSWriteFileParams"),
+        CodexAppServerSchemaDefinition(name: "FsCreateDirectoryParams", typeName: "CodexSchemaFSCreateDirectoryParams"),
+        CodexAppServerSchemaDefinition(name: "FsGetMetadataParams", typeName: "CodexSchemaFSGetMetadataParams"),
+        CodexAppServerSchemaDefinition(name: "FsReadDirectoryParams", typeName: "CodexSchemaFSReadDirectoryParams"),
+        CodexAppServerSchemaDefinition(name: "FsRemoveParams", typeName: "CodexSchemaFSRemoveParams"),
+        CodexAppServerSchemaDefinition(name: "FsCopyParams", typeName: "CodexSchemaFSCopyParams"),
+        CodexAppServerSchemaDefinition(name: "FsWatchParams", typeName: "CodexSchemaFSWatchParams"),
+        CodexAppServerSchemaDefinition(name: "FsUnwatchParams", typeName: "CodexSchemaFSUnwatchParams"),
         CodexAppServerSchemaDefinition(name: "SkillsConfigWriteParams", typeName: "CodexSchemaSkillsConfigWriteParams"),
         CodexAppServerSchemaDefinition(name: "PluginInstallParams", typeName: "CodexSchemaPluginInstallParams"),
         CodexAppServerSchemaDefinition(name: "PluginUninstallParams", typeName: "CodexSchemaPluginUninstallParams"),
@@ -666,11 +666,11 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "CollaborationModeListParams", typeName: "CodexSchemaCollaborationModeListParams"),
         CodexAppServerSchemaDefinition(name: "MockExperimentalMethodParams", typeName: "CodexSchemaMockExperimentalMethodParams"),
         CodexAppServerSchemaDefinition(name: "EnvironmentAddParams", typeName: "CodexSchemaEnvironmentAddParams"),
-        CodexAppServerSchemaDefinition(name: "McpServerOauthLoginParams", typeName: "CodexSchemaMcpServerOauthLoginParams"),
-        CodexAppServerSchemaDefinition(name: "McpServerStatusDetail", typeName: "CodexSchemaMcpServerStatusDetail"),
-        CodexAppServerSchemaDefinition(name: "ListMcpServerStatusParams", typeName: "CodexSchemaListMcpServerStatusParams"),
-        CodexAppServerSchemaDefinition(name: "McpResourceReadParams", typeName: "CodexSchemaMcpResourceReadParams"),
-        CodexAppServerSchemaDefinition(name: "McpServerToolCallParams", typeName: "CodexSchemaMcpServerToolCallParams"),
+        CodexAppServerSchemaDefinition(name: "McpServerOauthLoginParams", typeName: "CodexSchemaMCPServerOAuthLoginParams"),
+        CodexAppServerSchemaDefinition(name: "McpServerStatusDetail", typeName: "CodexSchemaMCPServerStatusDetail"),
+        CodexAppServerSchemaDefinition(name: "ListMcpServerStatusParams", typeName: "CodexSchemaListMCPServerStatusParams"),
+        CodexAppServerSchemaDefinition(name: "McpResourceReadParams", typeName: "CodexSchemaMCPResourceReadParams"),
+        CodexAppServerSchemaDefinition(name: "McpServerToolCallParams", typeName: "CodexSchemaMCPServerToolCallParams"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxSetupMode", typeName: "CodexSchemaWindowsSandboxSetupMode"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxSetupStartParams", typeName: "CodexSchemaWindowsSandboxSetupStartParams"),
         CodexAppServerSchemaDefinition(name: "LoginAccountParams", typeName: "CodexSchemaLoginAccountParams"),
@@ -687,14 +687,14 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ProcessSpawnParams", typeName: "CodexSchemaProcessSpawnParams"),
         CodexAppServerSchemaDefinition(name: "ProcessWriteStdinParams", typeName: "CodexSchemaProcessWriteStdinParams"),
         CodexAppServerSchemaDefinition(name: "ProcessKillParams", typeName: "CodexSchemaProcessKillParams"),
-        CodexAppServerSchemaDefinition(name: "ProcessResizePtyParams", typeName: "CodexSchemaProcessResizePtyParams"),
+        CodexAppServerSchemaDefinition(name: "ProcessResizePtyParams", typeName: "CodexSchemaProcessResizePTYParams"),
         CodexAppServerSchemaDefinition(name: "ConfigReadParams", typeName: "CodexSchemaConfigReadParams"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigDetectParams", typeName: "CodexSchemaExternalAgentConfigDetectParams"),
         CodexAppServerSchemaDefinition(name: "CommandMigration", typeName: "CodexSchemaCommandMigration"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigMigrationItem", typeName: "CodexSchemaExternalAgentConfigMigrationItem"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigMigrationItemType", typeName: "CodexSchemaExternalAgentConfigMigrationItemType"),
         CodexAppServerSchemaDefinition(name: "HookMigration", typeName: "CodexSchemaHookMigration"),
-        CodexAppServerSchemaDefinition(name: "McpServerMigration", typeName: "CodexSchemaMcpServerMigration"),
+        CodexAppServerSchemaDefinition(name: "McpServerMigration", typeName: "CodexSchemaMCPServerMigration"),
         CodexAppServerSchemaDefinition(name: "MigrationDetails", typeName: "CodexSchemaMigrationDetails"),
         CodexAppServerSchemaDefinition(name: "PluginsMigration", typeName: "CodexSchemaPluginsMigration"),
         CodexAppServerSchemaDefinition(name: "SessionMigration", typeName: "CodexSchemaSessionMigration"),
@@ -720,9 +720,9 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "FileUpdateChange", typeName: "CodexSchemaFileUpdateChange"),
         CodexAppServerSchemaDefinition(name: "GitInfo", typeName: "CodexSchemaGitInfo"),
         CodexAppServerSchemaDefinition(name: "HookPromptFragment", typeName: "CodexSchemaHookPromptFragment"),
-        CodexAppServerSchemaDefinition(name: "McpToolCallError", typeName: "CodexSchemaMcpToolCallError"),
-        CodexAppServerSchemaDefinition(name: "McpToolCallResult", typeName: "CodexSchemaMcpToolCallResult"),
-        CodexAppServerSchemaDefinition(name: "McpToolCallStatus", typeName: "CodexSchemaMcpToolCallStatus"),
+        CodexAppServerSchemaDefinition(name: "McpToolCallError", typeName: "CodexSchemaMCPToolCallError"),
+        CodexAppServerSchemaDefinition(name: "McpToolCallResult", typeName: "CodexSchemaMCPToolCallResult"),
+        CodexAppServerSchemaDefinition(name: "McpToolCallStatus", typeName: "CodexSchemaMCPToolCallStatus"),
         CodexAppServerSchemaDefinition(name: "MemoryCitation", typeName: "CodexSchemaMemoryCitation"),
         CodexAppServerSchemaDefinition(name: "MemoryCitationEntry", typeName: "CodexSchemaMemoryCitationEntry"),
         CodexAppServerSchemaDefinition(name: "NonSteerableTurnKind", typeName: "CodexSchemaNonSteerableTurnKind"),
@@ -732,7 +732,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "SubAgentSource", typeName: "CodexSchemaSubAgentSource"),
         CodexAppServerSchemaDefinition(name: "Thread", typeName: "CodexSchemaThread"),
         CodexAppServerSchemaDefinition(name: "ThreadActiveFlag", typeName: "CodexSchemaThreadActiveFlag"),
-        CodexAppServerSchemaDefinition(name: "ThreadId", typeName: "CodexSchemaThreadId"),
+        CodexAppServerSchemaDefinition(name: "ThreadId", typeName: "CodexSchemaThreadID"),
         CodexAppServerSchemaDefinition(name: "ThreadItem", typeName: "CodexSchemaThreadItem"),
         CodexAppServerSchemaDefinition(name: "ThreadStatus", typeName: "CodexSchemaThreadStatus"),
         CodexAppServerSchemaDefinition(name: "Turn", typeName: "CodexSchemaTurn"),
@@ -822,16 +822,16 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "AppReview", typeName: "CodexSchemaAppReview"),
         CodexAppServerSchemaDefinition(name: "AppScreenshot", typeName: "CodexSchemaAppScreenshot"),
         CodexAppServerSchemaDefinition(name: "AppsListResponse", typeName: "CodexSchemaAppsListResponse"),
-        CodexAppServerSchemaDefinition(name: "FsReadFileResponse", typeName: "CodexSchemaFsReadFileResponse"),
-        CodexAppServerSchemaDefinition(name: "FsWriteFileResponse", typeName: "CodexSchemaFsWriteFileResponse"),
-        CodexAppServerSchemaDefinition(name: "FsCreateDirectoryResponse", typeName: "CodexSchemaFsCreateDirectoryResponse"),
-        CodexAppServerSchemaDefinition(name: "FsGetMetadataResponse", typeName: "CodexSchemaFsGetMetadataResponse"),
-        CodexAppServerSchemaDefinition(name: "FsReadDirectoryEntry", typeName: "CodexSchemaFsReadDirectoryEntry"),
-        CodexAppServerSchemaDefinition(name: "FsReadDirectoryResponse", typeName: "CodexSchemaFsReadDirectoryResponse"),
-        CodexAppServerSchemaDefinition(name: "FsRemoveResponse", typeName: "CodexSchemaFsRemoveResponse"),
-        CodexAppServerSchemaDefinition(name: "FsCopyResponse", typeName: "CodexSchemaFsCopyResponse"),
-        CodexAppServerSchemaDefinition(name: "FsWatchResponse", typeName: "CodexSchemaFsWatchResponse"),
-        CodexAppServerSchemaDefinition(name: "FsUnwatchResponse", typeName: "CodexSchemaFsUnwatchResponse"),
+        CodexAppServerSchemaDefinition(name: "FsReadFileResponse", typeName: "CodexSchemaFSReadFileResponse"),
+        CodexAppServerSchemaDefinition(name: "FsWriteFileResponse", typeName: "CodexSchemaFSWriteFileResponse"),
+        CodexAppServerSchemaDefinition(name: "FsCreateDirectoryResponse", typeName: "CodexSchemaFSCreateDirectoryResponse"),
+        CodexAppServerSchemaDefinition(name: "FsGetMetadataResponse", typeName: "CodexSchemaFSGetMetadataResponse"),
+        CodexAppServerSchemaDefinition(name: "FsReadDirectoryEntry", typeName: "CodexSchemaFSReadDirectoryEntry"),
+        CodexAppServerSchemaDefinition(name: "FsReadDirectoryResponse", typeName: "CodexSchemaFSReadDirectoryResponse"),
+        CodexAppServerSchemaDefinition(name: "FsRemoveResponse", typeName: "CodexSchemaFSRemoveResponse"),
+        CodexAppServerSchemaDefinition(name: "FsCopyResponse", typeName: "CodexSchemaFSCopyResponse"),
+        CodexAppServerSchemaDefinition(name: "FsWatchResponse", typeName: "CodexSchemaFSWatchResponse"),
+        CodexAppServerSchemaDefinition(name: "FsUnwatchResponse", typeName: "CodexSchemaFSUnwatchResponse"),
         CodexAppServerSchemaDefinition(name: "SkillsConfigWriteResponse", typeName: "CodexSchemaSkillsConfigWriteResponse"),
         CodexAppServerSchemaDefinition(name: "PluginInstallResponse", typeName: "CodexSchemaPluginInstallResponse"),
         CodexAppServerSchemaDefinition(name: "PluginUninstallResponse", typeName: "CodexSchemaPluginUninstallResponse"),
@@ -867,17 +867,17 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "CollaborationModeListResponse", typeName: "CodexSchemaCollaborationModeListResponse"),
         CodexAppServerSchemaDefinition(name: "MockExperimentalMethodResponse", typeName: "CodexSchemaMockExperimentalMethodResponse"),
         CodexAppServerSchemaDefinition(name: "EnvironmentAddResponse", typeName: "CodexSchemaEnvironmentAddResponse"),
-        CodexAppServerSchemaDefinition(name: "McpServerOauthLoginResponse", typeName: "CodexSchemaMcpServerOauthLoginResponse"),
-        CodexAppServerSchemaDefinition(name: "McpServerRefreshResponse", typeName: "CodexSchemaMcpServerRefreshResponse"),
-        CodexAppServerSchemaDefinition(name: "McpAuthStatus", typeName: "CodexSchemaMcpAuthStatus"),
-        CodexAppServerSchemaDefinition(name: "McpServerStatus", typeName: "CodexSchemaMcpServerStatus"),
+        CodexAppServerSchemaDefinition(name: "McpServerOauthLoginResponse", typeName: "CodexSchemaMCPServerOAuthLoginResponse"),
+        CodexAppServerSchemaDefinition(name: "McpServerRefreshResponse", typeName: "CodexSchemaMCPServerRefreshResponse"),
+        CodexAppServerSchemaDefinition(name: "McpAuthStatus", typeName: "CodexSchemaMCPAuthStatus"),
+        CodexAppServerSchemaDefinition(name: "McpServerStatus", typeName: "CodexSchemaMCPServerStatus"),
         CodexAppServerSchemaDefinition(name: "Resource", typeName: "CodexSchemaResource"),
         CodexAppServerSchemaDefinition(name: "ResourceTemplate", typeName: "CodexSchemaResourceTemplate"),
         CodexAppServerSchemaDefinition(name: "Tool", typeName: "CodexSchemaTool"),
-        CodexAppServerSchemaDefinition(name: "ListMcpServerStatusResponse", typeName: "CodexSchemaListMcpServerStatusResponse"),
+        CodexAppServerSchemaDefinition(name: "ListMcpServerStatusResponse", typeName: "CodexSchemaListMCPServerStatusResponse"),
         CodexAppServerSchemaDefinition(name: "ResourceContent", typeName: "CodexSchemaResourceContent"),
-        CodexAppServerSchemaDefinition(name: "McpResourceReadResponse", typeName: "CodexSchemaMcpResourceReadResponse"),
-        CodexAppServerSchemaDefinition(name: "McpServerToolCallResponse", typeName: "CodexSchemaMcpServerToolCallResponse"),
+        CodexAppServerSchemaDefinition(name: "McpResourceReadResponse", typeName: "CodexSchemaMCPResourceReadResponse"),
+        CodexAppServerSchemaDefinition(name: "McpServerToolCallResponse", typeName: "CodexSchemaMCPServerToolCallResponse"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxSetupStartResponse", typeName: "CodexSchemaWindowsSandboxSetupStartResponse"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxReadiness", typeName: "CodexSchemaWindowsSandboxReadiness"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxReadinessResponse", typeName: "CodexSchemaWindowsSandboxReadinessResponse"),
@@ -901,7 +901,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ProcessSpawnResponse", typeName: "CodexSchemaProcessSpawnResponse"),
         CodexAppServerSchemaDefinition(name: "ProcessWriteStdinResponse", typeName: "CodexSchemaProcessWriteStdinResponse"),
         CodexAppServerSchemaDefinition(name: "ProcessKillResponse", typeName: "CodexSchemaProcessKillResponse"),
-        CodexAppServerSchemaDefinition(name: "ProcessResizePtyResponse", typeName: "CodexSchemaProcessResizePtyResponse"),
+        CodexAppServerSchemaDefinition(name: "ProcessResizePtyResponse", typeName: "CodexSchemaProcessResizePTYResponse"),
         CodexAppServerSchemaDefinition(name: "AnalyticsConfig", typeName: "CodexSchemaAnalyticsConfig"),
         CodexAppServerSchemaDefinition(name: "AppConfig", typeName: "CodexSchemaAppConfig"),
         CodexAppServerSchemaDefinition(name: "AppToolApproval", typeName: "CodexSchemaAppToolApproval"),
@@ -914,7 +914,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ConfigLayer", typeName: "CodexSchemaConfigLayer"),
         CodexAppServerSchemaDefinition(name: "ConfigLayerMetadata", typeName: "CodexSchemaConfigLayerMetadata"),
         CodexAppServerSchemaDefinition(name: "ConfigLayerSource", typeName: "CodexSchemaConfigLayerSource"),
-        CodexAppServerSchemaDefinition(name: "ForcedChatgptWorkspaceIds", typeName: "CodexSchemaForcedChatgptWorkspaceIds"),
+        CodexAppServerSchemaDefinition(name: "ForcedChatgptWorkspaceIds", typeName: "CodexSchemaForcedChatGPTWorkspaceIDs"),
         CodexAppServerSchemaDefinition(name: "ForcedLoginMethod", typeName: "CodexSchemaForcedLoginMethod"),
         CodexAppServerSchemaDefinition(name: "SandboxWorkspaceWrite", typeName: "CodexSchemaSandboxWorkspaceWrite"),
         CodexAppServerSchemaDefinition(name: "ToolsV2", typeName: "CodexSchemaToolsV2"),
@@ -1001,19 +1001,19 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "TerminalInteractionNotification", typeName: "CodexSchemaTerminalInteractionNotification"),
         CodexAppServerSchemaDefinition(name: "FileChangeOutputDeltaNotification", typeName: "CodexSchemaFileChangeOutputDeltaNotification"),
         CodexAppServerSchemaDefinition(name: "FileChangePatchUpdatedNotification", typeName: "CodexSchemaFileChangePatchUpdatedNotification"),
-        CodexAppServerSchemaDefinition(name: "RequestId", typeName: "CodexSchemaRequestId"),
+        CodexAppServerSchemaDefinition(name: "RequestId", typeName: "CodexSchemaRequestID"),
         CodexAppServerSchemaDefinition(name: "ServerRequestResolvedNotification", typeName: "CodexSchemaServerRequestResolvedNotification"),
-        CodexAppServerSchemaDefinition(name: "McpToolCallProgressNotification", typeName: "CodexSchemaMcpToolCallProgressNotification"),
-        CodexAppServerSchemaDefinition(name: "McpServerOauthLoginCompletedNotification", typeName: "CodexSchemaMcpServerOauthLoginCompletedNotification"),
-        CodexAppServerSchemaDefinition(name: "McpServerStartupState", typeName: "CodexSchemaMcpServerStartupState"),
-        CodexAppServerSchemaDefinition(name: "McpServerStatusUpdatedNotification", typeName: "CodexSchemaMcpServerStatusUpdatedNotification"),
+        CodexAppServerSchemaDefinition(name: "McpToolCallProgressNotification", typeName: "CodexSchemaMCPToolCallProgressNotification"),
+        CodexAppServerSchemaDefinition(name: "McpServerOauthLoginCompletedNotification", typeName: "CodexSchemaMCPServerOAuthLoginCompletedNotification"),
+        CodexAppServerSchemaDefinition(name: "McpServerStartupState", typeName: "CodexSchemaMCPServerStartupState"),
+        CodexAppServerSchemaDefinition(name: "McpServerStatusUpdatedNotification", typeName: "CodexSchemaMCPServerStatusUpdatedNotification"),
         CodexAppServerSchemaDefinition(name: "AuthMode", typeName: "CodexSchemaAuthMode"),
         CodexAppServerSchemaDefinition(name: "AccountUpdatedNotification", typeName: "CodexSchemaAccountUpdatedNotification"),
         CodexAppServerSchemaDefinition(name: "AccountRateLimitsUpdatedNotification", typeName: "CodexSchemaAccountRateLimitsUpdatedNotification"),
         CodexAppServerSchemaDefinition(name: "AppListUpdatedNotification", typeName: "CodexSchemaAppListUpdatedNotification"),
         CodexAppServerSchemaDefinition(name: "RemoteControlStatusChangedNotification", typeName: "CodexSchemaRemoteControlStatusChangedNotification"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportCompletedNotification", typeName: "CodexSchemaExternalAgentConfigImportCompletedNotification"),
-        CodexAppServerSchemaDefinition(name: "FsChangedNotification", typeName: "CodexSchemaFsChangedNotification"),
+        CodexAppServerSchemaDefinition(name: "FsChangedNotification", typeName: "CodexSchemaFSChangedNotification"),
         CodexAppServerSchemaDefinition(name: "ReasoningSummaryTextDeltaNotification", typeName: "CodexSchemaReasoningSummaryTextDeltaNotification"),
         CodexAppServerSchemaDefinition(name: "ReasoningSummaryPartAddedNotification", typeName: "CodexSchemaReasoningSummaryPartAddedNotification"),
         CodexAppServerSchemaDefinition(name: "ReasoningTextDeltaNotification", typeName: "CodexSchemaReasoningTextDeltaNotification"),
@@ -1101,15 +1101,15 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "plugin/share/checkout", definitionName: "PluginShareCheckoutParams", typeName: "CodexSchemaPluginShareCheckoutParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/share/delete", definitionName: "PluginShareDeleteParams", typeName: "CodexSchemaPluginShareDeleteParams"),
         CodexAppServerMethodSchemaDefinition(method: "app/list", definitionName: "AppsListParams", typeName: "CodexSchemaAppsListParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/readFile", definitionName: "FsReadFileParams", typeName: "CodexSchemaFsReadFileParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/writeFile", definitionName: "FsWriteFileParams", typeName: "CodexSchemaFsWriteFileParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/createDirectory", definitionName: "FsCreateDirectoryParams", typeName: "CodexSchemaFsCreateDirectoryParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/getMetadata", definitionName: "FsGetMetadataParams", typeName: "CodexSchemaFsGetMetadataParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/readDirectory", definitionName: "FsReadDirectoryParams", typeName: "CodexSchemaFsReadDirectoryParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/remove", definitionName: "FsRemoveParams", typeName: "CodexSchemaFsRemoveParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/copy", definitionName: "FsCopyParams", typeName: "CodexSchemaFsCopyParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/watch", definitionName: "FsWatchParams", typeName: "CodexSchemaFsWatchParams"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/unwatch", definitionName: "FsUnwatchParams", typeName: "CodexSchemaFsUnwatchParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/readFile", definitionName: "FsReadFileParams", typeName: "CodexSchemaFSReadFileParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/writeFile", definitionName: "FsWriteFileParams", typeName: "CodexSchemaFSWriteFileParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/createDirectory", definitionName: "FsCreateDirectoryParams", typeName: "CodexSchemaFSCreateDirectoryParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/getMetadata", definitionName: "FsGetMetadataParams", typeName: "CodexSchemaFSGetMetadataParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/readDirectory", definitionName: "FsReadDirectoryParams", typeName: "CodexSchemaFSReadDirectoryParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/remove", definitionName: "FsRemoveParams", typeName: "CodexSchemaFSRemoveParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/copy", definitionName: "FsCopyParams", typeName: "CodexSchemaFSCopyParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/watch", definitionName: "FsWatchParams", typeName: "CodexSchemaFSWatchParams"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/unwatch", definitionName: "FsUnwatchParams", typeName: "CodexSchemaFSUnwatchParams"),
         CodexAppServerMethodSchemaDefinition(method: "skills/config/write", definitionName: "SkillsConfigWriteParams", typeName: "CodexSchemaSkillsConfigWriteParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/install", definitionName: "PluginInstallParams", typeName: "CodexSchemaPluginInstallParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/uninstall", definitionName: "PluginUninstallParams", typeName: "CodexSchemaPluginUninstallParams"),
@@ -1130,10 +1130,10 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "collaborationMode/list", definitionName: "CollaborationModeListParams", typeName: "CodexSchemaCollaborationModeListParams"),
         CodexAppServerMethodSchemaDefinition(method: "mock/experimentalMethod", definitionName: "MockExperimentalMethodParams", typeName: "CodexSchemaMockExperimentalMethodParams"),
         CodexAppServerMethodSchemaDefinition(method: "environment/add", definitionName: "EnvironmentAddParams", typeName: "CodexSchemaEnvironmentAddParams"),
-        CodexAppServerMethodSchemaDefinition(method: "mcpServer/oauth/login", definitionName: "McpServerOauthLoginParams", typeName: "CodexSchemaMcpServerOauthLoginParams"),
-        CodexAppServerMethodSchemaDefinition(method: "mcpServerStatus/list", definitionName: "ListMcpServerStatusParams", typeName: "CodexSchemaListMcpServerStatusParams"),
-        CodexAppServerMethodSchemaDefinition(method: "mcpServer/resource/read", definitionName: "McpResourceReadParams", typeName: "CodexSchemaMcpResourceReadParams"),
-        CodexAppServerMethodSchemaDefinition(method: "mcpServer/tool/call", definitionName: "McpServerToolCallParams", typeName: "CodexSchemaMcpServerToolCallParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/oauth/login", definitionName: "McpServerOauthLoginParams", typeName: "CodexSchemaMCPServerOAuthLoginParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServerStatus/list", definitionName: "ListMcpServerStatusParams", typeName: "CodexSchemaListMCPServerStatusParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/resource/read", definitionName: "McpResourceReadParams", typeName: "CodexSchemaMCPResourceReadParams"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/tool/call", definitionName: "McpServerToolCallParams", typeName: "CodexSchemaMCPServerToolCallParams"),
         CodexAppServerMethodSchemaDefinition(method: "windowsSandbox/setupStart", definitionName: "WindowsSandboxSetupStartParams", typeName: "CodexSchemaWindowsSandboxSetupStartParams"),
         CodexAppServerMethodSchemaDefinition(method: "account/login/start", definitionName: "LoginAccountParams", typeName: "CodexSchemaLoginAccountParams"),
         CodexAppServerMethodSchemaDefinition(method: "account/login/cancel", definitionName: "CancelLoginAccountParams", typeName: "CodexSchemaCancelLoginAccountParams"),
@@ -1146,7 +1146,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "process/spawn", definitionName: "ProcessSpawnParams", typeName: "CodexSchemaProcessSpawnParams"),
         CodexAppServerMethodSchemaDefinition(method: "process/writeStdin", definitionName: "ProcessWriteStdinParams", typeName: "CodexSchemaProcessWriteStdinParams"),
         CodexAppServerMethodSchemaDefinition(method: "process/kill", definitionName: "ProcessKillParams", typeName: "CodexSchemaProcessKillParams"),
-        CodexAppServerMethodSchemaDefinition(method: "process/resizePty", definitionName: "ProcessResizePtyParams", typeName: "CodexSchemaProcessResizePtyParams"),
+        CodexAppServerMethodSchemaDefinition(method: "process/resizePty", definitionName: "ProcessResizePtyParams", typeName: "CodexSchemaProcessResizePTYParams"),
         CodexAppServerMethodSchemaDefinition(method: "config/read", definitionName: "ConfigReadParams", typeName: "CodexSchemaConfigReadParams"),
         CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/detect", definitionName: "ExternalAgentConfigDetectParams", typeName: "CodexSchemaExternalAgentConfigDetectParams"),
         CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/import", definitionName: "ExternalAgentConfigImportParams", typeName: "CodexSchemaExternalAgentConfigImportParams"),
@@ -1191,15 +1191,15 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "item/fileChange/outputDelta", definitionName: "FileChangeOutputDeltaNotification", typeName: "CodexSchemaFileChangeOutputDeltaNotification"),
         CodexAppServerMethodSchemaDefinition(method: "item/fileChange/patchUpdated", definitionName: "FileChangePatchUpdatedNotification", typeName: "CodexSchemaFileChangePatchUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "serverRequest/resolved", definitionName: "ServerRequestResolvedNotification", typeName: "CodexSchemaServerRequestResolvedNotification"),
-        CodexAppServerMethodSchemaDefinition(method: "item/mcpToolCall/progress", definitionName: "McpToolCallProgressNotification", typeName: "CodexSchemaMcpToolCallProgressNotification"),
-        CodexAppServerMethodSchemaDefinition(method: "mcpServer/oauthLogin/completed", definitionName: "McpServerOauthLoginCompletedNotification", typeName: "CodexSchemaMcpServerOauthLoginCompletedNotification"),
-        CodexAppServerMethodSchemaDefinition(method: "mcpServer/startupStatus/updated", definitionName: "McpServerStatusUpdatedNotification", typeName: "CodexSchemaMcpServerStatusUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "item/mcpToolCall/progress", definitionName: "McpToolCallProgressNotification", typeName: "CodexSchemaMCPToolCallProgressNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/oauthLogin/completed", definitionName: "McpServerOauthLoginCompletedNotification", typeName: "CodexSchemaMCPServerOAuthLoginCompletedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "mcpServer/startupStatus/updated", definitionName: "McpServerStatusUpdatedNotification", typeName: "CodexSchemaMCPServerStatusUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "account/updated", definitionName: "AccountUpdatedNotification", typeName: "CodexSchemaAccountUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "account/rateLimits/updated", definitionName: "AccountRateLimitsUpdatedNotification", typeName: "CodexSchemaAccountRateLimitsUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "app/list/updated", definitionName: "AppListUpdatedNotification", typeName: "CodexSchemaAppListUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "remoteControl/status/changed", definitionName: "RemoteControlStatusChangedNotification", typeName: "CodexSchemaRemoteControlStatusChangedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/import/completed", definitionName: "ExternalAgentConfigImportCompletedNotification", typeName: "CodexSchemaExternalAgentConfigImportCompletedNotification"),
-        CodexAppServerMethodSchemaDefinition(method: "fs/changed", definitionName: "FsChangedNotification", typeName: "CodexSchemaFsChangedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "fs/changed", definitionName: "FsChangedNotification", typeName: "CodexSchemaFSChangedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "item/reasoning/summaryTextDelta", definitionName: "ReasoningSummaryTextDeltaNotification", typeName: "CodexSchemaReasoningSummaryTextDeltaNotification"),
         CodexAppServerMethodSchemaDefinition(method: "item/reasoning/summaryPartAdded", definitionName: "ReasoningSummaryPartAddedNotification", typeName: "CodexSchemaReasoningSummaryPartAddedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "item/reasoning/textDelta", definitionName: "ReasoningTextDeltaNotification", typeName: "CodexSchemaReasoningTextDeltaNotification"),

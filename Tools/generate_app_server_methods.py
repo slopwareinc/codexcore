@@ -14,6 +14,34 @@ import Foundation
 
 """
 
+ACRONYMS = {
+    "api": "API",
+    "chatgpt": "ChatGPT",
+    "db": "DB",
+    "fs": "FS",
+    "gpt": "GPT",
+    "id": "ID",
+    "ids": "IDs",
+    "mcp": "MCP",
+    "oauth": "OAuth",
+    "openai": "OpenAI",
+    "pty": "PTY",
+    "rpc": "RPC",
+}
+
+
+def split_identifier(value: str) -> list[str]:
+    pieces: list[str] = []
+    for part in re.split(r"[^A-Za-z0-9]+", value):
+        if not part:
+            continue
+        pieces.extend(re.findall(r"[A-Z]?\d+|[A-Z]+(?=[A-Z][a-z]|$)|[A-Z]?[a-z]+", part))
+    return pieces
+
+
+def swift_word(part: str) -> str:
+    return ACRONYMS.get(part.lower(), part[:1].upper() + part[1:])
+
 
 def load_methods(path: Path) -> list[str]:
     data = json.loads(path.read_text())
@@ -26,11 +54,11 @@ def load_methods(path: Path) -> list[str]:
 
 
 def swift_case(method: str) -> str:
-    parts = [part for part in re.split(r"[^A-Za-z0-9]+", method) if part]
+    parts = split_identifier(method)
     if not parts:
         raise ValueError(f"cannot build Swift case for method {method!r}")
     first = parts[0][:1].lower() + parts[0][1:]
-    rest = [part[:1].upper() + part[1:] for part in parts[1:]]
+    rest = [swift_word(part) for part in parts[1:]]
     name = first + "".join(rest)
     if name in {"case", "default", "enum", "func", "import", "init", "let", "public", "struct", "switch", "var"}:
         name = f"`{name}`"

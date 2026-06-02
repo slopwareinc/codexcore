@@ -13,7 +13,7 @@ public struct CodexConfig: Sendable {
     public let clientName: String
     public let clientTitle: String
     public let clientVersion: String
-    public let experimentalApi: Bool
+    public let experimentalAPI: Bool
 
     public init(
         codexBinaryPath: String? = nil,
@@ -24,7 +24,7 @@ public struct CodexConfig: Sendable {
         clientName: String = "codex_swift_sdk",
         clientTitle: String = "Codex Swift SDK",
         clientVersion: String = "1.0.0",
-        experimentalApi: Bool = true
+        experimentalAPI: Bool = true
     ) {
         self.codexBinaryPath = codexBinaryPath
         self.launchArgumentsOverride = launchArgumentsOverride
@@ -34,7 +34,7 @@ public struct CodexConfig: Sendable {
         self.clientName = clientName
         self.clientTitle = clientTitle
         self.clientVersion = clientVersion
-        self.experimentalApi = experimentalApi
+        self.experimentalAPI = experimentalAPI
     }
 }
 
@@ -109,7 +109,7 @@ public final class Codex: @unchecked Sendable {
                 clientName: config.clientName,
                 clientTitle: config.clientTitle,
                 clientVersion: config.clientVersion,
-                experimentalApi: config.experimentalApi
+                experimentalAPI: config.experimentalAPI
             )
         } catch {
             await client.disconnect()
@@ -138,23 +138,15 @@ public final class Codex: @unchecked Sendable {
         _ = try await client.accountLoginStart(.apiKey(apiKey))
     }
 
-    public func loginApiKey(_ apiKey: String) async throws {
-        try await loginAPIKey(apiKey)
-    }
-
-    public func loginChatgpt(codexStreamlinedLogin: Bool? = nil) async throws -> ChatgptLoginHandle {
+    public func loginChatGPT(codexStreamlinedLogin: Bool? = nil) async throws -> ChatGPTLoginHandle {
         let response = try await client.accountLoginStart(.chatgpt(codexStreamlinedLogin: codexStreamlinedLogin))
         guard case .chatgpt(let loginId, let authUrl) = response else {
             throw CodexSDKError.invalidResponse(method: CodexAppServerClientMethod.accountLoginStart.rawValue, value: response.jsonValue)
         }
-        return ChatgptLoginHandle(client: client, loginId: loginId, authUrl: authUrl)
+        return ChatGPTLoginHandle(client: client, loginId: loginId, authUrl: authUrl)
     }
 
-    public func loginChatGPT(codexStreamlinedLogin: Bool? = nil) async throws -> ChatgptLoginHandle {
-        try await loginChatgpt(codexStreamlinedLogin: codexStreamlinedLogin)
-    }
-
-    public func loginChatgptDeviceCode() async throws -> DeviceCodeLoginHandle {
+    public func loginChatGPTDeviceCode() async throws -> DeviceCodeLoginHandle {
         let response = try await client.accountLoginStart(.chatgptDeviceCode)
         guard case .chatgptDeviceCode(let loginId, let verificationUrl, let userCode) = response else {
             throw CodexSDKError.invalidResponse(method: CodexAppServerClientMethod.accountLoginStart.rawValue, value: response.jsonValue)
@@ -162,32 +154,16 @@ public final class Codex: @unchecked Sendable {
         return DeviceCodeLoginHandle(client: client, loginId: loginId, verificationUrl: verificationUrl, userCode: userCode)
     }
 
-    public func loginChatGPTDeviceCode() async throws -> DeviceCodeLoginHandle {
-        try await loginChatgptDeviceCode()
-    }
-
-    public func loginChatgptAuthTokens(
+    public func loginChatGPTAuthTokens(
         accessToken: String,
-        chatgptAccountId: String,
-        chatgptPlanType: String? = nil
+        chatGPTAccountID: String,
+        chatGPTPlanType: String? = nil
     ) async throws {
         _ = try await client.accountLoginStart(.chatgptAuthTokens(
             accessToken: accessToken,
-            chatgptAccountId: chatgptAccountId,
-            chatgptPlanType: chatgptPlanType
+            chatgptAccountId: chatGPTAccountID,
+            chatgptPlanType: chatGPTPlanType
         ))
-    }
-
-    public func loginChatGPTAuthTokens(
-        accessToken: String,
-        chatgptAccountId: String,
-        chatgptPlanType: String? = nil
-    ) async throws {
-        try await loginChatgptAuthTokens(
-            accessToken: accessToken,
-            chatgptAccountId: chatgptAccountId,
-            chatgptPlanType: chatgptPlanType
-        )
     }
 
     public func account(refreshToken: Bool = false) async throws -> GetAccountResponse {
@@ -276,7 +252,7 @@ public final class Codex: @unchecked Sendable {
         sortDirection: SortDirection? = nil,
         sortKey: ThreadSortKey? = nil,
         sourceKinds: [ThreadSourceKind]? = nil,
-        useStateDbOnly: Bool? = nil
+        useStateDBOnly: Bool? = nil
     ) async throws -> ThreadListResponse {
         try await client.threadList(ThreadListParams(
             archived: archived,
@@ -288,7 +264,7 @@ public final class Codex: @unchecked Sendable {
             sortDirection: sortDirection,
             sortKey: sortKey,
             sourceKinds: sourceKinds,
-            useStateDbOnly: useStateDbOnly
+            useStateDBOnly: useStateDBOnly
         ))
     }
 
@@ -440,7 +416,7 @@ public final class Codex: @unchecked Sendable {
 
 }
 
-public final class ChatgptLoginHandle: Identifiable, @unchecked Sendable {
+public final class ChatGPTLoginHandle: Identifiable, @unchecked Sendable {
     public var id: String { loginId }
     public let loginId: String
     public let authUrl: String

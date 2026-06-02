@@ -56,13 +56,13 @@ public actor CodexClient {
         clientName: String = "CodexCoreSwift",
         clientTitle: String = "Codex Core Swift Native SDK",
         clientVersion: String = "1.0.0",
-        experimentalApi: Bool = true
+        experimentalAPI: Bool = true
     ) async throws -> InitializeResponse {
         try await connection.start(
             clientName: clientName,
             clientTitle: clientTitle,
             clientVersion: clientVersion,
-            experimentalApi: experimentalApi,
+            experimentalAPI: experimentalAPI,
             onNotification: { [weak self] notification in
                 guard let self else { return }
                 Task {
@@ -689,7 +689,7 @@ public actor CodexClient {
                 "success": .bool(false)
             ])
 
-        case .accountChatgptAuthTokensRefresh, .attestationGenerate:
+        case .accountChatGPTAuthTokensRefresh, .attestationGenerate:
             return .dictionary([:])
 
         case .applyPatchApproval, .execCommandApproval:

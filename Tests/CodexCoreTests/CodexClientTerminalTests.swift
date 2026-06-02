@@ -392,9 +392,8 @@ final class CodexClientTerminalTests: XCTestCase {
         let busy = mapJSONRPCError(code: -32000, message: "server busy", data: overloadData)
         XCTAssertEqual(busy.kind, .serverBusy)
         XCTAssertTrue(isRetryableError(busy))
-        XCTAssertTrue(is_retryable_error(busy))
 
-        let retryLimit = map_jsonrpc_error(code: -32000, message: "retry limit reached", data: overloadData)
+        let retryLimit = mapJSONRPCError(code: -32000, message: "retry limit reached", data: overloadData)
         XCTAssertEqual(retryLimit.kind, .retryLimitExceeded)
         XCTAssertTrue(isRetryableError(retryLimit))
 
@@ -449,7 +448,7 @@ final class CodexClientTerminalTests: XCTestCase {
             params: ["refreshToken": .bool(false)],
             response: GetAccountResponse.self
         )
-        XCTAssertFalse(typedAccount.requiresOpenaiAuth)
+        XCTAssertFalse(typedAccount.requiresOpenAIAuth)
 
         try await client.notify(method: "initialized", params: ["ready": .bool(true)])
         let notifyPayload = await transport.sentPayloads.last { $0["method"]?.description == "initialized" }
@@ -581,13 +580,13 @@ final class CodexClientTerminalTests: XCTestCase {
         let transport = MockTransport()
         let store = await CodexCoreStore()
         let client = CodexClient(transport: transport, store: store)
-        let metadata = try await client.connect(clientName: "test", clientTitle: "Test", clientVersion: "0.1", experimentalApi: false)
+        let metadata = try await client.connect(clientName: "test", clientTitle: "Test", clientVersion: "0.1", experimentalAPI: false)
 
         XCTAssertEqual(metadata.serverInfo?.name, "codex")
 
         _ = try await client.accountLoginStart(.apiKey("sk-test"))
         let account = try await client.accountRead(GetAccountParams(refreshToken: true))
-        XCTAssertFalse(account.requiresOpenaiAuth)
+        XCTAssertFalse(account.requiresOpenAIAuth)
 
         let forked = try await client.threadFork(threadId: "thread-mock")
         XCTAssertEqual(forked.thread.id, "thread-fork")
@@ -676,7 +675,7 @@ final class CodexClientTerminalTests: XCTestCase {
             (.mcpServerElicitationRequest, .int(4), ["threadId": .string(threadId), "turnId": .string(turnId), "serverName": .string("mcp")], .dictionary(["action": .string("decline"), "content": .null, "_meta": .null])),
             (.itemPermissionsRequestApproval, .int(5), baseParams.merging(["permissions": .dictionary([:])]) { _, new in new }, .dictionary(["permissions": .dictionary([:]), "scope": .string("turn")])),
             (.itemToolCall, .int(6), baseParams.merging(["tool": .string("client_tool"), "arguments": .dictionary([:])]) { _, new in new }, .dictionary(["contentItems": .array([]), "success": .bool(false)])),
-            (.accountChatgptAuthTokensRefresh, .int(7), ["reason": .string("unauthorized")], .dictionary([:])),
+            (.accountChatGPTAuthTokensRefresh, .int(7), ["reason": .string("unauthorized")], .dictionary([:])),
             (.attestationGenerate, .int(8), [:], .dictionary([:])),
             (.applyPatchApproval, .int(9), ["conversationId": .string(threadId), "callId": .string("call-patch"), "fileChanges": .dictionary([:])], .dictionary(["decision": .string("approved")])),
             (.execCommandApproval, .int(10), ["conversationId": .string(threadId), "callId": .string("call-exec"), "command": .array([.string("echo"), .string("hi")]), "cwd": .string("/tmp"), "parsedCmd": .array([])], .dictionary(["decision": .string("approved")]))
@@ -735,7 +734,7 @@ final class CodexClientTerminalTests: XCTestCase {
 
         try await codex.loginAPIKey("sk-test")
         let account = try await codex.account(refreshToken: true)
-        XCTAssertFalse(account.requiresOpenaiAuth)
+        XCTAssertFalse(account.requiresOpenAIAuth)
 
         let thread = try await codex.threadStart(cwd: "/tmp", model: "test-model", sandbox: .workspaceWrite)
         XCTAssertEqual(thread.id, "thread-mock")
@@ -996,7 +995,7 @@ final class CodexClientTerminalTests: XCTestCase {
         let store = await CodexCoreStore()
         let codex = try await Codex(transport: transport, store: store)
 
-        let chatgpt = try await codex.loginChatgpt()
+        let chatgpt = try await codex.loginChatGPT()
         XCTAssertEqual(chatgpt.loginId, "login-mock")
         XCTAssertEqual(chatgpt.authUrl, "https://example.com/auth")
 
@@ -1014,16 +1013,16 @@ final class CodexClientTerminalTests: XCTestCase {
         let completion = try await chatgpt.wait()
         XCTAssertEqual(completion.loginId, chatgpt.loginId)
 
-        let deviceCode = try await codex.loginChatgptDeviceCode()
+        let deviceCode = try await codex.loginChatGPTDeviceCode()
         XCTAssertEqual(deviceCode.loginId, "login-mock")
         XCTAssertEqual(deviceCode.verificationUrl, "https://example.com/device")
         XCTAssertEqual(deviceCode.userCode, "ABCD-EFGH")
         _ = try await deviceCode.cancel()
 
-        try await codex.loginChatgptAuthTokens(
+        try await codex.loginChatGPTAuthTokens(
             accessToken: "access-token",
-            chatgptAccountId: "account-id",
-            chatgptPlanType: "pro"
+            chatGPTAccountID: "account-id",
+            chatGPTPlanType: "pro"
         )
 
         let sentPayloads = await transport.sentPayloads

@@ -302,7 +302,20 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
     public var sortDirection: SortDirection?
     public var sortKey: ThreadSortKey?
     public var sourceKinds: [ThreadSourceKind]?
-    public var useStateDbOnly: Bool?
+    public var useStateDBOnly: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case archived
+        case cursor
+        case cwd
+        case limit
+        case modelProviders
+        case searchTerm
+        case sortDirection
+        case sortKey
+        case sourceKinds
+        case useStateDBOnly = "useStateDbOnly"
+    }
 
     public init(
         archived: Bool? = nil,
@@ -314,7 +327,7 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
         sortDirection: SortDirection? = nil,
         sortKey: ThreadSortKey? = nil,
         sourceKinds: [ThreadSourceKind]? = nil,
-        useStateDbOnly: Bool? = nil
+        useStateDBOnly: Bool? = nil
     ) {
         self.archived = archived
         self.cursor = cursor
@@ -325,7 +338,7 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
         self.sortDirection = sortDirection
         self.sortKey = sortKey
         self.sourceKinds = sourceKinds
-        self.useStateDbOnly = useStateDbOnly
+        self.useStateDBOnly = useStateDBOnly
     }
 }
 
@@ -556,7 +569,12 @@ public struct Account: Codable, Sendable, Equatable {
 
 public struct GetAccountResponse: Codable, Sendable, Equatable {
     public var account: Account?
-    public var requiresOpenaiAuth: Bool
+    public var requiresOpenAIAuth: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case account
+        case requiresOpenAIAuth = "requiresOpenaiAuth"
+    }
 }
 
 public struct ThreadItem: Codable, Sendable, Equatable, Identifiable {

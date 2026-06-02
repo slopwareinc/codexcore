@@ -32,16 +32,6 @@ public struct CodexRPCError: CodexError, Sendable, Equatable, CustomStringConver
     }
 }
 
-public typealias JsonRpcError = CodexRPCError
-public typealias CodexRpcError = CodexRPCError
-public typealias ParseError = CodexRPCError
-public typealias InvalidRequestError = CodexRPCError
-public typealias MethodNotFoundError = CodexRPCError
-public typealias InvalidParamsError = CodexRPCError
-public typealias InternalRpcError = CodexRPCError
-public typealias ServerBusyError = CodexRPCError
-public typealias RetryLimitExceededError = CodexRPCError
-
 public func mapJSONRPCError(code: Int, message: String, data: CodexJSONValue? = nil) -> CodexRPCError {
     switch code {
     case -32700:
@@ -70,10 +60,6 @@ public func mapJSONRPCError(code: Int, message: String, data: CodexJSONValue? = 
     }
 }
 
-public func map_jsonrpc_error(code: Int, message: String, data: CodexJSONValue? = nil) -> CodexRPCError {
-    mapJSONRPCError(code: code, message: message, data: data)
-}
-
 public func isRetryableError(_ error: Error) -> Bool {
     if let rpcError = error as? CodexRPCError {
         return rpcError.kind == .serverBusy || rpcError.kind == .retryLimitExceeded || containsServerOverloaded(rpcError.data)
@@ -84,10 +70,6 @@ public func isRetryableError(_ error: Error) -> Bool {
     }
 
     return false
-}
-
-public func is_retryable_error(_ error: Error) -> Bool {
-    isRetryableError(error)
 }
 
 public func retryOnOverload<T: Sendable>(
@@ -118,22 +100,6 @@ public func retryOnOverload<T: Sendable>(
             delay = minDuration(maxDelay, delay * 2)
         }
     }
-}
-
-public func retry_on_overload<T: Sendable>(
-    maxAttempts: Int = 3,
-    initialDelay: Duration = .milliseconds(250),
-    maxDelay: Duration = .seconds(2),
-    jitterRatio: Double = 0.2,
-    operation: @Sendable () async throws -> T
-) async throws -> T {
-    try await retryOnOverload(
-        maxAttempts: maxAttempts,
-        initialDelay: initialDelay,
-        maxDelay: maxDelay,
-        jitterRatio: jitterRatio,
-        operation: operation
-    )
 }
 
 private func containsRetryLimitText(_ message: String) -> Bool {
