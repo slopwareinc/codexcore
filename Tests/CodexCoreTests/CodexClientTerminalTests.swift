@@ -392,6 +392,29 @@ final class CodexClientTerminalTests: XCTestCase {
         await client.disconnect()
     }
 
+    func testEveryGeneratedClientMethodCanBeSentByEnumRequest() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        let startCount = await transport.sentPayloads.count
+        for method in CodexAppServerClientMethod.allCases {
+            _ = try await client.appServerRequest(method, params: [:])
+        }
+
+        let sent = await transport.sentPayloads
+        let requestMethods = sent.dropFirst(startCount).compactMap { payload -> String? in
+            guard case .string(let method)? = payload["method"] else { return nil }
+            return method
+        }
+
+        XCTAssertEqual(requestMethods, CodexAppServerClientMethod.allCases.map(\.rawValue))
+        XCTAssertEqual(Set(requestMethods).count, CodexAppServerProtocolInventory.clientMethodCount)
+
+        await client.disconnect()
+    }
+
     func testHighLevelCodexThreadMethodsUseTypedPythonParitySurface() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()
