@@ -79,7 +79,7 @@ final class CodexChatModel {
     var messages: [Message] = [
         Message(
             role: .system,
-            text: "Connect to the local Codex app-server, then send a prompt. This example uses only public CodexCore SDK APIs."
+            text: "Connect to the local Codex app-server, then send a prompt. The app inherits your installed Codex auth from ~/.codex and only shows login controls if Codex reports missing auth."
         )
     ]
     var activities: [Activity] = []
@@ -96,7 +96,11 @@ final class CodexChatModel {
     private var assistantMessageIDsByItemID: [String: UUID] = [:]
 
     var canSend: Bool {
-        if case .connected = connectionState, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSending {
+        if case .connected = connectionState,
+           isAuthenticated,
+           thread != nil,
+           !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !isSending {
             return true
         }
         return false
@@ -117,29 +121,29 @@ final class CodexChatModel {
             let config = CodexConfig(
                 codexBinaryPath: path.isEmpty ? nil : path,
                 cwd: workspacePath,
+                environment: ["CODEX_HOME": defaultCodexHome()],
                 clientName: "codex_swiftui_example",
                 clientTitle: "Codex SwiftUI Example",
                 clientVersion: "1.0.0"
             )
             let codex = try await Codex(config: config)
-            let thread = try await codex.threadStart(
-                approvalMode: .autoReview,
-                cwd: workspacePath,
-                sandbox: .workspaceWrite
-            )
             self.codex = codex
-            self.thread = thread
             let server = codex.metadata.serverInfo?.name ?? "Codex"
             connectionState = .connected(server: server)
-            appendActivity(.notice, title: "Thread ready", detail: thread.id)
 
-            let account = try? await codex.account(refreshToken: false)
-            if let account {
+            do {
+                let account = try await codex.account(refreshToken: false)
                 isAuthenticated = !account.requiresOpenAIAuth
                 if account.requiresOpenAIAuth {
-                    appendMessage(.system, "Codex reports that OpenAI authentication is required.")
+                    appendMessage(.system, "Codex did not find usable auth in \(defaultCodexHome()). Login below, then the app will create a thread automatically.")
+                    appendActivity(.login, title: "Authentication required", detail: defaultCodexHome())
+                    return
                 }
+            } catch {
+                appendActivity(.login, title: "Account check skipped", detail: String(describing: error))
             }
+
+            try await ensureThread()
         } catch {
             connectionState = .failed(String(describing: error))
             appendActivity(.notice, title: "Connection failed", detail: String(describing: error))
@@ -169,6 +173,7 @@ final class CodexChatModel {
             apiKey = ""
             isAuthenticated = true
             appendActivity(.login, title: "API key login", detail: "Authentication updated")
+            try await ensureThread()
         } catch {
             appendActivity(.login, title: "API key login failed", detail: String(describing: error))
         }
@@ -185,12 +190,7 @@ final class CodexChatModel {
             loginTask = Task { [weak self] in
                 do {
                     _ = try await handle.wait()
-                    await MainActor.run {
-                        self?.isAuthenticated = true
-                        self?.deviceCode = nil
-                        self?.deviceCodeURL = nil
-                        self?.appendActivity(.login, title: "Device login complete", detail: "Authentication updated")
-                    }
+                    await self?.finishDeviceCodeLogin()
                 } catch {
                     await MainActor.run {
                         self?.appendActivity(.login, title: "Device login ended", detail: String(describing: error))
@@ -204,13 +204,14 @@ final class CodexChatModel {
 
     func sendDraft() async {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, let thread else { return }
+        guard !prompt.isEmpty else { return }
         draft = ""
         isSending = true
         appendMessage(.user, prompt)
         appendActivity(.turn, title: "Turn starting", detail: prompt)
 
         do {
+            let thread = try await ensureThread()
             let handle = try await thread.turn(
                 [.text(prompt)],
                 approvalMode: .autoReview,
@@ -224,6 +225,32 @@ final class CodexChatModel {
             appendMessage(.system, "Failed to start turn: \(error)")
             appendActivity(.turn, title: "Turn failed to start", detail: String(describing: error))
         }
+    }
+
+    private func finishDeviceCodeLogin() async {
+        isAuthenticated = true
+        deviceCode = nil
+        deviceCodeURL = nil
+        appendActivity(.login, title: "Device login complete", detail: "Authentication updated")
+        do {
+            try await ensureThread()
+        } catch {
+            appendActivity(.turn, title: "Thread creation failed", detail: String(describing: error))
+        }
+    }
+
+    @discardableResult
+    private func ensureThread() async throws -> CodexThread {
+        if let thread { return thread }
+        guard let codex else { throw CodexSDKError.runtimeNotFound }
+        let thread = try await codex.threadStart(
+            approvalMode: .autoReview,
+            cwd: workspacePath,
+            sandbox: .workspaceWrite
+        )
+        self.thread = thread
+        appendActivity(.notice, title: "Thread ready", detail: thread.id)
+        return thread
     }
 
     func interrupt() async {
@@ -326,6 +353,9 @@ final class CodexChatModel {
         activeTurn = nil
         thread = nil
         codex = nil
+        isAuthenticated = true
+        deviceCode = nil
+        deviceCodeURL = nil
         assistantMessageIDsByItemID = [:]
     }
 }
@@ -378,15 +408,15 @@ struct HeaderBar: View {
 }
 
 struct ConnectionPanel: View {
-    let model: CodexChatModel
+    @Bindable var model: CodexChatModel
     let openURL: OpenURLAction
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                TextField("Workspace", text: Bindable(model).workspacePath)
+                TextField("Workspace", text: $model.workspacePath)
                     .textFieldStyle(.roundedBorder)
-                TextField("Codex binary", text: Bindable(model).codexBinaryPath)
+                TextField("Codex binary", text: $model.codexBinaryPath)
                     .textFieldStyle(.roundedBorder)
             }
 
@@ -403,7 +433,7 @@ struct ConnectionPanel: View {
 
                 Spacer()
 
-                SecureField("API key", text: Bindable(model).apiKey)
+                SecureField("API key", text: $model.apiKey)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 260)
 
@@ -628,16 +658,16 @@ struct CodeBlockView: View {
 }
 
 struct ComposerBar: View {
-    let model: CodexChatModel
+    @Bindable var model: CodexChatModel
 
     var body: some View {
         VStack(spacing: 10) {
-            TextField("Ask Codex to inspect, explain, edit, or run a command...", text: Bindable(model).draft, axis: .vertical)
+            TextField("Ask Codex to inspect, explain, edit, or run a command...", text: $model.draft, axis: .vertical)
                 .lineLimit(2...6)
                 .textFieldStyle(.roundedBorder)
 
             HStack {
-                Text("Sandbox: workspace-write, approvals: auto-review")
+                Text(model.isAuthenticated ? "Sandbox: workspace-write, approvals: auto-review" : "Type anytime; Send enables after login and thread setup")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
