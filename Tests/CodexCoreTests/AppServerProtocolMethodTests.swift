@@ -44,4 +44,36 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.mcpServerElicitationRequest))
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.accountChatgptAuthTokensRefresh))
     }
+
+    func testGeneratedSchemaTypeInventoryMatchesCurrentAppServerSchema() {
+        XCTAssertEqual(CodexAppServerSchemaInventory.definitionCount, 510)
+        XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFileCount, 259)
+        XCTAssertEqual(CodexAppServerSchemaInventory.definitions.count, CodexAppServerSchemaInventory.definitionCount)
+        XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFiles.count, CodexAppServerSchemaInventory.v2SchemaFileCount)
+        XCTAssertEqual(Set(CodexAppServerSchemaInventory.definitions.map(\.name)).count, CodexAppServerSchemaInventory.definitionCount)
+        XCTAssertEqual(Set(CodexAppServerSchemaInventory.definitions.map(\.typeName)).count, CodexAppServerSchemaInventory.definitionCount)
+
+        let names = Set(CodexAppServerSchemaInventory.definitions.map(\.name))
+        XCTAssertTrue(names.contains("Thread"))
+        XCTAssertTrue(names.contains("Turn"))
+        XCTAssertTrue(names.contains("LoginAccountParams"))
+        XCTAssertTrue(names.contains("ThreadStartParams"))
+        XCTAssertTrue(names.contains("AccountLoginCompletedNotification"))
+    }
+
+    func testGeneratedSchemaAliasesDecodeRawJSON() throws {
+        let data = #"{"id":"thread-1","status":{"type":"active"}}"#.data(using: .utf8)!
+        let thread = try JSONDecoder().decode(CodexSchemaThread.self, from: data)
+        XCTAssertEqual(thread.rawValue, .dictionary([
+            "id": .string("thread-1"),
+            "status": .dictionary(["type": .string("active")])
+        ]))
+
+        let response = CodexSchemaTurnStartResponse(.dictionary([
+            "turn": .dictionary(["id": .string("turn-1")])
+        ]))
+        let encoded = try JSONEncoder().encode(response)
+        let decoded = try JSONDecoder().decode(CodexSchemaTurnStartResponse.self, from: encoded)
+        XCTAssertEqual(decoded.rawValue, response.rawValue)
+    }
 }
