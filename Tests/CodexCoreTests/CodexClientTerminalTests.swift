@@ -10,6 +10,7 @@ actor MockTransport: CodexTransport {
     var onError: (@Sendable (Error) -> Void)?
     var sentPayloads: [[String: CodexJSONValue]] = []
     private let suspendedMethods: Set<String>
+    private var methodSendCounts: [String: Int] = [:]
 
     init(suspendedMethods: Set<String> = []) {
         self.suspendedMethods = suspendedMethods
@@ -31,8 +32,29 @@ actor MockTransport: CodexTransport {
         if let idVal = payload["id"], payload["method"] != nil {
             let method = payload["method"]?.description ?? ""
             guard !suspendedMethods.contains(method) else { return }
+            methodSendCounts[method, default: 0] += 1
+            let methodSendCount = methodSendCounts[method] ?? 0
 
             let reqIdString = idVal.description
+            if method == "retry/overload", methodSendCount == 1 {
+                let responseJson = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": \(reqIdString),
+                    "error": {
+                        "code": -32000,
+                        "message": "server overloaded",
+                        "data": { "codex_error_info": "server_overloaded" }
+                    }
+                }
+                """
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.receiveMessage(responseJson)
+                }
+                return
+            }
+
             let result: String
             switch method {
             case "initialize":
@@ -78,6 +100,8 @@ actor MockTransport: CodexTransport {
                 result = #"{"models":[]}"#
             case "command/exec":
                 result = #"{"exitCode":0,"stdout":"COMMAND_OK\n","stderr":""}"#
+            case "retry/overload":
+                result = #"{"ok":true}"#
             default:
                 result = "{}"
             }
@@ -331,6 +355,63 @@ final class CodexClientTerminalTests: XCTestCase {
         } catch {
             XCTAssertTrue(String(describing: error).contains("transport") || String(describing: error).contains("connection"))
         }
+    }
+
+    func testJSONRPCErrorMappingMatchesPythonSDK() {
+        XCTAssertEqual(mapJSONRPCError(code: -32700, message: "parse").kind, .parse)
+        XCTAssertEqual(mapJSONRPCError(code: -32600, message: "invalid request").kind, .invalidRequest)
+        XCTAssertEqual(mapJSONRPCError(code: -32601, message: "missing").kind, .methodNotFound)
+        XCTAssertEqual(mapJSONRPCError(code: -32602, message: "bad params").kind, .invalidParams)
+        XCTAssertEqual(mapJSONRPCError(code: -32603, message: "internal").kind, .internalRpc)
+
+        let overloadData: CodexJSONValue = .dictionary(["codexErrorInfo": .string("server_overloaded")])
+        let busy = mapJSONRPCError(code: -32000, message: "server busy", data: overloadData)
+        XCTAssertEqual(busy.kind, .serverBusy)
+        XCTAssertTrue(isRetryableError(busy))
+        XCTAssertTrue(is_retryable_error(busy))
+
+        let retryLimit = map_jsonrpc_error(code: -32000, message: "retry limit reached", data: overloadData)
+        XCTAssertEqual(retryLimit.kind, .retryLimitExceeded)
+        XCTAssertTrue(isRetryableError(retryLimit))
+
+        let generic = mapJSONRPCError(code: -32000, message: "other", data: .dictionary([:]))
+        XCTAssertEqual(generic.kind, .codexRpc)
+        XCTAssertFalse(isRetryableError(generic))
+    }
+
+    func testRequestWithRetryOnOverloadRetriesMappedServerBusyError() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        do {
+            _ = try await client.request(method: "retry/overload")
+            XCTFail("First overload request should throw without retry")
+        } catch let error as CodexRPCError {
+            XCTAssertEqual(error.kind, .serverBusy)
+            XCTAssertTrue(isRetryableError(error))
+        }
+
+        let retryTransport = MockTransport()
+        let retryStore = await CodexCoreStore()
+        let retryClient = CodexClient(transport: retryTransport, store: retryStore)
+        try await retryClient.connect()
+
+        let value = try await retryClient.requestWithRetryOnOverload(
+            method: "retry/overload",
+            maxAttempts: 2,
+            initialDelay: .zero,
+            maxDelay: .zero,
+            jitterRatio: 0
+        )
+        XCTAssertEqual(value, .dictionary(["ok": .bool(true)]))
+
+        let retryPayloads = await retryTransport.sentPayloads.filter { $0["method"]?.description == "retry/overload" }
+        XCTAssertEqual(retryPayloads.count, 2)
+
+        await client.disconnect()
+        await retryClient.disconnect()
     }
 
     func testBufferedCommandExecUsesOfficialMethod() async throws {

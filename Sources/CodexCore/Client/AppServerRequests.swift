@@ -17,6 +17,44 @@ public extension CodexClient {
         let value = try await appServerRequest(method, params: params)
         return try value.decode(Response.self)
     }
+
+    @discardableResult
+    func requestWithRetryOnOverload(
+        method: String,
+        params: [String: CodexJSONValue] = [:],
+        maxAttempts: Int = 3,
+        initialDelay: Duration = .milliseconds(250),
+        maxDelay: Duration = .seconds(2),
+        jitterRatio: Double = 0.2
+    ) async throws -> CodexJSONValue {
+        try await retryOnOverload(
+            maxAttempts: maxAttempts,
+            initialDelay: initialDelay,
+            maxDelay: maxDelay,
+            jitterRatio: jitterRatio
+        ) {
+            try await self.request(method: method, params: params)
+        }
+    }
+
+    @discardableResult
+    func appServerRequestWithRetryOnOverload(
+        _ method: CodexAppServerClientMethod,
+        params: [String: CodexJSONValue] = [:],
+        maxAttempts: Int = 3,
+        initialDelay: Duration = .milliseconds(250),
+        maxDelay: Duration = .seconds(2),
+        jitterRatio: Double = 0.2
+    ) async throws -> CodexJSONValue {
+        try await requestWithRetryOnOverload(
+            method: method.rawValue,
+            params: params,
+            maxAttempts: maxAttempts,
+            initialDelay: initialDelay,
+            maxDelay: maxDelay,
+            jitterRatio: jitterRatio
+        )
+    }
 }
 
 public extension Codex {
@@ -35,5 +73,43 @@ public extension Codex {
     ) async throws -> Response {
         let value = try await appServerRequest(method, params: params)
         return try value.decode(Response.self)
+    }
+
+    @discardableResult
+    func requestWithRetryOnOverload(
+        method: String,
+        params: [String: CodexJSONValue] = [:],
+        maxAttempts: Int = 3,
+        initialDelay: Duration = .milliseconds(250),
+        maxDelay: Duration = .seconds(2),
+        jitterRatio: Double = 0.2
+    ) async throws -> CodexJSONValue {
+        try await retryOnOverload(
+            maxAttempts: maxAttempts,
+            initialDelay: initialDelay,
+            maxDelay: maxDelay,
+            jitterRatio: jitterRatio
+        ) {
+            try await self.rawRequest(method: method, params: params)
+        }
+    }
+
+    @discardableResult
+    func appServerRequestWithRetryOnOverload(
+        _ method: CodexAppServerClientMethod,
+        params: [String: CodexJSONValue] = [:],
+        maxAttempts: Int = 3,
+        initialDelay: Duration = .milliseconds(250),
+        maxDelay: Duration = .seconds(2),
+        jitterRatio: Double = 0.2
+    ) async throws -> CodexJSONValue {
+        try await requestWithRetryOnOverload(
+            method: method.rawValue,
+            params: params,
+            maxAttempts: maxAttempts,
+            initialDelay: initialDelay,
+            maxDelay: maxDelay,
+            jitterRatio: jitterRatio
+        )
     }
 }

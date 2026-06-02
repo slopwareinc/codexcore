@@ -264,7 +264,7 @@ public actor CodexConnection {
             if let response = try? decoder.decode(JSONRPCResponse.self, from: data) {
                 if let requestId = response.id, let continuation = pendingRequests.removeValue(forKey: requestId) {
                     if let error = response.error {
-                        continuation.resume(throwing: error)
+                        continuation.resume(throwing: error.mappedError)
                     } else {
                         continuation.resume(returning: response.result ?? .null)
                     }
