@@ -49,6 +49,8 @@ actor MockTransport: CodexTransport {
                     result = #"{"type":"chatgpt","loginId":"login-mock","authUrl":"https://example.com/auth"}"#
                 case "chatgptDeviceCode":
                     result = #"{"type":"chatgptDeviceCode","loginId":"login-mock","verificationUrl":"https://example.com/device","userCode":"ABCD-EFGH"}"#
+                case "chatgptAuthTokens":
+                    result = #"{"type":"chatgptAuthTokens"}"#
                 default:
                     result = #"{"type":"apiKey"}"#
                 }
@@ -763,6 +765,61 @@ final class CodexClientTerminalTests: XCTestCase {
 
         await fulfillment(of: [replayExpectation, finishExpectation], timeout: 2.0)
         await client.disconnect()
+    }
+
+    func testHighLevelLoginHandlesMatchPythonSDKSurface() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let codex = try await Codex(transport: transport, store: store)
+
+        let chatgpt = try await codex.loginChatgpt()
+        XCTAssertEqual(chatgpt.loginId, "login-mock")
+        XCTAssertEqual(chatgpt.authUrl, "https://example.com/auth")
+
+        let completedNotification = """
+        {
+            "jsonrpc": "2.0",
+            "method": "account/login/completed",
+            "params": {
+                "loginId": "\(chatgpt.loginId)",
+                "status": "success"
+            }
+        }
+        """
+        await transport.receiveMessage(completedNotification)
+        let completion = try await chatgpt.wait()
+        XCTAssertEqual(completion.loginId, chatgpt.loginId)
+
+        let deviceCode = try await codex.loginChatgptDeviceCode()
+        XCTAssertEqual(deviceCode.loginId, "login-mock")
+        XCTAssertEqual(deviceCode.verificationUrl, "https://example.com/device")
+        XCTAssertEqual(deviceCode.userCode, "ABCD-EFGH")
+        _ = try await deviceCode.cancel()
+
+        try await codex.loginChatgptAuthTokens(
+            accessToken: "access-token",
+            chatgptAccountId: "account-id",
+            chatgptPlanType: "pro"
+        )
+
+        let sentPayloads = await transport.sentPayloads
+        let loginPayloads = sentPayloads.filter { $0["method"]?.description == "account/login/start" }
+        let loginTypes = loginPayloads.compactMap { payload -> String? in
+            guard case .dictionary(let params)? = payload["params"], case .string(let type)? = params["type"] else {
+                return nil
+            }
+            return type
+        }
+        XCTAssertEqual(loginTypes, ["chatgpt", "chatgptDeviceCode", "chatgptAuthTokens"])
+
+        let cancelPayload = sentPayloads.last { $0["method"]?.description == "account/login/cancel" }
+        if case .dictionary(let params)? = cancelPayload?["params"] {
+            XCTAssertEqual(params["loginId"], .string(deviceCode.loginId))
+        } else {
+            XCTFail("account/login/cancel params missing")
+        }
+
+        await codex.close()
     }
 
     func testStreamingCommandExecSessionRoutesOutputAndCompletion() async throws {

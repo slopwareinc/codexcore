@@ -40,6 +40,7 @@ public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
     case invalidResponse(method: String, value: CodexJSONValue)
     case turnTimedOut(turnId: String)
     case turnFailed(CodexTurnResult)
+    case loginStreamEnded(loginId: String)
 
     public var description: String {
         switch self {
@@ -53,6 +54,8 @@ public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
             return "Turn \(turnId) did not complete before the timeout."
         case .turnFailed(let result):
             return result.error ?? "Turn \(result.id) failed."
+        case .loginStreamEnded(let loginId):
+            return "Login \(loginId) completed stream ended before a completion notification."
         }
     }
 }
@@ -129,6 +132,54 @@ public final class Codex: @unchecked Sendable {
 
     public func loginApiKey(_ apiKey: String) async throws {
         try await loginAPIKey(apiKey)
+    }
+
+    public func loginChatgpt(codexStreamlinedLogin: Bool? = nil) async throws -> ChatgptLoginHandle {
+        let response = try await client.accountLoginStart(.chatgpt(codexStreamlinedLogin: codexStreamlinedLogin))
+        guard case .chatgpt(let loginId, let authUrl) = response else {
+            throw CodexSDKError.invalidResponse(method: CodexAppServerClientMethod.accountLoginStart.rawValue, value: response.jsonValue)
+        }
+        return ChatgptLoginHandle(client: client, loginId: loginId, authUrl: authUrl)
+    }
+
+    public func loginChatGPT(codexStreamlinedLogin: Bool? = nil) async throws -> ChatgptLoginHandle {
+        try await loginChatgpt(codexStreamlinedLogin: codexStreamlinedLogin)
+    }
+
+    public func loginChatgptDeviceCode() async throws -> DeviceCodeLoginHandle {
+        let response = try await client.accountLoginStart(.chatgptDeviceCode)
+        guard case .chatgptDeviceCode(let loginId, let verificationUrl, let userCode) = response else {
+            throw CodexSDKError.invalidResponse(method: CodexAppServerClientMethod.accountLoginStart.rawValue, value: response.jsonValue)
+        }
+        return DeviceCodeLoginHandle(client: client, loginId: loginId, verificationUrl: verificationUrl, userCode: userCode)
+    }
+
+    public func loginChatGPTDeviceCode() async throws -> DeviceCodeLoginHandle {
+        try await loginChatgptDeviceCode()
+    }
+
+    public func loginChatgptAuthTokens(
+        accessToken: String,
+        chatgptAccountId: String,
+        chatgptPlanType: String? = nil
+    ) async throws {
+        _ = try await client.accountLoginStart(.chatgptAuthTokens(
+            accessToken: accessToken,
+            chatgptAccountId: chatgptAccountId,
+            chatgptPlanType: chatgptPlanType
+        ))
+    }
+
+    public func loginChatGPTAuthTokens(
+        accessToken: String,
+        chatgptAccountId: String,
+        chatgptPlanType: String? = nil
+    ) async throws {
+        try await loginChatgptAuthTokens(
+            accessToken: accessToken,
+            chatgptAccountId: chatgptAccountId,
+            chatgptPlanType: chatgptPlanType
+        )
     }
 
     public func account(refreshToken: Bool = false) async throws -> GetAccountResponse {
@@ -381,6 +432,72 @@ public final class Codex: @unchecked Sendable {
 
 }
 
+public final class ChatgptLoginHandle: Identifiable, @unchecked Sendable {
+    public var id: String { loginId }
+    public let loginId: String
+    public let authUrl: String
+
+    private let client: CodexClient
+
+    fileprivate init(client: CodexClient, loginId: String, authUrl: String) {
+        self.client = client
+        self.loginId = loginId
+        self.authUrl = authUrl
+    }
+
+    public func stream() -> AsyncStream<CodexNotification> {
+        client.loginNotifications(loginId: loginId)
+    }
+
+    public func wait() async throws -> AccountLoginCompletedNotification {
+        for await notification in stream() {
+            if case .accountLoginCompleted(let payload) = notification.payload {
+                return payload
+            }
+        }
+        throw CodexSDKError.loginStreamEnded(loginId: loginId)
+    }
+
+    @discardableResult
+    public func cancel() async throws -> CancelLoginAccountResponse {
+        try await client.accountLoginCancel(loginId: loginId)
+    }
+}
+
+public final class DeviceCodeLoginHandle: Identifiable, @unchecked Sendable {
+    public var id: String { loginId }
+    public let loginId: String
+    public let verificationUrl: String
+    public let userCode: String
+
+    private let client: CodexClient
+
+    fileprivate init(client: CodexClient, loginId: String, verificationUrl: String, userCode: String) {
+        self.client = client
+        self.loginId = loginId
+        self.verificationUrl = verificationUrl
+        self.userCode = userCode
+    }
+
+    public func stream() -> AsyncStream<CodexNotification> {
+        client.loginNotifications(loginId: loginId)
+    }
+
+    public func wait() async throws -> AccountLoginCompletedNotification {
+        for await notification in stream() {
+            if case .accountLoginCompleted(let payload) = notification.payload {
+                return payload
+            }
+        }
+        throw CodexSDKError.loginStreamEnded(loginId: loginId)
+    }
+
+    @discardableResult
+    public func cancel() async throws -> CancelLoginAccountResponse {
+        try await client.accountLoginCancel(loginId: loginId)
+    }
+}
+
 public final class CodexThread: Identifiable, @unchecked Sendable {
     public let id: String
 
@@ -630,5 +747,27 @@ private extension Array where Element == CodexTimelineItem {
             }
         }
         return nil
+    }
+}
+
+private extension LoginAccountResponse {
+    var jsonValue: CodexJSONValue {
+        switch self {
+        case .apiKey:
+            return .dictionary(["type": .string("apiKey")])
+        case .chatgpt(let loginId, let authUrl):
+            return .dictionary(["type": .string("chatgpt"), "loginId": .string(loginId), "authUrl": .string(authUrl)])
+        case .chatgptDeviceCode(let loginId, let verificationUrl, let userCode):
+            return .dictionary([
+                "type": .string("chatgptDeviceCode"),
+                "loginId": .string(loginId),
+                "verificationUrl": .string(verificationUrl),
+                "userCode": .string(userCode)
+            ])
+        case .chatgptAuthTokens:
+            return .dictionary(["type": .string("chatgptAuthTokens")])
+        case .unknown(let object):
+            return .dictionary(object)
+        }
     }
 }
