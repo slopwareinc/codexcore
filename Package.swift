@@ -15,6 +15,10 @@ let package = Package(
         .executable(
             name: "codex-run",
             targets: ["CodexRun"]
+        ),
+        .executable(
+            name: "codex-chat-example",
+            targets: ["CodexChatExample"]
         )
     ],
     dependencies: [],
@@ -28,6 +32,11 @@ let package = Package(
             name: "CodexRun",
             dependencies: ["CodexCore"],
             path: "Sources/CodexRun"
+        ),
+        .executableTarget(
+            name: "CodexChatExample",
+            dependencies: ["CodexCore"],
+            path: "Examples/CodexChatExample"
         ),
         .testTarget(
             name: "CodexCoreTests",
