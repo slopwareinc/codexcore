@@ -1,5 +1,9 @@
 import Foundation
 
+public func defaultCodexHome() -> String {
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path
+}
+
 public struct CodexConfig: Sendable {
     public let codexBinaryPath: String?
     public let launchArgumentsOverride: [String]?

@@ -83,6 +83,27 @@ public actor CodexClient {
         try await connection.request(method: method, params: params)
     }
 
+    public func request<Response: Decodable>(
+        method: String,
+        params: [String: CodexJSONValue] = [:],
+        response: Response.Type
+    ) async throws -> Response {
+        let value = try await request(method: method, params: params)
+        return try value.decode(Response.self)
+    }
+
+    public func request<Params: Encodable, Response: Decodable>(
+        method: String,
+        params: Params,
+        response: Response.Type
+    ) async throws -> Response {
+        let encoded = try CodexJSONValue(encoding: params)
+        guard let object = encoded.objectValue else {
+            throw CodexJSONBridgeError.paramsMustBeObject(encoded)
+        }
+        return try await request(method: method, params: object, response: Response.self)
+    }
+
     public func notify(method: String, params: [String: CodexJSONValue] = [:]) async throws {
         try await connection.notify(method: method, params: params)
     }

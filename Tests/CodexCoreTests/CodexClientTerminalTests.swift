@@ -444,6 +444,13 @@ final class CodexClientTerminalTests: XCTestCase {
         let client = CodexClient(transport: transport, store: store)
         try await client.connect()
 
+        let typedAccount = try await client.request(
+            method: "account/read",
+            params: ["refreshToken": .bool(false)],
+            response: GetAccountResponse.self
+        )
+        XCTAssertFalse(typedAccount.requiresOpenaiAuth)
+
         try await client.notify(method: "initialized", params: ["ready": .bool(true)])
         let notifyPayload = await transport.sentPayloads.last { $0["method"]?.description == "initialized" }
         XCTAssertEqual(notifyPayload?["id"], nil)
@@ -542,6 +549,10 @@ final class CodexClientTerminalTests: XCTestCase {
         }
 
         await client.disconnect()
+    }
+
+    func testDefaultCodexHomeMatchesPythonSDKHelper() {
+        XCTAssertEqual(defaultCodexHome(), FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path)
     }
 
     func testBufferedCommandExecUsesOfficialMethod() async throws {
