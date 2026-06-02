@@ -12,20 +12,29 @@ public struct PTYSize: Codable, Sendable {
     }
 }
 
+public typealias CodexServerRequestHandler = @Sendable (JSONRPCServerRequest) async -> CodexJSONValue?
+
 // MARK: - CodexClient
 
 public actor CodexClient {
     private let connection: CodexConnection
     private let store: CodexCoreStore
+    private let serverRequestHandler: CodexServerRequestHandler?
     public nonisolated let notificationRouter: CodexNotificationRouter
 
     // Track active PTY process sessions by process handle
     private var activeSessions: [String: CodexProcessSession] = [:]
     private var activeCommandSessions: [String: CodexCommandExecSession] = [:]
 
-    public init(transport: any CodexTransport, store: CodexCoreStore, notificationRouter: CodexNotificationRouter = CodexNotificationRouter()) {
+    public init(
+        transport: any CodexTransport,
+        store: CodexCoreStore,
+        notificationRouter: CodexNotificationRouter = CodexNotificationRouter(),
+        serverRequestHandler: CodexServerRequestHandler? = nil
+    ) {
         self.connection = CodexConnection(transport: transport)
         self.store = store
+        self.serverRequestHandler = serverRequestHandler
         self.notificationRouter = notificationRouter
     }
 
@@ -489,76 +498,158 @@ public actor CodexClient {
     /// Handles incoming server→client requests (approvals, user inputs).
     /// The return value is sent back as the JSON-RPC response.
     private func handleServerRequest(_ serverRequest: JSONRPCServerRequest) async -> CodexJSONValue {
+        if let response = await serverRequestHandler?(serverRequest) {
+            return response
+        }
+
         let method = serverRequest.method
         let params = serverRequest.params
+        let requestId = serverRequest.id
 
-        switch method {
-        case "item/commandExecution/requestApproval":
-            // Auto-approve with "acceptForSession" decision — store will surface this to UI
-            let threadId = params["threadId"]?.description ?? ""
-            let turnId = params["turnId"]?.description ?? ""
-            let itemId = params["itemId"]?.description ?? ""
-            let command = params["command"]?.description
-            let cwd = params["cwd"]?.description
-            let reason = params["reason"]?.description
+        func str(_ key: String) -> String {
+            if case .string(let value)? = params[key] { return value }
+            return params[key]?.description ?? ""
+        }
 
-            let req = CodexApprovalRequest(
-                requestId: .int(Int(serverRequest.id)),
-                kind: .command,
-                threadId: threadId,
-                turnId: turnId,
-                itemId: itemId,
-                command: command,
-                cwd: cwd,
-                reason: reason
-            )
-
-            await MainActor.run {
-                store.dispatchRequest(req)
-            }
-
-            // Auto-approve: respond with {decision: "acceptForSession"}
-            return .dictionary(["decision": .string("acceptForSession")])
-
-        case "item/fileChange/requestApproval":
-            let threadId = params["threadId"]?.description ?? ""
-            let turnId = params["turnId"]?.description ?? ""
-            let itemId = params["itemId"]?.description ?? ""
-            let command = params["command"]?.description
-            let path = params["path"]?.description
-            let grantRoot = params["grantRoot"]?.description
-            let cwd = params["cwd"]?.description
-            let reason = params["reason"]?.description
-
-            let req = CodexApprovalRequest(
-                requestId: .int(Int(serverRequest.id)),
-                kind: .fileChange,
-                threadId: threadId,
-                turnId: turnId,
-                itemId: itemId,
-                command: command,
-                path: path,
-                grantRoot: grantRoot,
-                cwd: cwd,
-                reason: reason
-            )
-
-            await MainActor.run {
-                store.dispatchRequest(req)
-            }
-
-            // Auto-approve file changes
-            return .dictionary(["decision": .string("acceptForSession")])
-
-        case "item/permissions/requestApproval":
-            // Auto-approve permissions
-            return .dictionary(["decision": .string("accept")])
-
-        default:
+        guard let knownMethod = CodexAppServerServerRequestMethod(rawValue: method) else {
             print("[CodexClient] Unhandled server request: \(method)")
-            // Default: return empty object
             return .dictionary([:])
         }
+
+        switch knownMethod {
+        case .itemCommandExecutionRequestApproval:
+            let approvalId = str("approvalId")
+            let itemId = str("itemId")
+
+            let req = CodexApprovalRequest(
+                requestId: requestId,
+                kind: .command,
+                threadId: str("threadId"),
+                turnId: str("turnId"),
+                itemId: approvalId.isEmpty ? itemId : approvalId,
+                command: optionalString(params["command"]),
+                cwd: optionalString(params["cwd"]),
+                reason: optionalString(params["reason"])
+            )
+
+            await MainActor.run {
+                store.dispatchRequest(req)
+            }
+
+            return .dictionary(["decision": .string("accept")])
+
+        case .itemFileChangeRequestApproval:
+            let req = CodexApprovalRequest(
+                requestId: requestId,
+                kind: .fileChange,
+                threadId: str("threadId"),
+                turnId: str("turnId"),
+                itemId: str("itemId"),
+                command: optionalString(params["command"]),
+                path: optionalString(params["path"]),
+                grantRoot: optionalString(params["grantRoot"]),
+                cwd: optionalString(params["cwd"]),
+                reason: optionalString(params["reason"])
+            )
+
+            await MainActor.run {
+                store.dispatchRequest(req)
+            }
+
+            return .dictionary(["decision": .string("accept")])
+
+        case .itemToolRequestUserInput:
+            let questions = parseUserInputQuestions(params["questions"])
+            let req = CodexUserInputRequest(
+                requestId: requestId,
+                threadId: str("threadId"),
+                turnId: str("turnId"),
+                itemId: str("itemId"),
+                questions: questions
+            )
+            await MainActor.run {
+                store.dispatchRequest(req)
+            }
+            return .dictionary(["answers": .dictionary([:])])
+
+        case .mcpServerElicitationRequest:
+            return .dictionary([
+                "action": .string("decline"),
+                "content": .null,
+                "_meta": .null
+            ])
+
+        case .itemPermissionsRequestApproval:
+            let req = CodexApprovalRequest(
+                requestId: requestId,
+                kind: .permissions,
+                threadId: str("threadId"),
+                turnId: str("turnId"),
+                itemId: str("itemId"),
+                cwd: optionalString(params["cwd"]),
+                reason: optionalString(params["reason"])
+            )
+            await MainActor.run {
+                store.dispatchRequest(req)
+            }
+            return .dictionary([
+                "permissions": .dictionary([:]),
+                "scope": .string("turn")
+            ])
+
+        case .itemToolCall:
+            return .dictionary([
+                "contentItems": .array([]),
+                "success": .bool(false)
+            ])
+
+        case .accountChatgptAuthTokensRefresh, .attestationGenerate:
+            return .dictionary([:])
+
+        case .applyPatchApproval, .execCommandApproval:
+            return .dictionary(["decision": .string("approved")])
+        }
+    }
+
+    private func parseUserInputQuestions(_ value: CodexJSONValue?) -> [CodexUserInputQuestion] {
+        guard case .array(let rawQuestions)? = value else { return [] }
+        return rawQuestions.compactMap { rawQuestion in
+            guard case .dictionary(let question) = rawQuestion else { return nil }
+            let id = stringValue(question["id"])
+            let text = stringValue(question["question"])
+            guard !id.isEmpty, !text.isEmpty else { return nil }
+
+            let options: [CodexUserInputOption]
+            if case .array(let rawOptions)? = question["options"] {
+                options = rawOptions.compactMap { rawOption in
+                    guard case .dictionary(let option) = rawOption else { return nil }
+                    let label = stringValue(option["label"])
+                    guard !label.isEmpty else { return nil }
+                    return CodexUserInputOption(label: label, description: optionalString(option["description"]))
+                }
+            } else {
+                options = []
+            }
+
+            return CodexUserInputQuestion(
+                id: id,
+                question: text,
+                header: optionalString(question["header"]),
+                isSecret: boolValue(question["isSecret"]),
+                isOtherAllowed: boolValue(question["isOther"]),
+                options: options
+            )
+        }
+    }
+
+    private func stringValue(_ value: CodexJSONValue?) -> String {
+        if case .string(let string)? = value { return string }
+        return value?.description ?? ""
+    }
+
+    private func boolValue(_ value: CodexJSONValue?) -> Bool {
+        if case .bool(let bool)? = value { return bool }
+        return false
     }
 
     // MARK: - Server Notification Handling

@@ -28,7 +28,7 @@ actor MockTransport: CodexTransport {
         sentPayloads.append(payload)
 
         // Automatically respond to any JSON-RPC request containing an ID
-        if let idVal = payload["id"] {
+        if let idVal = payload["id"], payload["method"] != nil {
             let method = payload["method"]?.description ?? ""
             guard !suspendedMethods.contains(method) else { return }
 
@@ -415,6 +415,93 @@ final class CodexClientTerminalTests: XCTestCase {
         await client.disconnect()
     }
 
+    func testDefaultServerRequestHandlingCoversGeneratedInventory() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+        let threadId = try await client.createThread(cwd: "/tmp")
+        let turnId = try await client.startTurn(threadId: threadId, userPrompt: "hi")
+
+        let baseParams: [String: CodexJSONValue] = [
+            "threadId": .string(threadId),
+            "turnId": .string(turnId),
+            "itemId": .string("item-request"),
+            "startedAtMs": .int(1),
+            "cwd": .string("/tmp"),
+            "reason": .string("test")
+        ]
+
+        let cases: [(CodexAppServerServerRequestMethod, CodexJSONValue, [String: CodexJSONValue], CodexJSONValue)] = [
+            (.itemCommandExecutionRequestApproval, .string("server-request-string-id"), baseParams.merging(["command": .string("echo hi")]) { _, new in new }, .dictionary(["decision": .string("accept")])),
+            (.itemFileChangeRequestApproval, .int(2), baseParams, .dictionary(["decision": .string("accept")])),
+            (.itemToolRequestUserInput, .int(3), baseParams.merging([
+                "questions": .array([
+                    .dictionary([
+                        "id": .string("question-1"),
+                        "header": .string("Header"),
+                        "question": .string("Choose"),
+                        "isSecret": .bool(true),
+                        "isOther": .bool(true),
+                        "options": .array([
+                            .dictionary(["label": .string("Yes"), "description": .string("Confirm")])
+                        ])
+                    ])
+                ])
+            ]) { _, new in new }, .dictionary(["answers": .dictionary([:])])),
+            (.mcpServerElicitationRequest, .int(4), ["threadId": .string(threadId), "turnId": .string(turnId), "serverName": .string("mcp")], .dictionary(["action": .string("decline"), "content": .null, "_meta": .null])),
+            (.itemPermissionsRequestApproval, .int(5), baseParams.merging(["permissions": .dictionary([:])]) { _, new in new }, .dictionary(["permissions": .dictionary([:]), "scope": .string("turn")])),
+            (.itemToolCall, .int(6), baseParams.merging(["tool": .string("client_tool"), "arguments": .dictionary([:])]) { _, new in new }, .dictionary(["contentItems": .array([]), "success": .bool(false)])),
+            (.accountChatgptAuthTokensRefresh, .int(7), ["reason": .string("unauthorized")], .dictionary([:])),
+            (.attestationGenerate, .int(8), [:], .dictionary([:])),
+            (.applyPatchApproval, .int(9), ["conversationId": .string(threadId), "callId": .string("call-patch"), "fileChanges": .dictionary([:])], .dictionary(["decision": .string("approved")])),
+            (.execCommandApproval, .int(10), ["conversationId": .string(threadId), "callId": .string("call-exec"), "command": .array([.string("echo"), .string("hi")]), "cwd": .string("/tmp"), "parsedCmd": .array([])], .dictionary(["decision": .string("approved")]))
+        ]
+
+        XCTAssertEqual(cases.count, CodexAppServerProtocolInventory.serverRequestMethodCount)
+
+        for (method, id, params, expectedResult) in cases {
+            let reply = try await sendServerRequest(method: method, id: id, params: params, transport: transport)
+            XCTAssertEqual(reply["id"], id)
+            XCTAssertEqual(reply["result"], expectedResult, "Unexpected default response for \(method.rawValue)")
+        }
+
+        let activeThread = await store.activeThread
+        XCTAssertEqual(activeThread?.pendingApprovals.count, 3)
+        XCTAssertEqual(activeThread?.pendingApprovals.map(\.kind), [.command, .fileChange, .permissions])
+
+        let pendingInput = await store.pendingUserInput
+        XCTAssertEqual(pendingInput?.questions.first?.id, "question-1")
+        XCTAssertEqual(pendingInput?.questions.first?.options.first?.label, "Yes")
+        XCTAssertEqual(pendingInput?.questions.first?.isSecret, true)
+        XCTAssertEqual(pendingInput?.questions.first?.isOtherAllowed, true)
+
+        await client.disconnect()
+    }
+
+    func testCustomServerRequestHandlerOverridesDefaultResponse() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store) { request in
+            guard request.method == CodexAppServerServerRequestMethod.attestationGenerate.rawValue else {
+                return nil
+            }
+            return .dictionary(["token": .string("custom-attestation")])
+        }
+        try await client.connect()
+
+        let reply = try await sendServerRequest(
+            method: .attestationGenerate,
+            id: .string("attestation-request"),
+            params: [:],
+            transport: transport
+        )
+        XCTAssertEqual(reply["id"], .string("attestation-request"))
+        XCTAssertEqual(reply["result"], .dictionary(["token": .string("custom-attestation")]))
+
+        await client.disconnect()
+    }
+
     func testHighLevelCodexThreadMethodsUseTypedPythonParitySurface() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()
@@ -766,6 +853,37 @@ final class CodexClientTerminalTests: XCTestCase {
             let rawStr = String(attrStr.characters)
             XCTAssertEqual(rawStr, "Red Text Standard Text")
         }
+    }
+
+    private func sendServerRequest(
+        method: CodexAppServerServerRequestMethod,
+        id: CodexJSONValue,
+        params: [String: CodexJSONValue],
+        transport: MockTransport
+    ) async throws -> [String: CodexJSONValue] {
+        let payload: [String: CodexJSONValue] = [
+            "jsonrpc": .string("2.0"),
+            "id": id,
+            "method": .string(method.rawValue),
+            "params": .dictionary(params)
+        ]
+        let data = try JSONEncoder().encode(payload)
+        guard let message = String(data: data, encoding: .utf8) else {
+            XCTFail("Failed to encode server request")
+            return [:]
+        }
+
+        await transport.receiveMessage(message)
+        for _ in 0..<100 {
+            let sent = await transport.sentPayloads
+            if let reply = sent.last(where: { $0["id"] == id && $0["result"] != nil }) {
+                return reply
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("No reply for server request \(method.rawValue)")
+        return [:]
     }
 
     func testRealCodexAppServerTurnLifecycle() async throws {

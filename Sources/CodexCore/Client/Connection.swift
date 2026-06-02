@@ -50,7 +50,7 @@ public enum CodexConnectionError: Error, Sendable, CustomStringConvertible {
 
 // A server→client request (server sends id + method, client must reply with a result/error)
 public struct JSONRPCServerRequest: Sendable {
-    public let id: Int64
+    public let id: CodexJSONValue
     public let method: String
     public let params: [String: CodexJSONValue]
 }
@@ -169,10 +169,10 @@ public actor CodexConnection {
     }
 
     /// Reply to a server-originated request (with result).
-    public func reply(id: Int64, result: CodexJSONValue) async throws {
+    public func reply(id: CodexJSONValue, result: CodexJSONValue) async throws {
         let payload: [String: CodexJSONValue] = [
             "jsonrpc": .string("2.0"),
-            "id": .int(Int(id)),
+            "id": id,
             "result": result
         ]
         // Encode directly; no need for JSONRPCRequest
@@ -230,24 +230,17 @@ public actor CodexConnection {
                   case .string(let method) = methodVal,
                   let idVal = payload["id"] else { return }
 
-            let requestId: Int64
-            switch idVal {
-            case .int(let i): requestId = Int64(i)
-            case .string(let s): requestId = Int64(s) ?? 0
-            default: return
-            }
-
             var params: [String: CodexJSONValue] = [:]
             if let paramsVal = payload["params"], case .dictionary(let d) = paramsVal {
                 params = d
             }
 
-            let serverRequest = JSONRPCServerRequest(id: requestId, method: method, params: params)
+            let serverRequest = JSONRPCServerRequest(id: idVal, method: method, params: params)
             let handler = self.onServerRequest
 
             Task {
                 let result = await handler?(serverRequest) ?? .null
-                try? await self.reply(id: requestId, result: result)
+                try? await self.reply(id: idVal, result: result)
             }
             return
         }

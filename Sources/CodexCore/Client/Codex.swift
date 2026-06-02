@@ -75,18 +75,22 @@ public final class Codex: @unchecked Sendable {
     private let client: CodexClient
     private let config: CodexConfig
 
-    public convenience init(config: CodexConfig = CodexConfig()) async throws {
+    public convenience init(
+        config: CodexConfig = CodexConfig(),
+        serverRequestHandler: CodexServerRequestHandler? = nil
+    ) async throws {
         let transport = try Self.makeDefaultTransport(config: config)
         let store = await CodexCoreStore()
-        try await self.init(transport: transport, store: store, config: config)
+        try await self.init(transport: transport, store: store, config: config, serverRequestHandler: serverRequestHandler)
     }
 
     public init(
         transport: any CodexTransport,
         store: CodexCoreStore,
-        config: CodexConfig = CodexConfig()
+        config: CodexConfig = CodexConfig(),
+        serverRequestHandler: CodexServerRequestHandler? = nil
     ) async throws {
-        let client = CodexClient(transport: transport, store: store)
+        let client = CodexClient(transport: transport, store: store, serverRequestHandler: serverRequestHandler)
         let metadata: InitializeResponse
 
         do {
