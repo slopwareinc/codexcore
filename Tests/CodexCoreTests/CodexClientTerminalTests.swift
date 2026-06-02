@@ -38,7 +38,20 @@ actor MockTransport: CodexTransport {
             case "initialize":
                 result = #"{"serverInfo":{"name":"codex","version":"1.0.0"},"userAgent":"codex/1.0.0"}"#
             case "account/login/start":
-                result = #"{"type":"apiKey"}"#
+                let loginType: String? = {
+                    guard case .dictionary(let params)? = payload["params"], case .string(let type)? = params["type"] else {
+                        return nil
+                    }
+                    return type
+                }()
+                switch loginType {
+                case "chatgpt":
+                    result = #"{"type":"chatgpt","loginId":"login-mock","authUrl":"https://example.com/auth"}"#
+                case "chatgptDeviceCode":
+                    result = #"{"type":"chatgptDeviceCode","loginId":"login-mock","verificationUrl":"https://example.com/device","userCode":"ABCD-EFGH"}"#
+                default:
+                    result = #"{"type":"apiKey"}"#
+                }
             case "account/read":
                 result = #"{"requiresOpenaiAuth":false,"account":null}"#
             case "account/logout", "account/login/cancel", "thread/archive", "thread/name/set", "thread/compact/start", "turn/interrupt":
@@ -429,6 +442,187 @@ final class CodexClientTerminalTests: XCTestCase {
         }
 
         await codex.close()
+    }
+
+    func testNotificationStreamsRouteGlobalAndReplayTurnEvents() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        let globalExpectation = expectation(description: "global notification receives scoped turn event")
+        let globalStream = client.notifications()
+        Task {
+            var iterator = globalStream.makeAsyncIterator()
+            let notification = await iterator.next()
+            XCTAssertEqual(notification?.method, "item/agentMessage/delta")
+            if case .agentMessageDelta(let delta)? = notification?.payload {
+                XCTAssertEqual(delta.delta, "hello")
+            } else {
+                XCTFail("Expected typed agent message delta notification")
+            }
+            globalExpectation.fulfill()
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        let threadId = try await client.createThread(cwd: "/tmp")
+        let turnId = try await client.startTurn(threadId: threadId, userPrompt: "hi")
+
+        let deltaNotification = """
+        {
+            "jsonrpc": "2.0",
+            "method": "item/agentMessage/delta",
+            "params": {
+                "threadId": "\(threadId)",
+                "turnId": "\(turnId)",
+                "itemId": "item-agent",
+                "delta": "hello"
+            }
+        }
+        """
+
+        let turnCompleted = """
+        {
+            "jsonrpc": "2.0",
+            "method": "turn/completed",
+            "params": {
+                "threadId": "\(threadId)",
+                "turn": {
+                    "id": "\(turnId)",
+                    "status": { "type": "completed" }
+                }
+            }
+        }
+        """
+
+        await transport.receiveMessage(deltaNotification)
+        await transport.receiveMessage(turnCompleted)
+        await fulfillment(of: [globalExpectation], timeout: 2.0)
+
+        let replayDeltaExpectation = expectation(description: "turn stream replays pending delta")
+        let replayCompletedExpectation = expectation(description: "turn stream replays completion")
+        let streamFinishedExpectation = expectation(description: "turn stream finishes on completion")
+        let turnStream = client.turnNotifications(turnId: turnId)
+        Task {
+            var iterator = turnStream.makeAsyncIterator()
+            let first = await iterator.next()
+            XCTAssertEqual(first?.method, "item/agentMessage/delta")
+            replayDeltaExpectation.fulfill()
+
+            let second = await iterator.next()
+            XCTAssertEqual(second?.method, "turn/completed")
+            replayCompletedExpectation.fulfill()
+
+            let finished = await iterator.next()
+            XCTAssertNil(finished)
+            streamFinishedExpectation.fulfill()
+        }
+
+        await fulfillment(of: [replayDeltaExpectation, replayCompletedExpectation, streamFinishedExpectation], timeout: 2.0)
+        await client.disconnect()
+    }
+
+    func testHighLevelTurnTextDeltasReplayPendingEvents() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let codex = try await Codex(transport: transport, store: store)
+        let thread = try await codex.threadStart(cwd: "/tmp")
+        let handle = try await thread.turn("hi")
+
+        let deltaNotification = """
+        {
+            "jsonrpc": "2.0",
+            "method": "item/agentMessage/delta",
+            "params": {
+                "threadId": "\(thread.id)",
+                "turnId": "\(handle.id)",
+                "itemId": "item-agent",
+                "delta": "streamed"
+            }
+        }
+        """
+
+        let turnCompleted = """
+        {
+            "jsonrpc": "2.0",
+            "method": "turn/completed",
+            "params": {
+                "threadId": "\(thread.id)",
+                "turn": {
+                    "id": "\(handle.id)",
+                    "status": { "type": "completed" }
+                }
+            }
+        }
+        """
+
+        await transport.receiveMessage(deltaNotification)
+        await transport.receiveMessage(turnCompleted)
+
+        let deltaExpectation = expectation(description: "high-level text delta replays")
+        let finishExpectation = expectation(description: "high-level text stream finishes")
+        Task {
+            var iterator = handle.textDeltas().makeAsyncIterator()
+            let first = await iterator.next()
+            XCTAssertEqual(first, "streamed")
+            deltaExpectation.fulfill()
+
+            let finished = await iterator.next()
+            XCTAssertNil(finished)
+            finishExpectation.fulfill()
+        }
+
+        await fulfillment(of: [deltaExpectation, finishExpectation], timeout: 2.0)
+        await codex.close()
+    }
+
+    func testLoginNotificationStreamReplaysCompletion() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        let response = try await client.accountLoginStart(.chatgpt())
+        guard case .chatgpt(let loginId, let authUrl) = response else {
+            XCTFail("Expected chatgpt login response")
+            return
+        }
+        XCTAssertEqual(loginId, "login-mock")
+        XCTAssertEqual(authUrl, "https://example.com/auth")
+
+        let completedNotification = """
+        {
+            "jsonrpc": "2.0",
+            "method": "account/login/completed",
+            "params": {
+                "loginId": "\(loginId)",
+                "status": "success"
+            }
+        }
+        """
+        await transport.receiveMessage(completedNotification)
+
+        let replayExpectation = expectation(description: "login stream replays completion")
+        let finishExpectation = expectation(description: "login stream finishes on completion")
+        let loginStream = client.loginNotifications(loginId: loginId)
+        Task {
+            var iterator = loginStream.makeAsyncIterator()
+            let notification = await iterator.next()
+            XCTAssertEqual(notification?.method, "account/login/completed")
+            if case .accountLoginCompleted(let payload)? = notification?.payload {
+                XCTAssertEqual(payload.loginId, loginId)
+            } else {
+                XCTFail("Expected typed login completion payload")
+            }
+            replayExpectation.fulfill()
+
+            let finished = await iterator.next()
+            XCTAssertNil(finished)
+            finishExpectation.fulfill()
+        }
+
+        await fulfillment(of: [replayExpectation, finishExpectation], timeout: 2.0)
+        await client.disconnect()
     }
 
     func testStreamingCommandExecSessionRoutesOutputAndCompletion() async throws {

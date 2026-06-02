@@ -111,6 +111,14 @@ public final class Codex: @unchecked Sendable {
         await client.disconnect()
     }
 
+    public func notifications() -> AsyncStream<CodexNotification> {
+        client.notifications()
+    }
+
+    public func loginNotifications(loginId: String) -> AsyncStream<CodexNotification> {
+        client.loginNotifications(loginId: loginId)
+    }
+
     public func loginAPIKey(_ apiKey: String) async throws {
         _ = try await client.accountLoginStart(.apiKey(apiKey))
     }
@@ -517,6 +525,24 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
 
     public func interrupt() async throws -> CodexJSONValue {
         try await client.interruptTurn(threadId: threadId, turnId: id)
+    }
+
+    public func stream() -> AsyncStream<CodexNotification> {
+        client.turnNotifications(turnId: id)
+    }
+
+    public func textDeltas() -> AsyncStream<String> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await notification in stream() {
+                    if case .agentMessageDelta(let delta) = notification.payload {
+                        continuation.yield(delta.delta)
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     public func snapshots(pollInterval: Duration = .milliseconds(200)) -> AsyncThrowingStream<CodexTurnSnapshot, Error> {

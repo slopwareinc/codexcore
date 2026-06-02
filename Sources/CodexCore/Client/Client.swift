@@ -17,14 +17,28 @@ public struct PTYSize: Codable, Sendable {
 public actor CodexClient {
     private let connection: CodexConnection
     private let store: CodexCoreStore
+    public nonisolated let notificationRouter: CodexNotificationRouter
 
     // Track active PTY process sessions by process handle
     private var activeSessions: [String: CodexProcessSession] = [:]
     private var activeCommandSessions: [String: CodexCommandExecSession] = [:]
 
-    public init(transport: any CodexTransport, store: CodexCoreStore) {
+    public init(transport: any CodexTransport, store: CodexCoreStore, notificationRouter: CodexNotificationRouter = CodexNotificationRouter()) {
         self.connection = CodexConnection(transport: transport)
         self.store = store
+        self.notificationRouter = notificationRouter
+    }
+
+    public nonisolated func notifications() -> AsyncStream<CodexNotification> {
+        notificationRouter.globalNotifications()
+    }
+
+    public nonisolated func turnNotifications(turnId: String) -> AsyncStream<CodexNotification> {
+        notificationRouter.turnNotifications(turnId: turnId)
+    }
+
+    public nonisolated func loginNotifications(loginId: String) -> AsyncStream<CodexNotification> {
+        notificationRouter.loginNotifications(loginId: loginId)
     }
 
     /// Establishes the connection and performs the initialize handshake.
@@ -63,11 +77,18 @@ public actor CodexClient {
     // MARK: - Python SDK typed request APIs
 
     public func accountLoginStart(_ params: LoginAccountParams) async throws -> LoginAccountResponse {
-        try await connection.request(
+        let response: LoginAccountResponse = try await connection.request(
             method: CodexAppServerClientMethod.accountLoginStart.rawValue,
             params: params,
             response: LoginAccountResponse.self
         )
+        switch response {
+        case .chatgpt(let loginId, _), .chatgptDeviceCode(let loginId, _, _):
+            await notificationRouter.registerLogin(loginId)
+        default:
+            break
+        }
+        return response
     }
 
     public func accountLoginCancel(loginId: String) async throws -> CancelLoginAccountResponse {
@@ -183,6 +204,7 @@ public actor CodexClient {
             params: params,
             response: TurnStartResponse.self
         )
+        await notificationRouter.registerTurn(response.turn.id)
         await MainActor.run {
             store.dispatch(.turnStarted(threadId: params.threadId, turnId: response.turn.id))
         }
@@ -292,6 +314,7 @@ public actor CodexClient {
         await MainActor.run {
             store.dispatch(.turnStarted(threadId: threadId, turnId: turnId))
         }
+        await notificationRouter.registerTurn(turnId)
 
         return turnId
     }
@@ -543,6 +566,7 @@ public actor CodexClient {
     private func handleNotification(_ notification: JSONRPCNotification) async {
         let method = notification.method
         let params = notification.params ?? [:]
+        await notificationRouter.route(notification)
 
         // Route 1: PTY standard output chunks
         if method == "process/outputDelta" {
