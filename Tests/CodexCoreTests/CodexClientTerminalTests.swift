@@ -632,6 +632,36 @@ final class CodexClientTerminalTests: XCTestCase {
         await client.disconnect()
     }
 
+    func testEveryGeneratedNotificationMethodRoutesAsKnownPayload() async throws {
+        let router = CodexNotificationRouter()
+        let stream = router.globalNotifications()
+
+        let collector = Task { () -> [CodexNotification] in
+            var notifications: [CodexNotification] = []
+            var iterator = stream.makeAsyncIterator()
+            while notifications.count < CodexAppServerProtocolInventory.notificationMethodCount {
+                if let notification = await iterator.next() {
+                    notifications.append(notification)
+                }
+            }
+            return notifications
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        for method in CodexAppServerNotificationMethod.allCases {
+            await router.route(JSONRPCNotification(jsonrpc: "2.0", method: method.rawValue, params: [:]))
+        }
+
+        let notifications = await collector.value
+        let knownMethods = notifications.compactMap(\.payload.knownMethod)
+        XCTAssertEqual(knownMethods, CodexAppServerNotificationMethod.allCases)
+        XCTAssertEqual(Set(knownMethods).count, CodexAppServerProtocolInventory.notificationMethodCount)
+        XCTAssertFalse(notifications.contains { notification in
+            if case .unknown = notification.payload { return true }
+            return false
+        })
+    }
+
     func testHighLevelTurnTextDeltasReplayPendingEvents() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()

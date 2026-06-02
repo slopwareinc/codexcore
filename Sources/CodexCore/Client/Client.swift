@@ -707,7 +707,7 @@ public actor CodexClient {
         // Route 4: Standard timeline notifications (Thread/Turn events)
         // Skip lifecycle noise that carries no timeline state
         switch method {
-        case "remoteControl/status/changed", "mcpServer/startupStatus/updated", "account/rateLimits/updated":
+        case "remoteControl/status/changed", "mcpServer/startupStatus/updated", "account/rateLimits/updated", "account/login/completed":
             return
         default:
             break

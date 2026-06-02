@@ -4,6 +4,10 @@ public struct CodexNotification: Sendable, Equatable {
     public let method: String
     public let payload: CodexNotificationPayload
     public let rawParams: [String: CodexJSONValue]
+
+    public var knownMethod: CodexAppServerNotificationMethod? {
+        CodexAppServerNotificationMethod(rawValue: method)
+    }
 }
 
 public enum CodexNotificationPayload: Sendable, Equatable {
@@ -14,7 +18,31 @@ public enum CodexNotificationPayload: Sendable, Equatable {
     case turnStarted(TurnStartedNotification)
     case turnCompleted(TurnCompletedNotification)
     case accountLoginCompleted(AccountLoginCompletedNotification)
+    case known(method: CodexAppServerNotificationMethod, params: [String: CodexJSONValue])
     case unknown(method: String, params: [String: CodexJSONValue])
+
+    public var knownMethod: CodexAppServerNotificationMethod? {
+        switch self {
+        case .itemStarted:
+            return .itemStarted
+        case .itemCompleted:
+            return .itemCompleted
+        case .agentMessageDelta:
+            return .itemAgentMessageDelta
+        case .threadTokenUsageUpdated:
+            return .threadTokenUsageUpdated
+        case .turnStarted:
+            return .turnStarted
+        case .turnCompleted:
+            return .turnCompleted
+        case .accountLoginCompleted:
+            return .accountLoginCompleted
+        case .known(let method, _):
+            return method
+        case .unknown:
+            return nil
+        }
+    }
 }
 
 public actor CodexNotificationRouter {
@@ -201,27 +229,36 @@ public actor CodexNotificationRouter {
     }
 
     private static func payload(method: String, params: [String: CodexJSONValue]) -> CodexNotificationPayload {
+        let knownMethod = CodexAppServerNotificationMethod(rawValue: method)
+
         func decode<T: Decodable>(_ type: T.Type) -> T? {
             try? params.decode(type)
         }
 
+        func knownFallback() -> CodexNotificationPayload {
+            if let knownMethod {
+                return .known(method: knownMethod, params: params)
+            }
+            return .unknown(method: method, params: params)
+        }
+
         switch method {
         case CodexAppServerNotificationMethod.itemStarted.rawValue:
-            return decode(ItemStartedNotification.self).map(CodexNotificationPayload.itemStarted) ?? .unknown(method: method, params: params)
+            return decode(ItemStartedNotification.self).map(CodexNotificationPayload.itemStarted) ?? knownFallback()
         case CodexAppServerNotificationMethod.itemCompleted.rawValue:
-            return decode(ItemCompletedNotification.self).map(CodexNotificationPayload.itemCompleted) ?? .unknown(method: method, params: params)
+            return decode(ItemCompletedNotification.self).map(CodexNotificationPayload.itemCompleted) ?? knownFallback()
         case CodexAppServerNotificationMethod.itemAgentMessageDelta.rawValue:
-            return decode(AgentMessageDeltaNotification.self).map(CodexNotificationPayload.agentMessageDelta) ?? .unknown(method: method, params: params)
+            return decode(AgentMessageDeltaNotification.self).map(CodexNotificationPayload.agentMessageDelta) ?? knownFallback()
         case CodexAppServerNotificationMethod.threadTokenUsageUpdated.rawValue:
-            return decode(ThreadTokenUsageUpdatedNotification.self).map(CodexNotificationPayload.threadTokenUsageUpdated) ?? .unknown(method: method, params: params)
+            return decode(ThreadTokenUsageUpdatedNotification.self).map(CodexNotificationPayload.threadTokenUsageUpdated) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnStarted.rawValue:
-            return decode(TurnStartedNotification.self).map(CodexNotificationPayload.turnStarted) ?? .unknown(method: method, params: params)
+            return decode(TurnStartedNotification.self).map(CodexNotificationPayload.turnStarted) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnCompleted.rawValue:
-            return decode(TurnCompletedNotification.self).map(CodexNotificationPayload.turnCompleted) ?? .unknown(method: method, params: params)
+            return decode(TurnCompletedNotification.self).map(CodexNotificationPayload.turnCompleted) ?? knownFallback()
         case CodexAppServerNotificationMethod.accountLoginCompleted.rawValue:
-            return decode(AccountLoginCompletedNotification.self).map(CodexNotificationPayload.accountLoginCompleted) ?? .unknown(method: method, params: params)
+            return decode(AccountLoginCompletedNotification.self).map(CodexNotificationPayload.accountLoginCompleted) ?? knownFallback()
         default:
-            return .unknown(method: method, params: params)
+            return knownFallback()
         }
     }
 
