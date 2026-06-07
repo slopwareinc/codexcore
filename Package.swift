@@ -12,6 +12,10 @@ let package = Package(
             name: "CodexCore",
             targets: ["CodexCore"]
         ),
+        .library(
+            name: "CodexCoreUI",
+            targets: ["CodexCoreUI"]
+        ),
         .executable(
             name: "codex-run",
             targets: ["CodexRun"]
@@ -21,12 +25,22 @@ let package = Package(
             targets: ["CodexChatExample"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", from: "2.4.1")
+    ],
     targets: [
         .target(
             name: "CodexCore",
             dependencies: [],
             path: "Sources/CodexCore"
+        ),
+        .target(
+            name: "CodexCoreUI",
+            dependencies: [
+                "CodexCore",
+                .product(name: "MarkdownUI", package: "swift-markdown-ui")
+            ],
+            path: "Sources/CodexCoreUI"
         ),
         .executableTarget(
             name: "CodexRun",
@@ -35,7 +49,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "CodexChatExample",
-            dependencies: ["CodexCore"],
+            dependencies: ["CodexCore", "CodexCoreUI"],
             path: "Examples/CodexChatExample"
         ),
         .testTarget(
