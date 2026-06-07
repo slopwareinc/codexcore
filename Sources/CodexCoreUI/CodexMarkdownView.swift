@@ -2,6 +2,8 @@ import SwiftUI
 @preconcurrency import MarkdownUI
 
 public struct CodexMarkdownView: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let markdown: String
 
     public init(_ markdown: String) {
@@ -10,13 +12,13 @@ public struct CodexMarkdownView: View {
 
     public var body: some View {
         Markdown(markdown)
-            .markdownTheme(CodexMarkdownTheme.make())
+            .markdownTheme(CodexMarkdownTheme.make(theme))
             .textSelection(.enabled)
     }
 }
 
 private enum CodexMarkdownTheme {
-    static func make() -> Theme {
+    static func make(_ theme: CodexAgentTheme) -> Theme {
         Theme.basic
             .text {
                 FontFamily(.system())
@@ -26,24 +28,14 @@ private enum CodexMarkdownTheme {
             .code {
                 FontFamilyVariant(.monospaced)
                 FontSize(.em(0.9))
-                BackgroundColor(Color.codexInlineCodeBackground)
+                ForegroundColor(theme.colors.codeText)
+                BackgroundColor(theme.colors.accentSoft.opacity(0.72))
             }
             .strong {
                 FontWeight(.semibold)
             }
             .link {
-                ForegroundColor(Color.codexLink)
+                ForegroundColor(theme.colors.accent)
             }
     }
-}
-
-private extension Color {
-    static let codexLink = Color(
-        light: Color(rgba: 0x534FE3FF),
-        dark: Color(rgba: 0x7C84FFFF)
-    )
-    static let codexInlineCodeBackground = Color(
-        light: Color(rgba: 0xEDEFF3FF),
-        dark: Color(rgba: 0x232746FF)
-    )
 }

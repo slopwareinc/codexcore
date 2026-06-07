@@ -9,6 +9,8 @@ import UIKit
 
 /// Renders parsed assistant content blocks: prose, code blocks, and inline images.
 public struct CodexAssistantContentView: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let blocks: [AssistantRenderBlock]
 
     public init(blocks: [AssistantRenderBlock]) {
@@ -16,7 +18,7 @@ public struct CodexAssistantContentView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: CodexTheme.Space.md) {
+        VStack(alignment: .leading, spacing: theme.spacing.rowGap) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .markdown(let markdown):
@@ -26,7 +28,7 @@ public struct CodexAssistantContentView: View {
                 case .inlineImage:
                     Label("Inline image", systemImage: "photo")
                         .font(.callout)
-                        .foregroundStyle(CodexTheme.secondary)
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
             }
         }
@@ -35,6 +37,8 @@ public struct CodexAssistantContentView: View {
 
 /// Chat-tuned GitHub Flavored Markdown renderer.
 public struct CodexMarkdownText: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let raw: String
 
     public init(_ raw: String) {
@@ -43,14 +47,16 @@ public struct CodexMarkdownText: View {
 
     public var body: some View {
         CodexMarkdownView(raw)
-            .font(.system(size: 14))
-            .foregroundStyle(CodexTheme.primary)
+            .font(theme.fonts.chat)
+            .foregroundStyle(theme.colors.textPrimary)
             .lineSpacing(3)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
 
 public struct CodexCodeBlock: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let language: String?
     private let code: String
 
@@ -66,31 +72,31 @@ public struct CodexCodeBlock: View {
             HStack(spacing: 8) {
                 Image(systemName: "chevron.left.forwardslash.chevron.right")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(CodexTheme.codeFaint)
+                    .foregroundStyle(theme.colors.codeFaint)
                 Text(displayLanguage)
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CodexTheme.codeFaint)
+                    .foregroundStyle(theme.colors.codeFaint)
                 Spacer()
                 CodexCopyButton(copied: $copied) { copyToPasteboard(code) }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(CodexTheme.codeBGHeader)
+            .background(theme.colors.codeHeader)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.system(size: 12.5, design: .monospaced))
-                    .foregroundStyle(CodexTheme.codeText)
+                    .foregroundStyle(theme.colors.codeText)
                     .textSelection(.enabled)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .background(CodexTheme.codeBG)
-        .clipShape(RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous))
+        .background(theme.colors.codeBackground)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous)
-                .stroke(CodexTheme.codeStroke, lineWidth: 1)
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.border, lineWidth: 1)
         )
     }
 
@@ -101,6 +107,8 @@ public struct CodexCodeBlock: View {
 
 /// A collapsible terminal-style card for command execution output.
 public struct CodexCommandCard: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let run: CodexChatMessage.CommandRun
 
     @State private var expanded = true
@@ -115,11 +123,11 @@ public struct CodexCommandCard: View {
             header
             if expanded { outputPane }
         }
-        .background(CodexTheme.codeBG)
-        .clipShape(RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous))
+        .background(theme.colors.codeBackground)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous)
-                .stroke(CodexTheme.codeStroke, lineWidth: 1)
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.border, lineWidth: 1)
         )
         .frame(maxWidth: 640, alignment: .leading)
     }
@@ -131,11 +139,11 @@ public struct CodexCommandCard: View {
             HStack(spacing: 10) {
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(CodexTheme.codeFaint)
+                    .foregroundStyle(theme.colors.codeFaint)
 
                 Text(run.command)
                     .font(.system(size: 12.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(CodexTheme.codeText)
+                    .foregroundStyle(theme.colors.codeText)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -145,12 +153,12 @@ public struct CodexCommandCard: View {
 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(CodexTheme.codeFaint)
+                    .foregroundStyle(theme.colors.codeFaint)
                     .rotationEffect(.degrees(expanded ? 0 : -90))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(CodexTheme.codeBGHeader)
+            .background(theme.colors.codeHeader)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -158,12 +166,12 @@ public struct CodexCommandCard: View {
 
     private var outputPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(CodexTheme.codeStroke).frame(height: 1)
+            Rectangle().fill(theme.colors.border).frame(height: 1)
             ScrollView(.vertical, showsIndicators: true) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(outputText)
                         .font(.system(size: 12.5, design: .monospaced))
-                        .foregroundStyle(hasOutput ? CodexTheme.codeText : CodexTheme.codeFaint)
+                        .foregroundStyle(hasOutput ? theme.colors.codeText : theme.colors.codeFaint)
                         .textSelection(.enabled)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -176,7 +184,7 @@ public struct CodexCommandCard: View {
                     if let cwd = run.cwd, !cwd.isEmpty {
                         Text(cwd)
                             .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(CodexTheme.codeFaint)
+                            .foregroundStyle(theme.colors.codeFaint)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -185,7 +193,7 @@ public struct CodexCommandCard: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(CodexTheme.codeBGHeader)
+                .background(theme.colors.codeHeader)
             }
         }
     }
@@ -201,6 +209,8 @@ public struct CodexCommandCard: View {
 }
 
 private struct CodexCommandStatusChip: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     let run: CodexChatMessage.CommandRun
 
     var body: some View {
@@ -208,7 +218,7 @@ private struct CodexCommandStatusChip: View {
             if run.isStreaming {
                 ProgressView()
                     .controlSize(.mini)
-                    .tint(CodexTheme.running)
+                    .tint(theme.colors.running)
             } else {
                 Circle().fill(color).frame(width: 6, height: 6)
             }
@@ -228,13 +238,15 @@ private struct CodexCommandStatusChip: View {
     }
 
     private var color: Color {
-        if run.isStreaming { return CodexTheme.running }
-        if let exitCode = run.exitCode, exitCode != 0 { return CodexTheme.danger }
-        return CodexTheme.success
+        if run.isStreaming { return theme.colors.running }
+        if let exitCode = run.exitCode, exitCode != 0 { return theme.colors.danger }
+        return theme.colors.success
     }
 }
 
 public struct CodexCopyButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     @Binding private var copied: Bool
     private let action: () -> Void
 
@@ -258,7 +270,7 @@ public struct CodexCopyButton: View {
                 Text(copied ? "Copied" : "Copy")
                     .font(.system(size: 10.5, weight: .medium))
             }
-            .foregroundStyle(copied ? CodexTheme.success : CodexTheme.codeFaint)
+            .foregroundStyle(copied ? theme.colors.success : theme.colors.codeFaint)
         }
         .buttonStyle(.plain)
     }

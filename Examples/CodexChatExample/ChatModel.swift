@@ -26,18 +26,16 @@ final class CodexChatModel {
     var draft = ""
     var apiKey = ""
     var messages: [Message] = []
+    var lifecycleEvents: [CodexAgentLifecycleEvent] = []
+    var sideChat: CodexSideChatState?
+    var subagents: [CodexSubagentState] = []
     var activities: [Activity] = []
     var isSending = false
     var isAuthenticated = true
     var authLabel = "Checking auth"
     var deviceCodeURL: String?
     var deviceCode: String?
-
-    let demoMode = ProcessInfo.processInfo.environment["CODEX_CHAT_DEMO"] == "1"
-
-    init() {
-        if demoMode { loadDemoData() }
-    }
+    var themePreset: CodexAgentThemePreset = .officialDark
 
     var isConnected: Bool {
         if case .connected = connectionState { return true }
@@ -60,12 +58,11 @@ final class CodexChatModel {
     }
 
     var isThreadReady: Bool {
-        thread != nil || demoMode
+        thread != nil
     }
 
-    /// Shows the chat workspace directly when running in demo mode.
     var showsChatWorkspace: Bool {
-        demoMode || (isConnected && isAuthenticated && isThreadReady)
+        isConnected && isAuthenticated && isThreadReady
     }
 
     private var codex: Codex?
@@ -75,6 +72,7 @@ final class CodexChatModel {
     private var loginTask: Task<Void, Never>?
     private var assistantMessageIDsByItemID: [String: UUID] = [:]
     private var commandMessageIDsByItemID: [String: UUID] = [:]
+    private var agentStateMapper = CodexAgentStateMapper()
 
     var canSend: Bool {
         if case .connected = connectionState,
@@ -269,10 +267,16 @@ final class CodexChatModel {
     private func apply(_ notification: CodexNotification) {
         switch notification.payload {
         case .agentMessageDelta(let delta):
-            appendAssistantDelta(delta.delta, itemID: delta.itemId)
+            if agentStateMapper.messageDelta(delta.delta, itemID: delta.itemId) {
+                syncAgentState()
+            } else {
+                appendAssistantDelta(delta.delta, itemID: delta.itemId)
+            }
         case .itemStarted(let payload):
             if payload.item.type == "commandExecution" {
                 startCommandRun(payload.item)
+            } else if agentStateMapper.isSubagentItem(payload.item) {
+                applyAgentItemStarted(payload.item)
             } else if payload.item.type == "agentMessage" || payload.item.type == "assistantMessage" {
                 // Assistant message begins — handled by deltas.
             } else {
@@ -332,6 +336,8 @@ final class CodexChatModel {
             break
         case "commandExecution":
             finalizeCommandRun(item)
+        case _ where agentStateMapper.isSubagentItem(item):
+            applyAgentItemCompleted(item)
         default:
             appendActivity(.tool, title: humanItemType(item.type), detail: "Completed")
         }
@@ -423,6 +429,24 @@ final class CodexChatModel {
         messages.append(message)
     }
 
+    private func applyAgentItemStarted(_ item: ThreadItem) {
+        guard let update = agentStateMapper.itemStarted(item) else { return }
+        syncAgentState()
+        appendActivity(.tool, title: update.activityTitle, detail: update.activityDetail)
+    }
+
+    private func applyAgentItemCompleted(_ item: ThreadItem) {
+        guard let update = agentStateMapper.itemCompleted(item) else { return }
+        syncAgentState()
+        appendActivity(.tool, title: update.activityTitle, detail: update.activityDetail)
+    }
+
+    private func syncAgentState() {
+        lifecycleEvents = agentStateMapper.lifecycleEvents
+        sideChat = agentStateMapper.sideChat
+        subagents = agentStateMapper.subagents
+    }
+
     // MARK: - Value helpers
 
     private func stringValue(_ value: CodexJSONValue?) -> String? {
@@ -508,68 +532,8 @@ final class CodexChatModel {
         deviceCodeURL = nil
         assistantMessageIDsByItemID = [:]
         commandMessageIDsByItemID = [:]
+        agentStateMapper.reset()
+        syncAgentState()
     }
 
-    // MARK: - Demo data (CODEX_CHAT_DEMO=1)
-
-    private func loadDemoData() {
-        connectionState = .connected(server: "Codex")
-        isAuthenticated = true
-        authLabel = "chatgpt · betterclever@gmail.com"
-
-        let now = Date()
-        messages = [
-            Message(role: .user, text: "Print all the numbers from 1 to 10 via a script with a 1 second delay between each.", createdAt: now.addingTimeInterval(-48)),
-            Message(
-                role: .assistant,
-                text: """
-                I'll write a tiny loop that prints **1 through 10**, pausing one second between each number.
-
-                Here's the script I ran:
-
-                ```bash
-                for i in {1..10}; do
-                  print -- "$i"
-                  sleep 1
-                done
-                ```
-
-                A few notes:
-
-                - `print` is a `zsh` builtin — use `echo` if you're on `bash`.
-                - `sleep 1` accepts fractional seconds too, e.g. `sleep 0.5`.
-                """,
-                createdAt: now.addingTimeInterval(-44)
-            ),
-            Message(
-                role: .terminal,
-                text: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10",
-                createdAt: now.addingTimeInterval(-40),
-                parseContent: false,
-                commandRun: Message.CommandRun(
-                    itemID: "demo-cmd",
-                    command: "/bin/zsh -lc 'for i in {1..10}; do print -- \"$i\"; sleep 1; done'",
-                    cwd: defaultWorkspacePath(),
-                    output: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10",
-                    status: "completed",
-                    exitCode: 0,
-                    isStreaming: false
-                )
-            ),
-            Message(
-                role: .assistant,
-                text: "Done — printed **1 through 10**, one per second. Want me to make the delay configurable with an argument?",
-                createdAt: now.addingTimeInterval(-36)
-            )
-        ]
-
-        activities = [
-            Activity(kind: .turn, title: "Turn complete", detail: "Codex finished"),
-            Activity(kind: .tool, title: "Codex replied", detail: "Done — printed 1 through 10"),
-            Activity(kind: .tool, title: "Ran a command", detail: "for i in {1..10}; do print -- \"$i\"; sleep 1; done"),
-            Activity(kind: .turn, title: "You asked Codex", detail: "Print all the numbers from 1 to 10"),
-            Activity(kind: .notice, title: "Thread ready", detail: "Workspace session created"),
-            Activity(kind: .login, title: "Signed in", detail: "chatgpt · betterclever@gmail.com")
-        ]
-    }
 }

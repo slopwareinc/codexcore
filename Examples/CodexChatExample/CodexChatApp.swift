@@ -53,8 +53,18 @@ struct CodexChatView: View {
                 }
             }
             .animation(.spring(response: 0.42, dampingFraction: 0.9), value: flowKey)
+
+            VStack {
+                HStack {
+                    Spacer()
+                    ThemePresetPicker(model: model)
+                }
+                Spacer()
+            }
+            .padding(14)
         }
-        .tint(CodexTheme.accent)
+        .codexAgentTheme(model.themePreset.theme)
+        .tint(model.themePreset.theme.colors.accent)
     }
 
     private var flowKey: String {
@@ -62,6 +72,22 @@ struct CodexChatView: View {
         if !model.isConnected { return "connect" }
         if !model.isAuthenticated { return "sign-in" }
         return "prepare"
+    }
+}
+
+private struct ThemePresetPicker: View {
+    @Bindable var model: CodexChatModel
+
+    var body: some View {
+        Picker("Theme", selection: $model.themePreset) {
+            ForEach(CodexAgentThemePreset.allCases) { preset in
+                Text(preset.displayName).tag(preset)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(width: 156)
+        .codexGlass(Capsule(), interactive: true)
     }
 }
 
@@ -73,6 +99,9 @@ struct ChatWorkspaceView: View {
     var body: some View {
         CodexChatWorkspaceView(
             messages: model.messages,
+            lifecycleEvents: model.lifecycleEvents,
+            sideChat: model.sideChat,
+            subagents: model.subagents,
             activities: model.activities,
             connectionState: model.connectionState,
             workspacePath: model.workspacePath,

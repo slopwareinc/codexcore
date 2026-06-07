@@ -1,6 +1,8 @@
 import SwiftUI
 
 public struct CodexGlassPanel<Content: View>: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let content: Content
 
     public init(@ViewBuilder content: () -> Content) {
@@ -11,12 +13,14 @@ public struct CodexGlassPanel<Content: View>: View {
         content
             .padding(34)
             .frame(maxWidth: 540)
-            .codexGlass(RoundedRectangle(cornerRadius: CodexTheme.Radius.xl, style: .continuous))
+            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.panel, style: .continuous))
             .padding(28)
     }
 }
 
 public struct CodexLabeledTextField: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let title: String
     private let subtitle: String
     @Binding private var text: String
@@ -33,33 +37,35 @@ public struct CodexLabeledTextField: View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.system(size: 15))
-                .foregroundStyle(CodexTheme.accent)
+                .foregroundStyle(theme.colors.accent)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(title)
                         .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(CodexTheme.primary)
+                        .foregroundStyle(theme.colors.textPrimary)
                     Text(subtitle)
                         .font(.system(size: 11))
-                        .foregroundStyle(CodexTheme.tertiary)
+                        .foregroundStyle(theme.colors.textTertiary)
                 }
                 TextField(title, text: $text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(CodexTheme.primary)
+                    .foregroundStyle(theme.colors.textPrimary)
             }
         }
         .padding(12)
-        .background(CodexTheme.surfaceSunken.opacity(0.6), in: RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous))
+        .background(theme.colors.surfaceSunken.opacity(0.6), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous)
-                .stroke(CodexTheme.stroke, lineWidth: 1)
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.border, lineWidth: 1)
         )
     }
 }
 
 public struct CodexErrorBanner: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let message: String
 
     public init(message: String) {
@@ -74,14 +80,16 @@ public struct CodexErrorBanner: View {
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")
         }
-        .foregroundStyle(CodexTheme.danger)
+        .foregroundStyle(theme.colors.danger)
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CodexTheme.danger.opacity(0.10), in: RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous))
+        .background(theme.colors.danger.opacity(0.10), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
     }
 }
 
 public struct CodexDeviceCodeCard: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let code: String
     private let urlString: String?
     private let openURL: OpenURLAction
@@ -96,27 +104,27 @@ public struct CodexDeviceCodeCard: View {
         VStack(spacing: 10) {
             Text("Enter this code in your browser")
                 .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(CodexTheme.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
             Text(code)
                 .font(.system(size: 26, weight: .bold, design: .monospaced))
-                .foregroundStyle(CodexTheme.primary)
+                .foregroundStyle(theme.colors.textPrimary)
                 .tracking(3)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
-                .background(CodexTheme.surface, in: RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous))
+                .background(theme.colors.surface, in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: CodexTheme.Radius.md, style: .continuous)
-                        .stroke(CodexTheme.stroke, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                        .stroke(theme.colors.border, lineWidth: 1)
                 )
             if let urlString, let url = URL(string: urlString) {
                 Button("Open sign-in page") { openURL(url) }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(CodexTheme.accent)
+                    .foregroundStyle(theme.colors.accent)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity)
-        .background(CodexTheme.accentSoft, in: RoundedRectangle(cornerRadius: CodexTheme.Radius.lg, style: .continuous))
+        .background(theme.colors.accentSoft, in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
     }
 }

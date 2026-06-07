@@ -128,6 +128,148 @@ public struct CodexActivity: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct CodexAgentLifecycleEvent: Identifiable, Equatable, Sendable {
+    public enum Status: String, Equatable, Sendable {
+        case spawning
+        case running
+        case completed
+        case closed
+        case failed
+    }
+
+    public let id: UUID
+    public var status: Status
+    public var title: String
+    public var detail: String
+    public var agentNames: [String]
+    public var createdAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        status: Status,
+        title: String,
+        detail: String = "",
+        agentNames: [String] = [],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.status = status
+        self.title = title
+        self.detail = detail
+        self.agentNames = agentNames
+        self.createdAt = createdAt
+    }
+}
+
+public struct CodexSubagentState: Identifiable, Equatable, Sendable {
+    public enum Status: String, Equatable, Sendable {
+        case running
+        case completed
+        case closed
+        case failed
+    }
+
+    public let id: String
+    public var name: String
+    public var title: String
+    public var prompt: String
+    public var status: Status
+    public var messages: [CodexChatMessage]
+    public var createdAt: Date
+    public var completedAt: Date?
+
+    public init(
+        id: String? = nil,
+        name: String,
+        title: String,
+        prompt: String,
+        status: Status,
+        messages: [CodexChatMessage] = [],
+        createdAt: Date = Date(),
+        completedAt: Date? = nil
+    ) {
+        self.id = id ?? "subagent-\(name.lowercased())"
+        self.name = name
+        self.title = title
+        self.prompt = prompt
+        self.status = status
+        self.messages = messages
+        self.createdAt = createdAt
+        self.completedAt = completedAt
+    }
+}
+
+public struct CodexSideChatState: Identifiable, Equatable, Sendable {
+    public let id: String
+    public var title: String
+    public var messages: [CodexChatMessage]
+    public var createdAt: Date
+
+    public init(
+        id: String = "side-chat",
+        title: String = "Side chat",
+        messages: [CodexChatMessage] = [],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.title = title
+        self.messages = messages
+        self.createdAt = createdAt
+    }
+}
+
+public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
+    case sideChat(CodexSideChatState)
+    case subagent(CodexSubagentState)
+
+    public var id: String {
+        switch self {
+        case .sideChat(let sideChat): return sideChat.id
+        case .subagent(let subagent): return subagent.id
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .sideChat(let sideChat): return sideChat.title
+        case .subagent(let subagent): return subagent.name
+        }
+    }
+
+    public var messages: [CodexChatMessage] {
+        switch self {
+        case .sideChat(let sideChat): return sideChat.messages
+        case .subagent(let subagent): return subagent.messages
+        }
+    }
+}
+
+public struct CodexAgentPanelState: Equatable, Sendable {
+    public var isOpen: Bool
+    public var selectedTabID: String?
+    public var sideChat: CodexSideChatState?
+    public var subagents: [CodexSubagentState]
+
+    public init(
+        isOpen: Bool = false,
+        selectedTabID: String? = nil,
+        sideChat: CodexSideChatState? = nil,
+        subagents: [CodexSubagentState] = []
+    ) {
+        self.isOpen = isOpen
+        self.selectedTabID = selectedTabID
+        self.sideChat = sideChat
+        self.subagents = subagents
+    }
+
+    public var tabs: [CodexAgentPanelTab] {
+        var tabs: [CodexAgentPanelTab] = []
+        if let sideChat { tabs.append(.sideChat(sideChat)) }
+        tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent))
+        return tabs
+    }
+}
+
 public struct CodexPromptSuggestion: Identifiable, Equatable, Sendable {
     public var id: String { prompt }
     public var systemImage: String

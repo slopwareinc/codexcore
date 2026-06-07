@@ -2,7 +2,12 @@ import SwiftUI
 
 /// A complete reusable Codex chat workspace: transcript, header, composer, and session sidebar.
 public struct CodexChatWorkspaceView: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let messages: [CodexChatMessage]
+    private let lifecycleEvents: [CodexAgentLifecycleEvent]
+    private let sideChat: CodexSideChatState?
+    private let subagents: [CodexSubagentState]
     private let activities: [CodexActivity]
     private let connectionState: CodexConnectionState
     private let workspacePath: String
@@ -17,9 +22,14 @@ public struct CodexChatWorkspaceView: View {
     private let onInterrupt: () -> Void
     private let onDisconnect: () -> Void
     private let onPromptSelected: ((String) -> Void)?
+    @State private var isAgentPanelOpen = false
+    @State private var selectedPanelTabID: String?
 
     public init(
         messages: [CodexChatMessage],
+        lifecycleEvents: [CodexAgentLifecycleEvent] = [],
+        sideChat: CodexSideChatState? = nil,
+        subagents: [CodexSubagentState] = [],
         activities: [CodexActivity],
         connectionState: CodexConnectionState,
         workspacePath: String,
@@ -36,6 +46,9 @@ public struct CodexChatWorkspaceView: View {
         onPromptSelected: ((String) -> Void)? = nil
     ) {
         self.messages = messages
+        self.lifecycleEvents = lifecycleEvents
+        self.sideChat = sideChat
+        self.subagents = subagents
         self.activities = activities
         self.connectionState = connectionState
         self.workspacePath = workspacePath
@@ -53,16 +66,35 @@ public struct CodexChatWorkspaceView: View {
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            mainColumn
-            sidebar
+        ZStack(alignment: .topTrailing) {
+            HStack(spacing: 0) {
+                mainColumn
+
+                if isAgentPanelOpen, !panelTabs.isEmpty {
+                    CodexAgentSidePanel(
+                        tabs: panelTabs,
+                        selectedTabID: $selectedPanelTabID,
+                        onClose: { withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { isAgentPanelOpen = false } }
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+
+            CodexFloatingSummaryPanel(
+                sideChat: sideChat,
+                subagents: subagents,
+                onSelectTab: openPanelTab
+            )
+            .padding(.top, 58)
+            .padding(.trailing, isAgentPanelOpen ? theme.spacing.sidePanelWidth + 16 : 16)
+            .animation(.spring(response: 0.32, dampingFraction: 0.9), value: isAgentPanelOpen)
         }
-        .padding(14)
+        .background(theme.colors.canvas.opacity(0.001))
     }
 
     private var mainColumn: some View {
         ZStack(alignment: .top) {
-            CodexTranscriptView(messages: messages) {
+            CodexTranscriptView(messages: messages, lifecycleEvents: lifecycleEvents) {
                 CodexEmptyTranscriptView { prompt in
                     if let onPromptSelected {
                         onPromptSelected(prompt)
@@ -71,75 +103,99 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
             }
-            .safeAreaPadding(.top, 66)
-            .safeAreaPadding(.bottom, 116)
+            .safeAreaPadding(.top, 58)
+            .safeAreaPadding(.bottom, 122)
 
             VStack(spacing: 0) {
-                glassBar {
-                    CodexChatHeader(
-                        workspacePath: workspacePath,
-                        connectionState: connectionState,
-                        onDisconnect: onDisconnect
-                    )
-                }
+                CodexChatHeader(
+                    workspacePath: workspacePath,
+                    connectionState: connectionState,
+                    activities: activities,
+                    hasPanelTabs: !panelTabs.isEmpty,
+                    isPanelOpen: isAgentPanelOpen,
+                    onTogglePanel: toggleAgentPanel,
+                    onDisconnect: onDisconnect
+                )
+                .codexGlass(RoundedRectangle(cornerRadius: theme.radii.panel, style: .continuous))
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+
                 Spacer(minLength: 0)
-                glassBar {
-                    CodexComposerBar(
-                        draft: $draft,
-                        isSending: isSending,
-                        canSend: canSend,
-                        onSend: onSend,
-                        onInterrupt: onInterrupt
-                    )
-                }
+                CodexComposerBar(
+                    draft: $draft,
+                    isSending: isSending,
+                    canSend: canSend,
+                    onSend: onSend,
+                    onInterrupt: onInterrupt
+                )
+                .frame(maxWidth: theme.spacing.composerMaxWidth + 32)
+                .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
             }
         }
         .frame(minWidth: 540)
     }
 
-    private var sidebar: some View {
-        CodexSessionSidebar(
-            serverName: serverName,
-            workspacePath: workspacePath,
-            authLabel: authLabel,
-            isAuthenticated: isAuthenticated,
-            isThreadReady: isThreadReady,
-            activities: activities
-        )
-        .frame(width: 304)
-        .codexGlass(RoundedRectangle(cornerRadius: CodexTheme.Radius.xl, style: .continuous))
-        .padding(.leading, 14)
+    private var panelTabs: [CodexAgentPanelTab] {
+        var tabs: [CodexAgentPanelTab] = []
+        if let sideChat { tabs.append(.sideChat(sideChat)) }
+        tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent))
+        return tabs
     }
 
-    private func glassBar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .codexGlass(RoundedRectangle(cornerRadius: CodexTheme.Radius.xl, style: .continuous))
+    private func openPanelTab(_ id: String) {
+        selectedPanelTabID = id
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+            isAgentPanelOpen = true
+        }
+    }
+
+    private func toggleAgentPanel() {
+        if selectedPanelTabID == nil { selectedPanelTabID = panelTabs.first?.id }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+            isAgentPanelOpen.toggle()
+        }
     }
 }
 
 public struct CodexChatHeader: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let workspacePath: String
     private let connectionState: CodexConnectionState
+    private let activities: [CodexActivity]
+    private let hasPanelTabs: Bool
+    private let isPanelOpen: Bool
+    private let onTogglePanel: () -> Void
     private let onDisconnect: () -> Void
 
     public init(
         workspacePath: String,
         connectionState: CodexConnectionState,
+        activities: [CodexActivity] = [],
+        hasPanelTabs: Bool = false,
+        isPanelOpen: Bool = false,
+        onTogglePanel: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void
     ) {
         self.workspacePath = workspacePath
         self.connectionState = connectionState
+        self.activities = activities
+        self.hasPanelTabs = hasPanelTabs
+        self.isPanelOpen = isPanelOpen
+        self.onTogglePanel = onTogglePanel
         self.onDisconnect = onDisconnect
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
-            CodexBrandMark(size: 34)
+        HStack(spacing: 10) {
+            CodexBrandMark(size: 28)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text("Codex")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(CodexTheme.primary)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
                 HStack(spacing: 4) {
                     Image(systemName: "folder")
                         .font(.system(size: 9))
@@ -147,26 +203,45 @@ public struct CodexChatHeader: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .font(.system(size: 11))
-                .foregroundStyle(CodexTheme.tertiary)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
             }
 
             Spacer()
 
+            if let latest = activities.first {
+                Text(latest.title)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 160, alignment: .trailing)
+            }
+
             CodexStatusPill(state: connectionState)
+
+            Button(action: onTogglePanel) {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(hasPanelTabs ? theme.colors.textSecondary : theme.colors.textTertiary)
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+            .codexGlass(Circle(), interactive: true)
+            .disabled(!hasPanelTabs)
+            .help("Toggle agent panel")
 
             Button(action: onDisconnect) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(CodexTheme.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 26, height: 26)
             }
             .buttonStyle(.plain)
             .codexGlass(Circle(), interactive: true)
             .help("Disconnect")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .frame(height: theme.spacing.toolbarHeight)
+        .padding(.horizontal, 12)
     }
 
     private func shortPath(_ path: String) -> String {
@@ -177,6 +252,8 @@ public struct CodexChatHeader: View {
 }
 
 public struct CodexStatusPill: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let state: CodexConnectionState
 
     public init(state: CodexConnectionState) {
@@ -195,8 +272,8 @@ public struct CodexStatusPill: View {
                         .animation(isLive ? .easeOut(duration: 1.4).repeatForever(autoreverses: false) : .default, value: isLive)
                 )
             Text(state.label)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(CodexTheme.secondary)
+                .font(theme.fonts.caption.weight(.medium))
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 6)
@@ -210,15 +287,17 @@ public struct CodexStatusPill: View {
 
     private var color: Color {
         switch state {
-        case .disconnected: return CodexTheme.tertiary
-        case .connecting: return CodexTheme.warning
-        case .connected: return CodexTheme.success
-        case .failed: return CodexTheme.danger
+        case .disconnected: return theme.colors.textTertiary
+        case .connecting: return theme.colors.warning
+        case .connected: return theme.colors.success
+        case .failed: return theme.colors.danger
         }
     }
 }
 
 public struct CodexComposerBar: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     @Binding private var draft: String
     private let isSending: Bool
     private let canSend: Bool
@@ -245,8 +324,8 @@ public struct CodexComposerBar: View {
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("Ask Codex anything about this workspace...", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .foregroundStyle(CodexTheme.primary)
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1...6)
                     .focused($focused)
                     .onSubmit(onSend)
@@ -257,7 +336,7 @@ public struct CodexComposerBar: View {
                     Button(action: onInterrupt) {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(CodexTheme.danger)
+                            .foregroundStyle(theme.colors.danger)
                             .frame(width: 34, height: 34)
                     }
                     .buttonStyle(.plain)
@@ -268,10 +347,10 @@ public struct CodexComposerBar: View {
                 }
             }
             .padding(8)
-            .background(CodexTheme.surfaceSunken.opacity(0.5), in: RoundedRectangle(cornerRadius: CodexTheme.Radius.lg, style: .continuous))
+            .background(theme.colors.surfaceSunken.opacity(0.50), in: RoundedRectangle(cornerRadius: theme.radii.composer - 7, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: CodexTheme.Radius.lg, style: .continuous)
-                    .stroke(CodexTheme.stroke, lineWidth: 1)
+                RoundedRectangle(cornerRadius: theme.radii.composer - 7, style: .continuous)
+                    .stroke(theme.colors.border, lineWidth: 1)
             )
 
             HStack(spacing: 14) {
@@ -279,8 +358,8 @@ public struct CodexComposerBar: View {
                 CapabilityTag(icon: "checkmark.seal.fill", text: "auto-review")
                 Spacer()
                 Text("Cmd+Return to send")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CodexTheme.tertiary)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
             }
             .padding(.horizontal, 4)
         }
@@ -291,6 +370,8 @@ public struct CodexComposerBar: View {
 }
 
 private struct SendButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     let enabled: Bool
     let action: () -> Void
 
@@ -298,15 +379,15 @@ private struct SendButton: View {
         Button(action: action) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(enabled ? CodexTheme.onAccent : CodexTheme.tertiary)
+                .foregroundStyle(enabled ? theme.colors.onAccent : theme.colors.textTertiary)
                 .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
         .background {
             if enabled {
-                Circle().fill(CodexTheme.accent)
+                Circle().fill(theme.colors.accent)
             } else {
-                Circle().fill(CodexTheme.surfaceSunken)
+                Circle().fill(theme.colors.surfaceSunken)
             }
         }
         .keyboardShortcut(.return, modifiers: [.command])
@@ -316,6 +397,8 @@ private struct SendButton: View {
 }
 
 private struct CapabilityTag: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     let icon: String
     let text: String
 
@@ -326,7 +409,7 @@ private struct CapabilityTag: View {
             Text(text)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
         }
-        .foregroundStyle(CodexTheme.tertiary)
+        .foregroundStyle(theme.colors.textTertiary)
     }
 }
 
