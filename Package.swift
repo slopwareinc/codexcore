@@ -56,6 +56,11 @@ let package = Package(
             name: "CodexCoreTests",
             dependencies: ["CodexCore"],
             path: "Tests/CodexCoreTests"
+        ),
+        .testTarget(
+            name: "CodexCoreUITests",
+            dependencies: ["CodexCore", "CodexCoreUI"],
+            path: "Tests/CodexCoreUITests"
         )
     ]
 )

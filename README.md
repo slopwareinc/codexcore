@@ -97,11 +97,17 @@ import CodexCoreUI
 struct YourChatView: View {
     @State private var draft = ""
     @State private var messages: [CodexChatMessage] = []
+    @State private var lifecycleEvents: [CodexAgentLifecycleEvent] = []
+    @State private var sideChat: CodexSideChatState?
+    @State private var subagents: [CodexSubagentState] = []
     @State private var activities: [CodexActivity] = []
 
     var body: some View {
         CodexChatWorkspaceView(
             messages: messages,
+            lifecycleEvents: lifecycleEvents,
+            sideChat: sideChat,
+            subagents: subagents,
             activities: activities,
             connectionState: .connected(server: "Codex"),
             workspacePath: FileManager.default.currentDirectoryPath,
@@ -119,7 +125,7 @@ struct YourChatView: View {
 }
 ```
 
-See `Examples/CodexChatExample` for a complete app that connects to the installed `codex` binary, inherits `~/.codex` auth through `CODEX_HOME`, starts a thread, streams assistant deltas as plain text, and renders final assistant messages with GitHub Flavored Markdown.
+Use `CodexAgentStateMapper` to translate raw app-server `ThreadItem` subagent events into the `lifecycleEvents`, `sideChat`, and `subagents` state consumed by the workspace. See `Examples/CodexChatExample` for a complete app that connects to the installed `codex` binary, inherits `~/.codex` auth through `CODEX_HOME`, starts a thread, streams assistant deltas as plain text, and renders final assistant messages with GitHub Flavored Markdown.
 
 ### 3. Run the SwiftUI Chat Example
 
