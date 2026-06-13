@@ -1,24 +1,30 @@
 import XCTest
 @testable import CodexCore
 
+/// Internal consistency checks for the generated protocol surface.
+///
+/// These tests intentionally avoid hardcoded method counts: counts pinned to a
+/// snapshot can only go stale, and comparing `allCases.count` against a
+/// constant emitted by the same generator proves nothing. Actual drift against
+/// the codex binary is detected by `Tools/check_drift.sh`, which regenerates
+/// the files from `codex app-server generate-json-schema --experimental` and
+/// diffs them against the committed sources.
 final class AppServerProtocolMethodTests: XCTestCase {
-    func testGeneratedMethodCountsMatchCurrentAppServerSchema() {
+    func testGeneratedMethodCountsMatchInventory() {
         XCTAssertEqual(CodexAppServerClientMethod.allCases.count, CodexAppServerProtocolInventory.clientMethodCount)
         XCTAssertEqual(CodexAppServerNotificationMethod.allCases.count, CodexAppServerProtocolInventory.notificationMethodCount)
         XCTAssertEqual(CodexAppServerServerRequestMethod.allCases.count, CodexAppServerProtocolInventory.serverRequestMethodCount)
-
-        XCTAssertEqual(CodexAppServerClientMethod.allCases.count, 108)
-        XCTAssertEqual(CodexAppServerNotificationMethod.allCases.count, 64)
-        XCTAssertEqual(CodexAppServerServerRequestMethod.allCases.count, 10)
     }
 
     func testGeneratedMethodsAreUnique() {
-        XCTAssertEqual(Set(CodexAppServerClientMethod.allCases.map(\.rawValue)).count, 108)
-        XCTAssertEqual(Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count, 64)
-        XCTAssertEqual(Set(CodexAppServerServerRequestMethod.allCases.map(\.rawValue)).count, 10)
+        XCTAssertEqual(Set(CodexAppServerClientMethod.allCases.map(\.rawValue)).count, CodexAppServerClientMethod.allCases.count)
+        XCTAssertEqual(Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count, CodexAppServerNotificationMethod.allCases.count)
+        XCTAssertEqual(Set(CodexAppServerServerRequestMethod.allCases.map(\.rawValue)).count, CodexAppServerServerRequestMethod.allCases.count)
     }
 
-    func testCorePythonSDKMethodsArePresent() {
+    /// Every method the SDK invokes through typed wrappers must exist in the
+    /// generated enum; removal upstream should fail loudly here.
+    func testMethodsUsedByTypedWrappersArePresent() {
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.initialize))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.accountLoginStart))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadStart))
@@ -38,6 +44,7 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.itemCompleted))
         XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.accountLoginCompleted))
         XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.commandExecOutputDelta))
+        XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.serverRequestResolved))
 
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.itemCommandExecutionRequestApproval))
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.itemToolRequestUserInput))
@@ -45,14 +52,9 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.accountChatGPTAuthTokensRefresh))
     }
 
-    func testGeneratedSchemaTypeInventoryMatchesCurrentAppServerSchema() {
-        XCTAssertEqual(CodexAppServerSchemaInventory.definitionCount, 510)
-        XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFileCount, 259)
+    func testGeneratedSchemaTypeInventoryIsConsistent() {
         XCTAssertEqual(CodexAppServerSchemaInventory.definitions.count, CodexAppServerSchemaInventory.definitionCount)
         XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFiles.count, CodexAppServerSchemaInventory.v2SchemaFileCount)
-        XCTAssertEqual(CodexAppServerSchemaInventory.clientRequestParamCount, 99)
-        XCTAssertEqual(CodexAppServerSchemaInventory.notificationPayloadCount, CodexAppServerProtocolInventory.notificationMethodCount)
-        XCTAssertEqual(CodexAppServerSchemaInventory.serverRequestParamCount, CodexAppServerProtocolInventory.serverRequestMethodCount)
         XCTAssertEqual(CodexAppServerSchemaInventory.clientRequestParams.count, CodexAppServerSchemaInventory.clientRequestParamCount)
         XCTAssertEqual(CodexAppServerSchemaInventory.notificationPayloads.count, CodexAppServerSchemaInventory.notificationPayloadCount)
         XCTAssertEqual(CodexAppServerSchemaInventory.serverRequestParams.count, CodexAppServerSchemaInventory.serverRequestParamCount)
@@ -82,19 +84,41 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(names.contains("AccountLoginCompletedNotification"))
     }
 
-    func testGeneratedSchemaAliasesDecodeRawJSON() throws {
-        let data = #"{"id":"thread-1","status":{"type":"active"}}"#.data(using: .utf8)!
-        let thread = try JSONDecoder().decode(CodexSchemaThread.self, from: data)
-        XCTAssertEqual(thread.rawValue, .dictionary([
-            "id": .string("thread-1"),
-            "status": .dictionary(["type": .string("active")])
-        ]))
+    func testGeneratedSchemaTypesAreRealSwiftTypes() throws {
+        // Plain object schemas become Codable structs with typed fields.
+        let stepData = #"{"step":"Implement fix","status":"inProgress"}"#.data(using: .utf8)!
+        let step = try JSONDecoder().decode(CodexSchemaTurnPlanStep.self, from: stepData)
+        XCTAssertEqual(step.step, "Implement fix")
+        XCTAssertEqual(step.status, .inProgress)
 
-        let response = CodexSchemaTurnStartResponse(.dictionary([
-            "turn": .dictionary(["id": .string("turn-1")])
-        ]))
-        let encoded = try JSONEncoder().encode(response)
-        let decoded = try JSONDecoder().decode(CodexSchemaTurnStartResponse.self, from: encoded)
-        XCTAssertEqual(decoded.rawValue, response.rawValue)
+        // CodingKeys map Swift acronym casing back to the wire casing, and
+        // unknown wire fields are tolerated.
+        let diffData = #"{"threadId":"t1","turnId":"u1","diff":"+1","unknownField":true}"#.data(using: .utf8)!
+        let diff = try JSONDecoder().decode(CodexSchemaTurnDiffUpdatedNotification.self, from: diffData)
+        XCTAssertEqual(diff.threadID, "t1")
+        XCTAssertEqual(diff.turnID, "u1")
+        XCTAssertEqual(diff.diff, "+1")
+
+        // Round trip re-encodes with the wire casing.
+        let reencoded = try JSONDecoder().decode(
+            CodexSchemaTurnDiffUpdatedNotification.self,
+            from: JSONEncoder().encode(diff)
+        )
+        XCTAssertEqual(reencoded, diff)
+
+        // Complex unions stay addressable as raw JSON wrappers.
+        let rawData = #"{"method":"thread/start"}"#.data(using: .utf8)!
+        let raw = try JSONDecoder().decode(CodexSchemaClientRequest.self, from: rawData)
+        XCTAssertEqual(raw.rawValue, .dictionary(["method": .string("thread/start")]))
+
+        // Every definition is exactly one of enum, struct, or raw alias.
+        XCTAssertEqual(
+            CodexAppServerSchemaInventory.generatedEnumCount
+                + CodexAppServerSchemaInventory.generatedStructCount
+                + CodexAppServerSchemaInventory.rawAliasCount,
+            CodexAppServerSchemaInventory.definitionCount
+        )
+        XCTAssertGreaterThan(CodexAppServerSchemaInventory.generatedStructCount, 0)
+        XCTAssertGreaterThan(CodexAppServerSchemaInventory.generatedEnumCount, 0)
     }
 }

@@ -6,13 +6,20 @@ import CodexCoreUI
 @main
 struct CodexChatApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var model = CodexChatModel()
 
     var body: some Scene {
         WindowGroup {
-            CodexChatView()
+            CodexChatView(model: model)
                 .frame(minWidth: 940, minHeight: 660)
         }
         .windowResizability(.contentMinSize)
+
+        Settings {
+            CodexSettingsView(model: model)
+                .codexAgentTheme(model.themePreset.theme)
+                .tint(model.themePreset.theme.colors.accent)
+        }
     }
 }
 
@@ -30,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct CodexChatView: View {
-    @State private var model = CodexChatModel()
+    @Bindable var model: CodexChatModel
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -53,15 +60,6 @@ struct CodexChatView: View {
                 }
             }
             .animation(.spring(response: 0.42, dampingFraction: 0.9), value: flowKey)
-
-            VStack {
-                HStack {
-                    Spacer()
-                    ThemePresetPicker(model: model)
-                }
-                Spacer()
-            }
-            .padding(14)
         }
         .codexAgentTheme(model.themePreset.theme)
         .tint(model.themePreset.theme.colors.accent)
@@ -72,6 +70,46 @@ struct CodexChatView: View {
         if !model.isConnected { return "connect" }
         if !model.isAuthenticated { return "sign-in" }
         return "prepare"
+    }
+}
+
+private struct CodexSettingsView: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @Bindable var model: CodexChatModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Settings")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("Customize the Codex chat example.")
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+
+            Divider().overlay(theme.colors.border)
+
+            HStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Theme")
+                        .font(theme.fonts.label)
+                        .foregroundStyle(theme.colors.textPrimary)
+                    Text("Applies to the whole workspace, including side chats and subagents.")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+
+                Spacer(minLength: 24)
+
+                ThemePresetPicker(model: model)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(width: 420, height: 220, alignment: .topLeading)
+        .background(theme.colors.canvas)
     }
 }
 
@@ -97,24 +135,6 @@ struct ChatWorkspaceView: View {
     @Bindable var model: CodexChatModel
 
     var body: some View {
-        CodexChatWorkspaceView(
-            messages: model.messages,
-            lifecycleEvents: model.lifecycleEvents,
-            sideChat: model.sideChat,
-            subagents: model.subagents,
-            activities: model.activities,
-            connectionState: model.connectionState,
-            workspacePath: model.workspacePath,
-            serverName: model.serverName,
-            authLabel: model.authLabel,
-            isAuthenticated: model.isAuthenticated,
-            isThreadReady: model.isThreadReady,
-            draft: $model.draft,
-            isSending: model.isSending,
-            canSend: model.canSend,
-            onSend: { Task { await model.sendDraft() } },
-            onInterrupt: { Task { await model.interrupt() } },
-            onDisconnect: { Task { await model.disconnect() } }
-        )
+        CodexExampleAppShell(model: model)
     }
 }

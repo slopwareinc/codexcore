@@ -29,6 +29,9 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                             case .message(let message):
                                 CodexMessageRow(message: message)
                                     .id(item.id)
+                            case .assistantTurn(let messages, let lifecycleEvents):
+                                CodexAssistantTurnGroupView(messages: messages, lifecycleEvents: lifecycleEvents)
+                                    .id(item.id)
                             case .lifecycle(let event):
                                 CodexAgentLifecycleBlock(event: event)
                                     .id(item.id)
@@ -51,11 +54,16 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
 
     private enum TimelineItem: Identifiable {
         case message(CodexChatMessage)
+        case assistantTurn(messages: [CodexChatMessage], lifecycleEvents: [CodexAgentLifecycleEvent])
         case lifecycle(CodexAgentLifecycleEvent)
 
         var id: String {
             switch self {
             case .message(let message): return "message-\(message.id.uuidString)"
+            case .assistantTurn(let messages, let lifecycleEvents):
+                if let message = messages.first { return "assistant-turn-\(message.id.uuidString)" }
+                if let event = lifecycleEvents.first { return "assistant-turn-lifecycle-\(event.id.uuidString)" }
+                return "assistant-turn-empty"
             case .lifecycle(let event): return "lifecycle-\(event.id.uuidString)"
             }
         }
@@ -63,14 +71,48 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         var createdAt: Date {
             switch self {
             case .message(let message): return message.createdAt
+            case .assistantTurn(let messages, let lifecycleEvents):
+                return [messages.first?.createdAt, lifecycleEvents.first?.createdAt]
+                    .compactMap { $0 }
+                    .min() ?? Date()
             case .lifecycle(let event): return event.createdAt
             }
         }
     }
 
     private var timelineItems: [TimelineItem] {
-        (messages.map(TimelineItem.message) + lifecycleEvents.map(TimelineItem.lifecycle))
+        compactAssistantTurns(
+            (messages.map(TimelineItem.message) + lifecycleEvents.map(TimelineItem.lifecycle))
             .sorted { lhs, rhs in lhs.createdAt < rhs.createdAt }
+        )
+    }
+
+    private func compactAssistantTurns(_ items: [TimelineItem]) -> [TimelineItem] {
+        var compacted: [TimelineItem] = []
+        var pendingAssistantMessages: [CodexChatMessage] = []
+        var pendingLifecycleEvents: [CodexAgentLifecycleEvent] = []
+
+        func flushPending() {
+            guard !pendingAssistantMessages.isEmpty || !pendingLifecycleEvents.isEmpty else { return }
+            compacted.append(.assistantTurn(messages: pendingAssistantMessages, lifecycleEvents: pendingLifecycleEvents))
+            pendingAssistantMessages = []
+            pendingLifecycleEvents = []
+        }
+
+        for item in items {
+            switch item {
+            case .message(let message) where message.role == .assistant:
+                pendingAssistantMessages.append(message)
+            case .lifecycle(let event):
+                pendingLifecycleEvents.append(event)
+            default:
+                flushPending()
+                compacted.append(item)
+            }
+        }
+
+        flushPending()
+        return compacted
     }
 
     private static var bottomAnchor: String { "transcript-bottom" }
@@ -88,6 +130,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
 
 public struct CodexAgentLifecycleBlock: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isExpanded = false
 
     private let event: CodexAgentLifecycleEvent
 
@@ -97,45 +140,92 @@ public struct CodexAgentLifecycleBlock: View {
 
     public var body: some View {
         CodexAgentRow(showAvatar: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    statusIcon
-                    Text(event.title)
-                        .font(theme.fonts.label)
-                        .foregroundStyle(theme.colors.textSecondary)
-                    Spacer(minLength: 0)
-                    Text(event.createdAt, format: .dateTime.hour().minute())
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                }
+            VStack(alignment: .leading, spacing: 9) {
+                Button {
+                    guard isCollapsible else { return }
+                    withAnimation(.snappy(duration: 0.18)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(alignment: .top, spacing: 9) {
+                        statusIcon
+                            .frame(width: 16, height: 16)
+                            .padding(.top, 1)
 
-                if !event.detail.isEmpty {
-                    Text(event.detail)
-                        .font(theme.fonts.chat)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if !event.agentNames.isEmpty {
-                    FlowLayout(spacing: 7) {
-                        ForEach(event.agentNames, id: \.self) { name in
-                            HStack(spacing: 5) {
-                                Image(systemName: "person.crop.circle.badge.checkmark")
-                                    .font(.system(size: 10, weight: .semibold))
-                                Text(name)
-                                    .font(.system(size: 11.5, weight: .medium))
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 7) {
+                                Text(event.title)
+                                    .font(theme.fonts.label)
+                                    .foregroundStyle(theme.colors.textSecondary)
+                                    .lineLimit(1)
+                                if !event.agentNames.isEmpty {
+                                    Text(agentCountLabel)
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .foregroundStyle(theme.colors.textTertiary)
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(theme.colors.surfaceElevated.opacity(0.64), in: Capsule())
+                                }
                             }
-                            .foregroundStyle(theme.colors.textSecondary)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
-                            .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
+
+                            if !isExpanded, !detailPreview.isEmpty {
+                                Text(detailPreview)
+                                    .font(theme.fonts.caption)
+                                    .foregroundStyle(theme.colors.textTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Text(event.createdAt, format: .dateTime.hour().minute())
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .opacity(isCollapsible ? 1 : 0.25)
+                            .padding(.top, 2)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    VStack(alignment: .leading, spacing: 9) {
+                        if !event.detail.isEmpty {
+                            Text(event.detail)
+                                .font(theme.fonts.chat)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if !event.agentNames.isEmpty {
+                            FlowLayout(spacing: 7) {
+                                ForEach(event.agentNames, id: \.self) { name in
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "person.crop.circle.badge.checkmark")
+                                            .font(.system(size: 10, weight: .semibold))
+                                        Text(name)
+                                            .font(.system(size: 11.5, weight: .medium))
+                                    }
+                                    .foregroundStyle(theme.colors.textSecondary)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
+                                    .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
+                                }
+                            }
                         }
                     }
+                    .padding(.leading, 25)
                 }
             }
             .padding(.horizontal, 13)
-            .padding(.vertical, 11)
+            .padding(.vertical, 10)
             .background(theme.colors.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
@@ -143,6 +233,24 @@ public struct CodexAgentLifecycleBlock: View {
             )
             .frame(maxWidth: 640, alignment: .leading)
         }
+    }
+
+    private var isCollapsible: Bool {
+        !event.detail.isEmpty || !event.agentNames.isEmpty
+    }
+
+    private var detailPreview: String {
+        let normalized = event.detail
+            .replacingOccurrences(of: "\n", with: " ")
+            .split(separator: " ")
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.count > 140 else { return normalized }
+        return String(normalized.prefix(140)) + "..."
+    }
+
+    private var agentCountLabel: String {
+        event.agentNames.count == 1 ? "1 agent" : "\(event.agentNames.count) agents"
     }
 
     @ViewBuilder
@@ -184,9 +292,11 @@ private struct FlowLayout<Content: View>: View {
 
 public struct CodexMessageRow: View {
     private let message: CodexChatMessage
+    private let assistantName: String
 
-    public init(message: CodexChatMessage) {
+    public init(message: CodexChatMessage, assistantName: String = "Codex") {
         self.message = message
+        self.assistantName = assistantName
     }
 
     public var body: some View {
@@ -201,11 +311,378 @@ public struct CodexMessageRow: View {
                     CodexCommandCard(run: run)
                 }
             }
+        case .fileChange:
+            if let change = message.fileChange {
+                CodexAgentRow {
+                    CodexFileChangeCard(change: change)
+                }
+            }
+        case .plan:
+            if let plan = message.planUpdate {
+                CodexAgentRow {
+                    CodexPlanCard(plan: plan)
+                }
+            }
+        case .tool:
+            if let toolCall = message.toolCall {
+                CodexAgentRow {
+                    CodexToolCallCard(toolCall: toolCall)
+                }
+            }
+        case .notice:
+            if let notice = message.notice {
+                CodexAgentRow {
+                    CodexNoticeCard(notice: notice)
+                }
+            }
         case .assistant:
             CodexAgentRow {
-                CodexAssistantMessageView(message: message)
+                CodexAssistantMessageView(message: message, assistantName: assistantName)
             }
         }
+    }
+}
+
+public struct CodexAssistantTurnGroupView: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    private let messages: [CodexChatMessage]
+    private let lifecycleEvents: [CodexAgentLifecycleEvent]
+
+    public init(messages: [CodexChatMessage], lifecycleEvents: [CodexAgentLifecycleEvent] = []) {
+        self.messages = messages
+        self.lifecycleEvents = lifecycleEvents
+    }
+
+    public var body: some View {
+        CodexAgentRow {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("Codex")
+                        .font(theme.fonts.label)
+                        .foregroundStyle(theme.colors.textSecondary)
+                    if messages.contains(where: \.isStreaming) {
+                        CodexStreamingDots()
+                    }
+                }
+
+                ForEach(textStreamMessages) { message in
+                    assistantContent(message)
+                }
+
+                if !lifecycleEvents.isEmpty {
+                    CodexSubagentRunInlineView(events: lifecycleEvents)
+                }
+
+                if let primaryMessage {
+                    assistantContent(primaryMessage)
+                }
+            }
+            .frame(maxWidth: 640, alignment: .leading)
+        }
+    }
+
+    private var primaryMessage: CodexChatMessage? {
+        messages.last(where: { $0.detail == "final_answer" }) ?? messages.last
+    }
+
+    private var textStreamMessages: [CodexChatMessage] {
+        guard let primaryID = primaryMessage?.id else { return messages }
+        return messages.filter { $0.id != primaryID }
+    }
+
+    @ViewBuilder
+    private func assistantContent(_ message: CodexChatMessage) -> some View {
+        if message.text.isEmpty && message.isStreaming {
+            CodexThinkingShimmer()
+        } else if message.isStreaming {
+            StreamingAssistantText(text: message.text)
+        } else {
+            CodexAssistantContentView(blocks: message.renderBlocks)
+        }
+    }
+
+}
+
+private struct CodexSubagentRunInlineView: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var showsDetails = false
+
+    let events: [CodexAgentLifecycleEvent]
+
+    private var summary: CodexSubagentRunSummary {
+        CodexSubagentRunSummary(events: events)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.snappy(duration: 0.18)) {
+                    showsDetails.toggle()
+                }
+            } label: {
+                HStack(alignment: .center, spacing: 9) {
+                    aggregateIcon
+                        .frame(width: 16, height: 16)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 7) {
+                            Text(summary.title)
+                                .font(theme.fonts.label)
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .lineLimit(1)
+                            Text(summary.agentCountLabel)
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(theme.colors.surfaceElevated.opacity(0.64), in: Capsule())
+                        }
+
+                        Text(summary.detail)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if let date = summary.date {
+                        Text(date, format: .dateTime.hour().minute())
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .rotationEffect(.degrees(showsDetails ? 90 : 0))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 9)
+                .background(theme.colors.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                        .stroke(theme.colors.border, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            if showsDetails {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(summary.milestones) { milestone in
+                        HStack(spacing: 8) {
+                            miniIcon(for: milestone.status)
+                                .frame(width: 13, height: 13)
+                            Text(milestone.title)
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var aggregateIcon: some View {
+        switch summary.status {
+        case .spawning, .running:
+            ProgressView()
+                .controlSize(.mini)
+                .tint(theme.colors.running)
+        case .completed, .closed:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(theme.colors.success)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(theme.colors.danger)
+        }
+    }
+
+    @ViewBuilder
+    private func miniIcon(for status: CodexAgentLifecycleEvent.Status) -> some View {
+        switch status {
+        case .spawning:
+            Image(systemName: "sparkles")
+                .foregroundStyle(theme.colors.accent)
+        case .running:
+            ProgressView()
+                .controlSize(.mini)
+                .tint(theme.colors.running)
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(theme.colors.success)
+        case .closed:
+            Image(systemName: "archivebox.fill")
+                .foregroundStyle(theme.colors.textTertiary)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(theme.colors.danger)
+        }
+    }
+}
+
+struct CodexSubagentRunSummary: Equatable {
+    struct Milestone: Identifiable, Equatable {
+        var id: String
+        var status: CodexAgentLifecycleEvent.Status
+        var title: String
+    }
+
+    var status: CodexAgentLifecycleEvent.Status
+    var title: String
+    var detail: String
+    var agentCountLabel: String
+    var milestones: [Milestone]
+    var date: Date?
+
+    init(events: [CodexAgentLifecycleEvent]) {
+        let sortedEvents = events.sorted { $0.createdAt < $1.createdAt }
+        let names = Self.uniqueAgentNames(in: sortedEvents)
+        let count = max(names.count, Self.inferredAgentCount(in: sortedEvents))
+        let status = Self.aggregateStatus(from: sortedEvents)
+
+        self.status = status
+        self.title = Self.title(for: status)
+        self.detail = Self.detail(for: status, names: names)
+        self.agentCountLabel = count == 1 ? "1 agent" : "\(count) agents"
+        self.milestones = Self.milestones(from: sortedEvents, names: names, count: count)
+        self.date = sortedEvents.last?.createdAt
+    }
+
+    private static func aggregateStatus(from events: [CodexAgentLifecycleEvent]) -> CodexAgentLifecycleEvent.Status {
+        guard let latest = events.last else { return .running }
+        if let terminal = events.last(where: { $0.status == .failed || $0.status == .completed || $0.status == .closed }) {
+            return terminal.status == .failed ? .failed : .completed
+        }
+        return latest.status
+    }
+
+    private static func title(for status: CodexAgentLifecycleEvent.Status) -> String {
+        switch status {
+        case .failed:
+            return "Subagent run failed"
+        case .running, .spawning:
+            return "Subagents running"
+        case .completed, .closed:
+            return "Subagent run complete"
+        }
+    }
+
+    private static func detail(for status: CodexAgentLifecycleEvent.Status, names: [String]) -> String {
+        if !names.isEmpty {
+            let listed = names.prefix(3).joined(separator: ", ")
+            let suffix = names.count > 3 ? " +\(names.count - 3)" : ""
+            switch status {
+            case .failed:
+                return "\(listed)\(suffix) hit an error."
+            case .running, .spawning:
+                return "\(listed)\(suffix) active. Open side chat for transcripts."
+            case .completed, .closed:
+                return "\(listed)\(suffix) finished. Full transcripts are in side chat."
+            }
+        }
+
+        switch status {
+        case .failed:
+            return "A delegated agent hit an error."
+        case .running, .spawning:
+            return "Delegated agents are active."
+        case .completed, .closed:
+            return "Delegated agents finished."
+        }
+    }
+
+    private static func milestones(
+        from events: [CodexAgentLifecycleEvent],
+        names: [String],
+        count: Int
+    ) -> [Milestone] {
+        var rows: [Milestone] = []
+
+        let spawnEvents = events.filter { isSpawnEvent($0) }
+        if !spawnEvents.isEmpty {
+            let isStarted = spawnEvents.contains { $0.status != .spawning || $0.title.hasPrefix("Spawned ") }
+            rows.append(Milestone(
+                id: "spawn",
+                status: isStarted ? .completed : .spawning,
+                title: isStarted ? "Spawned \(agentLabel(names: names, count: count))" : "Starting \(agentLabel(names: names, count: count))"
+            ))
+        }
+
+        if events.contains(where: isWaitCompleteEvent) {
+            rows.append(Milestone(id: "wait-complete", status: .completed, title: "Received agent output"))
+        } else if let waiting = events.last(where: isWaitEvent) {
+            rows.append(Milestone(id: "wait", status: .running, title: normalizedDetailTitle(waiting.title)))
+        }
+
+        if let failed = events.last(where: { $0.status == .failed }) {
+            rows.append(Milestone(id: "failed", status: .failed, title: normalizedDetailTitle(failed.title)))
+        }
+
+        if rows.isEmpty, let latest = events.last {
+            rows.append(Milestone(id: "latest", status: latest.status, title: normalizedDetailTitle(latest.title)))
+        }
+
+        return rows
+    }
+
+    private static func uniqueAgentNames(in events: [CodexAgentLifecycleEvent]) -> [String] {
+        var seen: Set<String> = []
+        var names: [String] = []
+        for name in events.flatMap(\.agentNames) where !seen.contains(name) {
+            seen.insert(name)
+            names.append(name)
+        }
+        return names
+    }
+
+    private static func inferredAgentCount(in events: [CodexAgentLifecycleEvent]) -> Int {
+        var count = events.isEmpty ? 0 : 1
+        for event in events {
+            let parts = event.title.split(separator: " ")
+            for part in parts {
+                if let value = Int(part), event.title.contains("agent") {
+                    count = max(count, value)
+                }
+            }
+            count = max(count, event.agentNames.count)
+        }
+        return count
+    }
+
+    private static func agentLabel(names: [String], count: Int) -> String {
+        if names.count == 1 { return names[0] }
+        if names.count > 1 { return "\(names.count) agents" }
+        return count == 1 ? "1 agent" : "\(count) agents"
+    }
+
+    private static func isSpawnEvent(_ event: CodexAgentLifecycleEvent) -> Bool {
+        event.title.hasPrefix("Spawning ") || event.title.hasPrefix("Spawned ")
+    }
+
+    private static func isWaitEvent(_ event: CodexAgentLifecycleEvent) -> Bool {
+        event.title.hasPrefix("Waiting ") || event.title == "Finished waiting"
+    }
+
+    private static func isWaitCompleteEvent(_ event: CodexAgentLifecycleEvent) -> Bool {
+        event.title == "Finished waiting" || event.title == "Received agent output"
+    }
+
+    private static func isCloseEvent(_ event: CodexAgentLifecycleEvent) -> Bool {
+        event.title.hasPrefix("Closing ") || event.title.hasPrefix("Closed ")
+    }
+
+    private static func normalizedDetailTitle(_ title: String) -> String {
+        if title == "Finished waiting" { return "Received agent output" }
+        if title.hasPrefix("Completed 1 agent") { return "Received agent output" }
+        if title.hasPrefix("Closed ") { return "Subagent session closed" }
+        return title
     }
 }
 
@@ -244,15 +721,17 @@ public struct CodexAssistantMessageView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let message: CodexChatMessage
+    private let assistantName: String
 
-    public init(message: CodexChatMessage) {
+    public init(message: CodexChatMessage, assistantName: String = "Codex") {
         self.message = message
+        self.assistantName = assistantName
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("Codex")
+                Text(assistantName)
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textSecondary)
                 if message.isStreaming {
@@ -409,20 +888,10 @@ public struct CodexEmptyTranscriptView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 24) {
-            CodexBrandMark(size: 56)
-                .padding(.bottom, 4)
-
-            VStack(spacing: 6) {
-                Text("Start the conversation")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                Text("Ask Codex to inspect code, explain behaviour, or make changes in this workspace.")
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-            }
+        VStack(spacing: 18) {
+            Text("What should we work on?")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(theme.colors.textPrimary)
 
             VStack(spacing: 8) {
                 ForEach(prompts) { suggestion in
@@ -434,10 +903,18 @@ public struct CodexEmptyTranscriptView: View {
                                 .font(.system(size: 13))
                                 .foregroundStyle(theme.colors.accent)
                                 .frame(width: 18)
-                            Text(suggestion.prompt)
-                                .font(.system(size: 13))
-                                .foregroundStyle(theme.colors.textPrimary)
-                                .multilineTextAlignment(.leading)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(suggestion.prompt)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(theme.colors.textPrimary)
+                                    .multilineTextAlignment(.leading)
+                                if let detail = suggestion.detail {
+                                    Text(detail)
+                                        .font(theme.fonts.caption)
+                                        .foregroundStyle(theme.colors.textTertiary)
+                                        .lineLimit(1)
+                                }
+                            }
                             Spacer(minLength: 0)
                             Image(systemName: "arrow.up.left")
                                 .font(.system(size: 10, weight: .semibold))
@@ -455,8 +932,8 @@ public struct CodexEmptyTranscriptView: View {
     }
 
     public static let defaultPrompts = [
-        CodexPromptSuggestion(systemImage: "doc.text.magnifyingglass", prompt: "Summarize this package and point out the main extension points."),
-        CodexPromptSuggestion(systemImage: "arrow.triangle.branch", prompt: "Inspect the current git diff and tell me what still needs polish."),
-        CodexPromptSuggestion(systemImage: "wand.and.stars", prompt: "Find one small improvement we can make safely.")
+        CodexPromptSuggestion(systemImage: "message.badge", prompt: "Connect messaging", detail: "get context from team discussions"),
+        CodexPromptSuggestion(systemImage: "envelope", prompt: "Connect email", detail: "summarize stakeholder asks"),
+        CodexPromptSuggestion(systemImage: "folder.badge.plus", prompt: "Connect files", detail: "review results, research, and plans")
     ]
 }

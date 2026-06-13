@@ -20,21 +20,29 @@ public actor CodexClient {
     private let connection: CodexConnection
     private let store: CodexCoreStore
     private let serverRequestHandler: CodexServerRequestHandler?
+    private let approvalPolicy: CodexApprovalPolicy
     public nonisolated let notificationRouter: CodexNotificationRouter
 
     // Track active PTY process sessions by process handle
     private var activeSessions: [String: CodexProcessSession] = [:]
     private var activeCommandSessions: [String: CodexCommandExecSession] = [:]
 
+    // Escalated server requests awaiting a host decision (policy `.ask`).
+    private var pendingApprovalContinuations: [String: CheckedContinuation<CodexApprovalDecision, Never>] = [:]
+    private var pendingApprovalTurnIds: [String: String] = [:]
+    private var pendingUserInputContinuations: [String: CheckedContinuation<CodexUserInputAnswers, Never>] = [:]
+
     public init(
         transport: any CodexTransport,
         store: CodexCoreStore,
         notificationRouter: CodexNotificationRouter = CodexNotificationRouter(),
-        serverRequestHandler: CodexServerRequestHandler? = nil
+        serverRequestHandler: CodexServerRequestHandler? = nil,
+        approvalPolicy: CodexApprovalPolicy = .autoApprove
     ) {
         self.connection = CodexConnection(transport: transport)
         self.store = store
         self.serverRequestHandler = serverRequestHandler
+        self.approvalPolicy = approvalPolicy
         self.notificationRouter = notificationRouter
     }
 
@@ -250,6 +258,40 @@ public actor CodexClient {
         )
     }
 
+    public func threadGoalSet(
+        threadId: String,
+        objective: String? = nil,
+        status: ThreadGoalStatus? = nil,
+        tokenBudget: Int? = nil
+    ) async throws -> ThreadGoalSetResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadGoalSet.rawValue,
+            params: ThreadGoalSetParams(
+                threadId: threadId,
+                objective: objective,
+                status: status,
+                tokenBudget: tokenBudget
+            ),
+            response: ThreadGoalSetResponse.self
+        )
+    }
+
+    public func threadGoalGet(threadId: String) async throws -> ThreadGoalGetResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadGoalGet.rawValue,
+            params: ThreadGoalGetParams(threadId: threadId),
+            response: ThreadGoalGetResponse.self
+        )
+    }
+
+    public func threadGoalClear(threadId: String) async throws -> ThreadGoalClearResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadGoalClear.rawValue,
+            params: ThreadGoalClearParams(threadId: threadId),
+            response: ThreadGoalClearResponse.self
+        )
+    }
+
     public func threadCompact(threadId: String) async throws -> ThreadCompactStartResponse {
         try await connection.request(
             method: CodexAppServerClientMethod.threadCompactStart.rawValue,
@@ -272,7 +314,8 @@ public actor CodexClient {
     }
 
     public func turnInterrupt(threadId: String, turnId: String) async throws -> TurnInterruptResponse {
-        try await connection.request(
+        cancelPendingServerRequests(turnId: turnId)
+        return try await connection.request(
             method: CodexAppServerClientMethod.turnInterrupt.rawValue,
             params: ["threadId": CodexJSONValue.string(threadId), "turnId": .string(turnId)],
             response: TurnInterruptResponse.self
@@ -326,6 +369,25 @@ public actor CodexClient {
         }
     }
 
+    public func fuzzyFileSearch(
+        query: String,
+        roots: [String],
+        cancellationToken: String? = nil
+    ) async throws -> FuzzyFileSearchResponse {
+        var params: [String: CodexJSONValue] = [
+            "query": .string(query),
+            "roots": .array(roots.map { .string($0) })
+        ]
+        if let cancellationToken {
+            params["cancellationToken"] = .string(cancellationToken)
+        }
+        return try await connection.request(
+            method: CodexAppServerClientMethod.fuzzyFileSearch.rawValue,
+            params: params,
+            response: FuzzyFileSearchResponse.self
+        )
+    }
+
     public func modelList(includeHidden: Bool = false) async throws -> ModelListResponse {
         try await connection.request(
             method: CodexAppServerClientMethod.modelList.rawValue,
@@ -336,7 +398,60 @@ public actor CodexClient {
 
     /// Closes the client connection.
     public func disconnect() async {
+        cancelPendingServerRequests()
         await connection.stop()
+    }
+
+    // MARK: - Approval Resolution (policy `.ask`)
+
+    /// Resolves a pending approval request (`store.pendingApprovals`) with the
+    /// user's decision. The suspended JSON-RPC reply is then sent to the server.
+    /// Returns `false` if no request with that id is awaiting a decision.
+    @discardableResult
+    public func resolveApproval(requestId: String, decision: CodexApprovalDecision) -> Bool {
+        guard let continuation = pendingApprovalContinuations.removeValue(forKey: requestId) else {
+            return false
+        }
+        pendingApprovalTurnIds.removeValue(forKey: requestId)
+        continuation.resume(returning: decision)
+        return true
+    }
+
+    /// Resolves a pending `item/tool/requestUserInput` request with the user's
+    /// answers (question id → answer strings).
+    @discardableResult
+    public func resolveUserInput(requestId: String, answers: CodexUserInputAnswers) -> Bool {
+        guard let continuation = pendingUserInputContinuations.removeValue(forKey: requestId) else {
+            return false
+        }
+        continuation.resume(returning: answers)
+        return true
+    }
+
+    /// Cancels every pending escalated request: approvals resolve `.cancel`,
+    /// user-input requests resolve with no answers. Called automatically on
+    /// disconnect so suspended server replies never leak.
+    public func cancelPendingServerRequests() {
+        let approvals = pendingApprovalContinuations
+        pendingApprovalContinuations = [:]
+        pendingApprovalTurnIds = [:]
+        for continuation in approvals.values {
+            continuation.resume(returning: .cancel)
+        }
+
+        let inputs = pendingUserInputContinuations
+        pendingUserInputContinuations = [:]
+        for continuation in inputs.values {
+            continuation.resume(returning: [:])
+        }
+    }
+
+    /// Cancels pending escalated requests that belong to a specific turn.
+    public func cancelPendingServerRequests(turnId: String) {
+        let requestIds = pendingApprovalTurnIds.filter { $0.value == turnId }.map(\.key)
+        for requestId in requestIds {
+            resolveApproval(requestId: requestId, decision: .cancel)
+        }
     }
 
     // MARK: - Thread & Turn APIs
@@ -354,7 +469,7 @@ public actor CodexClient {
     public func startThread(params: [String: CodexJSONValue] = [:]) async throws -> String {
 
         // thread/start returns {thread: {id: "..."}, model: "...", cwd: "...", ...}
-        let result = try await connection.request(method: "thread/start", params: params)
+        let result = try await connection.request(method: CodexAppServerClientMethod.threadStart.rawValue, params: params)
 
         guard case .dictionary(let dict) = result,
               let threadVal = dict["thread"],
@@ -396,7 +511,7 @@ public actor CodexClient {
         params["input"] = .array(input)
 
         // turn/start returns {turn: {id: "...", ...}}
-        let result = try await connection.request(method: "turn/start", params: params)
+        let result = try await connection.request(method: CodexAppServerClientMethod.turnStart.rawValue, params: params)
 
         guard case .dictionary(let dict) = result,
               let turnVal = dict["turn"],
@@ -416,8 +531,9 @@ public actor CodexClient {
 
     @discardableResult
     public func interruptTurn(threadId: String, turnId: String) async throws -> CodexJSONValue {
-        try await connection.request(
-            method: "turn/interrupt",
+        cancelPendingServerRequests(turnId: turnId)
+        return try await connection.request(
+            method: CodexAppServerClientMethod.turnInterrupt.rawValue,
             params: ["threadId": .string(threadId), "turnId": .string(turnId)]
         )
     }
@@ -425,7 +541,7 @@ public actor CodexClient {
     @discardableResult
     public func steerTurn(threadId: String, expectedTurnId: String, input: [CodexJSONValue]) async throws -> CodexJSONValue {
         try await connection.request(
-            method: "turn/steer",
+            method: CodexAppServerClientMethod.turnSteer.rawValue,
             params: [
                 "threadId": .string(threadId),
                 "expectedTurnId": .string(expectedTurnId),
@@ -437,6 +553,10 @@ public actor CodexClient {
     // MARK: - Process & Interactive Terminal APIs
 
     /// Spawns a host process attached to a PTY terminal session.
+    ///
+    /// `process/spawn` is a legacy experimental API; prefer
+    /// `startCommandSession`, which uses the official `command/exec` surface.
+    @available(*, deprecated, message: "Use startCommandSession (command/exec); process/spawn is a legacy experimental API.")
     public func spawnProcess(
         command: [String],
         cwd: String,
@@ -469,7 +589,7 @@ public actor CodexClient {
             ])
         }
 
-        _ = try await connection.request(method: "process/spawn", params: params)
+        _ = try await connection.request(method: CodexAppServerClientMethod.processSpawn.rawValue, params: params)
 
         return session
     }
@@ -498,7 +618,7 @@ public actor CodexClient {
         params["streamStdoutStderr"] = nil
         params["tty"] = nil
 
-        let result = try await connection.request(method: "command/exec", params: params)
+        let result = try await connection.request(method: CodexAppServerClientMethod.commandExec.rawValue, params: params)
         return try CodexCommandExecResult(jsonValue: result)
     }
 
@@ -540,7 +660,7 @@ public actor CodexClient {
         let connection = self.connection
         Task { [weak self] in
             do {
-                let value = try await connection.request(method: "command/exec", params: params)
+                let value = try await connection.request(method: CodexAppServerClientMethod.commandExec.rawValue, params: params)
                 let result = try CodexCommandExecResult(jsonValue: value)
                 await self?.completeCommandSession(processId: processId, result: result)
             } catch {
@@ -618,11 +738,8 @@ public actor CodexClient {
                 reason: optionalString(params["reason"])
             )
 
-            await MainActor.run {
-                store.dispatchRequest(req)
-            }
-
-            return .dictionary(["decision": .string("accept")])
+            let decision = await decideApproval(req)
+            return .dictionary(["decision": .string(decision.rawValue)])
 
         case .itemFileChangeRequestApproval:
             let req = CodexApprovalRequest(
@@ -638,11 +755,8 @@ public actor CodexClient {
                 reason: optionalString(params["reason"])
             )
 
-            await MainActor.run {
-                store.dispatchRequest(req)
-            }
-
-            return .dictionary(["decision": .string("accept")])
+            let decision = await decideApproval(req)
+            return .dictionary(["decision": .string(decision.rawValue)])
 
         case .itemToolRequestUserInput:
             let questions = parseUserInputQuestions(params["questions"])
@@ -653,10 +767,11 @@ public actor CodexClient {
                 itemId: str("itemId"),
                 questions: questions
             )
-            await MainActor.run {
-                store.dispatchRequest(req)
+            let answers = await decideUserInput(req)
+            let encoded = answers.mapValues { answerStrings in
+                CodexJSONValue.dictionary(["answers": .array(answerStrings.map { .string($0) })])
             }
-            return .dictionary(["answers": .dictionary([:])])
+            return .dictionary(["answers": .dictionary(encoded)])
 
         case .mcpServerElicitationRequest:
             return .dictionary([
@@ -675,12 +790,12 @@ public actor CodexClient {
                 cwd: optionalString(params["cwd"]),
                 reason: optionalString(params["reason"])
             )
-            await MainActor.run {
-                store.dispatchRequest(req)
-            }
+            let decision = await decideApproval(req)
+            // Granting echoes the requested profile back; denying grants nothing.
+            let granted = decision.isApproval ? (params["permissions"] ?? .dictionary([:])) : .dictionary([:])
             return .dictionary([
-                "permissions": .dictionary([:]),
-                "scope": .string("turn")
+                "permissions": granted,
+                "scope": .string(decision == .acceptForSession ? "session" : "turn")
             ])
 
         case .itemToolCall:
@@ -692,8 +807,79 @@ public actor CodexClient {
         case .accountChatGPTAuthTokensRefresh, .attestationGenerate:
             return .dictionary([:])
 
-        case .applyPatchApproval, .execCommandApproval:
-            return .dictionary(["decision": .string("approved")])
+        case .execCommandApproval:
+            let req = CodexApprovalRequest(
+                requestId: requestId,
+                kind: .command,
+                threadId: str("conversationId"),
+                turnId: str("turnId"),
+                itemId: str("callId"),
+                command: optionalString(params["command"]),
+                cwd: optionalString(params["cwd"]),
+                reason: optionalString(params["reason"])
+            )
+            let decision = await decideApproval(req)
+            return .dictionary(["decision": .string(decision.v1ReviewDecision)])
+
+        case .applyPatchApproval:
+            let req = CodexApprovalRequest(
+                requestId: requestId,
+                kind: .fileChange,
+                threadId: str("conversationId"),
+                turnId: str("turnId"),
+                itemId: str("callId"),
+                grantRoot: optionalString(params["grantRoot"]),
+                reason: optionalString(params["reason"])
+            )
+            let decision = await decideApproval(req)
+            return .dictionary(["decision": .string(decision.v1ReviewDecision)])
+        }
+    }
+
+    /// Applies the configured `CodexApprovalPolicy` to an escalated approval
+    /// request. Under `.ask` the request is published to the store and the
+    /// reply suspends until the host calls `resolveApproval(requestId:decision:)`.
+    private func decideApproval(_ request: CodexApprovalRequest) async -> CodexApprovalDecision {
+        switch approvalPolicy {
+        case .autoApprove:
+            return .accept
+        case .autoDecline:
+            return .decline
+        case .ask:
+            let requestKey = request.id
+            let decision = await withCheckedContinuation { (continuation: CheckedContinuation<CodexApprovalDecision, Never>) in
+                pendingApprovalContinuations[requestKey] = continuation
+                pendingApprovalTurnIds[requestKey] = request.turnId
+                Task { @MainActor [store] in
+                    store.dispatchRequest(request)
+                }
+            }
+            await MainActor.run {
+                store.resolveApproval(requestKey)
+            }
+            return decision
+        }
+    }
+
+    /// Applies the configured `CodexApprovalPolicy` to a user-input request.
+    /// Auto policies answer with no input; `.ask` suspends until the host
+    /// calls `resolveUserInput(requestId:answers:)`.
+    private func decideUserInput(_ request: CodexUserInputRequest) async -> CodexUserInputAnswers {
+        switch approvalPolicy {
+        case .autoApprove, .autoDecline:
+            return [:]
+        case .ask:
+            let requestKey = request.id
+            let answers = await withCheckedContinuation { (continuation: CheckedContinuation<CodexUserInputAnswers, Never>) in
+                pendingUserInputContinuations[requestKey] = continuation
+                Task { @MainActor [store] in
+                    store.dispatchRequest(request)
+                }
+            }
+            await MainActor.run {
+                store.resolveUserInput()
+            }
+            return answers
         }
     }
 
@@ -745,46 +931,50 @@ public actor CodexClient {
         let params = notification.params ?? [:]
         await notificationRouter.route(notification)
 
+        // The server resolved a pending approval itself (e.g. the turn was
+        // interrupted). Release any suspended reply and clear the store entry.
+        if method == CodexAppServerNotificationMethod.serverRequestResolved.rawValue,
+           let requestIdValue = params["requestId"] {
+            let requestKey = requestIdValue.description
+            if !resolveApproval(requestId: requestKey, decision: .cancel) {
+                resolveUserInput(requestId: requestKey, answers: [:])
+            }
+        }
+
         // Route 1: PTY standard output chunks
-        if method == "process/outputDelta" {
+        if method == CodexAppServerNotificationMethod.processOutputDelta.rawValue {
             guard let handleVal = params["processHandle"],
                   case .string(let handle) = handleVal,
                   let streamVal = params["stream"],
                   case .string(let stream) = streamVal,
                   let base64Val = params["deltaBase64"],
                   case .string(let base64) = base64Val else { return }
-            let capReached = params["capReached"]?.description == "true"
+            let capReached = boolParam(params["capReached"])
 
             activeSessions[handle]?.receiveOutput(streamName: stream, base64Data: base64, capReached: capReached)
             return
         }
 
         // Route 2: PTY process exited
-        if method == "process/exited" {
+        if method == CodexAppServerNotificationMethod.processExited.rawValue {
             guard let handleVal = params["processHandle"],
                   case .string(let handle) = handleVal,
-                  let codeStr = params["exitCode"],
-                  let code = Int32(codeStr.description) else { return }
+                  let code = intParam(params["exitCode"]) else { return }
 
-            activeSessions[handle]?.handleExit(exitCode: code)
+            activeSessions[handle]?.handleExit(exitCode: Int32(code))
             activeSessions.removeValue(forKey: handle)
             return
         }
 
         // Route 3: Official command/exec output chunks
-        if method == "command/exec/outputDelta" {
+        if method == CodexAppServerNotificationMethod.commandExecOutputDelta.rawValue {
             guard let idVal = params["processId"],
                   case .string(let processId) = idVal,
                   let streamVal = params["stream"],
                   case .string(let stream) = streamVal,
                   let base64Val = params["deltaBase64"],
                   case .string(let base64) = base64Val else { return }
-            let capReached: Bool
-            if case .bool(let value) = params["capReached"] {
-                capReached = value
-            } else {
-                capReached = params["capReached"]?.description == "true"
-            }
+            let capReached = boolParam(params["capReached"])
 
             activeCommandSessions[processId]?.receiveOutput(streamName: stream, base64Data: base64, capReached: capReached)
             return
@@ -793,7 +983,7 @@ public actor CodexClient {
         // Route 4: Standard timeline notifications (Thread/Turn events)
         // Skip lifecycle noise that carries no timeline state
         switch method {
-        case "remoteControl/status/changed", "mcpServer/startupStatus/updated", "account/rateLimits/updated", "account/login/completed":
+        case "remoteControl/status/changed", "mcpServer/startupStatus/updated", "account/rateLimits/updated", "account/login/completed", "skills/changed":
             return
         default:
             break
@@ -814,6 +1004,38 @@ public actor CodexClient {
         func nestedValue(_ outer: String, _ inner: String) -> CodexJSONValue? {
             if case .dictionary(let d) = params[outer] { return d[inner] }
             return nil
+        }
+        func stringValue(_ value: CodexJSONValue?) -> String? {
+            switch value {
+            case .string(let string): return nilIfEmpty(string)
+            case .int(let int): return String(int)
+            case .double(let double): return String(double)
+            case .bool(let bool): return String(bool)
+            case .array(let values):
+                let parts = values.compactMap(stringValue)
+                return nilIfEmpty(parts.joined(separator: " "))
+            case .dictionary(let object):
+                return stringValue(object["type"])
+                    ?? stringValue(object["message"])
+                    ?? stringValue(object["text"])
+            case .null, nil:
+                return nil
+            }
+        }
+        func fileChangePatch() -> (path: String?, patch: String) {
+            guard case .array(let changes)? = params["changes"] else {
+                return (stringValue(params["path"]), stringValue(params["patch"]) ?? stringValue(params["diff"]) ?? "")
+            }
+            var path: String?
+            var diffs: [String] = []
+            for changeValue in changes {
+                guard case .dictionary(let change) = changeValue else { continue }
+                path = path ?? stringValue(change["path"])
+                if let diff = stringValue(change["diff"]), !diff.isEmpty {
+                    diffs.append(diff)
+                }
+            }
+            return (path, diffs.joined(separator: "\n"))
         }
         func extractThreadId() -> String {
             let direct = str("threadId")
@@ -846,6 +1068,15 @@ public actor CodexClient {
         case "thread/status/changed":
             return .threadStatusChanged(threadId: threadId, status: extractThreadStatus())
 
+        case "thread/goal/updated":
+            if let payload = try? params.decode(ThreadGoalUpdatedNotification.self) {
+                return .threadGoalUpdated(threadId: payload.threadId, goal: payload.goal)
+            }
+            return .unknown(method: method, params: params)
+
+        case "thread/goal/cleared":
+            return .threadGoalCleared(threadId: threadId)
+
         case "turn/started":
             return .turnStarted(threadId: threadId, turnId: turnId)
 
@@ -870,6 +1101,28 @@ public actor CodexClient {
 
         case "item/commandExecution/outputDelta":
             return .commandOutputDelta(threadId: threadId, turnId: turnId, itemId: itemId, delta: str("delta"))
+
+        case "item/fileChange/outputDelta":
+            return .fileChangeOutputDelta(threadId: threadId, turnId: turnId, itemId: itemId, delta: str("delta"))
+
+        case "item/fileChange/patchUpdated":
+            let patch = fileChangePatch()
+            return .fileChangePatchUpdated(threadId: threadId, turnId: turnId, itemId: itemId, path: patch.path, patch: patch.patch)
+
+        case "item/mcpToolCall/progress":
+            return .mcpToolCallProgress(threadId: threadId, turnId: turnId, itemId: itemId, message: str("message"))
+
+        case CodexAppServerNotificationMethod.turnPlanUpdated.rawValue:
+            if let payload = try? params.decode(TurnPlanUpdatedNotification.self) {
+                return .turnPlanUpdated(threadId: payload.threadId, turnId: payload.turnId, plan: payload.plan, explanation: payload.explanation)
+            }
+            return .unknown(method: method, params: params)
+
+        case CodexAppServerNotificationMethod.turnDiffUpdated.rawValue:
+            if let payload = try? params.decode(TurnDiffUpdatedNotification.self) {
+                return .turnDiffUpdated(threadId: payload.threadId, turnId: payload.turnId, diff: payload.diff)
+            }
+            return .unknown(method: method, params: params)
 
         case "thread/tokenUsage/updated":
             return extractTokenUsage(params, threadId: threadId, turnId: turnId.isEmpty ? nil : turnId)
@@ -907,6 +1160,20 @@ public actor CodexClient {
     }
 
     private func nilIfEmpty(_ s: String) -> String? { s.isEmpty ? nil : s }
+
+    private func boolParam(_ value: CodexJSONValue?) -> Bool {
+        if case .bool(let flag)? = value { return flag }
+        return false
+    }
+
+    private func intParam(_ value: CodexJSONValue?) -> Int? {
+        switch value {
+        case .int(let int)?: return int
+        case .double(let double)?: return Int(double)
+        case .string(let string)?: return Int(string)
+        default: return nil
+        }
+    }
 
     private func completeCommandSession(processId: String, result: CodexCommandExecResult) {
         activeCommandSessions[processId]?.complete(result)

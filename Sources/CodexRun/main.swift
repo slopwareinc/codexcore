@@ -7,39 +7,39 @@ struct CodexRun {
         setbuf(stdout, nil)
         print("\n🚀 Bootstrapping Native Swift Codex SDK Demonstration...")
 
-        let binaryURL = URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex")
-        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
-            print("❌ Error: Codex app-server binary not found at \(binaryURL.path)!")
-            print("Please ensure Codex is installed in /Applications/Codex.app.")
-            exit(1)
-        }
-
-        let transport = CodexStdioTransport(
-            executableURL: binaryURL,
-            arguments: ["app-server", "--listen", "stdio://"]
+        let currentDir = FileManager.default.currentDirectoryPath
+        let config = CodexConfig(
+            cwd: currentDir,
+            environment: ["CODEX_HOME": defaultCodexHome()],
+            clientName: "codex_run",
+            clientTitle: "Codex Swift SDK CLI Demo",
+            clientVersion: "1.0.0",
+            // Headless demo: approve escalations automatically. Interactive
+            // apps should use `.ask` and resolve via Codex.respondToApproval.
+            approvalPolicy: .autoApprove
         )
 
-        let store = CodexCoreStore()
-        let client = CodexClient(transport: transport, store: store)
+        var codex: Codex?
 
         do {
             print("🔌 Spawning local daemon subprocess and upgrading to JSON-RPC...")
-            try await client.connect()
+            let connectedCodex = try await Codex(config: config)
+            codex = connectedCodex
             print("✅ Initialize handshake negotiated successfully!")
 
             // Set working directory to the project workspace
-            let currentDir = FileManager.default.currentDirectoryPath
             print("📁 Host workspace directory: \(currentDir)")
 
             print("🧵 Requesting conversation thread creation (thread/start)...")
-            let threadId = try await client.createThread(cwd: currentDir)
-            print("✅ Thread registered: \(threadId)")
+            let thread = try await connectedCodex.threadStart(cwd: currentDir)
+            print("✅ Thread registered: \(thread.id)")
 
             let prompt = "Please create a single-file interactive HTML/CSS/JS Todo Application with a gorgeous dark-mode user interface, and save it exactly as 'todo.html' in this working directory."
             print("📝 Submitting developer task to Codex (turn/start)...")
             print("👉 prompt: \(prompt)")
 
-            let turnId = try await client.startTurn(threadId: threadId, userPrompt: prompt)
+            let handle = try await thread.turn([.text(prompt)], cwd: currentDir)
+            let turnId = handle.id
             print("\n⏳ Turn running [\(turnId)]. Tracking live progress from daemon:")
 
             // Poll state until turn completes
@@ -50,8 +50,8 @@ struct CodexRun {
                 try? await Task.sleep(for: .milliseconds(500))
 
                 await MainActor.run {
-                    guard let thread = store.activeThread,
-                          let turn = thread.turns.first(where: { $0.id == turnId }) else { return }
+                    guard let activeThread = connectedCodex.store.activeThread,
+                          let turn = activeThread.turns.first(where: { $0.id == turnId }) else { return }
 
                     if turn.status == .completed {
                         print("\n\n🎉 Turn completed successfully!")
@@ -102,10 +102,12 @@ struct CodexRun {
                 print("   Codex may have written it elsewhere, or the turn may have failed.")
             }
 
-            await client.disconnect()
+            await connectedCodex.close()
+            codex = nil
             print("🔌 Connection closed gracefully.")
 
         } catch {
+            await codex?.close()
             print("\n❌ Task execution failed with error: \(error)")
         }
     }

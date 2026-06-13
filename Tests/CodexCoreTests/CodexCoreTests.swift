@@ -3,6 +3,29 @@ import XCTest
 
 final class CodexCoreTests: XCTestCase {
 
+    // MARK: - Runtime Resolution Tests
+
+    func testResolveCodexBinaryUsesExplicitExecutableOverride() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexCoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let binaryURL = directory.appendingPathComponent("codex")
+        try "#!/bin/sh\n".write(to: binaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaryURL.path)
+
+        let resolved = try Codex.resolveCodexBinary(config: CodexConfig(codexBinaryPath: binaryURL.path))
+
+        XCTAssertEqual(resolved.path, binaryURL.path)
+    }
+
+    func testResolveCodexBinaryRejectsInvalidExplicitOverride() {
+        XCTAssertThrowsError(
+            try Codex.resolveCodexBinary(config: CodexConfig(codexBinaryPath: "/definitely/not/a/codex/runtime"))
+        )
+    }
+
     // MARK: - Protocol & Decoders Tests
 
     func testJSONValueDecoding() throws {
@@ -48,6 +71,30 @@ final class CodexCoreTests: XCTestCase {
     // MARK: - Store & Reducer Pipeline Tests
 
     @MainActor
+    func testStorePlanAndDiffUpdates() throws {
+        let store = CodexCoreStore()
+        store.dispatch(.threadStarted(threadId: "thread-pd", name: nil, status: "active"))
+        store.dispatch(.turnStarted(threadId: "thread-pd", turnId: "turn-1"))
+
+        store.dispatch(.turnPlanUpdated(
+            threadId: "thread-pd",
+            turnId: "turn-1",
+            plan: [
+                TurnPlanStep(step: "Survey the code", status: .completed),
+                TurnPlanStep(step: "Apply the fix", status: .inProgress)
+            ],
+            explanation: "Two-step fix"
+        ))
+        store.dispatch(.turnDiffUpdated(threadId: "thread-pd", turnId: "turn-1", diff: "diff --git a/x b/x\n+1"))
+
+        let turn = store.activeThread?.turns.first
+        XCTAssertEqual(turn?.plan?.count, 2)
+        XCTAssertEqual(turn?.plan?.last?.status, .inProgress)
+        XCTAssertEqual(turn?.planExplanation, "Two-step fix")
+        XCTAssertEqual(turn?.diff, "diff --git a/x b/x\n+1")
+    }
+
+    @MainActor
     func testStoreReducerWorkflow() throws {
         let store = CodexCoreStore()
         XCTAssertNil(store.activeThread)
@@ -68,9 +115,34 @@ final class CodexCoreTests: XCTestCase {
         // 3. Dispatch Assistant Delta Stream
         store.dispatch(.messageDelta(threadId: "thread-abc", turnId: "turn-1", itemId: "item-a", delta: "Swift "))
         store.dispatch(.messageDelta(threadId: "thread-abc", turnId: "turn-1", itemId: "item-a", delta: "is awesome!"))
+        store.dispatch(.fileChangePatchUpdated(
+            threadId: "thread-abc",
+            turnId: "turn-1",
+            itemId: "patch-a",
+            path: "Sources/App.swift",
+            patch: """
+            --- a/Sources/App.swift
+            +++ b/Sources/App.swift
+            @@ -1 +1 @@
+            -old
+            +new
+            """
+        ))
+        store.dispatch(.mcpToolCallProgress(
+            threadId: "thread-abc",
+            turnId: "turn-1",
+            itemId: "mcp-a",
+            message: "Reading available tools"
+        ))
+        store.dispatch(.mcpToolCallProgress(
+            threadId: "thread-abc",
+            turnId: "turn-1",
+            itemId: "mcp-a",
+            message: "Calling filesystem.read_file"
+        ))
 
         let turn = store.activeThread?.turns.first
-        XCTAssertEqual(turn?.items.count, 1)
+        XCTAssertEqual(turn?.items.count, 3)
 
         if let item = turn?.items.first {
             switch item {
@@ -80,6 +152,31 @@ final class CodexCoreTests: XCTestCase {
                 XCTAssertTrue(streaming)
             default:
                 XCTFail("Incorrect item type mapped")
+            }
+        }
+
+        if let item = turn?.items.last {
+            switch item {
+            case .mcpToolCall(let id, let server, let tool, let status, _, let progress):
+                XCTAssertEqual(id, "mcp-a")
+                XCTAssertEqual(server, "MCP")
+                XCTAssertEqual(tool, "Tool")
+                XCTAssertEqual(status, "inProgress")
+                XCTAssertEqual(progress, ["Reading available tools", "Calling filesystem.read_file"])
+            default:
+                XCTFail("Incorrect MCP tool-call item type mapped")
+            }
+        }
+
+        if let item = turn?.items.first(where: { $0.id == "patch-a" }) {
+            switch item {
+            case .fileChange(let id, let path, let patch, let status, _):
+                XCTAssertEqual(id, "patch-a")
+                XCTAssertEqual(path, "Sources/App.swift")
+                XCTAssertTrue(patch.contains("+new"))
+                XCTAssertEqual(status, "active")
+            default:
+                XCTFail("Incorrect file change item type mapped")
             }
         }
 

@@ -54,7 +54,7 @@ public final class CodexProcessSession: @unchecked Sendable {
             "closeStdin": .bool(false)
         ]
 
-        _ = try await connection.request(method: "process/writeStdin", params: params)
+        _ = try await connection.request(method: CodexAppServerClientMethod.processWriteStdin.rawValue, params: params)
     }
 
     /// Resize the active PTY dimensions (winsize rows and cols).
@@ -69,7 +69,7 @@ public final class CodexProcessSession: @unchecked Sendable {
             ])
         ]
 
-        _ = try await connection.request(method: "process/resizePty", params: params)
+        _ = try await connection.request(method: CodexAppServerClientMethod.processResizePTY.rawValue, params: params)
     }
 
     /// Terminate/kill the process and clean up the active process group.
@@ -80,7 +80,7 @@ public final class CodexProcessSession: @unchecked Sendable {
             "processHandle": .string(processHandle)
         ]
 
-        _ = try await connection.request(method: "process/kill", params: params)
+        _ = try await connection.request(method: CodexAppServerClientMethod.processKill.rawValue, params: params)
     }
 
     // MARK: - Internal Packet Routing Hooks

@@ -51,7 +51,7 @@ CodexCore includes a complete suite of unit tests located in `Tests/CodexCoreTes
 4. **Pruning/Retention:** Verifying that only the active and most recent turns retain heavy raw detailed structures.
 
 ### Running Tests
-To verify the entire SDK, open your terminal inside `/Users/betterclever/Projects/slopware/CodexCore` and run:
+To verify the entire SDK, open your terminal at the package root and run:
 ```bash
 swift test
 ```
@@ -133,4 +133,4 @@ Use `CodexAgentStateMapper` to translate raw app-server `ThreadItem` subagent ev
 swift run codex-chat-example
 ```
 
-The example defaults to the installed Codex binary at `/Users/betterclever/.config/nvm/versions/node/v26.2.0/bin/codex`. Leave the field blank in the welcome screen to resolve `codex` from `PATH` instead.
+The example auto-detects the Codex runtime by checking `CODEX_BINARY`/`CODEX_BIN`, `codex` from `PATH`, then `CODEX_APP_BUNDLE`/`CODEX_APP_BUNDLE_PATH` or a macOS Codex app bundle in the standard application directories. Set `CODEX_BINARY` or pass `CodexConfig.codexBinaryPath` only when you need to point at a custom runtime build.

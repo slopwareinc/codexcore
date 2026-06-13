@@ -75,7 +75,7 @@ public final class CodexCommandExecSession: @unchecked Sendable {
         }
 
         _ = try await connection.request(
-            method: "command/exec/write",
+            method: CodexAppServerClientMethod.commandExecWrite.rawValue,
             params: [
                 "processId": .string(processId),
                 "deltaBase64": .string(data.base64EncodedString()),
@@ -88,7 +88,7 @@ public final class CodexCommandExecSession: @unchecked Sendable {
         guard !hasCompleted else { return }
 
         _ = try await connection.request(
-            method: "command/exec/write",
+            method: CodexAppServerClientMethod.commandExecWrite.rawValue,
             params: [
                 "processId": .string(processId),
                 "closeStdin": .bool(true)
@@ -100,7 +100,7 @@ public final class CodexCommandExecSession: @unchecked Sendable {
         guard !hasCompleted else { return }
 
         _ = try await connection.request(
-            method: "command/exec/resize",
+            method: CodexAppServerClientMethod.commandExecResize.rawValue,
             params: [
                 "processId": .string(processId),
                 "size": .dictionary([
@@ -115,7 +115,7 @@ public final class CodexCommandExecSession: @unchecked Sendable {
         guard !hasCompleted else { return }
 
         _ = try await connection.request(
-            method: "command/exec/terminate",
+            method: CodexAppServerClientMethod.commandExecTerminate.rawValue,
             params: ["processId": .string(processId)]
         )
     }

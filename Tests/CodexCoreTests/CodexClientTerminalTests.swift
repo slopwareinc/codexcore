@@ -90,14 +90,34 @@ actor MockTransport: CodexTransport {
                 result = #"{"thread":{"id":"thread-unarchived"}}"#
             case "thread/list":
                 result = #"{"data":[{"id":"thread-mock"}],"nextCursor":null,"backwardsCursor":null}"#
+            case "thread/search":
+                result = #"{"data":[{"thread":{"id":"thread-mock","name":"Search hit","preview":"Matched preview","cwd":"/tmp","status":{"type":"idle"},"parentThreadId":null,"ephemeral":false},"snippet":"needle in transcript"}],"nextCursor":null,"backwardsCursor":null}"#
             case "thread/read":
                 result = #"{"thread":{"id":"thread-mock"}}"#
+            case "thread/goal/set":
+                result = #"{"goal":{"threadId":"thread-mock","objective":"Ship Swift goal parity","status":"active","tokenBudget":4096,"tokensUsed":0,"timeUsedSeconds":0,"createdAt":1781075531,"updatedAt":1781075531}}"#
+            case "thread/goal/get":
+                result = #"{"goal":{"threadId":"thread-mock","objective":"Ship Swift goal parity","status":"active","tokenBudget":4096,"tokensUsed":12,"timeUsedSeconds":3,"createdAt":1781075531,"updatedAt":1781075540}}"#
+            case "thread/goal/clear":
+                result = #"{"cleared":true}"#
             case "turn/start":
                 result = #"{"turn":{"id":"turn-mock"}}"#
             case "turn/steer":
                 result = #"{"turnId":"turn-mock"}"#
+            case "skills/list":
+                result = #"{"data":[{"cwd":"/tmp","skills":[{"name":"resume-from-opencode","description":"Resume an OpenCode session","interface":{"displayName":"Resume OpenCode","shortDescription":"Resume a prior OpenCode run","defaultPrompt":"Resume the last OpenCode session."},"path":"/tmp/skills/resume-from-opencode/SKILL.md","scope":"user","enabled":true}],"errors":[]}]}"#
+            case "permissionProfile/list":
+                result = #"{"data":[{"id":":read-only","description":null},{"id":":workspace","description":null},{"id":":danger-full-access","description":null}],"nextCursor":null}"#
+            case "collaborationMode/list":
+                result = #"{"data":[{"name":"Plan","mode":"plan","model":null,"reasoning_effort":"medium"},{"name":"Default","mode":"default","model":null,"reasoning_effort":null}]}"#
+            case "mcpServerStatus/list":
+                result = #"{"data":[{"name":"filesystem","authStatus":"unsupported","serverInfo":{"name":"filesystem","title":"Filesystem","version":"1.0.0","description":"Local files"},"tools":{"read_file":{"name":"read_file","title":"Read file","description":"Read a file"}},"resources":[{"name":"workspace","uri":"file:///tmp"}],"resourceTemplates":[{"name":"repo-file","uriTemplate":"file:///{path}"}]}],"nextCursor":null}"#
+            case "plugin/list":
+                result = #"{"marketplaces":[{"name":"local","interface":{"displayName":"Local"},"path":"/tmp/marketplace.json","plugins":[{"authPolicy":"ON_USE","enabled":true,"id":"resume-from-opencode","installPolicy":"INSTALLED_BY_DEFAULT","installed":true,"name":"resume-from-opencode","source":{"type":"local","path":"/tmp/plugins/resume"},"availability":"AVAILABLE","interface":{"displayName":"Resume OpenCode","shortDescription":"Resume an OpenCode run","capabilities":["skills"],"screenshots":[],"screenshotUrls":[]},"keywords":["agents"],"localVersion":"1.0.0"}]}],"marketplaceLoadErrors":[],"featuredPluginIds":[]}"#
             case "model/list":
-                result = #"{"models":[]}"#
+                result = #"{"data":[{"id":"gpt-5.5","model":"gpt-5.5","displayName":"GPT-5.5","description":"Frontier model for complex coding, research, and real-world work.","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast responses with lighter reasoning"},{"reasoningEffort":"medium","description":"Balances speed and reasoning depth for everyday tasks"},{"reasoningEffort":"high","description":"Greater reasoning depth for complex problems"},{"reasoningEffort":"xhigh","description":"Extra high reasoning depth for complex problems"}],"defaultReasoningEffort":"medium","inputModalities":["text","image"],"supportsPersonality":true,"additionalSpeedTiers":["fast"],"serviceTiers":[{"id":"priority","name":"Fast","description":"1.5x speed, increased usage"}],"defaultServiceTier":null,"isDefault":true},{"id":"gpt-5.4-mini","model":"gpt-5.4-mini","displayName":"GPT-5.4-Mini","description":"Small, fast, and cost-efficient model for simpler coding tasks.","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast responses with lighter reasoning"},{"reasoningEffort":"medium","description":"Balances speed and reasoning depth for everyday tasks"}],"defaultReasoningEffort":"medium","inputModalities":["text","image"],"supportsPersonality":true,"additionalSpeedTiers":[],"serviceTiers":[],"defaultServiceTier":null,"isDefault":false},{"id":"codex-auto-review","model":"codex-auto-review","displayName":"Codex Auto Review","description":"Automatic approval review model for Codex.","hidden":true,"supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"Balances speed and reasoning depth for everyday tasks"}],"defaultReasoningEffort":"medium","inputModalities":["text","image"],"supportsPersonality":true,"additionalSpeedTiers":[],"serviceTiers":[],"defaultServiceTier":null,"isDefault":false}],"nextCursor":null}"#
+            case "fuzzyFileSearch":
+                result = #"{"files":[{"file_name":"Client.swift","match_type":"file","path":"Sources/CodexCore/Client/Client.swift","root":"/repo","score":0.91,"indices":[0,1,2]},{"file_name":"Codex.swift","match_type":"file","path":"Sources/CodexCore/Client/Codex.swift","root":"/repo","score":0.72}]}"#
             case "command/exec":
                 result = #"{"exitCode":0,"stdout":"COMMAND_OK\n","stderr":""}"#
             case "retry/overload":
@@ -137,6 +157,35 @@ actor MockTransport: CodexTransport {
 // MARK: - Test Suite
 
 final class CodexClientTerminalTests: XCTestCase {
+
+    func testFuzzyFileSearchDecodesResults() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        let response = try await client.fuzzyFileSearch(query: "cli", roots: ["/repo"])
+        XCTAssertEqual(response.files.count, 2)
+        let first = try XCTUnwrap(response.files.first)
+        XCTAssertEqual(first.fileName, "Client.swift")
+        XCTAssertEqual(first.matchType, .file)
+        XCTAssertEqual(first.path, "Sources/CodexCore/Client/Client.swift")
+        XCTAssertEqual(first.absolutePath, "/repo/Sources/CodexCore/Client/Client.swift")
+        XCTAssertEqual(first.indices, [0, 1, 2])
+
+        // The request must carry query + roots and route through the enum method.
+        let sent = await transport.sentPayloads
+        let searchPayload = sent.first { ($0["method"]?.description ?? "") == "fuzzyFileSearch" }
+        XCTAssertNotNil(searchPayload)
+        if case .dictionary(let params)? = searchPayload?["params"] {
+            XCTAssertEqual(params["query"], .string("cli"))
+            XCTAssertEqual(params["roots"], .array([.string("/repo")]))
+        } else {
+            XCTFail("fuzzyFileSearch params missing")
+        }
+
+        await client.disconnect()
+    }
 
     func testInitializeHandshakeBuffering() async throws {
         let transport = MockTransport()
@@ -595,7 +644,15 @@ final class CodexClientTerminalTests: XCTestCase {
         XCTAssertEqual(listed.data?.first?.id, "thread-mock")
 
         let models = try await client.modelList(includeHidden: true)
-        XCTAssertEqual(models.models?.count, 0)
+        XCTAssertNil(models.models)
+        XCTAssertEqual(models.data?.count, 3)
+        if case .dictionary(let firstModel)? = models.data?.first {
+            XCTAssertEqual(firstModel["displayName"], .string("GPT-5.5"))
+        } else {
+            XCTFail("model/list response missing first model")
+        }
+
+        _ = try await client.threadCompact(threadId: "thread-mock")
 
         let methods = await transport.sentPayloads.compactMap { $0["method"]?.description }
         XCTAssertTrue(methods.contains("account/login/start"))
@@ -603,6 +660,7 @@ final class CodexClientTerminalTests: XCTestCase {
         XCTAssertTrue(methods.contains("thread/fork"))
         XCTAssertTrue(methods.contains("thread/list"))
         XCTAssertTrue(methods.contains("model/list"))
+        XCTAssertTrue(methods.contains("thread/compact/start"))
 
         let initialize = await transport.sentPayloads.first { $0["method"]?.description == "initialize" }
         if case .dictionary(let params)? = initialize?["params"],
@@ -689,9 +747,79 @@ final class CodexClientTerminalTests: XCTestCase {
             XCTAssertEqual(reply["result"], expectedResult, "Unexpected default response for \(method.rawValue)")
         }
 
+        // Auto policies answer on the wire without publishing pending UI state:
+        // a request that is already decided must never dangle in the store.
         let activeThread = await store.activeThread
-        XCTAssertEqual(activeThread?.pendingApprovals.count, 3)
+        XCTAssertEqual(activeThread?.pendingApprovals.count, 0)
+        let storePending = await store.pendingApprovals
+        XCTAssertTrue(storePending.isEmpty)
+        let pendingInput = await store.pendingUserInput
+        XCTAssertNil(pendingInput)
+
+        await client.disconnect()
+    }
+
+    func testAskPolicyPublishesApprovalKindsAndQuestions() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store, approvalPolicy: .ask)
+        try await client.connect()
+        let threadId = try await client.createThread(cwd: "/tmp")
+        let turnId = try await client.startTurn(threadId: threadId, userPrompt: "hi")
+
+        let baseParams: [String: CodexJSONValue] = [
+            "threadId": .string(threadId),
+            "turnId": .string(turnId),
+            "itemId": .string("item-request"),
+            "startedAtMs": .int(1),
+            "cwd": .string("/tmp"),
+            "reason": .string("test")
+        ]
+
+        let requests: [(CodexAppServerServerRequestMethod, CodexJSONValue, [String: CodexJSONValue])] = [
+            (.itemCommandExecutionRequestApproval, .int(101), baseParams.merging(["command": .string("echo hi")]) { _, new in new }),
+            (.itemFileChangeRequestApproval, .int(102), baseParams),
+            (.itemPermissionsRequestApproval, .int(103), baseParams.merging(["permissions": .dictionary([:])]) { _, new in new }),
+            (.itemToolRequestUserInput, .int(104), baseParams.merging([
+                "questions": .array([
+                    .dictionary([
+                        "id": .string("question-1"),
+                        "header": .string("Header"),
+                        "question": .string("Choose"),
+                        "isSecret": .bool(true),
+                        "isOther": .bool(true),
+                        "options": .array([
+                            .dictionary(["label": .string("Yes"), "description": .string("Confirm")])
+                        ])
+                    ])
+                ])
+            ]) { _, new in new })
+        ]
+
+        for (method, id, params) in requests {
+            let frame: [String: CodexJSONValue] = [
+                "jsonrpc": .string("2.0"),
+                "id": id,
+                "method": .string(method.rawValue),
+                "params": .dictionary(params)
+            ]
+            let data = try JSONEncoder().encode(frame)
+            await transport.receiveMessage(String(decoding: data, as: UTF8.self))
+        }
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline {
+            let approvals = await store.pendingApprovals
+            let input = await store.pendingUserInput
+            if approvals.count == 3, input != nil { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        let pendingApprovals = await store.pendingApprovals
+        XCTAssertEqual(pendingApprovals.map(\.kind), [.command, .fileChange, .permissions])
+        let activeThread = await store.activeThread
         XCTAssertEqual(activeThread?.pendingApprovals.map(\.kind), [.command, .fileChange, .permissions])
+        XCTAssertEqual(activeThread?.status, .waiting)
 
         let pendingInput = await store.pendingUserInput
         XCTAssertEqual(pendingInput?.questions.first?.id, "question-1")
@@ -699,6 +827,12 @@ final class CodexClientTerminalTests: XCTestCase {
         XCTAssertEqual(pendingInput?.questions.first?.isSecret, true)
         XCTAssertEqual(pendingInput?.questions.first?.isOtherAllowed, true)
 
+        for approval in pendingApprovals {
+            await client.resolveApproval(requestId: approval.id, decision: .decline)
+        }
+        if let pendingInput {
+            await client.resolveUserInput(requestId: pendingInput.id, answers: [:])
+        }
         await client.disconnect()
     }
 
@@ -750,12 +884,131 @@ final class CodexClientTerminalTests: XCTestCase {
 
         _ = try await codex.threadArchive(thread.id)
         let modelList = try await codex.models(includeHidden: true)
-        XCTAssertEqual(modelList.models?.count, 0)
+        XCTAssertNil(modelList.models)
+        XCTAssertEqual(modelList.data?.count, 3)
+        if case .dictionary(let firstModel)? = modelList.data?.first,
+           case .array(let reasoningEfforts)? = firstModel["supportedReasoningEfforts"] {
+            XCTAssertEqual(firstModel["id"], .string("gpt-5.5"))
+            XCTAssertEqual(firstModel["displayName"], .string("GPT-5.5"))
+            XCTAssertEqual(firstModel["defaultReasoningEffort"], .string("medium"))
+            XCTAssertEqual(reasoningEfforts.count, 4)
+        } else {
+            XCTFail("model/list response missing live app-server model shape")
+        }
+        let skillsList = try await codex.skillsListRaw(cwds: ["/tmp"], forceReload: true)
+        if case .dictionary(let skillsObject) = skillsList,
+           case .array(let data)? = skillsObject["data"] {
+            XCTAssertEqual(data.count, 1)
+        } else {
+            XCTFail("skills/list response missing data")
+        }
+        let permissionProfiles = try await codex.permissionProfileListRaw()
+        if case .dictionary(let profileObject) = permissionProfiles,
+           case .array(let data)? = profileObject["data"] {
+            XCTAssertEqual(data.count, 3)
+        } else {
+            XCTFail("permissionProfile/list response missing data")
+        }
+        let collaborationModes = try await codex.collaborationModeListRaw()
+        if case .dictionary(let modeObject) = collaborationModes,
+           case .array(let data)? = modeObject["data"] {
+            XCTAssertEqual(data.count, 2)
+        } else {
+            XCTFail("collaborationMode/list response missing data")
+        }
+        let mcpList = try await codex.mcpServerStatusListRaw(threadId: thread.id, detail: "toolsAndAuthOnly", limit: 25)
+        if case .dictionary(let mcpObject) = mcpList,
+           case .array(let data)? = mcpObject["data"] {
+            XCTAssertEqual(data.count, 1)
+        } else {
+            XCTFail("mcpServerStatus/list response missing data")
+        }
+        let pluginList = try await codex.pluginListRaw(cwds: ["/tmp"])
+        if case .dictionary(let pluginObject) = pluginList,
+           case .array(let marketplaces)? = pluginObject["marketplaces"] {
+            XCTAssertEqual(marketplaces.count, 1)
+        } else {
+            XCTFail("plugin/list response missing marketplaces")
+        }
+        let searchResults = try await codex.threadSearchRaw(searchTerm: "needle", limit: 10)
+        if case .dictionary(let searchObject) = searchResults,
+           case .array(let data)? = searchObject["data"] {
+            XCTAssertEqual(data.count, 1)
+        } else {
+            XCTFail("thread/search response missing data")
+        }
+        let setGoal = try await thread.setGoal(objective: "Ship Swift goal parity", tokenBudget: 4096)
+        XCTAssertEqual(setGoal.goal.threadId, "thread-mock")
+        XCTAssertEqual(setGoal.goal.objective, "Ship Swift goal parity")
+        XCTAssertEqual(setGoal.goal.status, .active)
+        XCTAssertEqual(setGoal.goal.tokenBudget, 4096)
 
-        let handle = try await thread.turn([.text("hi"), .localImage(path: "/tmp/a.png")], model: "test-model", sandbox: .workspaceWrite)
+        let currentGoal = try await thread.goal()
+        XCTAssertEqual(currentGoal.goal?.tokensUsed, 12)
+        XCTAssertEqual(currentGoal.goal?.timeUsedSeconds, 3)
+
+        let clearedGoal = try await thread.clearGoal()
+        XCTAssertTrue(clearedGoal.cleared)
+
+        _ = try await thread.compact()
+
+        let handle = try await thread.turn(
+            [.text("hi"), .localImage(path: "/tmp/a.png")],
+            model: "test-model",
+            sandbox: .workspaceWrite,
+            params: ["collaborationMode": .string("plan")]
+        )
         XCTAssertEqual(handle.id, "turn-mock")
 
         let sentPayloads = await transport.sentPayloads
+        let mcpStatusPayload = sentPayloads.last { $0["method"]?.description == "mcpServerStatus/list" }
+        if case .dictionary(let params)? = mcpStatusPayload?["params"] {
+            XCTAssertEqual(params["threadId"], .string("thread-mock"))
+            XCTAssertEqual(params["detail"], .string("toolsAndAuthOnly"))
+            XCTAssertEqual(params["limit"], .int(25))
+        } else {
+            XCTFail("mcpServerStatus/list params missing")
+        }
+
+        let pluginListPayload = sentPayloads.last { $0["method"]?.description == "plugin/list" }
+        if case .dictionary(let params)? = pluginListPayload?["params"],
+           case .array(let cwds)? = params["cwds"] {
+            XCTAssertEqual(cwds, [.string("/tmp")])
+        } else {
+            XCTFail("plugin/list params missing")
+        }
+
+        let compactPayload = sentPayloads.last { $0["method"]?.description == "thread/compact/start" }
+        if case .dictionary(let params)? = compactPayload?["params"] {
+            XCTAssertEqual(params["threadId"], .string("thread-mock"))
+        } else {
+            XCTFail("thread/compact/start params missing")
+        }
+
+        let goalSetPayload = sentPayloads.last { $0["method"]?.description == "thread/goal/set" }
+        if case .dictionary(let params)? = goalSetPayload?["params"] {
+            XCTAssertEqual(params["threadId"], .string("thread-mock"))
+            XCTAssertEqual(params["objective"], .string("Ship Swift goal parity"))
+            XCTAssertEqual(params["status"], .string(ThreadGoalStatus.active.rawValue))
+            XCTAssertEqual(params["tokenBudget"], .int(4096))
+        } else {
+            XCTFail("thread/goal/set params missing")
+        }
+
+        let goalGetPayload = sentPayloads.last { $0["method"]?.description == "thread/goal/get" }
+        if case .dictionary(let params)? = goalGetPayload?["params"] {
+            XCTAssertEqual(params["threadId"], .string("thread-mock"))
+        } else {
+            XCTFail("thread/goal/get params missing")
+        }
+
+        let goalClearPayload = sentPayloads.last { $0["method"]?.description == "thread/goal/clear" }
+        if case .dictionary(let params)? = goalClearPayload?["params"] {
+            XCTAssertEqual(params["threadId"], .string("thread-mock"))
+        } else {
+            XCTFail("thread/goal/clear params missing")
+        }
+
         let threadStartPayload = sentPayloads.last { $0["method"]?.description == "thread/start" }
         if case .dictionary(let params)? = threadStartPayload?["params"] {
             XCTAssertEqual(params["sandbox"], .string("workspace-write"))
@@ -770,8 +1023,28 @@ final class CodexClientTerminalTests: XCTestCase {
            case .array(let input)? = params["input"] {
             XCTAssertEqual(input.count, 2)
             XCTAssertEqual(params["sandboxPolicy"], .dictionary(["type": .string("workspaceWrite")]))
+            XCTAssertEqual(params["collaborationMode"], .string("plan"))
         } else {
             XCTFail("turn/start params missing")
+        }
+
+        let skillsListPayload = sentPayloads.last { $0["method"]?.description == "skills/list" }
+        if case .dictionary(let params)? = skillsListPayload?["params"] {
+            XCTAssertEqual(params["cwds"], .array([.string("/tmp")]))
+            XCTAssertEqual(params["forceReload"], .bool(true))
+        } else {
+            XCTFail("skills/list params missing")
+        }
+
+        let searchPayload = sentPayloads.last { $0["method"]?.description == "thread/search" }
+        if case .dictionary(let params)? = searchPayload?["params"] {
+            XCTAssertEqual(params["searchTerm"], .string("needle"))
+            XCTAssertEqual(params["limit"], .int(10))
+            XCTAssertEqual(params["archived"], .bool(false))
+            XCTAssertEqual(params["sortDirection"], .string(SortDirection.desc.rawValue))
+            XCTAssertEqual(params["sortKey"], .string(ThreadSortKey.updatedAt.rawValue))
+        } else {
+            XCTFail("thread/search params missing")
         }
 
         await codex.close()
@@ -885,6 +1158,109 @@ final class CodexClientTerminalTests: XCTestCase {
         })
         XCTAssertFalse(notifications.contains { $0.schemaDefinition == nil })
         XCTAssertTrue(notifications.allSatisfy { $0.schemaValue.rawValue == .dictionary([:]) })
+    }
+
+    func testSkillsChangedNotificationStreamsWithoutTimelineMutation() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        let notificationExpectation = expectation(description: "skills changed notification streamed")
+        let collector = Task {
+            for await notification in client.notifications() {
+                if notification.knownMethod == .skillsChanged {
+                    notificationExpectation.fulfill()
+                    break
+                }
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "skills/changed",
+            "params": {}
+        }
+        """)
+
+        await fulfillment(of: [notificationExpectation], timeout: 2.0)
+        collector.cancel()
+
+        let activeThread = await store.activeThread
+        XCTAssertNil(activeThread)
+    }
+
+    func testThreadGoalNotificationsUpdateStore() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "thread/started",
+            "params": {
+                "thread": {
+                    "id": "thread-mock",
+                    "status": { "type": "idle" }
+                }
+            }
+        }
+        """)
+
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "thread/goal/updated",
+            "params": {
+                "threadId": "thread-mock",
+                "turnId": null,
+                "goal": {
+                    "threadId": "thread-mock",
+                    "objective": "Reach app parity",
+                    "status": "active",
+                    "tokenBudget": 2048,
+                    "tokensUsed": 42,
+                    "timeUsedSeconds": 7,
+                    "createdAt": 1781075531,
+                    "updatedAt": 1781075540
+                }
+            }
+        }
+        """)
+
+        var deadline = Date().addingTimeInterval(2.0)
+        while await store.activeThread?.goal == nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        var activeThread = await store.activeThread
+        XCTAssertEqual(activeThread?.goal?.objective, "Reach app parity")
+        XCTAssertEqual(activeThread?.goal?.status, .active)
+        XCTAssertEqual(activeThread?.goal?.tokensUsed, 42)
+
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "thread/goal/cleared",
+            "params": {
+                "threadId": "thread-mock"
+            }
+        }
+        """)
+
+        deadline = Date().addingTimeInterval(2.0)
+        while await store.activeThread?.goal != nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        activeThread = await store.activeThread
+        XCTAssertNil(activeThread?.goal)
+
+        await client.disconnect()
     }
 
     func testHighLevelTurnTextDeltasReplayPendingEvents() async throws {
@@ -1197,9 +1573,7 @@ final class CodexClientTerminalTests: XCTestCase {
     }
 
     func testRealCodexAppServerTurnLifecycle() async throws {
-        let binaryURL = URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex")
-
-        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
+        guard let binaryURL = try? Codex.resolveCodexBinary() else {
             print("[CodexClientTerminalTests] Skipping: Codex binary not found")
             return
         }
@@ -1277,9 +1651,7 @@ final class CodexClientTerminalTests: XCTestCase {
     }
 
     func testRealCodexAppServerProcessSession() async throws {
-        let binaryURL = URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex")
-
-        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
+        guard let binaryURL = try? Codex.resolveCodexBinary() else {
             print("[CodexClientTerminalTests] Skipping: Codex binary not found")
             return
         }

@@ -32,6 +32,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadTurnsItemsList = "thread/turns/items/list"
     case threadInjectItems = "thread/inject_items"
     case skillsList = "skills/list"
+    case skillsExtraRootsSet = "skills/extraRoots/set"
     case hooksList = "hooks/list"
     case marketplaceAdd = "marketplace/add"
     case marketplaceRemove = "marketplace/remove"
@@ -75,6 +76,10 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case remoteControlEnable = "remoteControl/enable"
     case remoteControlDisable = "remoteControl/disable"
     case remoteControlStatusRead = "remoteControl/status/read"
+    case remoteControlPairingStart = "remoteControl/pairing/start"
+    case remoteControlPairingStatus = "remoteControl/pairing/status"
+    case remoteControlClientList = "remoteControl/client/list"
+    case remoteControlClientRevoke = "remoteControl/client/revoke"
     case collaborationModeList = "collaborationMode/list"
     case mockExperimentalMethod = "mock/experimentalMethod"
     case environmentAdd = "environment/add"
@@ -89,6 +94,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case accountLoginCancel = "account/login/cancel"
     case accountLogout = "account/logout"
     case accountRateLimitsRead = "account/rateLimits/read"
+    case accountUsageRead = "account/usage/read"
     case accountSendAddCreditsNudgeEmail = "account/sendAddCreditsNudgeEmail"
     case feedbackUpload = "feedback/upload"
     case commandExec = "command/exec"
@@ -159,6 +165,7 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case threadCompacted = "thread/compacted"
     case modelRerouted = "model/rerouted"
     case modelVerification = "model/verification"
+    case turnModerationMetadata = "turn/moderationMetadata"
     case warning = "warning"
     case guardianWarning = "guardianWarning"
     case deprecationNotice = "deprecationNotice"
@@ -190,7 +197,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 108
-    public static let notificationMethodCount = 64
+    public static let clientMethodCount = 114
+    public static let notificationMethodCount = 65
     public static let serverRequestMethodCount = 10
 }

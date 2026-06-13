@@ -14,6 +14,11 @@ public struct CodexConfig: Sendable {
     public let clientTitle: String
     public let clientVersion: String
     public let experimentalAPI: Bool
+    /// How escalated approval/user-input server requests are answered when no
+    /// custom `serverRequestHandler` is installed. `.autoApprove` preserves the
+    /// historic behavior; interactive apps should use `.ask` and resolve via
+    /// `Codex.respondToApproval(id:decision:)`.
+    public let approvalPolicy: CodexApprovalPolicy
 
     public init(
         codexBinaryPath: String? = nil,
@@ -24,7 +29,8 @@ public struct CodexConfig: Sendable {
         clientName: String = "codex_swift_sdk",
         clientTitle: String = "Codex Swift SDK",
         clientVersion: String = "1.0.0",
-        experimentalAPI: Bool = true
+        experimentalAPI: Bool = true,
+        approvalPolicy: CodexApprovalPolicy = .autoApprove
     ) {
         self.codexBinaryPath = codexBinaryPath
         self.launchArgumentsOverride = launchArgumentsOverride
@@ -35,6 +41,7 @@ public struct CodexConfig: Sendable {
         self.clientTitle = clientTitle
         self.clientVersion = clientVersion
         self.experimentalAPI = experimentalAPI
+        self.approvalPolicy = approvalPolicy
     }
 }
 
@@ -50,7 +57,7 @@ public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .runtimeNotFound:
-            return "Codex runtime not found. Set CodexConfig.codexBinaryPath to a valid codex binary."
+            return "Codex runtime not found. Set CodexConfig.codexBinaryPath, CODEX_BINARY, or CODEX_APP_BUNDLE; install codex on PATH; or install Codex.app."
         case .invalidRuntimePath(let path):
             return "Codex runtime not found at \(path)."
         case .invalidResponse(let method, let value):
@@ -101,7 +108,12 @@ public final class Codex: @unchecked Sendable {
         config: CodexConfig = CodexConfig(),
         serverRequestHandler: CodexServerRequestHandler? = nil
     ) async throws {
-        let client = CodexClient(transport: transport, store: store, serverRequestHandler: serverRequestHandler)
+        let client = CodexClient(
+            transport: transport,
+            store: store,
+            serverRequestHandler: serverRequestHandler,
+            approvalPolicy: config.approvalPolicy
+        )
         let metadata: InitializeResponse
 
         do {
@@ -272,6 +284,23 @@ public final class Codex: @unchecked Sendable {
         try await client.request(method: CodexAppServerClientMethod.threadList.rawValue, params: params)
     }
 
+    public func threadSearchRaw(
+        searchTerm: String,
+        limit: Int? = nil,
+        cursor: String? = nil,
+        archived: Bool? = false,
+        sortDirection: SortDirection? = .desc,
+        sortKey: ThreadSortKey? = .updatedAt
+    ) async throws -> CodexJSONValue {
+        var params: [String: CodexJSONValue] = ["searchTerm": .string(searchTerm)]
+        if let limit { params["limit"] = .int(limit) }
+        if let cursor { params["cursor"] = .string(cursor) }
+        if let archived { params["archived"] = .bool(archived) }
+        if let sortDirection { params["sortDirection"] = .string(sortDirection.rawValue) }
+        if let sortKey { params["sortKey"] = .string(sortKey.rawValue) }
+        return try await client.request(method: CodexAppServerClientMethod.threadSearch.rawValue, params: params)
+    }
+
     public func threadFork(
         _ threadId: String,
         approvalMode: ApprovalMode? = nil,
@@ -314,8 +343,101 @@ public final class Codex: @unchecked Sendable {
         return CodexThread(client: client, store: store, id: response.thread.id)
     }
 
+    public func threadGoalSet(
+        _ threadId: String,
+        objective: String? = nil,
+        status: ThreadGoalStatus? = nil,
+        tokenBudget: Int? = nil
+    ) async throws -> ThreadGoalSetResponse {
+        try await client.threadGoalSet(
+            threadId: threadId,
+            objective: objective,
+            status: status,
+            tokenBudget: tokenBudget
+        )
+    }
+
+    public func threadGoalGet(_ threadId: String) async throws -> ThreadGoalGetResponse {
+        try await client.threadGoalGet(threadId: threadId)
+    }
+
+    public func threadGoalClear(_ threadId: String) async throws -> ThreadGoalClearResponse {
+        try await client.threadGoalClear(threadId: threadId)
+    }
+
     public func models(includeHidden: Bool = false) async throws -> ModelListResponse {
         try await client.modelList(includeHidden: includeHidden)
+    }
+
+    /// Fuzzy-searches file names under the given roots (used for @-mentions).
+    public func fuzzyFileSearch(
+        query: String,
+        roots: [String],
+        cancellationToken: String? = nil
+    ) async throws -> FuzzyFileSearchResponse {
+        try await client.fuzzyFileSearch(query: query, roots: roots, cancellationToken: cancellationToken)
+    }
+
+    public func skillsListRaw(cwds: [String] = [], forceReload: Bool = false) async throws -> CodexJSONValue {
+        var params: [String: CodexJSONValue] = [:]
+        if !cwds.isEmpty {
+            params["cwds"] = .array(cwds.map { .string($0) })
+        }
+        if forceReload {
+            params["forceReload"] = .bool(true)
+        }
+        return try await client.request(method: CodexAppServerClientMethod.skillsList.rawValue, params: params)
+    }
+
+    public func permissionProfileListRaw(limit: Int? = nil, cursor: String? = nil) async throws -> CodexJSONValue {
+        var params: [String: CodexJSONValue] = [:]
+        if let limit {
+            params["limit"] = .int(limit)
+        }
+        if let cursor {
+            params["cursor"] = .string(cursor)
+        }
+        return try await client.request(method: CodexAppServerClientMethod.permissionProfileList.rawValue, params: params)
+    }
+
+    public func collaborationModeListRaw() async throws -> CodexJSONValue {
+        try await client.request(method: CodexAppServerClientMethod.collaborationModeList.rawValue, params: [:])
+    }
+
+    public func mcpServerStatusListRaw(
+        threadId: String? = nil,
+        detail: String? = "full",
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) async throws -> CodexJSONValue {
+        var params: [String: CodexJSONValue] = [:]
+        if let threadId {
+            params["threadId"] = .string(threadId)
+        }
+        if let detail {
+            params["detail"] = .string(detail)
+        }
+        if let limit {
+            params["limit"] = .int(limit)
+        }
+        if let cursor {
+            params["cursor"] = .string(cursor)
+        }
+        return try await client.request(method: CodexAppServerClientMethod.mcpServerStatusList.rawValue, params: params)
+    }
+
+    public func pluginListRaw(
+        cwds: [String] = [],
+        marketplaceKinds: [String] = []
+    ) async throws -> CodexJSONValue {
+        var params: [String: CodexJSONValue] = [:]
+        if !cwds.isEmpty {
+            params["cwds"] = .array(cwds.map { .string($0) })
+        }
+        if !marketplaceKinds.isEmpty {
+            params["marketplaceKinds"] = .array(marketplaceKinds.map { .string($0) })
+        }
+        return try await client.request(method: CodexAppServerClientMethod.pluginList.rawValue, params: params)
     }
 
     public func execCommand(
@@ -366,6 +488,22 @@ public final class Codex: @unchecked Sendable {
         try await client.request(method: method, params: params)
     }
 
+    // MARK: - Approval Resolution (policy `.ask`)
+
+    /// Answers a pending approval from `store.pendingApprovals`. Returns `false`
+    /// if no request with this id is awaiting a decision.
+    @discardableResult
+    public func respondToApproval(id: String, decision: CodexApprovalDecision) async -> Bool {
+        await client.resolveApproval(requestId: id, decision: decision)
+    }
+
+    /// Answers a pending `store.pendingUserInput` request with answers keyed by
+    /// question id. Returns `false` if no request with this id is pending.
+    @discardableResult
+    public func respondToUserInput(id: String, answers: CodexUserInputAnswers) async -> Bool {
+        await client.resolveUserInput(requestId: id, answers: answers)
+    }
+
     private static func makeDefaultTransport(config: CodexConfig) throws -> CodexStdioTransport {
         let binaryURL = try resolveCodexBinary(config: config)
         var arguments: [String]
@@ -388,7 +526,11 @@ public final class Codex: @unchecked Sendable {
         )
     }
 
-    private static func resolveCodexBinary(config: CodexConfig) throws -> URL {
+    /// Resolves the Codex runtime executable used to launch the local app-server.
+    ///
+    /// Precedence is explicit SDK config, `CODEX_BINARY`, `CODEX_BIN`, `codex`
+    /// from `PATH`, then a macOS Codex app bundle.
+    public static func resolveCodexBinary(config: CodexConfig = CodexConfig()) throws -> URL {
         let fileManager = FileManager.default
 
         if let path = config.codexBinaryPath {
@@ -398,9 +540,12 @@ public final class Codex: @unchecked Sendable {
             return URL(fileURLWithPath: path)
         }
 
-        let appBundlePath = "/Applications/Codex.app/Contents/Resources/codex"
-        if fileManager.isExecutableFile(atPath: appBundlePath) {
-            return URL(fileURLWithPath: appBundlePath)
+        for key in ["CODEX_BINARY", "CODEX_BIN"] {
+            guard let path = ProcessInfo.processInfo.environment[key], !path.isEmpty else { continue }
+            guard fileManager.isExecutableFile(atPath: path) else {
+                throw CodexSDKError.invalidRuntimePath(path)
+            }
+            return URL(fileURLWithPath: path)
         }
 
         let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
@@ -411,7 +556,42 @@ public final class Codex: @unchecked Sendable {
             }
         }
 
+        for appBundleURL in codexAppBundleCandidates(fileManager: fileManager) {
+            let candidate = appBundleURL
+                .appendingPathComponent("Contents")
+                .appendingPathComponent("Resources")
+                .appendingPathComponent("codex")
+                .path
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return URL(fileURLWithPath: candidate)
+            }
+        }
+
         throw CodexSDKError.runtimeNotFound
+    }
+
+    private static func codexAppBundleCandidates(fileManager: FileManager) -> [URL] {
+        var candidates: [URL] = []
+        var seenPaths: Set<String> = []
+
+        func append(_ url: URL) {
+            let standardizedPath = url.standardizedFileURL.path
+            guard seenPaths.insert(standardizedPath).inserted else { return }
+            candidates.append(URL(fileURLWithPath: standardizedPath, isDirectory: true))
+        }
+
+        for key in ["CODEX_APP_BUNDLE", "CODEX_APP_BUNDLE_PATH"] {
+            guard let path = ProcessInfo.processInfo.environment[key], !path.isEmpty else { continue }
+            append(URL(fileURLWithPath: path, isDirectory: true))
+        }
+
+        #if os(macOS)
+        for directory in fileManager.urls(for: .applicationDirectory, in: [.userDomainMask, .localDomainMask]) {
+            append(directory.appendingPathComponent("Codex.app", isDirectory: true))
+        }
+        #endif
+
+        return candidates
     }
 
 }
@@ -596,8 +776,46 @@ public final class CodexThread: Identifiable, @unchecked Sendable {
         try await client.threadSetName(threadId: id, name: name)
     }
 
+    public func setGoal(
+        objective: String,
+        status: ThreadGoalStatus = .active,
+        tokenBudget: Int? = nil
+    ) async throws -> ThreadGoalSetResponse {
+        try await client.threadGoalSet(
+            threadId: id,
+            objective: objective,
+            status: status,
+            tokenBudget: tokenBudget
+        )
+    }
+
+    public func updateGoal(
+        objective: String? = nil,
+        status: ThreadGoalStatus? = nil,
+        tokenBudget: Int? = nil
+    ) async throws -> ThreadGoalSetResponse {
+        try await client.threadGoalSet(
+            threadId: id,
+            objective: objective,
+            status: status,
+            tokenBudget: tokenBudget
+        )
+    }
+
+    public func goal() async throws -> ThreadGoalGetResponse {
+        try await client.threadGoalGet(threadId: id)
+    }
+
+    public func clearGoal() async throws -> ThreadGoalClearResponse {
+        try await client.threadGoalClear(threadId: id)
+    }
+
     public func compact() async throws -> ThreadCompactStartResponse {
         try await client.threadCompact(threadId: id)
+    }
+
+    public func interrupt(turnId: String) async throws -> CodexJSONValue {
+        try await client.interruptTurn(threadId: id, turnId: turnId)
     }
 }
 

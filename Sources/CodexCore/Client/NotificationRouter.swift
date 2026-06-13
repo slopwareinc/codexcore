@@ -23,8 +23,12 @@ public enum CodexNotificationPayload: Sendable, Equatable {
     case itemCompleted(ItemCompletedNotification)
     case agentMessageDelta(AgentMessageDeltaNotification)
     case threadTokenUsageUpdated(ThreadTokenUsageUpdatedNotification)
+    case threadGoalUpdated(ThreadGoalUpdatedNotification)
+    case threadGoalCleared(ThreadGoalClearedNotification)
     case turnStarted(TurnStartedNotification)
     case turnCompleted(TurnCompletedNotification)
+    case turnPlanUpdated(TurnPlanUpdatedNotification)
+    case turnDiffUpdated(TurnDiffUpdatedNotification)
     case accountLoginCompleted(AccountLoginCompletedNotification)
     case known(method: CodexAppServerNotificationMethod, params: [String: CodexJSONValue])
     case unknown(method: String, params: [String: CodexJSONValue])
@@ -39,10 +43,18 @@ public enum CodexNotificationPayload: Sendable, Equatable {
             return .itemAgentMessageDelta
         case .threadTokenUsageUpdated:
             return .threadTokenUsageUpdated
+        case .threadGoalUpdated:
+            return .threadGoalUpdated
+        case .threadGoalCleared:
+            return .threadGoalCleared
         case .turnStarted:
             return .turnStarted
         case .turnCompleted:
             return .turnCompleted
+        case .turnPlanUpdated:
+            return .turnPlanUpdated
+        case .turnDiffUpdated:
+            return .turnDiffUpdated
         case .accountLoginCompleted:
             return .accountLoginCompleted
         case .known(let method, _):
@@ -196,44 +208,70 @@ public actor CodexNotificationRouter {
         }
     }
 
+    /// Per-turn replay buffers are capped so a chatty turn nobody subscribes
+    /// to cannot grow without bound. Oldest notifications are dropped first.
+    private static let maxPendingNotificationsPerStream = 512
+
     private func routeTurn(_ notification: CodexNotification, turnId: String) {
+        let isCompletion = notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue
+
         if let continuations = turnContinuations[turnId], !continuations.isEmpty {
             for continuation in continuations.values {
                 continuation.yield(notification)
-                if notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue {
+                if isCompletion {
                     continuation.finish()
                 }
             }
         } else if registeredTurns.contains(turnId) {
-            pendingTurnNotifications[turnId, default: []].append(notification)
-        } else if notification.method != CodexAppServerNotificationMethod.turnCompleted.rawValue {
-            pendingTurnNotifications[turnId, default: []].append(notification)
+            appendPending(notification, to: &pendingTurnNotifications[turnId, default: []])
+        } else if isCompletion {
+            // Nobody registered for this turn and it just completed: drop its
+            // replay buffer entirely (mirrors the official Python SDK router).
+            pendingTurnNotifications.removeValue(forKey: turnId)
+        } else {
+            appendPending(notification, to: &pendingTurnNotifications[turnId, default: []])
         }
 
-        if notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue {
+        if isCompletion {
             registeredTurns.remove(turnId)
             turnContinuations.removeValue(forKey: turnId)
         }
     }
 
     private func routeLogin(_ notification: CodexNotification, loginId: String) {
+        let isCompletion = notification.method == CodexAppServerNotificationMethod.accountLoginCompleted.rawValue
+
         if let continuations = loginContinuations[loginId], !continuations.isEmpty {
             for continuation in continuations.values {
                 continuation.yield(notification)
-                if notification.method == CodexAppServerNotificationMethod.accountLoginCompleted.rawValue {
+                if isCompletion {
                     continuation.finish()
                 }
             }
         } else if registeredLogins.contains(loginId) {
-            pendingLoginNotifications[loginId, default: []].append(notification)
-        } else if notification.method != CodexAppServerNotificationMethod.accountLoginCompleted.rawValue {
-            pendingLoginNotifications[loginId, default: []].append(notification)
+            appendPending(notification, to: &pendingLoginNotifications[loginId, default: []])
+        } else if isCompletion {
+            pendingLoginNotifications.removeValue(forKey: loginId)
+        } else {
+            appendPending(notification, to: &pendingLoginNotifications[loginId, default: []])
         }
 
-        if notification.method == CodexAppServerNotificationMethod.accountLoginCompleted.rawValue {
+        if isCompletion {
             registeredLogins.remove(loginId)
             loginContinuations.removeValue(forKey: loginId)
         }
+    }
+
+    private func appendPending(_ notification: CodexNotification, to buffer: inout [CodexNotification]) {
+        buffer.append(notification)
+        if buffer.count > Self.maxPendingNotificationsPerStream {
+            buffer.removeFirst(buffer.count - Self.maxPendingNotificationsPerStream)
+        }
+    }
+
+    /// Number of buffered notifications awaiting replay for a turn. Test hook.
+    func pendingTurnNotificationCount(turnId: String) -> Int {
+        pendingTurnNotifications[turnId]?.count ?? 0
     }
 
     private static func payload(method: String, params: [String: CodexJSONValue]) -> CodexNotificationPayload {
@@ -259,10 +297,18 @@ public actor CodexNotificationRouter {
             return decode(AgentMessageDeltaNotification.self).map(CodexNotificationPayload.agentMessageDelta) ?? knownFallback()
         case CodexAppServerNotificationMethod.threadTokenUsageUpdated.rawValue:
             return decode(ThreadTokenUsageUpdatedNotification.self).map(CodexNotificationPayload.threadTokenUsageUpdated) ?? knownFallback()
+        case CodexAppServerNotificationMethod.threadGoalUpdated.rawValue:
+            return decode(ThreadGoalUpdatedNotification.self).map(CodexNotificationPayload.threadGoalUpdated) ?? knownFallback()
+        case CodexAppServerNotificationMethod.threadGoalCleared.rawValue:
+            return decode(ThreadGoalClearedNotification.self).map(CodexNotificationPayload.threadGoalCleared) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnStarted.rawValue:
             return decode(TurnStartedNotification.self).map(CodexNotificationPayload.turnStarted) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnCompleted.rawValue:
             return decode(TurnCompletedNotification.self).map(CodexNotificationPayload.turnCompleted) ?? knownFallback()
+        case CodexAppServerNotificationMethod.turnPlanUpdated.rawValue:
+            return decode(TurnPlanUpdatedNotification.self).map(CodexNotificationPayload.turnPlanUpdated) ?? knownFallback()
+        case CodexAppServerNotificationMethod.turnDiffUpdated.rawValue:
+            return decode(TurnDiffUpdatedNotification.self).map(CodexNotificationPayload.turnDiffUpdated) ?? knownFallback()
         case CodexAppServerNotificationMethod.accountLoginCompleted.rawValue:
             return decode(AccountLoginCompletedNotification.self).map(CodexNotificationPayload.accountLoginCompleted) ?? knownFallback()
         default:
@@ -286,8 +332,11 @@ public actor CodexNotificationRouter {
         case .itemCompleted(let payload): return payload.turnId
         case .agentMessageDelta(let payload): return payload.turnId
         case .threadTokenUsageUpdated(let payload): return payload.turnId
+        case .threadGoalUpdated(let payload): return payload.turnId
         case .turnStarted(let payload): return payload.turn.id
         case .turnCompleted(let payload): return payload.turn.id
+        case .turnPlanUpdated(let payload): return payload.turnId
+        case .turnDiffUpdated(let payload): return payload.turnId
         default: break
         }
 

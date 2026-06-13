@@ -18,6 +18,10 @@ Screenshots captured during inspection:
 - Active subagent summary rows: `/var/folders/35/3j8rkfv52tx03c4rhn9b57d40000gn/T/opencode/codex-subagent-final.png`
 - Completed subagents after closure: `/var/folders/35/3j8rkfv52tx03c4rhn9b57d40000gn/T/opencode/codex-subagent-completed-closed.png`
 - Side chat reopened after subagents: `/var/folders/35/3j8rkfv52tx03c4rhn9b57d40000gn/T/opencode/codex-side-chat-row-after-subagents.png`
+- Complex tool-call subagent run, active summary state: `/var/folders/35/3j8rkfv52tx03c4rhn9b57d40000gn/T/codex-cdp-slow-subagents-20260608/sample-00.png`
+- Complex tool-call subagent run, partially completed state: `/var/folders/35/3j8rkfv52tx03c4rhn9b57d40000gn/T/codex-cdp-slow-subagents-20260608/sample-06.png`
+- Complex tool-call subagent run, final comparison table: `/var/folders/35/3j8rkfv52tx03c4rhn9b57d40000gn/T/codex-cdp-slow-subagents-20260608/sample-12.png`
+- Complex tool-call subagent run DOM observations: `/var/folders/35/3j8rkfv52tx03c4rhn9b57d40000gn/T/codex-cdp-slow-subagents-20260608/interactive-observations.json`
 
 ## Core Design Tokens
 
@@ -102,6 +106,29 @@ Screenshots captured during inspection:
 - The right split panel was about `320px` wide, with a vertical resizer/separator, its own `46px` toolbar, tablist, tabpanel, scroll-to-bottom control, and sticky composer.
 - Side chat should be modeled as an ephemeral fork/subthread attached to the parent transcript, not as a normal assistant message.
 - Subagent runs should be modeled separately from durable side chats: active runs appear as summary-panel rows, while completed findings are folded back into the parent transcript unless the app exposes a durable child session.
+
+### Complex Tool-Call Subagent Observations
+
+Two additional read-only prompts explicitly forced multi-agent tool use:
+
+- First complex run created `Euler`, `Raman`, and `Lovelace`.
+  - The parent requested three parallel agents with at least three read-only tool calls each.
+  - The floating summary panel showed a transient `Subagents` section with `Euler is working`, `Raman is working`, and `Lovelace is working`.
+  - As agents completed, the rows dropped the `is working` suffix one by one before the entire `Subagents` section disappeared.
+  - Final parent response rendered a comparison table with agent name, tools used, findings, and observed UI behavior.
+- Second slower run created `Halley`, `Newton`, and `Parfit`.
+  - Each child was instructed to run real read-only shell/file commands plus a long harmless progress loop with sleeps.
+  - While running, the parent transcript showed `Working for ...`, `Spawning 3 agents`, `Created <name> with the instructions: ...`, progress prose, and `Thinking`.
+  - The composer send button became a stop control with tooltip text `Stop` and shortcut `Esc`.
+  - The summary panel inserted `Subagents` rows: `Halley is working`, `Newton is working`, and `Parfit is working`.
+  - When `Halley` finished first, its row remained but no longer said `is working`; `Newton` and `Parfit` still did. Later all three rows remained briefly without `is working` while the parent said it was closing the sessions.
+  - After close/final summary, the `Subagents` section vanished; `Outputs`, `Side chats`, and `Sources` remained.
+  - The final parent table reported actual child tool calls such as `pwd`, `git status --short --branch`, `rg --files`, `find`, `ls -la`, `git diff --stat`, version checks, and long-running shell progress loops.
+  - Long-running command output was summarized as child-agent findings and "tool-call/session output descriptions"; the parent transcript did not expose every child command stream inline.
+  - The bottom terminal panel stayed attached to the project tab (`bughunt`) and did not become a subagent command-output viewer.
+  - No files were modified.
+
+Implementation implication: the Swift app needs separate models for parent turn lifecycle, active child-agent status rows, durable side-chat tabs, completed child-agent summaries, and bottom terminal sessions. Treating subagents as only transcript messages loses important intermediate states: active row suffixes, per-agent completion transitions, and stop/interrupt state.
 
 ## Menus And Controls
 

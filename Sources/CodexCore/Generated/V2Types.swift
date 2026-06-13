@@ -457,6 +457,82 @@ public typealias ThreadArchiveResponse = EmptyResponse
 public typealias ThreadSetNameResponse = EmptyResponse
 public typealias ThreadCompactStartResponse = EmptyResponse
 
+public enum ThreadGoalStatus: String, Codable, Sendable, Equatable {
+    case active
+    case paused
+    case blocked
+    case usageLimited
+    case budgetLimited
+    case complete
+}
+
+public struct ThreadGoal: Codable, Sendable, Equatable {
+    public var threadId: String
+    public var objective: String
+    public var status: ThreadGoalStatus
+    public var tokenBudget: Int?
+    public var tokensUsed: Int
+    public var timeUsedSeconds: Int
+    public var createdAt: Int
+    public var updatedAt: Int
+
+    public init(
+        threadId: String,
+        objective: String,
+        status: ThreadGoalStatus,
+        tokenBudget: Int? = nil,
+        tokensUsed: Int,
+        timeUsedSeconds: Int,
+        createdAt: Int,
+        updatedAt: Int
+    ) {
+        self.threadId = threadId
+        self.objective = objective
+        self.status = status
+        self.tokenBudget = tokenBudget
+        self.tokensUsed = tokensUsed
+        self.timeUsedSeconds = timeUsedSeconds
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct ThreadGoalSetParams: Encodable, Sendable, Equatable {
+    public var threadId: String
+    public var objective: String?
+    public var status: ThreadGoalStatus?
+    public var tokenBudget: Int?
+
+    public init(threadId: String, objective: String? = nil, status: ThreadGoalStatus? = nil, tokenBudget: Int? = nil) {
+        self.threadId = threadId
+        self.objective = objective
+        self.status = status
+        self.tokenBudget = tokenBudget
+    }
+}
+
+public struct ThreadGoalGetParams: Encodable, Sendable, Equatable {
+    public var threadId: String
+
+    public init(threadId: String) {
+        self.threadId = threadId
+    }
+}
+
+public typealias ThreadGoalClearParams = ThreadGoalGetParams
+
+public struct ThreadGoalSetResponse: Codable, Sendable, Equatable {
+    public var goal: ThreadGoal
+}
+
+public struct ThreadGoalGetResponse: Codable, Sendable, Equatable {
+    public var goal: ThreadGoal?
+}
+
+public struct ThreadGoalClearResponse: Codable, Sendable, Equatable {
+    public var cleared: Bool
+}
+
 public struct ThreadListResponse: Codable, Sendable, Equatable {
     public var data: [CodexAppThread]?
     public var nextCursor: String?
@@ -646,6 +722,103 @@ public struct ThreadTokenUsageUpdatedNotification: Codable, Sendable, Equatable 
     public var threadId: String
     public var turnId: String?
     public var tokenUsage: ThreadTokenUsage
+}
+
+public struct ThreadGoalUpdatedNotification: Codable, Sendable, Equatable {
+    public var threadId: String
+    public var turnId: String?
+    public var goal: ThreadGoal
+}
+
+public struct ThreadGoalClearedNotification: Codable, Sendable, Equatable {
+    public var threadId: String
+}
+
+public enum TurnPlanStepStatus: String, Codable, Sendable, Equatable {
+    case pending
+    case inProgress
+    case completed
+}
+
+public struct TurnPlanStep: Codable, Sendable, Equatable {
+    public var step: String
+    public var status: TurnPlanStepStatus
+
+    public init(step: String, status: TurnPlanStepStatus) {
+        self.step = step
+        self.status = status
+    }
+}
+
+public struct TurnPlanUpdatedNotification: Codable, Sendable, Equatable {
+    public var threadId: String
+    public var turnId: String
+    public var plan: [TurnPlanStep]
+    public var explanation: String?
+
+    public init(threadId: String, turnId: String, plan: [TurnPlanStep], explanation: String? = nil) {
+        self.threadId = threadId
+        self.turnId = turnId
+        self.plan = plan
+        self.explanation = explanation
+    }
+}
+
+public enum FuzzyFileSearchMatchType: String, Codable, Sendable, Equatable {
+    case file
+    case directory
+}
+
+public struct FuzzyFileSearchResult: Codable, Sendable, Equatable, Identifiable {
+    public var fileName: String
+    public var matchType: FuzzyFileSearchMatchType
+    public var path: String
+    public var root: String
+    public var score: Double
+    public var indices: [Int]?
+
+    public var id: String { root + "/" + path }
+
+    enum CodingKeys: String, CodingKey {
+        case fileName = "file_name"
+        case matchType = "match_type"
+        case path
+        case root
+        case score
+        case indices
+    }
+
+    public init(fileName: String, matchType: FuzzyFileSearchMatchType, path: String, root: String, score: Double, indices: [Int]? = nil) {
+        self.fileName = fileName
+        self.matchType = matchType
+        self.path = path
+        self.root = root
+        self.score = score
+        self.indices = indices
+    }
+
+    /// Absolute path combining the search root and relative match path.
+    public var absolutePath: String {
+        if path.hasPrefix("/") { return path }
+        return root.hasSuffix("/") ? root + path : root + "/" + path
+    }
+}
+
+public struct FuzzyFileSearchResponse: Codable, Sendable, Equatable {
+    public var files: [FuzzyFileSearchResult]
+}
+
+/// Latest aggregated unified diff across all file changes in the turn.
+public struct TurnDiffUpdatedNotification: Codable, Sendable, Equatable {
+    public var threadId: String
+    public var turnId: String
+    public var diff: String
+
+    public init(threadId: String, turnId: String, diff: String) {
+        self.threadId = threadId
+        self.turnId = turnId
+        self.diff = diff
+    }
 }
 
 public struct AccountLoginCompletedNotification: Codable, Sendable, Equatable {

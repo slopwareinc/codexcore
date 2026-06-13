@@ -27,7 +27,6 @@ struct WelcomeFlowView: View {
 
                 VStack(spacing: 10) {
                     CodexLabeledTextField(title: "Workspace", subtitle: "Where Codex reads and writes files", text: $model.workspacePath, systemImage: "folder")
-                    CodexLabeledTextField(title: "Codex binary", subtitle: "Leave blank to use PATH", text: $model.codexBinaryPath, systemImage: "terminal")
                 }
                 .frame(maxWidth: 460)
 

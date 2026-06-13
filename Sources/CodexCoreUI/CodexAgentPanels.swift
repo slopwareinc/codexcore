@@ -40,11 +40,11 @@ public struct CodexFloatingSummaryPanel: View {
                 }
             }
 
-            let activeAgents = subagents.filter { $0.status == .running }
-            if !activeAgents.isEmpty {
+            let visibleAgents = subagents.filter(\.isVisibleInFloatingSummary)
+            if !visibleAgents.isEmpty {
                 SummarySection(title: "Subagents") {
-                    ForEach(activeAgents) { subagent in
-                        SummaryRow(title: subagent.name, systemImage: "person.crop.circle.badge.clock") {
+                    ForEach(visibleAgents) { subagent in
+                        SummaryRow(title: subagent.floatingSummaryTitle, systemImage: subagent.floatingSummarySystemImage) {
                             onSelectTab(subagent.id)
                         }
                     }
@@ -132,15 +132,55 @@ public struct CodexAgentSidePanel: View {
 
     private let tabs: [CodexAgentPanelTab]
     @Binding private var selectedTabID: String?
+    @Binding private var sideChatDraft: String
+    private let width: Binding<CGFloat>?
+    private let isSideChatSending: Bool
+    private let canSendSideChatMessage: Bool
+    private let onSendSideChatMessage: () -> Void
+    private let onInterruptSideChatMessage: () -> Void
     private let onClose: () -> Void
+    @State private var resizeStartWidth: CGFloat?
 
     public init(
         tabs: [CodexAgentPanelTab],
         selectedTabID: Binding<String?>,
+        sideChatDraft: Binding<String> = .constant(""),
+        isSideChatSending: Bool = false,
+        canSendSideChatMessage: Bool = false,
+        onSendSideChatMessage: @escaping () -> Void = {},
+        onInterruptSideChatMessage: @escaping () -> Void = {},
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
         self._selectedTabID = selectedTabID
+        self._sideChatDraft = sideChatDraft
+        self.width = nil
+        self.isSideChatSending = isSideChatSending
+        self.canSendSideChatMessage = canSendSideChatMessage
+        self.onSendSideChatMessage = onSendSideChatMessage
+        self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onClose = onClose
+    }
+
+    public init(
+        tabs: [CodexAgentPanelTab],
+        selectedTabID: Binding<String?>,
+        width: Binding<CGFloat>,
+        sideChatDraft: Binding<String> = .constant(""),
+        isSideChatSending: Bool = false,
+        canSendSideChatMessage: Bool = false,
+        onSendSideChatMessage: @escaping () -> Void = {},
+        onInterruptSideChatMessage: @escaping () -> Void = {},
+        onClose: @escaping () -> Void
+    ) {
+        self.tabs = tabs
+        self._selectedTabID = selectedTabID
+        self._sideChatDraft = sideChatDraft
+        self.width = width
+        self.isSideChatSending = isSideChatSending
+        self.canSendSideChatMessage = canSendSideChatMessage
+        self.onSendSideChatMessage = onSendSideChatMessage
+        self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onClose = onClose
     }
 
@@ -149,22 +189,71 @@ public struct CodexAgentSidePanel: View {
             tabBar
             Divider().overlay(theme.colors.border)
             if let tab = selectedTab {
-                CodexAgentPanelContent(tab: tab)
+                CodexAgentPanelContent(
+                    tab: tab,
+                    sideChatDraft: $sideChatDraft,
+                    isSideChatSending: isSideChatSending,
+                    canSendSideChatMessage: canSendSideChatMessage,
+                    onSendSideChatMessage: onSendSideChatMessage,
+                    onInterruptSideChatMessage: onInterruptSideChatMessage
+                )
             } else {
                 emptyPanel
             }
         }
-        .frame(width: theme.spacing.sidePanelWidth)
+        .frame(width: panelWidth)
         .frame(maxHeight: .infinity)
         .background(theme.colors.surface.opacity(theme.effects.surfaceOpacity))
         .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(theme.colors.border)
-                .frame(width: 1)
+            resizeHandle
         }
         .shadow(color: .black.opacity(0.24), radius: 24, x: -8)
         .onAppear(perform: ensureSelection)
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
+    }
+
+    private var panelWidth: CGFloat {
+        clamped(width?.wrappedValue ?? theme.spacing.sidePanelWidth)
+    }
+
+    private var minPanelWidth: CGFloat { 300 }
+    private var maxPanelWidth: CGFloat { 680 }
+
+    private var resizeHandle: some View {
+        ZStack {
+            Rectangle()
+                .fill(theme.colors.border)
+                .frame(width: 1)
+
+            if width != nil {
+                Capsule()
+                    .fill(theme.colors.textTertiary.opacity(0.34))
+                    .frame(width: 3, height: 54)
+                    .padding(.leading, 2)
+            }
+        }
+        .frame(width: 14)
+        .frame(maxHeight: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .gesture(resizeGesture)
+        .help(width == nil ? "Agent panel edge" : "Drag to resize agent panel")
+    }
+
+    private var resizeGesture: some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                guard let width else { return }
+                let start = resizeStartWidth ?? panelWidth
+                resizeStartWidth = start
+                width.wrappedValue = clamped(start - value.translation.width)
+            }
+            .onEnded { _ in
+                resizeStartWidth = nil
+            }
+    }
+
+    private func clamped(_ value: CGFloat) -> CGFloat {
+        min(max(value, minPanelWidth), maxPanelWidth)
     }
 
     private var selectedTab: CodexAgentPanelTab? {
@@ -251,6 +340,11 @@ private struct CodexAgentPanelContent: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let tab: CodexAgentPanelTab
+    @Binding var sideChatDraft: String
+    let isSideChatSending: Bool
+    let canSendSideChatMessage: Bool
+    let onSendSideChatMessage: () -> Void
+    let onInterruptSideChatMessage: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -260,14 +354,18 @@ private struct CodexAgentPanelContent: View {
 
                     switch tab {
                     case .sideChat(let sideChat):
-                        if sideChat.messages.isEmpty {
-                            emptyText("Side chat is ready for a focused branch of the parent conversation.")
-                        } else {
-                            compactMessages(sideChat.messages)
-                        }
+                        panelTranscript(
+                            messages: sideChat.messages,
+                            assistantName: "Codex",
+                            empty: "Side chat is ready for a focused branch of the parent conversation."
+                        )
                     case .subagent(let subagent):
                         subagentHeader(subagent)
-                        compactMessages(subagent.messages)
+                        panelTranscript(
+                            messages: subagent.messages,
+                            assistantName: subagent.name,
+                            empty: "No transcript returned yet."
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -276,7 +374,7 @@ private struct CodexAgentPanelContent: View {
             }
             .scrollContentBackground(.hidden)
 
-            compactComposer
+            compactComposer(for: tab)
         }
     }
 
@@ -307,26 +405,23 @@ private struct CodexAgentPanelContent: View {
                     .foregroundStyle(theme.colors.textPrimary)
                 SubagentStatusBadge(status: subagent.status)
             }
-            Text(subagent.prompt)
-                .font(theme.fonts.chat)
-                .foregroundStyle(theme.colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(11)
-                .background(theme.colors.userBubble, in: RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
-                        .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
-                )
+            if subagent.title != subagent.name {
+                Text(subagent.title)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
-    private func compactMessages(_ messages: [CodexChatMessage]) -> some View {
+    private func panelTranscript(messages: [CodexChatMessage], assistantName: String, empty: String) -> some View {
         VStack(alignment: .leading, spacing: 13) {
             if messages.isEmpty {
-                emptyText("No transcript returned yet.")
+                emptyText(empty)
             } else {
                 ForEach(messages) { message in
-                    CompactPanelMessage(message: message)
+                    CodexMessageRow(message: message, assistantName: assistantName)
                 }
             }
         }
@@ -340,7 +435,46 @@ private struct CodexAgentPanelContent: View {
             .padding(.vertical, 20)
     }
 
-    private var compactComposer: some View {
+    @ViewBuilder
+    private func compactComposer(for tab: CodexAgentPanelTab) -> some View {
+        switch tab {
+        case .sideChat:
+            AgentPanelComposer(
+                placeholder: "Ask side chat...",
+                draft: $sideChatDraft,
+                isEnabled: true,
+                isSending: isSideChatSending,
+                canSend: canSendSideChatMessage,
+                onSend: onSendSideChatMessage,
+                onInterrupt: onInterruptSideChatMessage
+            )
+        case .subagent:
+            AgentPanelComposer(
+                placeholder: "Ask this agent...",
+                draft: .constant(""),
+                isEnabled: false,
+                isSending: false,
+                canSend: false,
+                onSend: {},
+                onInterrupt: {}
+            )
+        }
+    }
+}
+
+private struct AgentPanelComposer: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let placeholder: String
+    @Binding var draft: String
+    let isEnabled: Bool
+    let isSending: Bool
+    let canSend: Bool
+    let onSend: () -> Void
+    let onInterrupt: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
         VStack(spacing: 0) {
             LinearGradient(
                 colors: [.clear, theme.colors.surface],
@@ -351,60 +485,41 @@ private struct CodexAgentPanelContent: View {
             .allowsHitTesting(false)
 
             HStack(spacing: 8) {
-                Text("Ask this agent...")
+                TextField(placeholder, text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
                     .font(theme.fonts.chat)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(isEnabled ? theme.colors.textPrimary : theme.colors.textTertiary)
+                    .lineLimit(1...4)
+                    .focused($focused)
+                    .disabled(!isEnabled)
+                    .onSubmit(submit)
                     .padding(.horizontal, 12)
-                    .frame(height: 44)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: 44)
                     .background(theme.colors.surfaceElevated.opacity(0.82), in: RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous)
                             .stroke(theme.colors.border, lineWidth: 1)
                     )
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 25))
-                    .foregroundStyle(theme.colors.textTertiary)
+
+                Button(action: isSending ? onInterrupt : submit) {
+                    Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 25))
+                        .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!isSending && !canSend)
+                .help(isSending ? "Stop side chat" : "Send side chat message")
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 10)
             .background(theme.colors.surface)
         }
     }
-}
 
-private struct CompactPanelMessage: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let message: CodexChatMessage
-
-    var body: some View {
-        VStack(alignment: alignment, spacing: 5) {
-            Text(message.role.rawValue)
-                .font(theme.fonts.caption.weight(.semibold))
-                .foregroundStyle(theme.colors.textTertiary)
-
-            if message.role == .assistant, !message.isStreaming {
-                CodexAssistantContentView(blocks: message.renderBlocks)
-                    .font(theme.fonts.chat)
-            } else {
-                Text(verbatim: message.text)
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, message.role == .user ? 11 : 0)
-        .padding(.vertical, message.role == .user ? 9 : 0)
-        .background(
-            message.role == .user ? theme.colors.userBubble : .clear,
-            in: RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
-        )
-        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
-    }
-
-    private var alignment: HorizontalAlignment {
-        message.role == .user ? .trailing : .leading
+    private func submit() {
+        guard canSend else { return }
+        onSend()
     }
 }
 

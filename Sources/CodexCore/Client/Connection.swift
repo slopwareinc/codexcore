@@ -48,11 +48,30 @@ public enum CodexConnectionError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+private final class CodexIncomingMessageSequencer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var nextSequence: Int64 = 0
+
+    func claimSequence() -> Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        let sequence = nextSequence
+        nextSequence += 1
+        return sequence
+    }
+}
+
 // A server→client request (server sends id + method, client must reply with a result/error)
 public struct JSONRPCServerRequest: Sendable {
     public let id: CodexJSONValue
     public let method: String
     public let params: [String: CodexJSONValue]
+
+    public init(id: CodexJSONValue, method: String, params: [String: CodexJSONValue]) {
+        self.id = id
+        self.method = method
+        self.params = params
+    }
 }
 
 // MARK: - CodexConnection Actor
@@ -60,9 +79,12 @@ public struct JSONRPCServerRequest: Sendable {
 public actor CodexConnection {
     private let transport: any CodexTransport
     private let reconnectionManager: CodexReconnectionManager
+    private let incomingSequencer = CodexIncomingMessageSequencer()
 
     private var isInitialized = false
     private var pendingNotifications: [JSONRPCNotification] = []
+    private var pendingIncomingMessages: [Int64: String] = [:]
+    private var nextIncomingMessageSequence: Int64 = 0
     private var pendingRequests: [Int64: CheckedContinuation<CodexJSONValue, Error>] = [:]
     private var requestIdCounter: Int64 = 0
 
@@ -91,8 +113,9 @@ public actor CodexConnection {
         await reconnectionManager.configure(
             onMessage: { [weak self] msg in
                 guard let self else { return }
+                let sequence = self.incomingSequencer.claimSequence()
                 Task {
-                    await self.handleIncomingMessage(msg)
+                    await self.enqueueIncomingMessage(msg, sequence: sequence)
                 }
             },
             onError: { err in
@@ -122,6 +145,14 @@ public actor CodexConnection {
             clientVersion: clientVersion,
             experimentalAPI: experimentalAPI
         )
+    }
+
+    private func enqueueIncomingMessage(_ message: String, sequence: Int64) {
+        pendingIncomingMessages[sequence] = message
+        while let next = pendingIncomingMessages.removeValue(forKey: nextIncomingMessageSequence) {
+            nextIncomingMessageSequence += 1
+            handleIncomingMessage(next)
+        }
     }
 
     /// Stop the transport connection.

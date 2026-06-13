@@ -60,4 +60,55 @@ final class V2TypeTests: XCTestCase {
         XCTAssertEqual(turn.id, "turn-1")
         XCTAssertEqual(turn.status, .completed)
     }
+
+    func testThreadGoalWireTypesMatchAppServerShape() throws {
+        let params = try CodexJSONValue(encoding: ThreadGoalSetParams(
+            threadId: "thread-1",
+            objective: "Ship parity",
+            status: .active,
+            tokenBudget: 4096
+        ))
+        XCTAssertEqual(params, .dictionary([
+            "threadId": .string("thread-1"),
+            "objective": .string("Ship parity"),
+            "status": .string("active"),
+            "tokenBudget": .int(4096)
+        ]))
+
+        let response = try CodexJSONValue.dictionary([
+            "goal": .dictionary([
+                "threadId": .string("thread-1"),
+                "objective": .string("Ship parity"),
+                "status": .string("usageLimited"),
+                "tokenBudget": .int(4096),
+                "tokensUsed": .int(4096),
+                "timeUsedSeconds": .int(90),
+                "createdAt": .int(1781075531),
+                "updatedAt": .int(1781075540)
+            ])
+        ]).decode(ThreadGoalSetResponse.self)
+
+        XCTAssertEqual(response.goal.threadId, "thread-1")
+        XCTAssertEqual(response.goal.status, .usageLimited)
+        XCTAssertEqual(response.goal.tokenBudget, 4096)
+        XCTAssertEqual(response.goal.tokensUsed, 4096)
+
+        let update = try CodexJSONValue.dictionary([
+            "threadId": .string("thread-1"),
+            "turnId": .null,
+            "goal": .dictionary([
+                "threadId": .string("thread-1"),
+                "objective": .string("Ship parity"),
+                "status": .string("complete"),
+                "tokenBudget": .null,
+                "tokensUsed": .int(512),
+                "timeUsedSeconds": .int(45),
+                "createdAt": .int(1781075531),
+                "updatedAt": .int(1781075600)
+            ])
+        ]).decode(ThreadGoalUpdatedNotification.self)
+
+        XCTAssertNil(update.turnId)
+        XCTAssertEqual(update.goal.status, .complete)
+    }
 }
