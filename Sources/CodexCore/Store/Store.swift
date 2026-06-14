@@ -304,6 +304,13 @@ public final class CodexCoreStore {
         }
     }
 
+    public func hydrate(_ result: CodexThreadHistoryHydrationResult, activateParent: Bool = true) {
+        storeThread(result.parent.snapshot, activate: activateParent)
+        for child in result.childThreads {
+            storeThread(child.snapshot)
+        }
+    }
+
     private func storeThread(_ thread: CodexThreadSnapshot, activate: Bool = false) {
         threadSnapshotsByID[thread.id] = thread
         if activate || activeThread?.id == thread.id {

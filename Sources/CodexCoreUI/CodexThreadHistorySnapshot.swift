@@ -11,55 +11,34 @@ public struct CodexThreadHistorySnapshot: Sendable {
     }
 
     public init(raw response: CodexJSONValue) {
+        self.init(parentRaw: response, parent: CodexThreadHistoryHydrator.decode(raw: response))
+    }
+
+    public init(parentRaw response: CodexJSONValue, parent: CodexHydratedThread) {
         var mapper = CodexAgentStateMapper()
-        var restoredTurns: [CodexTurnSnapshot] = []
 
         for turn in Self.turnObjects(from: response) {
-            var snapshot = Self.turnSnapshot(from: turn)
             guard case .array(let items)? = turn["items"] else {
-                if !snapshot.items.isEmpty || snapshot.plan != nil || snapshot.diff != nil {
-                    restoredTurns.append(snapshot)
-                }
                 continue
             }
 
             for itemValue in items {
-                guard case .dictionary(let object) = itemValue else { continue }
-                let itemDate = Self.itemDate(from: object, fallback: snapshot.startedAt)
+                guard case .dictionary = itemValue else { continue }
                 let threadItem = try? itemValue.decode(ThreadItem.self)
 
                 if let item = threadItem, mapper.isSubagentItem(item) {
                     _ = mapper.itemCompleted(item)
-                    continue
                 }
-
-                guard let item = try? itemValue.decode(CodexServerItem.self) else {
-                    continue
-                }
-                if item.type == "plan" {
-                    if let plan = CodexTimelineItemMapper.turnPlan(from: item.raw) {
-                        snapshot.plan = plan.plan.isEmpty ? nil : plan.plan
-                        snapshot.planExplanation = plan.explanation
-                    }
-                    continue
-                }
-                guard Self.isTranscriptItemType(item.type) else {
-                    continue
-                }
-                snapshot.items.append(CodexTimelineItemMapper.timelineItem(for: item, createdAt: itemDate))
-                if let detail = CodexTimelineItemMapper.detail(for: item) {
-                    snapshot.itemDetails[item.id] = detail
-                }
-            }
-
-            restoredTurns.append(snapshot)
-            for message in CodexChatTranscriptProjection.messages(for: snapshot) where message.role == .assistant {
-                _ = mapper.assistantMessageCompleted(message.text)
             }
         }
 
+        let messages = parent.snapshot.turns.flatMap(CodexChatTranscriptProjection.messages(for:))
+        for message in messages where message.role == .assistant {
+            _ = mapper.assistantMessageCompleted(message.text)
+        }
+
         self.init(
-            messages: restoredTurns.flatMap(CodexChatTranscriptProjection.messages(for:)),
+            messages: messages,
             agentStateMapper: mapper
         )
     }
@@ -136,40 +115,6 @@ public struct CodexThreadHistorySnapshot: Sendable {
 
     private static func threadID(from response: CodexJSONValue) -> String? {
         threadObject(from: response).flatMap { string(from: $0["id"]) }
-    }
-
-    private static func turnSnapshot(from raw: [String: CodexJSONValue]) -> CodexTurnSnapshot {
-        let startedAt = date(from: raw["startedAt"]) ?? Date()
-        let completedAt = date(from: raw["completedAt"])
-        let status: CodexTurnStatus = isFinishedTurnStatus(string(from: raw["status"])) ? .completed : .running
-        return CodexTurnSnapshot(
-            id: string(from: raw["id"]) ?? UUID().uuidString,
-            status: status,
-            error: turnErrorMessage(from: raw),
-            startedAt: startedAt,
-            completedAt: completedAt,
-            items: [],
-            itemDetails: [:],
-            plan: nil,
-            planExplanation: nil,
-            diff: string(from: raw["diff"])
-        )
-    }
-
-    private static func itemDate(from raw: [String: CodexJSONValue], fallback: Date) -> Date {
-        date(from: raw["createdAt"])
-            ?? date(from: raw["startedAt"])
-            ?? date(from: raw["completedAt"])
-            ?? fallback
-    }
-
-    private static func isTranscriptItemType(_ type: String) -> Bool {
-        switch type {
-        case "userMessage", "agentMessage", "assistantMessage", "commandExecution", "fileChange", "patch", "mcpToolCall", "toolCall":
-            return true
-        default:
-            return false
-        }
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {

@@ -3,10 +3,16 @@ import CodexCore
 
 public struct CodexThreadHistoryRestoreResult: Sendable {
     public var snapshot: CodexThreadHistorySnapshot
+    public var hydration: CodexThreadHistoryHydrationResult
     public var restoredChildThreadCount: Int
 
-    public init(snapshot: CodexThreadHistorySnapshot, restoredChildThreadCount: Int = 0) {
+    public init(
+        snapshot: CodexThreadHistorySnapshot,
+        hydration: CodexThreadHistoryHydrationResult,
+        restoredChildThreadCount: Int = 0
+    ) {
         self.snapshot = snapshot
+        self.hydration = hydration
         self.restoredChildThreadCount = restoredChildThreadCount
     }
 
@@ -27,31 +33,47 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
 public enum CodexThreadHistorySession {
     public static func load(threadID: String, using codex: Codex) async throws -> CodexThreadHistoryRestoreResult {
         let parentRaw = try await readThreadRaw(threadID: threadID, using: codex)
-        return await restore(parentRaw: parentRaw) { childThreadID in
+        let result = await restore(parentRaw: parentRaw) { childThreadID in
             try await readThreadRaw(threadID: childThreadID, using: codex)
         }
+        await MainActor.run {
+            codex.store.hydrate(result.hydration)
+        }
+        return result
     }
 
     public static func restore(
         parentRaw: CodexJSONValue,
         loadChildThread: (String) async throws -> CodexJSONValue
     ) async -> CodexThreadHistoryRestoreResult {
-        var snapshot = CodexThreadHistorySnapshot(raw: parentRaw)
+        let parent = CodexThreadHistoryHydrator.decode(raw: parentRaw)
+        var snapshot = CodexThreadHistorySnapshot(parentRaw: parentRaw, parent: parent)
+        var childThreads: [CodexHydratedThread] = []
+        var failedChildThreadIDs: [String] = []
         var restoredCount = 0
         var seenThreadIDs: Set<String> = []
 
-        for childThreadID in snapshot.subagentThreadIDs where seenThreadIDs.insert(childThreadID).inserted {
+        for childThreadID in parent.childThreadIDs where seenThreadIDs.insert(childThreadID).inserted {
             do {
                 let childRaw = try await loadChildThread(childThreadID)
+                childThreads.append(CodexThreadHistoryHydrator.decode(raw: childRaw, fallbackThreadID: childThreadID))
                 if snapshot.applyChildThread(raw: childRaw, threadID: childThreadID) {
                     restoredCount += 1
                 }
             } catch {
-                continue
+                failedChildThreadIDs.append(childThreadID)
             }
         }
 
-        return CodexThreadHistoryRestoreResult(snapshot: snapshot, restoredChildThreadCount: restoredCount)
+        return CodexThreadHistoryRestoreResult(
+            snapshot: snapshot,
+            hydration: CodexThreadHistoryHydrationResult(
+                parent: parent,
+                childThreads: childThreads,
+                failedChildThreadIDs: failedChildThreadIDs
+            ),
+            restoredChildThreadCount: restoredCount
+        )
     }
 
     @discardableResult

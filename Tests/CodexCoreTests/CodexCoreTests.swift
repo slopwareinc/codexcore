@@ -297,6 +297,94 @@ final class CodexCoreTests: XCTestCase {
         XCTAssertEqual(snapshot.itemDetails, [:])
     }
 
+    func testThreadHistoryHydratorBuildsStoreSnapshotsAndChildThreads() async throws {
+        let parent: CodexJSONValue = .dictionary([
+            "thread": .dictionary([
+                "id": .string("thread-parent"),
+                "cwd": .string("/tmp/CodexCore"),
+                "model": .string("gpt-test"),
+                "turns": .array([
+                    .dictionary([
+                        "id": .string("turn-parent"),
+                        "status": .string("completed"),
+                        "startedAt": .int(1_000),
+                        "completedAt": .int(1_100),
+                        "items": .array([
+                            .dictionary([
+                                "id": .string("user-1"),
+                                "type": .string("userMessage"),
+                                "content": .array([
+                                    .dictionary(["type": .string("text"), "text": .string("Inspect state")])
+                                ])
+                            ]),
+                            .dictionary([
+                                "id": .string("spawn-1"),
+                                "type": .string("collabAgentToolCall"),
+                                "receiverThreadIds": .array([.string("thread-child")])
+                            ]),
+                            .dictionary([
+                                "id": .string("cmd-1"),
+                                "type": .string("commandExecution"),
+                                "command": .array([.string("swift"), .string("test")]),
+                                "aggregatedOutput": .string("ok"),
+                                "status": .string("completed"),
+                                "exitCode": .int(0)
+                            ])
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        let child: CodexJSONValue = .dictionary([
+            "thread": .dictionary([
+                "id": .string("thread-child"),
+                "agentNickname": .string("Ada"),
+                "agentRole": .string("coder"),
+                "turns": .array([
+                    .dictionary([
+                        "id": .string("turn-child"),
+                        "status": .string("completed"),
+                        "items": .array([
+                            .dictionary([
+                                "id": .string("child-answer"),
+                                "type": .string("agentMessage"),
+                                "text": .string("Child state is clean.")
+                            ])
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        let result = await CodexThreadHistoryHydrator.hydrate(parentRaw: parent) { childThreadID in
+            XCTAssertEqual(childThreadID, "thread-child")
+            return child
+        }
+
+        XCTAssertEqual(result.parent.snapshot.id, "thread-parent")
+        XCTAssertEqual(result.parent.snapshot.cwd, "/tmp/CodexCore")
+        XCTAssertEqual(result.parent.snapshot.model, "gpt-test")
+        XCTAssertEqual(result.parent.childThreadIDs, ["thread-child"])
+        XCTAssertEqual(result.parent.snapshot.turns.first?.items.map(\.id), ["user-1", "cmd-1"])
+        if case .commandExecution(let detail)? = result.parent.snapshot.turns.first?.itemDetails["cmd-1"] {
+            XCTAssertEqual(detail.command, "swift test")
+            XCTAssertEqual(detail.output, "ok")
+            XCTAssertEqual(detail.exitCode, 0)
+        } else {
+            XCTFail("Missing hydrated command detail")
+        }
+
+        XCTAssertEqual(result.childThreads.map(\.snapshot.id), ["thread-child"])
+        XCTAssertEqual(result.childThreads.first?.agentName, "Ada")
+        XCTAssertEqual(result.childThreads.first?.agentRole, "coder")
+
+        await MainActor.run {
+            let store = CodexCoreStore()
+            store.hydrate(result)
+            XCTAssertEqual(store.activeThread?.id, "thread-parent")
+            XCTAssertEqual(store.turnSnapshot(threadID: "thread-child", turnID: "turn-child")?.items.map(\.id), ["child-answer"])
+        }
+    }
+
     // MARK: - Exploration Merging & Retention Tests
 
     func testExplorationMerging() throws {
