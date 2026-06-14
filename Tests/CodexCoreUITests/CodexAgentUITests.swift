@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-import CodexCore
+@testable import CodexCore
 @testable import CodexCoreUI
 
 final class CodexAgentUITests: XCTestCase {
@@ -72,6 +72,68 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertEqual(theme.radii.panel, 25)
         XCTAssertTrue(theme.effects.usesLiquidGlass)
         XCTAssertEqual(theme.effects.surfaceOpacity, 0.94)
+    }
+
+    func testChatUtilitySessionFormatsTranscriptWithCommandFallback() {
+        let messages = [
+            CodexChatMessage(role: .user, text: "  Build it  "),
+            CodexChatMessage(
+                role: .terminal,
+                text: "   ",
+                commandRun: .init(
+                    itemID: "cmd-1",
+                    command: "swift test",
+                    output: "",
+                    status: "completed",
+                    isStreaming: false
+                )
+            )
+        ]
+
+        XCTAssertEqual(
+            CodexChatUtilitySession.transcriptText(messages: messages),
+            """
+            You: Build it
+
+            Terminal: swift test
+            """
+        )
+    }
+
+    func testChatUtilitySessionFormatsCopyActivityDetail() {
+        XCTAssertEqual(CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: 0), "No transcript text yet")
+        XCTAssertEqual(CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: 2), "2 messages copied")
+    }
+
+    func testChatUtilitySessionFormatsStatusSummary() {
+        let summary = CodexChatUtilitySession.statusSummary(
+            CodexChatStatusSummaryContext(
+                connectionLabel: "Connected",
+                workspacePath: "/tmp/project",
+                currentThreadID: "thread-123",
+                modelDisplayName: "GPT-5.1 Codex Max",
+                reasoningDisplayName: "High",
+                approvalDisplayName: "Ask for approval",
+                messageCount: 7,
+                isSideChatOpen: true,
+                activeSubagentCount: 2,
+                subagentCount: 3
+            )
+        )
+
+        XCTAssertEqual(
+            summary,
+            """
+            Connection: Connected
+            Project: /tmp/project
+            Chat: thread-123
+            Model: GPT-5.1 Codex Max High
+            Approval: Ask for approval
+            Messages: 7
+            Side chat: open
+            Subagents: 2 active / 3 total
+            """
+        )
     }
 
     func testComposerSelectionsMapToTurnParameters() throws {
@@ -148,6 +210,750 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertEqual(options.first?.supportedReasoning, [.medium, .high, .extraHigh])
         XCTAssertEqual(options.last?.defaultReasoning, .minimal)
         XCTAssertEqual(options.last?.supportedReasoning, [.none, .minimal])
+    }
+
+    func testTurnLaunchConfigurationOwnsSharedTurnParameters() {
+        let configuration = CodexTurnLaunchConfiguration(
+            approvalMode: .autoReview,
+            cwd: "/tmp/project",
+            effort: .high,
+            modelIdentifier: "gpt-5.1-codex-max",
+            sandbox: .workspaceWrite,
+            parameters: [
+                "approvalPolicy": .string("on-request"),
+                "collaborationMode": .string("plan")
+            ]
+        )
+
+        XCTAssertEqual(configuration.approvalMode, ApprovalMode.autoReview)
+        XCTAssertEqual(configuration.cwd, "/tmp/project")
+        XCTAssertEqual(configuration.effort, ReasoningEffort.high)
+        XCTAssertEqual(configuration.modelIdentifier, "gpt-5.1-codex-max")
+        XCTAssertEqual(configuration.sandbox, Sandbox.workspaceWrite)
+        XCTAssertEqual(configuration.parameters["approvalPolicy"], CodexJSONValue.string("on-request"))
+        XCTAssertEqual(configuration.parameters["collaborationMode"], CodexJSONValue.string("plan"))
+    }
+
+    func testTurnSubmissionSessionOwnsDraftRoutingPolicy() throws {
+        var turnComposer = CodexComposerStateSession(draft: "  Build it  ")
+        XCTAssertEqual(
+            CodexTurnSubmissionSession.consumeDraft(
+                composerSession: &turnComposer,
+                canSendFollowUp: false,
+                isGoalPursuitEnabled: false
+            ),
+            .turn(CodexComposerSubmission(prompt: "Build it"))
+        )
+        XCTAssertEqual(turnComposer.draft, "")
+
+        var goalComposer = CodexComposerStateSession(draft: "  Keep going overnight  ")
+        XCTAssertEqual(
+            CodexTurnSubmissionSession.consumeDraft(
+                composerSession: &goalComposer,
+                canSendFollowUp: false,
+                isGoalPursuitEnabled: true
+            ),
+            .goal(CodexComposerSubmission(prompt: "Keep going overnight"))
+        )
+        XCTAssertEqual(goalComposer.draft, "")
+
+        var followUpComposer = CodexComposerStateSession(draft: "  Actually inspect Store.swift  ")
+        XCTAssertEqual(
+            CodexTurnSubmissionSession.consumeDraft(
+                composerSession: &followUpComposer,
+                canSendFollowUp: true,
+                isGoalPursuitEnabled: true
+            ),
+            .followUp("Actually inspect Store.swift")
+        )
+        XCTAssertEqual(followUpComposer.draft, "")
+
+        var emptyComposer = CodexComposerStateSession(draft: "   ")
+        XCTAssertEqual(
+            CodexTurnSubmissionSession.consumeDraft(
+                composerSession: &emptyComposer,
+                canSendFollowUp: true,
+                isGoalPursuitEnabled: true
+            ),
+            .none
+        )
+    }
+
+    func testTurnSubmissionSessionOwnsFollowUpQueueAndSteerPolicy() {
+        var queueComposer = CodexComposerStateSession()
+        var queueChat = CodexMainChatSession()
+        let queued = CodexTurnSubmissionSession.prepareFollowUp(
+            prompt: "Inspect Store.swift",
+            composerSession: &queueComposer,
+            mainChatSession: &queueChat,
+            followUpBehavior: .queue,
+            canSteer: true
+        )
+
+        guard case .queued(let queuedPrompt, let queuedActivity) = queued else {
+            return XCTFail("Expected queued follow-up")
+        }
+        XCTAssertEqual(queuedPrompt, "Inspect Store.swift")
+        XCTAssertEqual(queuedActivity.kind, .turn)
+        XCTAssertEqual(queuedActivity.title, "Follow-up queued")
+        XCTAssertEqual(queuedActivity.detail, "Inspect Store.swift")
+        XCTAssertEqual(queueComposer.queuedFollowUps, ["Inspect Store.swift"])
+        XCTAssertEqual(queueChat.messages.last?.detail, "Queued")
+
+        var steerComposer = CodexComposerStateSession()
+        var steerChat = CodexMainChatSession()
+        let steered = CodexTurnSubmissionSession.prepareFollowUp(
+            prompt: "Use the new projection",
+            composerSession: &steerComposer,
+            mainChatSession: &steerChat,
+            followUpBehavior: .steer,
+            canSteer: true
+        )
+
+        guard case .steer(let steeredPrompt, let steeredActivity) = steered else {
+            return XCTFail("Expected steered follow-up")
+        }
+        XCTAssertEqual(steeredPrompt, "Use the new projection")
+        XCTAssertEqual(steeredActivity.kind, .turn)
+        XCTAssertEqual(steeredActivity.title, "Steering turn")
+        XCTAssertEqual(steeredActivity.detail, "Use the new projection")
+        XCTAssertEqual(steerComposer.queuedFollowUps, [])
+        XCTAssertEqual(steerChat.messages.last?.detail, "Steered")
+
+        let failed = CodexTurnSubmissionSession.failSteeredFollowUp(
+            prompt: "Use the new projection",
+            message: "turn already completed",
+            composerSession: &steerComposer
+        )
+        XCTAssertEqual(failed.kind, .turn)
+        XCTAssertEqual(failed.title, "Steer failed — queued instead")
+        XCTAssertEqual(failed.detail, "turn already completed")
+        XCTAssertEqual(steerComposer.queuedFollowUps, ["Use the new projection"])
+    }
+
+    func testTurnSubmissionSessionOwnsQueuedFollowUpReplayPolicy() throws {
+        var composer = CodexComposerStateSession()
+        composer.enqueueFollowUp("first")
+        composer.enqueueFollowUp("second")
+        var chat = CodexMainChatSession()
+
+        XCTAssertNil(CodexTurnSubmissionSession.dequeueQueuedFollowUp(
+            composerSession: &composer,
+            mainChatSession: &chat,
+            isSending: true
+        ))
+        XCTAssertEqual(composer.queuedFollowUps, ["first", "second"])
+
+        let submission = try XCTUnwrap(CodexTurnSubmissionSession.dequeueQueuedFollowUp(
+            composerSession: &composer,
+            mainChatSession: &chat,
+            isSending: false
+        ))
+
+        XCTAssertEqual(submission.prompt, "first")
+        XCTAssertEqual(submission.input, [.text("first")])
+        XCTAssertEqual(submission.activity.kind, .turn)
+        XCTAssertEqual(submission.activity.title, "Sending queued follow-up")
+        XCTAssertEqual(submission.activity.detail, "first")
+        XCTAssertEqual(composer.queuedFollowUps, ["second"])
+        XCTAssertTrue(chat.isSending)
+
+        let failed = CodexTurnSubmissionSession.failQueuedFollowUp(
+            submission,
+            message: "offline",
+            composerSession: &composer,
+            mainChatSession: &chat
+        )
+
+        XCTAssertEqual(failed.kind, .turn)
+        XCTAssertEqual(failed.title, "Queued follow-up failed to start")
+        XCTAssertEqual(failed.detail, "offline")
+        XCTAssertEqual(composer.queuedFollowUps, ["first", "second"])
+        XCTAssertFalse(chat.isSending)
+    }
+
+    func testChatConfigurationSessionOwnsSelectionFallbacksAndCommandState() throws {
+        let profiles: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary(["id": .string(":workspace"), "description": .null])
+            ])
+        ])
+        let modes: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "name": .string("Plan"),
+                    "mode": .string("plan"),
+                    "reasoning_effort": .string("low")
+                ]),
+                .dictionary([
+                    "name": .string("Default"),
+                    "mode": .string("default")
+                ])
+            ])
+        ])
+        let modelResponse = try CodexJSONValue.dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("gpt-5.1-codex-max"),
+                    "model": .string("gpt-5.1-codex-max"),
+                    "displayName": .string("GPT-5.1 Codex Max"),
+                    "isDefault": .bool(true),
+                    "defaultReasoningEffort": .string("high"),
+                    "supportedReasoningEfforts": .array([
+                        .dictionary(["reasoningEffort": .string("medium")]),
+                        .dictionary(["reasoningEffort": .string("high")]),
+                        .dictionary(["reasoningEffort": .string("xhigh")])
+                    ])
+                ]),
+                .dictionary([
+                    "id": .string("speed"),
+                    "model": .string("speed"),
+                    "displayName": .string("Speed"),
+                    "defaultReasoningEffort": .string("minimal"),
+                    "supportedReasoningEfforts": .array([
+                        .dictionary(["reasoningEffort": .string("none")]),
+                        .dictionary(["reasoningEffort": .string("minimal")])
+                    ])
+                ])
+            ])
+        ]).decode(ModelListResponse.self)
+        let skills: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "skills": .array([
+                        .dictionary([
+                            "name": .string("resume-from-opencode"),
+                            "interface": .dictionary([
+                                "displayName": .string("Resume OpenCode"),
+                                "shortDescription": .string("Continue the last OpenCode run")
+                            ]),
+                            "path": .string("/tmp/skills/resume-from-opencode/SKILL.md"),
+                            "scope": .string("user"),
+                            "enabled": .bool(true)
+                        ])
+                    ])
+                ])
+            ])
+        ])
+
+        var session = CodexChatConfigurationSession()
+
+        let profileActivity = session.applyPermissionProfileResponse(profiles)
+        XCTAssertEqual(profileActivity, CodexChatConfigurationActivity(title: "Loaded access profiles", detail: "1 app-server profiles"))
+        XCTAssertEqual(session.approvalOptions, [.askForApproval, .approveForMe, .custom])
+        XCTAssertEqual(session.approvalSelection, .askForApproval)
+
+        session.setPlanModeEnabled(true)
+        XCTAssertEqual(session.reasoningSelection, .medium)
+
+        let modeActivity = session.applyCollaborationModeResponse(modes)
+        XCTAssertEqual(modeActivity.detail, "2 app-server modes")
+        XCTAssertTrue(session.isPlanModeEnabled)
+        XCTAssertEqual(session.reasoningSelection, .low)
+        XCTAssertEqual(session.turnParameterOverrides["collaborationMode"], .string("plan"))
+        XCTAssertEqual(session.turnParameterOverrides["approvalPolicy"], .string(AskForApproval.onRequest.rawValue))
+
+        let modelActivity = session.applyModelResponse(modelResponse)
+        XCTAssertEqual(modelActivity.detail, "2 app-server models")
+        XCTAssertEqual(session.modelSelection.displayName, "GPT-5.1 Codex Max")
+        XCTAssertEqual(session.reasoningSelection, .high)
+
+        let fastActivity = session.applyFastCommand()
+        XCTAssertEqual(fastActivity, CodexChatConfigurationActivity(title: "Fast mode", detail: "Speed Minimal"))
+        XCTAssertEqual(session.modelSelection.displayName, "Speed")
+        XCTAssertEqual(session.reasoningSelection, .minimal)
+
+        let reasoningActivity = try XCTUnwrap(session.cycleReasoning())
+        XCTAssertEqual(reasoningActivity, CodexChatConfigurationActivity(title: "Reasoning", detail: "None"))
+        XCTAssertEqual(session.reasoningSelection, .none)
+
+        let skillsActivity = session.applySlashCommandResponse(skills)
+        XCTAssertEqual(skillsActivity, CodexChatConfigurationActivity(title: "Loaded skills", detail: "1 app-server skills"))
+        XCTAssertTrue(session.slashCommands.contains { $0.title == "Resume OpenCode" })
+
+        let failureActivity = session.failSlashCommandRefresh(message: "skills unavailable")
+        XCTAssertEqual(failureActivity, CodexChatConfigurationActivity(title: "Skill list unavailable", detail: "skills unavailable"))
+        XCTAssertEqual(session.slashCommands, CodexSlashCommand.observedCommands)
+    }
+
+    func testAuthSessionOwnsConnectionAuthenticationAndDeviceCodeState() {
+        var session = CodexAuthSession()
+
+        XCTAssertTrue(session.beginConnecting())
+        XCTAssertFalse(session.beginConnecting())
+        session.connected(server: "Codex")
+        XCTAssertTrue(session.isConnected)
+        XCTAssertEqual(session.serverName, "Codex")
+
+        let signedIn = session.applyAccount(GetAccountResponse(
+            account: Account(type: "chatgpt", email: "dev@example.com", planType: nil),
+            requiresOpenAIAuth: true
+        ))
+        XCTAssertTrue(signedIn.shouldContinue)
+        XCTAssertEqual(signedIn.activity?.title, "Signed in")
+        XCTAssertEqual(session.authLabel, "chatgpt · dev@example.com")
+        XCTAssertTrue(session.isAuthenticated)
+
+        let required = session.applyAccount(GetAccountResponse(account: nil, requiresOpenAIAuth: true))
+        XCTAssertFalse(required.shouldContinue)
+        XCTAssertEqual(required.activity?.title, "Authentication required")
+        XCTAssertEqual(session.authLabel, "Sign-in required")
+        XCTAssertFalse(session.isAuthenticated)
+
+        let skipped = session.accountCheckSkipped(message: "offline")
+        XCTAssertEqual(skipped.title, "Account check skipped")
+        XCTAssertEqual(session.authLabel, "Account check skipped")
+
+        let apiKey = session.apiKeyAccepted()
+        XCTAssertEqual(apiKey.title, "API key accepted")
+        XCTAssertEqual(session.authLabel, "OpenAI API key")
+        XCTAssertTrue(session.isAuthenticated)
+
+        let started = session.deviceCodeStarted(url: "https://example.com/device", code: "ABCD-EFGH")
+        XCTAssertEqual(started.detail, "Code ABCD-EFGH")
+        XCTAssertEqual(session.deviceCodeURL, "https://example.com/device")
+        XCTAssertEqual(session.deviceCode, "ABCD-EFGH")
+
+        let completed = session.deviceCodeCompleted()
+        XCTAssertEqual(completed.title, "Signed in with ChatGPT")
+        XCTAssertEqual(session.authLabel, "ChatGPT")
+        XCTAssertNil(session.deviceCodeURL)
+        XCTAssertNil(session.deviceCode)
+
+        let failed = session.connectionFailed(message: "no server")
+        XCTAssertEqual(failed.title, "Connection failed")
+        XCTAssertEqual(session.connectionErrorMessage, "no server")
+
+        session.resetAuthentication()
+        XCTAssertEqual(session.authLabel, "Checking auth")
+        XCTAssertTrue(session.isAuthenticated)
+    }
+
+    func testComposerStateSessionOwnsDraftSkillsMentionsAndFollowUps() throws {
+        let skill = CodexSlashCommand(
+            id: "skill:thermo",
+            title: "Thermo Review",
+            detail: "Strict review",
+            systemImage: "hammer",
+            section: "Skills",
+            draftText: "Review this",
+            skillName: "thermo-nuclear-code-quality-review",
+            skillPath: "/skills/thermo/SKILL.md"
+        )
+        let mention = FuzzyFileSearchResult(
+            fileName: "Store.swift",
+            matchType: .file,
+            path: "Sources/CodexCore/Store/Store.swift",
+            root: "/repo",
+            score: 0.9
+        )
+
+        var session = CodexComposerStateSession(draft: "  Inspect @Store.swift  ")
+        session.attachSkill(skill)
+        session.attachSkill(skill)
+        XCTAssertEqual(session.attachedSkills, [skill])
+        XCTAssertEqual(session.draft, "Review this")
+
+        session.draft = "  Inspect @Store.swift  "
+        session.setMentionResults([mention])
+        session.selectMention(mention)
+
+        let submission = try XCTUnwrap(session.consumeDraftForTurn())
+        XCTAssertEqual(submission.prompt, "Inspect @Store.swift")
+        XCTAssertEqual(submission.skills, [skill])
+        XCTAssertEqual(submission.mentions, [.mention(name: "Store.swift", path: "/repo/Sources/CodexCore/Store/Store.swift")])
+        XCTAssertEqual(submission.turnInput, [
+            .skill(name: "thermo-nuclear-code-quality-review", path: "/skills/thermo/SKILL.md"),
+            .mention(name: "Store.swift", path: "/repo/Sources/CodexCore/Store/Store.swift"),
+            .text("Inspect @Store.swift")
+        ])
+        XCTAssertEqual(session.draft, "")
+        XCTAssertEqual(session.attachedSkills, [])
+        XCTAssertEqual(session.mentionResults, [])
+
+        session.restore(submission)
+        XCTAssertEqual(session.draft, "Inspect @Store.swift")
+        XCTAssertEqual(session.attachedSkills, [skill])
+
+        session.enqueueFollowUp("first")
+        session.enqueueFollowUp("second")
+        XCTAssertEqual(session.followUpHint(isSending: false, canSendFollowUp: false), "2 queued")
+        XCTAssertNil(session.dequeueQueuedFollowUp(isSending: true))
+        XCTAssertEqual(session.dequeueQueuedFollowUp(isSending: false), "first")
+        session.requeueFollowUp("retry")
+        XCTAssertEqual(session.dequeueQueuedFollowUp(isSending: false), "retry")
+
+        let skillRoute = session.routeSlashCommand(skill)
+        XCTAssertEqual(skillRoute.activities.map(\.title), ["Skill attached"])
+        XCTAssertEqual(skillRoute.activities.map(\.detail), ["Thermo Review"])
+        XCTAssertEqual(skillRoute.hostActions, [])
+        XCTAssertEqual(session.attachedSkills, [skill])
+        XCTAssertEqual(session.draft, "Review this")
+
+        let sideRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "side",
+            title: "Side Chat",
+            detail: "Open a side chat",
+            systemImage: "sidebar.right"
+        ))
+        XCTAssertEqual(sideRoute.hostActions, [.openSideChat])
+        XCTAssertEqual(session.draft, "")
+
+        let mcpRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "mcp",
+            title: "MCP",
+            detail: "Inspect configured MCP servers",
+            systemImage: "server.rack"
+        ))
+        XCTAssertEqual(mcpRoute.hostActions, [.presentMCPStatus, .refreshMCPServers])
+
+        let draftRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "feedback",
+            title: "Feedback",
+            detail: "Send feedback",
+            systemImage: "bubble.left",
+            draftText: "I have feedback: "
+        ))
+        XCTAssertEqual(draftRoute.activities.map(\.detail), ["Prepared Feedback"])
+        XCTAssertEqual(session.draft, "I have feedback: ")
+    }
+
+    func testActivityLogSessionOwnsClippingOrderingAndCapacity() {
+        var log = CodexActivityLogSession(limit: 2, detailLimit: 12)
+
+        log.append(.notice, title: "First", detail: "  short\nline  ")
+        log.append(.turn, title: "Second", detail: "123456789012345")
+        log.append(CodexActivity(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+            kind: .tool,
+            title: "Third",
+            detail: "kept",
+            createdAt: Date(timeIntervalSince1970: 3)
+        ))
+
+        XCTAssertEqual(log.activities.map(\.title), ["Third", "Second"])
+        XCTAssertEqual(log.activities.map(\.detail), ["kept", "123456789012…"])
+        XCTAssertEqual(log.clippedDetail("  one\ntwo  "), "one two")
+    }
+
+    @MainActor
+    func testChatStreamSessionOwnsTurnAndGlobalNotificationStreams() async {
+        let session = CodexChatStreamSession()
+        var mainContinuation: AsyncStream<CodexNotification>.Continuation!
+        let mainStream = AsyncStream<CodexNotification> { continuation in
+            mainContinuation = continuation
+        }
+        var globalContinuation: AsyncStream<CodexNotification>.Continuation!
+        let globalStream = AsyncStream<CodexNotification> { continuation in
+            globalContinuation = continuation
+        }
+        var receivedMainTurnIDs: [String] = []
+        var finishedMainTurnIDs: [String] = []
+        var receivedGlobalMethods: [String] = []
+        let mainReceived = expectation(description: "main stream delivered notification")
+        let mainFinished = expectation(description: "main stream finished")
+        let globalReceived = expectation(description: "global stream delivered notification")
+
+        session.consumeMainTurnStream(
+            id: "turn-main",
+            notifications: mainStream,
+            onNotification: { notification in
+                receivedMainTurnIDs.append(CodexNotificationMetadata.turnID(from: notification) ?? "")
+                mainReceived.fulfill()
+            },
+            onFinish: { turnID in
+                finishedMainTurnIDs.append(turnID)
+                mainFinished.fulfill()
+            }
+        )
+        session.consumeGlobalNotificationStream(globalStream) { notification in
+            receivedGlobalMethods.append(notification.method)
+            globalReceived.fulfill()
+        }
+
+        mainContinuation.yield(transcriptNotification(.turnStarted(TurnStartedNotification(
+            threadId: "thread-1",
+            turn: AppServerTurn(id: "turn-main", status: .inProgress)
+        ))))
+        mainContinuation.finish()
+        globalContinuation.yield(transcriptNotification(.known(method: .skillsChanged, params: [:])))
+
+        await fulfillment(of: [mainReceived, mainFinished, globalReceived], timeout: 1.0)
+        XCTAssertEqual(receivedMainTurnIDs, ["turn-main"])
+        XCTAssertEqual(finishedMainTurnIDs, ["turn-main"])
+        XCTAssertEqual(receivedGlobalMethods, [CodexAppServerNotificationMethod.skillsChanged.rawValue])
+    }
+
+    @MainActor
+    func testChatStreamSessionAppliesRuntimeResultsAndSideChatUpdates() async {
+        let session = CodexChatStreamSession()
+        var mainContinuation: AsyncStream<CodexNotification>.Continuation!
+        let mainStream = AsyncStream<CodexNotification> { continuation in
+            mainContinuation = continuation
+        }
+        var sideContinuation: AsyncStream<CodexNotification>.Continuation!
+        let sideStream = AsyncStream<CodexNotification> { continuation in
+            sideContinuation = continuation
+        }
+        var mainActivities: [String] = []
+        var sideActivities: [String] = []
+        let mainNotificationApplied = expectation(description: "main notification result applied")
+        let mainFinishApplied = expectation(description: "main finish result applied")
+        let sideNotificationApplied = expectation(description: "side notification update applied")
+        let sideFinishApplied = expectation(description: "side finish update applied")
+
+        session.consumeMainTurnResultStream(
+            id: "turn-main",
+            notifications: mainStream,
+            routeNotification: { notification in
+                CodexChatNotificationPipelineResult(activities: [
+                    CodexActivity(kind: .notice, title: "main", detail: notification.method)
+                ])
+            },
+            finishTurn: { turnID in
+                CodexChatNotificationPipelineResult(activities: [
+                    CodexActivity(kind: .turn, title: "finished", detail: turnID)
+                ])
+            },
+            applyResult: { result in
+                mainActivities.append(contentsOf: result.activities.map(\.detail))
+                if result.activities.contains(where: { $0.title == "main" }) {
+                    mainNotificationApplied.fulfill()
+                }
+                if result.activities.contains(where: { $0.title == "finished" }) {
+                    mainFinishApplied.fulfill()
+                }
+            }
+        )
+
+        session.consumeSideChatTurnUpdateStream(
+            id: "turn-side",
+            notifications: sideStream,
+            routeNotification: { notification in
+                CodexSideChatSessionUpdate(activity: CodexActivity(kind: .notice, title: "side", detail: notification.method))
+            },
+            finishTurn: { turnID in
+                CodexSideChatSessionUpdate(activity: CodexActivity(kind: .turn, title: "side finished", detail: turnID))
+            },
+            applyUpdate: { update in
+                guard let activity = update.activity else { return }
+                sideActivities.append(activity.detail)
+                if activity.title == "side" {
+                    sideNotificationApplied.fulfill()
+                }
+                if activity.title == "side finished" {
+                    sideFinishApplied.fulfill()
+                }
+            }
+        )
+
+        mainContinuation.yield(transcriptNotification(.known(method: .skillsChanged, params: [:])))
+        sideContinuation.yield(transcriptNotification(.known(method: .warning, params: [:])))
+        mainContinuation.finish()
+        sideContinuation.finish()
+
+        await fulfillment(
+            of: [mainNotificationApplied, mainFinishApplied, sideNotificationApplied, sideFinishApplied],
+            timeout: 1.0
+        )
+        XCTAssertEqual(mainActivities, [CodexAppServerNotificationMethod.skillsChanged.rawValue, "turn-main"])
+        XCTAssertEqual(sideActivities, [CodexAppServerNotificationMethod.warning.rawValue, "turn-side"])
+    }
+
+    @MainActor
+    func testChatRuntimeSessionOwnsStoreBackedStreamBinding() async {
+        let session = CodexChatRuntimeSession()
+        var globalContinuation: AsyncStream<CodexNotification>.Continuation!
+        let globalStream = AsyncStream<CodexNotification> { continuation in
+            globalContinuation = continuation
+        }
+        var sideContinuation: AsyncStream<CodexNotification>.Continuation!
+        let sideStream = AsyncStream<CodexNotification> { continuation in
+            sideContinuation = continuation
+        }
+        var globalActions: [CodexChatNotificationPipelineAction] = []
+        var sideActivities: [String] = []
+        let globalApplied = expectation(description: "global runtime stream applied")
+        let sideApplied = expectation(description: "side runtime stream applied")
+
+        _ = session.openSideChat()
+        session.consumeGlobalNotificationStream(
+            globalStream,
+            store: nil,
+            currentThreadID: { "thread-1" },
+            applyResult: { result in
+                globalActions.append(contentsOf: result.actions)
+                globalApplied.fulfill()
+            }
+        )
+        session.consumeSideChatTurnStream(
+            id: "side-turn-1",
+            notifications: sideStream,
+            currentThreadID: { "thread-1" },
+            store: { nil },
+            applyUpdate: { update in
+                guard let activity = update.activity else { return }
+                sideActivities.append(activity.title)
+                if activity.title == "Side chat warning" {
+                    sideApplied.fulfill()
+                }
+            }
+        )
+
+        globalContinuation.yield(transcriptNotification(.known(method: .skillsChanged, params: [:])))
+        sideContinuation.yield(transcriptNotification(.known(method: .warning, params: [
+            "message": .string("side note"),
+            "turnId": .string("side-turn-1")
+        ])))
+        sideContinuation.finish()
+
+        await fulfillment(of: [globalApplied, sideApplied], timeout: 1.0)
+        XCTAssertEqual(globalActions, [.refreshSlashCommands(forceReload: true)])
+        XCTAssertEqual(sideActivities, ["Side chat warning"])
+    }
+
+    @MainActor
+    func testChatRuntimeSessionOwnsSubmissionLifecycleActivities() async {
+        let session = CodexChatRuntimeSession()
+        let submission = CodexComposerSubmission(prompt: "Ship it")
+        var mainActivities: [CodexActivity] = []
+        var goalActivities: [CodexActivity] = []
+        var sideActivities: [CodexActivity] = []
+
+        let didStartMain = await session.submitMainTurn(
+            submission,
+            start: { throw NSError(domain: "CodexRuntimeSessionTests", code: 1) },
+            currentThreadID: { "thread-1" },
+            store: { nil },
+            applyResult: { _ in },
+            onActivity: { mainActivities.append($0) },
+            errorMessage: { _ in "offline" }
+        )
+        XCTAssertFalse(didStartMain)
+        XCTAssertEqual(mainActivities.map(\.title), ["You asked Codex", "Turn failed to start"])
+        XCTAssertFalse(session.isSending)
+
+        let goal = ThreadGoal(
+            threadId: "thread-1",
+            objective: "Ship it",
+            status: .active,
+            tokensUsed: 5,
+            timeUsedSeconds: 1,
+            createdAt: 1,
+            updatedAt: 2
+        )
+        let didStartGoal = await session.submitGoal(
+            submission,
+            start: { goal },
+            onActivity: { goalActivities.append($0) },
+            errorMessage: { _ in "goal offline" }
+        )
+        XCTAssertTrue(didStartGoal)
+        XCTAssertEqual(goalActivities.map(\.title), ["Pursuing goal", "Goal started"])
+        XCTAssertEqual(session.activeGoal, goal)
+
+        let didStartSideChat = await session.submitSideChat(
+            prompt: "side quest",
+            start: { throw NSError(domain: "CodexRuntimeSessionTests", code: 2) },
+            currentThreadID: { "thread-1" },
+            store: { nil },
+            applyUpdate: { _ in },
+            onActivity: { sideActivities.append($0) },
+            errorMessage: { _ in "side offline" }
+        )
+        XCTAssertFalse(didStartSideChat)
+        XCTAssertEqual(sideActivities.map(\.title), [
+            "Opened side chat",
+            "Side chat asked",
+            "Side chat failed to start"
+        ])
+        XCTAssertFalse(session.isSideChatSending)
+    }
+
+    @MainActor
+    func testChatStreamSessionCancelsReplacedTurnStreamsWithoutFinishingThem() async {
+        let session = CodexChatStreamSession()
+        var firstContinuation: AsyncStream<CodexNotification>.Continuation!
+        let firstStream = AsyncStream<CodexNotification> { continuation in
+            firstContinuation = continuation
+        }
+        var secondContinuation: AsyncStream<CodexNotification>.Continuation!
+        let secondStream = AsyncStream<CodexNotification> { continuation in
+            secondContinuation = continuation
+        }
+        var finishedTurnIDs: [String] = []
+        let secondFinished = expectation(description: "second stream finished")
+
+        session.consumeMainTurnStream(
+            id: "turn-old",
+            notifications: firstStream,
+            onNotification: { _ in },
+            onFinish: { turnID in
+                finishedTurnIDs.append(turnID)
+            }
+        )
+        session.consumeMainTurnStream(
+            id: "turn-new",
+            notifications: secondStream,
+            onNotification: { _ in },
+            onFinish: { turnID in
+                finishedTurnIDs.append(turnID)
+                secondFinished.fulfill()
+            }
+        )
+
+        firstContinuation.finish()
+        secondContinuation.finish()
+
+        await fulfillment(of: [secondFinished], timeout: 1.0)
+        XCTAssertEqual(finishedTurnIDs, ["turn-new"])
+    }
+
+    @MainActor
+    func testMentionSearchSessionOwnsDebouncedSearchAndClearLifecycle() async {
+        let session = CodexMentionSearchSession()
+        let result = FuzzyFileSearchResult(
+            fileName: "Store.swift",
+            matchType: .file,
+            path: "Sources/CodexCore/Store/Store.swift",
+            root: "/repo",
+            score: 0.9
+        )
+        var receivedQueries: [String] = []
+        var receivedResults: [[FuzzyFileSearchResult]] = []
+        var clearCount = 0
+        let searched = expectation(description: "mention search completed")
+
+        session.updateQuery(
+            "Sto",
+            debounceNanoseconds: 0,
+            search: { query in
+                receivedQueries.append(query)
+                return [result]
+            },
+            onResults: { files in
+                receivedResults.append(files)
+                searched.fulfill()
+            },
+            onClear: {
+                clearCount += 1
+            }
+        )
+
+        await fulfillment(of: [searched], timeout: 1.0)
+        XCTAssertEqual(receivedQueries, ["Sto"])
+        XCTAssertEqual(receivedResults, [[result]])
+
+        session.updateQuery(
+            nil,
+            debounceNanoseconds: 0,
+            search: { _ in [] },
+            onResults: { _ in },
+            onClear: {
+                clearCount += 1
+            }
+        )
+        XCTAssertEqual(clearCount, 1)
     }
 
     func testPermissionProfilesParseAppServerAccessOptions() throws {
@@ -396,6 +1202,37 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertEqual(change.changedFileCount, 2)
         XCTAssertEqual(change.addedLineCount, 2)
         XCTAssertEqual(change.removedLineCount, 2)
+    }
+
+    func testFileChangeUndoSessionOwnsGitCommandPolicy() throws {
+        let modified = CodexChatMessage.fileChange(
+            itemID: "patch-1",
+            path: "/repo/Sources/App.swift",
+            diff: "+new",
+            kind: "update",
+            status: "completed"
+        )
+        let added = CodexChatMessage.fileChange(
+            itemID: "patch-2",
+            path: "/repo/Sources/New.swift",
+            diff: "+new",
+            kind: "add",
+            status: "completed"
+        )
+
+        let modifiedPlan = try XCTUnwrap(CodexFileChangeUndoSession.plan(for: modified, workspacePath: "/repo"))
+        XCTAssertEqual(modifiedPlan.command, ["git", "checkout", "--", "Sources/App.swift"])
+        XCTAssertEqual(modifiedPlan.cwd, "/repo")
+        XCTAssertEqual(modifiedPlan.relativePath, "Sources/App.swift")
+
+        let addedPlan = try XCTUnwrap(CodexFileChangeUndoSession.plan(for: added, workspacePath: "/repo/"))
+        XCTAssertEqual(addedPlan.command, ["git", "clean", "-f", "--", "Sources/New.swift"])
+
+        let unavailable = CodexChatMessage.fileChange(itemID: "patch-3", path: nil, diff: "+new", status: "completed")
+        XCTAssertNil(CodexFileChangeUndoSession.plan(for: unavailable, workspacePath: "/repo"))
+        XCTAssertEqual(CodexFileChangeUndoSession.unavailableActivity.title, "Undo unavailable")
+        XCTAssertEqual(CodexFileChangeUndoSession.successActivity(relativePath: "Sources/App.swift").detail, "Sources/App.swift")
+        XCTAssertEqual(CodexFileChangeUndoSession.failureActivity(message: "nope").detail, "nope")
     }
 
     func testPlanUpdateParsesTurnPlanUpdatedNotificationShape() throws {
@@ -818,6 +1655,98 @@ final class CodexAgentUITests: XCTestCase {
         )
     }
 
+    func testIntegrationCatalogSessionOwnsMCPAndPluginLoadingState() {
+        let mcpResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "name": .string("filesystem"),
+                    "authStatus": .string("unsupported"),
+                    "serverInfo": .dictionary([
+                        "title": .string("Filesystem")
+                    ]),
+                    "tools": .dictionary([
+                        "read_file": .dictionary([
+                            "name": .string("read_file"),
+                            "title": .string("Read file")
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        let pluginResponse: CodexJSONValue = .dictionary([
+            "marketplaces": .array([
+                .dictionary([
+                    "name": .string("local"),
+                    "plugins": .array([
+                        .dictionary([
+                            "enabled": .bool(true),
+                            "id": .string("resume-from-opencode"),
+                            "installed": .bool(true),
+                            "name": .string("resume-from-opencode"),
+                            "interface": .dictionary([
+                                "displayName": .string("Resume OpenCode"),
+                                "shortDescription": .string("Resume a previous OpenCode session")
+                            ])
+                        ])
+                    ])
+                ])
+            ]),
+            "marketplaceLoadErrors": .array([
+                .dictionary([
+                    "marketplacePath": .string("/tmp/bad-marketplace.json"),
+                    "message": .string("invalid manifest")
+                ])
+            ])
+        ])
+
+        var session = CodexIntegrationCatalogSession()
+
+        session.requireMCPConnection(message: "Connect first")
+        XCTAssertEqual(session.mcpErrorMessage, "Connect first")
+        XCTAssertFalse(session.isLoadingMCPServers)
+
+        session.beginMCPRefresh()
+        XCTAssertTrue(session.isLoadingMCPServers)
+        XCTAssertNil(session.mcpErrorMessage)
+
+        let mcpActivity = session.applyMCPResponse(mcpResponse)
+        XCTAssertEqual(mcpActivity, CodexIntegrationCatalogActivity(title: "Loaded MCP servers", detail: "1 configured"))
+        XCTAssertEqual(session.mcpServers.map(\.displayName), ["Filesystem"])
+        XCTAssertFalse(session.isLoadingMCPServers)
+
+        session.applyMCPStartupStatus(CodexMCPServerStartupStatus(name: "filesystem", status: "ready", error: nil))
+        XCTAssertEqual(session.mcpServers[0].startupStatus, "ready")
+        session.applyMCPStartupStatus(CodexMCPServerStartupStatus(name: "github", status: "failed", error: "missing token"))
+        XCTAssertEqual(session.mcpServers.map(\.name), ["filesystem", "github"])
+        XCTAssertEqual(session.mcpServers[1].error, "missing token")
+
+        let failedMCP = session.failMCPRefresh(message: "server unavailable")
+        XCTAssertEqual(failedMCP.title, "MCP status unavailable")
+        XCTAssertEqual(session.mcpServers, [])
+        XCTAssertEqual(session.mcpErrorMessage, "server unavailable")
+
+        session.requirePluginConnection(message: "Connect first")
+        XCTAssertEqual(session.pluginErrorMessage, "Connect first")
+        XCTAssertEqual(session.pluginLoadErrors, [])
+        XCTAssertFalse(session.isLoadingPlugins)
+
+        session.beginPluginRefresh()
+        XCTAssertTrue(session.isLoadingPlugins)
+        XCTAssertNil(session.pluginErrorMessage)
+
+        let pluginActivity = session.applyPluginResponse(pluginResponse)
+        XCTAssertEqual(pluginActivity, CodexIntegrationCatalogActivity(title: "Loaded plugins", detail: "1 available"))
+        XCTAssertEqual(session.plugins.map(\.displayName), ["Resume OpenCode"])
+        XCTAssertEqual(session.pluginLoadErrors, ["/tmp/bad-marketplace.json: invalid manifest"])
+        XCTAssertFalse(session.isLoadingPlugins)
+
+        let failedPlugins = session.failPluginRefresh(message: "bad marketplace")
+        XCTAssertEqual(failedPlugins.title, "Plugin list unavailable")
+        XCTAssertEqual(session.plugins, [])
+        XCTAssertEqual(session.pluginLoadErrors, [])
+        XCTAssertEqual(session.pluginErrorMessage, "bad marketplace")
+    }
+
     func testThreadSummariesParseRawAppServerThreadList() {
         let response: CodexJSONValue = .dictionary([
             "data": .array([
@@ -891,6 +1820,78 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertEqual(results[0].thread.workspacePath, "/tmp/CodexCore")
         XCTAssertEqual(results[0].thread.status, "idle")
         XCTAssertEqual(results[0].snippet, "Found NEEDLE in the transcript")
+    }
+
+    func testThreadListSessionOwnsRecentProjectAndSearchState() {
+        let currentResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("thread-current"),
+                    "name": .string("Current chat"),
+                    "preview": .string("Current preview"),
+                    "cwd": .string("/tmp/CodexCore"),
+                    "ephemeral": .bool(false),
+                    "updatedAt": .int(2_000)
+                ]),
+                .dictionary([
+                    "id": .string("thread-side"),
+                    "name": .string("Side chat"),
+                    "cwd": .string("/tmp/CodexCore"),
+                    "parentThreadId": .string("thread-current"),
+                    "ephemeral": .bool(true),
+                    "updatedAt": .int(2_100)
+                ])
+            ])
+        ])
+        let allResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("thread-current"),
+                    "name": .string("Current chat duplicate"),
+                    "cwd": .string("/tmp/CodexCore"),
+                    "ephemeral": .bool(false),
+                    "updatedAt": .int(2_000)
+                ]),
+                .dictionary([
+                    "id": .string("thread-other"),
+                    "name": .string("Other chat"),
+                    "cwd": .string("/tmp/Other"),
+                    "ephemeral": .bool(false),
+                    "updatedAt": .int(3_000)
+                ])
+            ])
+        ])
+
+        var session = CodexThreadListSession(currentWorkspacePath: "/tmp/CodexCore")
+        session.applyThreadList(currentRaw: currentResponse, allRaw: allResponse, currentWorkspacePath: "/tmp/CodexCore")
+
+        XCTAssertEqual(session.recentChats.map(\.id), ["thread-current"])
+        XCTAssertEqual(session.recentProjects.map(\.workspacePath), ["/tmp/CodexCore", "/tmp/Other"])
+        XCTAssertEqual(session.recentProjects.map(\.chatCount), [1, 1])
+
+        session.beginSearch()
+        XCTAssertTrue(session.isSearching)
+        let count = session.applySearchResults(from: .dictionary([
+            "data": .array([
+                .dictionary([
+                    "thread": .dictionary([
+                        "id": .string("thread-current"),
+                        "name": .string("Current chat"),
+                        "cwd": .string("/tmp/CodexCore")
+                    ]),
+                    "snippet": .string("needle")
+                ])
+            ])
+        ]))
+
+        XCTAssertEqual(count, 1)
+        XCTAssertFalse(session.isSearching)
+        XCTAssertEqual(session.searchResults.first?.snippet, "needle")
+
+        session.failSearch(message: "offline")
+        XCTAssertEqual(session.searchErrorMessage, "offline")
+        XCTAssertTrue(session.searchResults.isEmpty)
+        XCTAssertFalse(session.isSearching)
     }
 
     func testProjectSummariesGroupVisibleThreadsByWorkspace() {
@@ -1031,7 +2032,7 @@ final class CodexAgentUITests: XCTestCase {
 
         let snapshot = CodexThreadHistorySnapshot(raw: response)
 
-        XCTAssertEqual(snapshot.messages.map(\.role), [.user, .assistant, .terminal, .fileChange, .plan, .tool, .assistant])
+        XCTAssertEqual(snapshot.messages.map(\.role), [.user, .assistant, .terminal, .fileChange, .tool, .plan, .assistant])
         XCTAssertEqual(snapshot.messages[0].text, "Inspect the Swift app")
         XCTAssertEqual(snapshot.messages[1].text, "I checked the app-server surface.")
         XCTAssertEqual(snapshot.messages[1].detail, "commentary")
@@ -1042,11 +2043,1443 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertEqual(snapshot.messages[3].fileChange?.path, "Sources/App.swift")
         XCTAssertEqual(snapshot.messages[3].fileChange?.addedLineCount, 1)
         XCTAssertEqual(snapshot.messages[3].fileChange?.removedLineCount, 1)
-        XCTAssertEqual(snapshot.messages[4].planUpdate?.explanation, "Verify parity in small slices.")
-        XCTAssertEqual(snapshot.messages[4].planUpdate?.steps.map(\.status), ["completed", "inProgress"])
-        XCTAssertEqual(snapshot.messages[5].toolCall?.displayName, "filesystem.read_file")
-        XCTAssertEqual(snapshot.messages[5].toolCall?.result, "package contents")
+        let planMessage = snapshot.messages.first(where: { $0.planUpdate != nil })
+        XCTAssertEqual(planMessage?.planUpdate?.explanation, "Verify parity in small slices.")
+        XCTAssertEqual(planMessage?.planUpdate?.steps.map(\.status), ["completed", "inProgress"])
+        let toolMessage = snapshot.messages.first(where: { $0.toolCall != nil })
+        XCTAssertEqual(toolMessage?.toolCall?.displayName, "filesystem.read_file")
+        XCTAssertEqual(toolMessage?.toolCall?.result, "package contents")
         XCTAssertEqual(snapshot.messages[6].detail, "final_answer")
+    }
+
+    func testChatTranscriptProjectionMapsRawItemsThroughTimelineMapper() throws {
+        let commandValue: CodexJSONValue = .dictionary([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .array([.string("swift"), .string("test")]),
+            "aggregatedOutput": .string("ok\n"),
+            "status": .string("completed"),
+            "exitCode": .int(0)
+        ])
+        let fileValue: CodexJSONValue = .dictionary([
+            "id": .string("patch-1"),
+            "type": .string("fileChange"),
+            "changes": .array([
+                .dictionary([
+                    "path": .string("Sources/App.swift"),
+                    "kind": .dictionary(["type": .string("update")]),
+                    "diff": .string("+new")
+                ])
+            ])
+        ])
+        let toolValue: CodexJSONValue = .dictionary([
+            "id": .string("tool-1"),
+            "type": .string("mcpToolCall"),
+            "server": .string("filesystem"),
+            "tool": .string("read_file"),
+            "result": .dictionary([
+                "content": .array([
+                    .dictionary(["type": .string("text"), "text": .string("package contents")])
+                ])
+            ])
+        ])
+
+        let command = try commandValue.decode(ThreadItem.self)
+        let file = try fileValue.decode(ThreadItem.self)
+        let tool = try toolValue.decode(ThreadItem.self)
+
+        XCTAssertEqual(CodexChatTranscriptProjection.message(for: command, fallbackStatus: "completed")?.commandRun?.command, "swift test")
+        XCTAssertEqual(CodexChatTranscriptProjection.message(for: command, fallbackStatus: "completed")?.commandRun?.output, "ok\n")
+        XCTAssertEqual(CodexChatTranscriptProjection.message(for: file, fallbackStatus: "completed")?.fileChange?.path, "Sources/App.swift")
+        XCTAssertEqual(CodexChatTranscriptProjection.message(for: tool, fallbackStatus: "completed")?.toolCall?.displayName, "filesystem.read_file")
+        XCTAssertEqual(CodexChatTranscriptProjection.message(for: tool, fallbackStatus: "completed")?.toolCall?.result, "package contents")
+    }
+
+    func testChatTranscriptProjectionMapsStoreTurnSnapshots() throws {
+        let timestamp = Date(timeIntervalSince1970: 42)
+        let turn = CodexTurnSnapshot(
+            id: "turn-1",
+            items: [
+                .userMessage(id: "user-1", text: "Run the tests", timestamp: timestamp),
+                .assistantMessage(id: "assistant-1", text: "On it.", timestamp: timestamp, isStreaming: false),
+                .commandExecution(id: "cmd-1", command: "placeholder", output: "", status: "completed", timestamp: timestamp),
+                .fileChange(id: "file-1", path: "", patch: "", status: "completed", timestamp: timestamp),
+                .mcpToolCall(id: "tool-1", server: "", tool: "", status: "completed", timestamp: timestamp, progress: [])
+            ],
+            itemDetails: [
+                "cmd-1": .commandExecution(CodexCommandExecutionDetail(
+                    command: "swift test",
+                    cwd: "/repo",
+                    output: "ok\n",
+                    status: "completed",
+                    exitCode: 0
+                )),
+                "file-1": .fileChange(CodexFileChangeDetail(
+                    path: "Sources/App.swift",
+                    kind: "update",
+                    diff: "+new",
+                    status: "completed"
+                )),
+                "tool-1": .toolCall(CodexToolCallDetail(
+                    server: "filesystem",
+                    tool: "read_file",
+                    status: "completed",
+                    result: "package contents"
+                ))
+            ],
+            plan: [
+                TurnPlanStep(step: "Inspect store", status: .completed),
+                TurnPlanStep(step: "Wire projection", status: .inProgress)
+            ],
+            planExplanation: "Use store snapshots",
+            diff: "diff --git a/Sources/App.swift b/Sources/App.swift\n+new"
+        )
+
+        let messages = CodexChatTranscriptProjection.messages(for: turn)
+
+        XCTAssertEqual(messages.map(\.role), [.user, .assistant, .terminal, .fileChange, .tool, .plan, .fileChange])
+        XCTAssertEqual(messages[2].commandRun?.command, "swift test")
+        XCTAssertEqual(messages[2].commandRun?.cwd, "/repo")
+        XCTAssertEqual(messages[2].commandRun?.output, "ok\n")
+        XCTAssertEqual(messages[2].commandRun?.exitCode, 0)
+        XCTAssertEqual(messages[3].fileChange?.path, "Sources/App.swift")
+        XCTAssertEqual(messages[4].toolCall?.displayName, "filesystem.read_file")
+        XCTAssertEqual(messages[4].toolCall?.result, "package contents")
+        XCTAssertEqual(messages[5].planUpdate?.summary, "1/2 complete")
+        XCTAssertEqual(messages[6].fileChange?.itemID, "turn-diff-turn-1")
+        XCTAssertEqual(messages[6].fileChange?.diff, "diff --git a/Sources/App.swift b/Sources/App.swift\n+new")
+    }
+
+    func testChatTranscriptStateOwnsLiveMessageIdentityAndMerging() throws {
+        let startedCommandValue: CodexJSONValue = .dictionary([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .array([.string("swift"), .string("test")]),
+            "status": .string("active")
+        ])
+        let completedCommandValue: CodexJSONValue = .dictionary([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .array([.string("swift"), .string("test")]),
+            "status": .string("completed"),
+            "exitCode": .int(0)
+        ])
+
+        var transcript = CodexChatTranscriptState()
+        transcript.appendAssistantDelta("Hel", itemID: "assistant-1")
+        transcript.appendAssistantDelta("lo", itemID: "assistant-1")
+        transcript.startItem(try startedCommandValue.decode(ThreadItem.self))
+        transcript.appendCommandOutput("ok", itemID: "cmd-1")
+        transcript.completeItem(try completedCommandValue.decode(ThreadItem.self))
+
+        XCTAssertEqual(transcript.messages.map(\.role), [.assistant, .terminal])
+        XCTAssertEqual(transcript.messages[0].text, "Hello")
+        XCTAssertEqual(transcript.messages[1].commandRun?.command, "swift test")
+        XCTAssertEqual(transcript.messages[1].commandRun?.output, "ok")
+        XCTAssertEqual(transcript.messages[1].commandRun?.exitCode, 0)
+    }
+
+    func testChatTranscriptNotificationRouterOwnsLiveCommandAndAssistantRouting() throws {
+        let startedCommand = try transcriptThreadItem([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .array([.string("swift"), .string("test")]),
+            "status": .string("active")
+        ])
+        let completedCommand = try transcriptThreadItem([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .array([.string("swift"), .string("test")]),
+            "status": .string("completed"),
+            "exitCode": .int(0)
+        ])
+        let completedAssistant = try transcriptThreadItem([
+            "id": .string("assistant-1"),
+            "type": .string("assistantMessage"),
+            "text": .string("Hello from Codex"),
+            "phase": .string("final_answer")
+        ])
+
+        var transcript = CodexChatTranscriptState()
+        let commandStart = routeTranscriptNotification(
+            .itemStarted(ItemStartedNotification(threadId: "thread-1", turnId: "turn-1", item: startedCommand)),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .known(method: .itemCommandExecutionOutputDelta, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("cmd-1"),
+                "delta": .string("ok\n")
+            ]),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .itemCompleted(ItemCompletedNotification(threadId: "thread-1", turnId: "turn-1", item: completedCommand)),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .agentMessageDelta(AgentMessageDeltaNotification(threadId: "thread-1", turnId: "turn-1", itemId: "assistant-1", delta: "Hel")),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .agentMessageDelta(AgentMessageDeltaNotification(threadId: "thread-1", turnId: "turn-1", itemId: "assistant-1", delta: "lo")),
+            to: &transcript
+        )
+        let assistantCompletion = routeTranscriptNotification(
+            .itemCompleted(ItemCompletedNotification(threadId: "thread-1", turnId: "turn-1", item: completedAssistant)),
+            to: &transcript
+        )
+
+        XCTAssertEqual(commandStart?.activity?.title, "Ran a command")
+        XCTAssertEqual(transcript.messages.map(\.role), [.terminal, .assistant])
+        XCTAssertEqual(transcript.messages[0].commandRun?.command, "swift test")
+        XCTAssertEqual(transcript.messages[0].commandRun?.output, "ok\n")
+        XCTAssertEqual(transcript.messages[0].commandRun?.exitCode, 0)
+        XCTAssertEqual(transcript.messages[0].isStreaming, false)
+        XCTAssertEqual(transcript.messages[1].text, "Hello from Codex")
+        XCTAssertEqual(transcript.messages[1].isStreaming, false)
+        XCTAssertEqual(assistantCompletion?.completedAssistantText, "Hello from Codex")
+    }
+
+    func testChatTranscriptNotificationRouterMapsPlanDiffPatchNoticeAndToolEvents() throws {
+        let startedTool = try transcriptThreadItem([
+            "id": .string("tool-1"),
+            "type": .string("mcpToolCall"),
+            "server": .string("filesystem"),
+            "tool": .string("read_file"),
+            "status": .string("inProgress")
+        ])
+        let completedTool = try transcriptThreadItem([
+            "id": .string("tool-1"),
+            "type": .string("mcpToolCall"),
+            "server": .string("filesystem"),
+            "tool": .string("read_file"),
+            "status": .string("completed"),
+            "result": .dictionary([
+                "content": .array([
+                    .dictionary(["type": .string("text"), "text": .string("package contents")])
+                ])
+            ])
+        ])
+
+        var transcript = CodexChatTranscriptState()
+        routeTranscriptNotification(
+            .known(method: .turnPlanUpdated, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "explanation": .string("Inspect, edit, verify."),
+                "plan": .array([
+                    .dictionary(["step": .string("Inspect"), "status": .string("completed")]),
+                    .dictionary(["step": .string("Verify"), "status": .string("inProgress")])
+                ])
+            ]),
+            to: &transcript,
+            context: CodexChatTranscriptRouteContext(activeTurnID: "turn-1")
+        )
+        routeTranscriptNotification(
+            .known(method: .turnDiffUpdated, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "diff": .string("diff --git a/A.swift b/A.swift\n+new")
+            ]),
+            to: &transcript,
+            context: CodexChatTranscriptRouteContext(activeTurnID: "turn-1")
+        )
+        routeTranscriptNotification(
+            .known(method: .itemFileChangePatchUpdated, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("patch-1"),
+                "changes": .array([
+                    .dictionary([
+                        "path": .string("Sources/App.swift"),
+                        "kind": .dictionary(["type": .string("update")]),
+                        "diff": .string("+new")
+                    ])
+                ])
+            ]),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .itemStarted(ItemStartedNotification(threadId: "thread-1", turnId: "turn-1", item: startedTool)),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .known(method: .itemMCPToolCallProgress, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("tool-1"),
+                "message": .string("Reading Package.swift")
+            ]),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .itemCompleted(ItemCompletedNotification(threadId: "thread-1", turnId: "turn-1", item: completedTool)),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .known(method: .warning, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "message": .string("Model changed behavior")
+            ]),
+            to: &transcript
+        )
+
+        XCTAssertEqual(transcript.messages.map(\.role), [.plan, .fileChange, .fileChange, .tool, .notice])
+        XCTAssertEqual(transcript.messages[0].planUpdate?.summary, "1/2 complete")
+        XCTAssertEqual(transcript.messages[1].fileChange?.itemID, "turn-diff-turn-1")
+        XCTAssertEqual(transcript.messages[2].fileChange?.path, "Sources/App.swift")
+        XCTAssertEqual(transcript.messages[3].toolCall?.displayName, "filesystem.read_file")
+        XCTAssertEqual(transcript.messages[3].toolCall?.progress, ["Reading Package.swift"])
+        XCTAssertEqual(transcript.messages[3].toolCall?.result, "package contents")
+        XCTAssertEqual(transcript.messages[4].notice?.title, "Warning")
+        XCTAssertEqual(transcript.messages[4].notice?.detail, "Model changed behavior")
+    }
+
+    func testChatTranscriptNotificationRouterPrefersStoreSnapshotForTypedTurnChrome() throws {
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-1",
+            status: .running,
+            plan: [
+                TurnPlanStep(step: "Store-owned step", status: .inProgress)
+            ],
+            planExplanation: "From store",
+            diff: "diff --git a/Store.swift b/Store.swift\n+store"
+        )
+
+        var transcript = CodexChatTranscriptState()
+        routeTranscriptNotification(
+            .turnPlanUpdated(TurnPlanUpdatedNotification(
+                threadId: "thread-1",
+                turnId: "turn-1",
+                plan: [TurnPlanStep(step: "Payload-only step", status: .pending)],
+                explanation: "From payload"
+            )),
+            to: &transcript,
+            context: CodexChatTranscriptRouteContext(activeTurnID: "turn-1", turnSnapshot: storeTurn)
+        )
+        routeTranscriptNotification(
+            .turnDiffUpdated(TurnDiffUpdatedNotification(
+                threadId: "thread-1",
+                turnId: "turn-1",
+                diff: "diff --git a/Payload.swift b/Payload.swift\n+payload"
+            )),
+            to: &transcript,
+            context: CodexChatTranscriptRouteContext(activeTurnID: "turn-1", turnSnapshot: storeTurn)
+        )
+
+        XCTAssertEqual(transcript.messages.map(\.role), [.plan, .fileChange])
+        XCTAssertEqual(transcript.messages[0].planUpdate?.steps.first?.step, "Store-owned step")
+        XCTAssertEqual(transcript.messages[0].planUpdate?.explanation, "From store")
+        XCTAssertEqual(transcript.messages[1].fileChange?.diff, "diff --git a/Store.swift b/Store.swift\n+store")
+    }
+
+    func testChatTranscriptNotificationRouterPrefersStoreSnapshotForCompletedItems() throws {
+        let timestamp = Date(timeIntervalSince1970: 123)
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-1",
+            status: .running,
+            items: [
+                .commandExecution(id: "cmd-1", command: "store placeholder", output: "", status: "completed", timestamp: timestamp)
+            ],
+            itemDetails: [
+                "cmd-1": .commandExecution(CodexCommandExecutionDetail(
+                    command: "swift test",
+                    cwd: "/repo",
+                    output: "store output\n",
+                    status: "completed",
+                    exitCode: 0
+                ))
+            ]
+        )
+        let payloadItem = try transcriptThreadItem([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .string("payload command"),
+            "output": .string("payload output"),
+            "status": .string("completed")
+        ])
+
+        var transcript = CodexChatTranscriptState()
+        routeTranscriptNotification(
+            .itemCompleted(ItemCompletedNotification(threadId: "thread-1", turnId: "turn-1", item: payloadItem)),
+            to: &transcript,
+            context: CodexChatTranscriptRouteContext(activeTurnID: "turn-1", turnSnapshot: storeTurn)
+        )
+
+        XCTAssertEqual(transcript.messages.count, 1)
+        XCTAssertEqual(transcript.messages[0].commandRun?.command, "swift test")
+        XCTAssertEqual(transcript.messages[0].commandRun?.cwd, "/repo")
+        XCTAssertEqual(transcript.messages[0].commandRun?.output, "store output\n")
+        XCTAssertEqual(transcript.messages[0].commandRun?.exitCode, 0)
+    }
+
+    func testChatTranscriptNotificationRouterPrefersStoreSnapshotForStartedItems() throws {
+        let timestamp = Date(timeIntervalSince1970: 456)
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-1",
+            status: .running,
+            items: [
+                .commandExecution(id: "cmd-1", command: "store placeholder", output: "", status: "active", timestamp: timestamp)
+            ],
+            itemDetails: [
+                "cmd-1": .commandExecution(CodexCommandExecutionDetail(
+                    command: "swift test --filter StoreBacked",
+                    cwd: "/repo",
+                    output: "",
+                    status: "active"
+                ))
+            ]
+        )
+        let payloadItem = try transcriptThreadItem([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .string("payload command"),
+            "status": .string("inProgress")
+        ])
+
+        var transcript = CodexChatTranscriptState()
+        let result = routeTranscriptNotification(
+            .itemStarted(ItemStartedNotification(threadId: "thread-1", turnId: "turn-1", item: payloadItem)),
+            to: &transcript,
+            context: CodexChatTranscriptRouteContext(activeTurnID: "turn-1", turnSnapshot: storeTurn)
+        )
+
+        XCTAssertEqual(result?.activity?.detail, "swift test --filter StoreBacked")
+        XCTAssertEqual(transcript.messages.count, 1)
+        XCTAssertEqual(transcript.messages[0].commandRun?.command, "swift test --filter StoreBacked")
+        XCTAssertEqual(transcript.messages[0].commandRun?.cwd, "/repo")
+        XCTAssertTrue(transcript.messages[0].commandRun?.isStreaming == true)
+    }
+
+    func testChatTranscriptNotificationRouterPrefersStoreSnapshotForKnownLiveItems() {
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-1",
+            status: .running,
+            items: [
+                .commandExecution(
+                    id: "cmd-1",
+                    command: "swift test",
+                    output: "store command output",
+                    status: "active",
+                    timestamp: Date()
+                ),
+                .fileChange(
+                    id: "patch-1",
+                    path: "Sources/Store.swift",
+                    patch: "diff --git a/Sources/Store.swift b/Sources/Store.swift\n+store",
+                    status: "active",
+                    timestamp: Date()
+                ),
+                .mcpToolCall(
+                    id: "tool-1",
+                    server: "filesystem",
+                    tool: "read_file",
+                    status: "inProgress",
+                    timestamp: Date(),
+                    progress: ["store progress"]
+                ),
+                .assistantMessage(
+                    id: "assistant-1",
+                    text: "store assistant text",
+                    timestamp: Date(),
+                    isStreaming: true
+                )
+            ],
+            itemDetails: [
+                "cmd-1": .commandExecution(CodexCommandExecutionDetail(
+                    command: "swift test",
+                    output: "store command output",
+                    status: "active"
+                )),
+                "patch-1": .fileChange(CodexFileChangeDetail(
+                    path: "Sources/Store.swift",
+                    kind: "update",
+                    diff: "diff --git a/Sources/Store.swift b/Sources/Store.swift\n+store",
+                    output: "",
+                    status: "active"
+                )),
+                "tool-1": .toolCall(CodexToolCallDetail(
+                    server: "filesystem",
+                    tool: "read_file",
+                    status: "inProgress",
+                    progress: ["store progress"]
+                )),
+                "assistant-1": .assistantMessage(CodexAssistantMessageDetail(
+                    phase: "commentary"
+                ))
+            ]
+        )
+
+        var transcript = CodexChatTranscriptState()
+        let context = CodexChatTranscriptRouteContext(activeTurnID: "turn-1", turnSnapshot: storeTurn)
+        routeTranscriptNotification(
+            .known(method: .itemCommandExecutionOutputDelta, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("cmd-1"),
+                "delta": .string("raw command output")
+            ]),
+            to: &transcript,
+            context: context
+        )
+        let patchActivity = routeTranscriptNotification(
+            .known(method: .itemFileChangePatchUpdated, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("patch-1"),
+                "path": .string("Payload.swift"),
+                "diff": .string("+payload")
+            ]),
+            to: &transcript,
+            context: context
+        )
+        routeTranscriptNotification(
+            .known(method: .itemMCPToolCallProgress, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("tool-1"),
+                "message": .string("payload progress")
+            ]),
+            to: &transcript,
+            context: context
+        )
+        routeTranscriptNotification(
+            .agentMessageDelta(AgentMessageDeltaNotification(
+                threadId: "thread-1",
+                turnId: "turn-1",
+                itemId: "assistant-1",
+                delta: "payload assistant text"
+            )),
+            to: &transcript,
+            context: context
+        )
+
+        XCTAssertEqual(transcript.messages.map(\.role), [.terminal, .fileChange, .tool, .assistant])
+        XCTAssertEqual(transcript.messages[0].commandRun?.output, "store command output")
+        XCTAssertEqual(transcript.messages[1].fileChange?.displayPath, "Sources/Store.swift")
+        XCTAssertEqual(transcript.messages[1].fileChange?.diff, "diff --git a/Sources/Store.swift b/Sources/Store.swift\n+store")
+        XCTAssertEqual(patchActivity?.activity?.detail, "Sources/Store.swift")
+        XCTAssertEqual(transcript.messages[2].toolCall?.progress, ["store progress"])
+        XCTAssertEqual(transcript.messages[3].text, "store assistant text")
+        XCTAssertEqual(transcript.messages[3].detail, "commentary")
+    }
+
+    func testChatTranscriptNotificationRouterLetsSideChatIgnoreMainTurnDiffs() {
+        var transcript = CodexChatTranscriptState()
+        let result = routeTranscriptNotification(
+            .known(method: .turnDiffUpdated, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "diff": .string("diff --git a/A.swift b/A.swift\n+new")
+            ]),
+            to: &transcript,
+            context: CodexChatTranscriptRouteContext(activityPrefix: "Side chat", activeTurnID: "turn-1", includesTurnDiff: false)
+        )
+
+        XCTAssertNil(result)
+        XCTAssertTrue(transcript.messages.isEmpty)
+    }
+
+    func testChatTranscriptSessionKeepsTranscriptAndTurnChromeStoreBacked() {
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-1",
+            status: .running,
+            plan: [
+                TurnPlanStep(step: "Use the store", status: .inProgress)
+            ],
+            planExplanation: "Canonical state",
+            diff: "diff --git a/Store.swift b/Store.swift\n+store"
+        )
+
+        var session = CodexChatTranscriptSession()
+        session.apply(
+            transcriptNotification(.turnPlanUpdated(TurnPlanUpdatedNotification(
+                threadId: "thread-1",
+                turnId: "turn-1",
+                plan: [TurnPlanStep(step: "Use payload", status: .pending)],
+                explanation: "Payload state"
+            ))),
+            activeTurnID: "turn-1",
+            turnSnapshot: storeTurn
+        )
+        session.apply(
+            transcriptNotification(.turnDiffUpdated(TurnDiffUpdatedNotification(
+                threadId: "thread-1",
+                turnId: "turn-1",
+                diff: "diff --git a/Payload.swift b/Payload.swift\n+payload"
+            ))),
+            activeTurnID: "turn-1",
+            turnSnapshot: storeTurn
+        )
+
+        XCTAssertEqual(session.currentPlan.map(\.step), ["Use the store"])
+        XCTAssertEqual(session.currentPlanExplanation, "Canonical state")
+        XCTAssertEqual(session.currentDiff, "diff --git a/Store.swift b/Store.swift\n+store")
+        XCTAssertEqual(session.messages.map(\.role), [.plan, .fileChange])
+        XCTAssertEqual(session.messages[0].planUpdate?.steps.first?.step, "Use the store")
+        XCTAssertEqual(session.messages[1].fileChange?.diff, "diff --git a/Store.swift b/Store.swift\n+store")
+
+        XCTAssertTrue(session.syncTurnChrome(from: nil, resetWhenMissing: true))
+        XCTAssertTrue(session.currentPlan.isEmpty)
+        XCTAssertNil(session.currentPlanExplanation)
+        XCTAssertNil(session.currentDiff)
+    }
+
+    func testChatTranscriptSessionPrefersStoreSnapshotForCompletedItems() throws {
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-1",
+            status: .running,
+            items: [
+                .commandExecution(id: "cmd-1", command: "placeholder", output: "", status: "completed", timestamp: Date(timeIntervalSince1970: 123))
+            ],
+            itemDetails: [
+                "cmd-1": .commandExecution(CodexCommandExecutionDetail(
+                    command: "swift test",
+                    cwd: "/repo",
+                    output: "store output\n",
+                    status: "completed",
+                    exitCode: 0
+                ))
+            ]
+        )
+        let payloadItem = try transcriptThreadItem([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .string("payload command"),
+            "output": .string("payload output"),
+            "status": .string("completed")
+        ])
+
+        var session = CodexChatTranscriptSession()
+        session.apply(
+            transcriptNotification(.itemCompleted(ItemCompletedNotification(threadId: "thread-1", turnId: "turn-1", item: payloadItem))),
+            activeTurnID: "turn-1",
+            turnSnapshot: storeTurn
+        )
+
+        XCTAssertEqual(session.messages.count, 1)
+        XCTAssertEqual(session.messages[0].commandRun?.command, "swift test")
+        XCTAssertEqual(session.messages[0].commandRun?.cwd, "/repo")
+        XCTAssertEqual(session.messages[0].commandRun?.output, "store output\n")
+    }
+
+    func testMainChatSessionOwnsResidualNotificationFallbacksAndTurnCompletion() throws {
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-1",
+            status: .running,
+            plan: [
+                TurnPlanStep(step: "Use canonical state", status: .inProgress)
+            ],
+            planExplanation: "From store",
+            diff: "diff --git a/Store.swift b/Store.swift\n+store"
+        )
+        let commandItem = try transcriptThreadItem([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .string("swift test"),
+            "status": .string("inProgress")
+        ])
+        let subagentItem = try transcriptThreadItem([
+            "id": .string("agent-1"),
+            "type": .string("collabAgentToolCall"),
+            "status": .string("inProgress"),
+            "title": .string("Spawn agent")
+        ])
+
+        var session = CodexMainChatSession()
+        session.start(turnID: "turn-1")
+
+        let started = session.apply(
+            transcriptNotification(.turnStarted(TurnStartedNotification(
+                threadId: "thread-1",
+                turn: AppServerTurn(id: "turn-1", status: .inProgress)
+            ))),
+            turnSnapshot: storeTurn,
+            isSubagentItem: { _ in false }
+        )
+        XCTAssertEqual(session.currentPlan.map(\.step), ["Use canonical state"])
+        XCTAssertEqual(started?.actions, [
+            .activity(kind: .turn, title: "Codex is working", detail: "Turn started")
+        ])
+
+        let commandStarted = session.apply(
+            transcriptNotification(.itemStarted(ItemStartedNotification(threadId: "thread-1", turnId: "turn-1", item: commandItem))),
+            turnSnapshot: nil,
+            isSubagentItem: { _ in false }
+        )
+        XCTAssertEqual(commandStarted?.actions.first, .activity(kind: .tool, title: "Ran a command", detail: "swift test"))
+        XCTAssertEqual(session.messages.first?.commandRun?.command, "swift test")
+
+        let subagentStarted = session.apply(
+            transcriptNotification(.itemStarted(ItemStartedNotification(threadId: "thread-1", turnId: "turn-1", item: subagentItem))),
+            turnSnapshot: nil,
+            isSubagentItem: { $0.id == "agent-1" }
+        )
+        XCTAssertEqual(subagentStarted?.actions, [.subagentItemStarted(subagentItem)])
+
+        let tokenUpdate = session.apply(
+            transcriptNotification(.threadTokenUsageUpdated(ThreadTokenUsageUpdatedNotification(
+                threadId: "thread-1",
+                turnId: "turn-1",
+                tokenUsage: ThreadTokenUsage(raw: ["used": .int(12), "limit": .int(100)])
+            ))),
+            turnSnapshot: nil,
+            isSubagentItem: { _ in false }
+        )
+        XCTAssertEqual(tokenUpdate?.actions, [
+            .activity(kind: .token, title: "Token usage updated", detail: "12 / 100 tokens")
+        ])
+
+        let completed = session.apply(
+            transcriptNotification(.turnCompleted(TurnCompletedNotification(
+                threadId: "thread-1",
+                turn: AppServerTurn(id: "turn-1", status: .completed)
+            ))),
+            turnSnapshot: storeTurn,
+            isSubagentItem: { _ in false }
+        )
+        XCTAssertFalse(session.isSending)
+        XCTAssertEqual(completed?.actions, [
+            .activity(kind: .turn, title: "Turn complete", detail: "Codex finished"),
+            .refreshRecentChats,
+            .flushQueuedFollowUps
+        ])
+
+        let loginPayload = try CodexJSONValue.dictionary([
+            "loginId": .string("login-1")
+        ]).decode(AccountLoginCompletedNotification.self)
+        let login = session.apply(
+            transcriptNotification(.accountLoginCompleted(loginPayload)),
+            turnSnapshot: nil,
+            isSubagentItem: { _ in false }
+        )
+        XCTAssertEqual(login?.actions, [
+            .activity(kind: .login, title: "Login completed", detail: "Authentication updated")
+        ])
+    }
+
+    func testChatNotificationPipelineOwnsGlobalMainAndSubagentRouting() throws {
+        let goal = ThreadGoal(
+            threadId: "thread-1",
+            objective: "Clean up state",
+            status: .active,
+            tokensUsed: 0,
+            timeUsedSeconds: 0,
+            createdAt: 1,
+            updatedAt: 2
+        )
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-goal",
+            status: .running,
+            plan: [TurnPlanStep(step: "Use the store-backed route", status: .inProgress)],
+            planExplanation: "Pipeline snapshot",
+            diff: nil
+        )
+
+        var mainSession = CodexMainChatSession()
+        var goalSession = CodexGoalStateSession(activeGoal: goal, isPursuitEnabled: true)
+        var mapper = CodexAgentStateMapper()
+        var integrations = CodexIntegrationCatalogSession()
+
+        let started = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.turnStarted(TurnStartedNotification(
+                threadId: "thread-1",
+                turn: AppServerTurn(id: "turn-goal", status: .inProgress)
+            ))),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { _, _ in storeTurn }
+        )
+
+        XCTAssertEqual(goalSession.activeTurnID, "turn-goal")
+        XCTAssertTrue(mainSession.isSending)
+        XCTAssertEqual(mainSession.currentPlan.map(\.step), ["Use the store-backed route"])
+        XCTAssertEqual(started?.syncMainTranscript, true)
+        XCTAssertEqual(started?.activities.map(\.kind), [.turn])
+        XCTAssertEqual(started?.activities.map(\.title), ["Codex is working"])
+        XCTAssertEqual(started?.activities.map(\.detail), ["Turn started"])
+
+        let spawn = try transcriptThreadItem([
+            "id": .string("spawn-1"),
+            "type": .string("collabAgentToolCall"),
+            "tool": .string("spawnAgent"),
+            "prompt": .string("Inspect duplicated state"),
+            "receiverThreadIds": .array([.string("thread-agent")]),
+            "agentsStates": .dictionary([
+                "thread-agent": .dictionary(["status": .string("pendingInit")])
+            ]),
+            "status": .string("inProgress")
+        ])
+
+        let spawned = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.itemStarted(ItemStartedNotification(threadId: "thread-1", turnId: "turn-goal", item: spawn))),
+            mode: .mainTurnStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { _, _ in nil }
+        )
+
+        XCTAssertEqual(spawned?.syncMainTranscript, true)
+        XCTAssertEqual(spawned?.syncAgentState, true)
+        XCTAssertEqual(mapper.subagents.map(\.id), ["thread-agent"])
+        XCTAssertEqual(spawned?.activities.first?.title, "Subagent spawning")
+
+        let childCommand = try transcriptThreadItem([
+            "id": .string("cmd-child"),
+            "type": .string("commandExecution"),
+            "command": .string("raw swift test"),
+            "status": .string("inProgress")
+        ])
+        let childStartStoreTurn = CodexTurnSnapshot(
+            id: "turn-child",
+            status: .running,
+            items: [
+                .commandExecution(
+                    id: "cmd-child",
+                    command: "store swift test",
+                    output: "",
+                    status: "active",
+                    timestamp: Date()
+                )
+            ],
+            itemDetails: [
+                "cmd-child": .commandExecution(CodexCommandExecutionDetail(
+                    command: "store swift test",
+                    cwd: "/repo",
+                    output: "",
+                    status: "active",
+                    exitCode: nil
+                ))
+            ]
+        )
+        let childRouted = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.itemStarted(ItemStartedNotification(threadId: "thread-agent", turnId: "turn-child", item: childCommand))),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { threadID, _ in
+                threadID == "thread-agent" ? childStartStoreTurn : nil
+            }
+        )
+
+        XCTAssertEqual(childRouted?.syncAgentState, true)
+        XCTAssertEqual(childRouted?.activities.first?.title, "Subagent item started")
+        let startedRun = mapper.subagents.first?.messages.first(where: { $0.commandRun?.itemID == "cmd-child" })?.commandRun
+        XCTAssertEqual(startedRun?.command, "store swift test")
+        XCTAssertEqual(startedRun?.cwd, "/repo")
+
+        let childLiveStoreTurn = CodexTurnSnapshot(
+            id: "turn-child",
+            status: .running,
+            items: [
+                .commandExecution(
+                    id: "cmd-child",
+                    command: "store swift test",
+                    output: "store accumulated output",
+                    status: "active",
+                    timestamp: Date()
+                )
+            ],
+            itemDetails: [
+                "cmd-child": .commandExecution(CodexCommandExecutionDetail(
+                    command: "store swift test",
+                    cwd: "/repo",
+                    output: "store accumulated output",
+                    status: "active",
+                    exitCode: nil
+                ))
+            ]
+        )
+        let childLiveOutput = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.known(
+                method: .itemCommandExecutionOutputDelta,
+                params: [
+                    "threadId": .string("thread-agent"),
+                    "turnId": .string("turn-child"),
+                    "itemId": .string("cmd-child"),
+                    "delta": .string("raw delta")
+                ]
+            )),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { threadID, _ in
+                threadID == "thread-agent" ? childLiveStoreTurn : nil
+            }
+        )
+
+        XCTAssertEqual(childLiveOutput?.syncAgentState, true)
+        let liveRun = mapper.subagents.first?.messages.first(where: { $0.commandRun?.itemID == "cmd-child" })?.commandRun
+        XCTAssertEqual(liveRun?.output, "store accumulated output")
+
+        let childToolStoreTurn = CodexTurnSnapshot(
+            id: "turn-child",
+            status: .running,
+            items: [
+                .mcpToolCall(
+                    id: "tool-child",
+                    server: "store-server",
+                    tool: "store-tool",
+                    status: "inProgress",
+                    timestamp: Date(),
+                    progress: ["store progress"]
+                )
+            ],
+            itemDetails: [
+                "tool-child": .toolCall(CodexToolCallDetail(
+                    server: "store-server",
+                    tool: "store-tool",
+                    status: "inProgress",
+                    progress: ["store progress"]
+                ))
+            ]
+        )
+        let childToolProgress = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.known(
+                method: .itemMCPToolCallProgress,
+                params: [
+                    "threadId": .string("thread-agent"),
+                    "turnId": .string("turn-child"),
+                    "itemId": .string("tool-child"),
+                    "message": .string("raw progress")
+                ]
+            )),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { threadID, _ in
+                threadID == "thread-agent" ? childToolStoreTurn : nil
+            }
+        )
+
+        XCTAssertEqual(childToolProgress?.syncAgentState, true)
+        let liveTool = mapper.subagents.first?.messages.first(where: { $0.toolCall?.itemID == "tool-child" })?.toolCall
+        XCTAssertEqual(liveTool?.server, "store-server")
+        XCTAssertEqual(liveTool?.tool, "store-tool")
+        XCTAssertEqual(liveTool?.progress, ["store progress"])
+
+        let childPlanStoreTurn = CodexTurnSnapshot(
+            id: "turn-child",
+            status: .running,
+            plan: [TurnPlanStep(step: "store child plan", status: .inProgress)],
+            planExplanation: "store explanation"
+        )
+        let childPlanUpdated = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.turnPlanUpdated(TurnPlanUpdatedNotification(
+                threadId: "thread-agent",
+                turnId: "turn-child",
+                plan: [TurnPlanStep(step: "raw child plan", status: .pending)],
+                explanation: "raw explanation"
+            ))),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { threadID, _ in
+                threadID == "thread-agent" ? childPlanStoreTurn : nil
+            }
+        )
+
+        XCTAssertEqual(childPlanUpdated?.syncAgentState, true)
+        let childPlan = mapper.subagents.first?.messages.first(where: { $0.planUpdate?.itemID == "turn-plan-turn-child" })?.planUpdate
+        XCTAssertEqual(childPlan?.steps.map(\.step), ["store child plan"])
+        XCTAssertEqual(childPlan?.explanation, "store explanation")
+
+        let childStoreTurn = CodexTurnSnapshot(
+            id: "turn-child",
+            status: .completed,
+            items: [
+                .commandExecution(
+                    id: "cmd-child",
+                    command: "swift test",
+                    output: "store-backed output",
+                    status: "completed",
+                    timestamp: Date()
+                )
+            ],
+            itemDetails: [
+                "cmd-child": .commandExecution(CodexCommandExecutionDetail(
+                    command: "swift test",
+                    cwd: "/repo",
+                    output: "store-backed output",
+                    status: "completed",
+                    exitCode: 0
+                ))
+            ]
+        )
+        let rawChildCompleted = try transcriptThreadItem([
+            "id": .string("cmd-child"),
+            "type": .string("commandExecution"),
+            "command": .string("swift test"),
+            "output": .string("raw notification output"),
+            "status": .string("completed")
+        ])
+        let childCompleted = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.itemCompleted(ItemCompletedNotification(threadId: "thread-agent", turnId: "turn-child", item: rawChildCompleted))),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { threadID, _ in
+                threadID == "thread-agent" ? childStoreTurn : nil
+            }
+        )
+
+        XCTAssertEqual(childCompleted?.syncAgentState, true)
+        let childRun = mapper.subagents.first?.messages.first(where: { $0.commandRun?.itemID == "cmd-child" })?.commandRun
+        XCTAssertEqual(childRun?.output, "store-backed output")
+        XCTAssertEqual(childRun?.exitCode, 0)
+
+        let skillsChanged = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.unknown(method: CodexAppServerNotificationMethod.skillsChanged.rawValue, params: [:])),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { _, _ in nil }
+        )
+        XCTAssertEqual(skillsChanged?.actions, [.refreshSlashCommands(forceReload: true)])
+
+        let completed = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.turnCompleted(TurnCompletedNotification(
+                threadId: "thread-1",
+                turn: AppServerTurn(id: "turn-goal", status: .completed)
+            ))),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { _, _ in storeTurn }
+        )
+
+        XCTAssertFalse(mainSession.isSending)
+        XCTAssertEqual(completed?.actions, [.refreshRecentChats, .flushQueuedFollowUps])
+        XCTAssertEqual(completed?.activities.map(\.kind), [.turn])
+        XCTAssertEqual(completed?.activities.map(\.title), ["Turn complete"])
+        XCTAssertEqual(completed?.activities.map(\.detail), ["Codex finished"])
+    }
+
+    @MainActor
+    func testChatRuntimeStateRoutesMainAndSideChatThroughStoreSnapshots() throws {
+        let rawItem = try transcriptThreadItem([
+            "id": .string("cmd-1"),
+            "type": .string("commandExecution"),
+            "command": .string("raw command"),
+            "status": .string("active")
+        ])
+        let mainTurn = CodexTurnSnapshot(
+            id: "turn-main",
+            items: [
+                .commandExecution(
+                    id: "cmd-1",
+                    command: "store main command",
+                    output: "",
+                    status: "active",
+                    timestamp: Date()
+                )
+            ],
+            itemDetails: [
+                "cmd-1": .commandExecution(CodexCommandExecutionDetail(
+                    command: "store main command",
+                    cwd: "/repo/main",
+                    output: "",
+                    status: "active"
+                ))
+            ]
+        )
+        let sideTurn = CodexTurnSnapshot(
+            id: "turn-side",
+            items: [
+                .commandExecution(
+                    id: "cmd-1",
+                    command: "store side command",
+                    output: "",
+                    status: "active",
+                    timestamp: Date()
+                )
+            ],
+            itemDetails: [
+                "cmd-1": .commandExecution(CodexCommandExecutionDetail(
+                    command: "store side command",
+                    cwd: "/repo/side",
+                    output: "",
+                    status: "active"
+                ))
+            ]
+        )
+        let store = CodexCoreStore(
+            activeThread: CodexThreadSnapshot(id: "thread-main", turns: [mainTurn]),
+            threadSnapshotsByID: [
+                "thread-side": CodexThreadSnapshot(id: "thread-side", turns: [sideTurn])
+            ]
+        )
+
+        var runtimeState = CodexChatRuntimeState()
+        let mainResult = runtimeState.apply(
+            transcriptNotification(.itemStarted(ItemStartedNotification(
+                threadId: "thread-main",
+                turnId: "turn-main",
+                item: rawItem
+            ))),
+            mode: .mainTurnStream,
+            currentThreadID: "thread-main",
+            store: store
+        )
+
+        XCTAssertEqual(mainResult?.syncMainTranscript, true)
+        XCTAssertEqual(runtimeState.messages.first?.commandRun?.command, "store main command")
+        XCTAssertEqual(runtimeState.messages.first?.commandRun?.cwd, "/repo/main")
+
+        let sideResult = runtimeState.applySideChat(
+            transcriptNotification(.itemStarted(ItemStartedNotification(
+                threadId: "thread-side",
+                turnId: "turn-side",
+                item: rawItem
+            ))),
+            store: store,
+            currentThreadID: "thread-main"
+        )
+
+        XCTAssertEqual(sideResult?.activity?.detail, "store side command")
+        XCTAssertEqual(runtimeState.sideChat?.messages.first?.commandRun?.command, "store side command")
+        XCTAssertEqual(runtimeState.sideChat?.messages.first?.commandRun?.cwd, "/repo/side")
+    }
+
+    func testChatRuntimeStateOwnsTurnAndSideChatSubmissionState() throws {
+        var runtimeState = CodexChatRuntimeState()
+        var composer = CodexComposerStateSession()
+
+        let turnSubmission = CodexComposerSubmission(prompt: "Inspect state")
+        let beginTurn = runtimeState.beginTurnSubmission(turnSubmission)
+        XCTAssertEqual(beginTurn.title, "You asked Codex")
+        XCTAssertTrue(runtimeState.isSending)
+        XCTAssertEqual(runtimeState.messages.last?.text, "Inspect state")
+
+        let failedTurn = runtimeState.failTurnSubmission(message: "offline")
+        XCTAssertEqual(failedTurn.title, "Turn failed to start")
+        XCTAssertFalse(runtimeState.isSending)
+
+        let followUp = runtimeState.prepareFollowUp(
+            prompt: "Next",
+            composerSession: &composer,
+            followUpBehavior: .queue,
+            canSteer: true
+        )
+        guard case .queued(let queuedPrompt, let queuedActivity) = followUp else {
+            return XCTFail("Expected queued follow-up")
+        }
+        XCTAssertEqual(queuedPrompt, "Next")
+        XCTAssertEqual(queuedActivity.title, "Follow-up queued")
+        XCTAssertEqual(queuedActivity.detail, "Next")
+        XCTAssertEqual(composer.queuedFollowUps, ["Next"])
+
+        let queued = try XCTUnwrap(runtimeState.dequeueQueuedFollowUp(
+            composerSession: &composer,
+            isSending: false
+        ))
+        XCTAssertEqual(queued.prompt, "Next")
+        XCTAssertTrue(runtimeState.isSending)
+
+        let failedQueued = runtimeState.failQueuedFollowUp(
+            queued,
+            message: "still offline",
+            composerSession: &composer
+        )
+        XCTAssertEqual(failedQueued.title, "Queued follow-up failed to start")
+        XCTAssertEqual(composer.queuedFollowUps, ["Next"])
+        XCTAssertFalse(runtimeState.isSending)
+
+        let sideActivities = runtimeState.beginSideChatSubmission(prompt: "Side quest")
+        XCTAssertEqual(sideActivities.map(\.title), ["Opened side chat", "Side chat asked"])
+        XCTAssertTrue(runtimeState.isSideChatSending)
+        XCTAssertEqual(runtimeState.sideChat?.messages.last?.text, "Side quest")
+
+        let failedSide = runtimeState.failSideChatSubmission(message: "side offline")
+        XCTAssertEqual(failedSide.title, "Side chat failed to start")
+        XCTAssertFalse(runtimeState.isSideChatSending)
+    }
+
+    func testNotificationMetadataExtractsThreadAndTurnIDsFromTypedAndRawNotifications() {
+        XCTAssertEqual(
+            CodexNotificationMetadata.turnID(from: transcriptNotification(.turnCompleted(TurnCompletedNotification(
+                threadId: "thread-1",
+                turn: AppServerTurn(id: "turn-typed", status: .completed)
+            )))),
+            "turn-typed"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.threadID(from: transcriptNotification(.turnCompleted(TurnCompletedNotification(
+                threadId: "thread-typed",
+                turn: AppServerTurn(id: "turn-typed", status: .completed)
+            )))),
+            "thread-typed"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.turnID(from: transcriptNotification(.known(method: .turnCompleted, params: [
+                "thread": .dictionary(["id": .string("thread-raw")]),
+                "turn": .dictionary(["id": .string("turn-raw")])
+            ]))),
+            "turn-raw"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.threadID(from: transcriptNotification(.known(method: .turnCompleted, params: [
+                "thread": .dictionary(["id": .string("thread-raw")]),
+                "turn": .dictionary(["id": .string("turn-raw")])
+            ]))),
+            "thread-raw"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.noticeItemID(
+                method: .itemAutoApprovalReviewStarted,
+                params: ["reviewId": .string("review-1")]
+            ),
+            "review-review-1"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.noticeItemID(
+                method: .warning,
+                params: ["targetItemId": .string("item-1")]
+            ),
+            "\(CodexAppServerNotificationMethod.warning.rawValue)-item-1"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.turnErrorMessage(from: [
+                "turn": .dictionary([
+                    "id": .string("turn-failed"),
+                    "error": .dictionary(["message": .string("model unavailable")])
+                ])
+            ]),
+            "model unavailable"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.turnErrorMessage(from: [
+                "error": .dictionary(["raw": .string("raw failure")])
+            ]),
+            "raw failure"
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.knownRoute(method: .itemCommandExecutionOutputDelta, params: [
+                "threadId": .string("thread-route"),
+                "turnId": .string("turn-route"),
+                "itemId": .string("cmd-route"),
+                "delta": .string("hello")
+            ]),
+            .commandOutputDelta(CodexKnownItemTextNotificationRoute(
+                item: CodexKnownItemNotificationRoute(
+                    threadID: "thread-route",
+                    turnID: "turn-route",
+                    itemID: "cmd-route"
+                ),
+                text: "hello"
+            ))
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.knownRoute(method: .itemCommandExecutionTerminalInteraction, params: [
+                "itemId": .string("cmd-route"),
+                "stdin": .string("swift test")
+            ]),
+            .commandTerminalInteraction(CodexKnownItemTextNotificationRoute(
+                item: CodexKnownItemNotificationRoute(
+                    threadID: nil,
+                    turnID: nil,
+                    itemID: "cmd-route"
+                ),
+                text: "\n$ swift test"
+            ))
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.knownRoute(method: .turnPlanUpdated, params: [
+                "threadId": .string("thread-plan"),
+                "turnId": .string("turn-plan"),
+                "plan": .array([
+                    .dictionary([
+                        "step": .string("Refactor"),
+                        "status": .string("inProgress")
+                    ])
+                ]),
+                "explanation": .string("one path")
+            ]),
+            .turnPlanUpdated(CodexKnownTurnPlanNotificationRoute(
+                threadID: "thread-plan",
+                turnID: "turn-plan",
+                plan: [TurnPlanStep(step: "Refactor", status: .inProgress)],
+                explanation: "one path"
+            ))
+        )
+        XCTAssertEqual(
+            CodexNotificationMetadata.knownRoute(method: .warning, params: [
+                "threadId": .string("thread-notice"),
+                "itemId": .string("notice-item")
+            ]),
+            .notice(CodexKnownNoticeNotificationRoute(
+                method: .warning,
+                itemID: "\(CodexAppServerNotificationMethod.warning.rawValue)-notice-item",
+                isStreaming: false
+            ))
+        )
+    }
+
+    func testTurnLifecycleSessionTracksPendingCompletionAndMismatchedTurns() {
+        var lifecycle = CodexTurnLifecycleSession()
+
+        lifecycle.startPending()
+        XCTAssertTrue(lifecycle.isSending)
+        XCTAssertFalse(lifecycle.complete(turnID: "turn-without-handle"))
+        XCTAssertTrue(lifecycle.complete(turnID: nil))
+        XCTAssertFalse(lifecycle.isSending)
+
+        lifecycle.start(turnID: "turn-1")
+        XCTAssertEqual(lifecycle.activeTurnID, "turn-1")
+        XCTAssertFalse(lifecycle.complete(turnID: "turn-2"))
+        XCTAssertTrue(lifecycle.isSending)
+        XCTAssertTrue(lifecycle.complete(turnID: "turn-1"))
+        XCTAssertFalse(lifecycle.isSending)
+        XCTAssertNil(lifecycle.activeTurnID)
+    }
+
+    func testTurnLifecycleSessionMatchesTypedKnownAndUnknownCompletionNotifications() {
+        var lifecycle = CodexTurnLifecycleSession()
+        lifecycle.start(turnID: "turn-1")
+
+        XCTAssertTrue(lifecycle.isCompletion(transcriptNotification(.turnCompleted(TurnCompletedNotification(
+            threadId: "thread-1",
+            turn: AppServerTurn(id: "turn-1", status: .completed)
+        )))))
+        XCTAssertTrue(lifecycle.isCompletion(transcriptNotification(.known(method: .turnCompleted, params: [
+            "threadId": .string("thread-1"),
+            "turnId": .string("turn-1")
+        ]))))
+        XCTAssertTrue(lifecycle.isCompletion(transcriptNotification(.unknown(method: CodexAppServerNotificationMethod.turnCompleted.rawValue, params: [
+            "threadId": .string("thread-1"),
+            "turn": .dictionary(["id": .string("turn-1")])
+        ]))))
+        XCTAssertFalse(lifecycle.isCompletion(transcriptNotification(.turnCompleted(TurnCompletedNotification(
+            threadId: "thread-1",
+            turn: AppServerTurn(id: "turn-2", status: .completed)
+        )))))
+    }
+
+    func testGlobalNotificationRouterMapsThreadMetadataAndSwallowsRecognizedNoOps() throws {
+        let metadataResult = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.known(method: .threadStarted, params: [
+            "thread": .dictionary([
+                "id": .string("child-thread"),
+                "parentThreadId": .string("parent-thread"),
+                "agentNickname": .string("Ada"),
+                "agentRole": .string("Reviewer")
+            ])
+        ]))))
+
+        XCTAssertEqual(metadataResult.action, .threadStartedMetadata(CodexThreadStartedMetadata(
+            threadID: "child-thread",
+            parentThreadID: "parent-thread",
+            name: "Ada",
+            role: "Reviewer"
+        )))
+
+        let parentThreadStarted = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.known(method: .threadStarted, params: [
+            "thread": .dictionary([
+                "id": .string("parent-thread"),
+                "name": .string("Main")
+            ])
+        ]))))
+        XCTAssertNil(parentThreadStarted.action)
+    }
+
+    func testGlobalNotificationRouterMapsGoalAndGoalTurnNotifications() throws {
+        let goal = ThreadGoal(
+            threadId: "thread-1",
+            objective: "Clean up state",
+            status: .active,
+            tokensUsed: 10,
+            timeUsedSeconds: 1,
+            createdAt: 1,
+            updatedAt: 2
+        )
+
+        let typedGoalResult = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.threadGoalUpdated(ThreadGoalUpdatedNotification(
+            threadId: "thread-1",
+            turnId: "turn-goal",
+            goal: goal
+        )))))
+        XCTAssertEqual(typedGoalResult.action, .goalUpdated(goal: goal, turnID: "turn-goal"))
+
+        let rawCleared = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.unknown(method: CodexAppServerNotificationMethod.threadGoalCleared.rawValue, params: [
+            "threadId": .string("thread-1")
+        ]))))
+        XCTAssertEqual(rawCleared.action, .goalCleared(threadID: "thread-1"))
+
+        let trackedTurn = try XCTUnwrap(CodexGlobalNotificationRouter.apply(
+            transcriptNotification(.turnStarted(TurnStartedNotification(
+                threadId: "thread-1",
+                turn: AppServerTurn(id: "turn-1", status: .inProgress)
+            ))),
+            context: CodexGlobalNotificationRouteContext(currentThreadID: "thread-1", hasActiveGoal: true)
+        ))
+        XCTAssertEqual(trackedTurn.action, CodexGlobalNotificationAction.goalTurnStarted(turnID: "turn-1"))
+
+        XCTAssertNil(CodexGlobalNotificationRouter.apply(
+            transcriptNotification(.turnStarted(TurnStartedNotification(
+                threadId: "other-thread",
+                turn: AppServerTurn(id: "turn-2", status: .inProgress)
+            ))),
+            context: CodexGlobalNotificationRouteContext(currentThreadID: "thread-1", hasActiveGoal: true)
+        ))
+    }
+
+    func testGlobalNotificationRouterMapsSkillsCompactionAndMCPStartup() throws {
+        let skills = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.unknown(
+            method: CodexAppServerNotificationMethod.skillsChanged.rawValue,
+            params: [:]
+        ))))
+        XCTAssertEqual(skills.action, .skillsChanged)
+
+        let compacted = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.known(method: .threadCompacted, params: [
+            "thread": .dictionary(["id": .string("thread-1")])
+        ]))))
+        XCTAssertEqual(compacted.action, .threadCompacted(threadID: "thread-1"))
+
+        let startup = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.unknown(method: CodexAppServerNotificationMethod.mcpServerStartupStatusUpdated.rawValue, params: [
+            "name": .string("filesystem"),
+            "status": .string("failed"),
+            "error": .string("node missing")
+        ]))))
+        XCTAssertEqual(startup.action, .mcpServerStartupStatus(CodexMCPServerStartupStatus(
+            name: "filesystem",
+            status: "failed",
+            error: "node missing"
+        )))
+
+        let malformedStartup = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.known(method: .mcpServerStartupStatusUpdated, params: [
+            "status": .string("started")
+        ]))))
+        XCTAssertNil(malformedStartup.action)
     }
 
     func testThreadHistorySnapshotRestoresChildSubagentThreadHistory() throws {
@@ -1134,6 +3567,88 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertEqual(subagent.messages[2].text, "The script printed 42.")
     }
 
+    func testThreadHistorySessionLoadsChildThreadsAndAppliesSnapshot() async throws {
+        let parent: CodexJSONValue = .dictionary([
+            "thread": .dictionary([
+                "id": .string("thread-parent"),
+                "turns": .array([
+                    .dictionary([
+                        "id": .string("turn-parent"),
+                        "startedAt": .int(1_000),
+                        "items": .array([
+                            .dictionary([
+                                "id": .string("user-1"),
+                                "type": .string("userMessage"),
+                                "content": .array([
+                                    .dictionary(["type": .string("text"), "text": .string("Inspect state")])
+                                ])
+                            ]),
+                            .dictionary([
+                                "id": .string("spawn-1"),
+                                "type": .string("collabAgentToolCall"),
+                                "tool": .string("spawnAgent"),
+                                "prompt": .string("Inspect child state"),
+                                "receiverThreadIds": .array([.string("thread-child")]),
+                                "agentsStates": .dictionary([
+                                    "thread-child": .dictionary(["status": .string("running")])
+                                ])
+                            ])
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        let child: CodexJSONValue = .dictionary([
+            "thread": .dictionary([
+                "id": .string("thread-child"),
+                "agentNickname": .string("Ada"),
+                "turns": .array([
+                    .dictionary([
+                        "id": .string("turn-child"),
+                        "status": .string("completed"),
+                        "items": .array([
+                            .dictionary([
+                                "id": .string("child-answer"),
+                                "type": .string("agentMessage"),
+                                "text": .string("Child state is clean.")
+                            ])
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        var requestedThreadIDs: [String] = []
+
+        let result = await CodexThreadHistorySession.restore(parentRaw: parent) { childThreadID in
+            requestedThreadIDs.append(childThreadID)
+            return child
+        }
+
+        XCTAssertEqual(requestedThreadIDs, ["thread-child"])
+        XCTAssertEqual(result.restoredChildThreadCount, 1)
+        XCTAssertEqual(result.messageCount, 1)
+
+        var mainSession = CodexMainChatSession()
+        mainSession.appendMessage(.system, "stale")
+        var mapper = CodexAgentStateMapper()
+        var sideSession = CodexSideChatSession()
+        sideSession.open()
+
+        let activity = CodexThreadHistorySession.apply(
+            result,
+            mainChatSession: &mainSession,
+            agentStateMapper: &mapper,
+            sideChatSession: &sideSession
+        )
+
+        XCTAssertEqual(activity.title, "Loaded transcript")
+        XCTAssertEqual(activity.detail, "1 messages restored, 1 agents restored")
+        XCTAssertEqual(mainSession.messages.map(\.text), ["Inspect state"])
+        XCTAssertEqual(mapper.subagents.first?.name, "Ada")
+        XCTAssertEqual(mapper.subagents.first?.messages.map(\.text), ["Inspect child state", "Child state is clean."])
+        XCTAssertNil(sideSession.sideChat)
+    }
+
     @MainActor
     func testEmptyTranscriptDefaultPromptsMatchObservedCodexBlankState() {
         XCTAssertEqual(CodexEmptyTranscriptView.defaultPrompts.map(\.prompt), [
@@ -1207,6 +3722,88 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertTrue(completed.isVisibleInFloatingSummary)
         XCTAssertEqual(completed.floatingSummaryTitle, "Newton")
         XCTAssertFalse(closed.isVisibleInFloatingSummary)
+    }
+}
+
+@discardableResult
+private func routeTranscriptNotification(
+    _ payload: CodexNotificationPayload,
+    to transcript: inout CodexChatTranscriptState,
+    context: CodexChatTranscriptRouteContext = CodexChatTranscriptRouteContext()
+) -> CodexChatTranscriptRouteResult? {
+    CodexChatTranscriptNotificationRouter.apply(
+        transcriptNotification(payload),
+        to: &transcript,
+        context: context
+    )
+}
+
+private func transcriptNotification(_ payload: CodexNotificationPayload) -> CodexNotification {
+    CodexNotification(
+        method: payload.knownMethod?.rawValue ?? "unknown",
+        payload: payload,
+        rawParams: payload.rawParams
+    )
+}
+
+private func transcriptThreadItem(_ raw: [String: CodexJSONValue]) throws -> ThreadItem {
+    try CodexJSONValue.dictionary(raw).decode(ThreadItem.self)
+}
+
+private extension CodexNotificationPayload {
+    var rawParams: [String: CodexJSONValue] {
+        switch self {
+        case .itemStarted(let payload), .itemCompleted(let payload):
+            return [
+                "threadId": .string(payload.threadId),
+                "turnId": .string(payload.turnId),
+                "item": .dictionary(payload.item.raw)
+            ]
+        case .agentMessageDelta(let payload):
+            return [
+                "threadId": .string(payload.threadId),
+                "turnId": .string(payload.turnId),
+                "itemId": .string(payload.itemId),
+                "delta": .string(payload.delta)
+            ]
+        case .turnPlanUpdated(let payload):
+            return [
+                "threadId": .string(payload.threadId),
+                "turnId": .string(payload.turnId),
+                "explanation": payload.explanation.map(CodexJSONValue.string) ?? .null,
+                "plan": .array(payload.plan.map { step in
+                    .dictionary([
+                        "step": .string(step.step),
+                        "status": .string(step.status.rawValue)
+                    ])
+                })
+            ]
+        case .turnDiffUpdated(let payload):
+            return [
+                "threadId": .string(payload.threadId),
+                "turnId": .string(payload.turnId),
+                "diff": .string(payload.diff)
+            ]
+        case .known(_, let params), .unknown(_, let params):
+            return params
+        case .threadTokenUsageUpdated(let payload):
+            var raw: [String: CodexJSONValue] = [
+                "threadId": .string(payload.threadId),
+                "tokenUsage": .dictionary(payload.tokenUsage.raw)
+            ]
+            if let turnId = payload.turnId { raw["turnId"] = .string(turnId) }
+            return raw
+        case .threadGoalUpdated(let payload):
+            var raw: [String: CodexJSONValue] = [
+                "threadId": .string(payload.threadId)
+            ]
+            if let turnId = payload.turnId { raw["turnId"] = .string(turnId) }
+            return raw
+        case .threadGoalCleared(let payload):
+            return ["threadId": .string(payload.threadId)]
+        case .turnStarted, .turnCompleted, .accountLoginCompleted:
+            return [:]
+        }
     }
 }
 

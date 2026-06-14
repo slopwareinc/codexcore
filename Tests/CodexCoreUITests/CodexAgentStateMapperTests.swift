@@ -1,5 +1,5 @@
 import XCTest
-import CodexCore
+@testable import CodexCore
 @testable import CodexCoreUI
 
 final class CodexAgentStateMapperTests: XCTestCase {
@@ -500,9 +500,9 @@ final class CodexAgentStateMapperTests: XCTestCase {
         XCTAssertTrue(mapper.subagents[0].messages.last?.fileChange?.isStreaming ?? false)
 
         XCTAssertTrue(mapper.subagentFileChangeOutputDelta("applying patch\n", threadID: "thread-robie", itemID: "child-file-1"))
-        XCTAssertTrue(mapper.subagentFileChangePatchUpdated(
-            threadID: "thread-robie",
-            itemID: "child-file-1",
+        let patchMessage = try XCTUnwrap(CodexChatTranscriptProjection.message(
+            forRawItemID: "child-file-1",
+            type: "fileChange",
             raw: [
                 "threadId": .string("thread-robie"),
                 "turnId": .string("child-turn-1"),
@@ -514,8 +514,10 @@ final class CodexAgentStateMapperTests: XCTestCase {
                         "kind": .dictionary(["type": .string("update")])
                     ])
                 ])
-            ]
+            ],
+            fallbackStatus: "active"
         ))
+        XCTAssertTrue(mapper.subagentProjectedItemUpdated(threadID: "thread-robie", itemID: "child-file-1", message: patchMessage))
 
         var streamedMessage = try XCTUnwrap(mapper.subagents[0].messages.last)
         XCTAssertEqual(streamedMessage.fileChange?.output, "applying patch\n")
@@ -542,30 +544,24 @@ final class CodexAgentStateMapperTests: XCTestCase {
         XCTAssertEqual(mapper.subagents[0].messages.last?.planUpdate?.text, "Initial plan text. More detail.")
         XCTAssertTrue(mapper.subagents[0].messages.last?.planUpdate?.isStreaming ?? false)
 
-        XCTAssertTrue(mapper.subagentPlanUpdated(
-            threadID: "thread-robie",
-            itemID: "child-plan-1",
-            raw: [
-                "threadId": .string("thread-robie"),
-                "turnId": .string("child-turn-1"),
-                "explanation": .string("Plan the child task."),
-                "plan": .array([
-                    .dictionary([
-                        "step": .string("Inspect files"),
-                        "status": .string("completed")
-                    ]),
-                    .dictionary([
-                        "step": .string("Report findings"),
-                        "status": .string("inProgress")
-                    ])
-                ])
+        let projectedPlan = try XCTUnwrap(CodexChatTranscriptProjection.turnPlanMessage(for: CodexTurnSnapshot(
+            id: "child-turn-1",
+            status: .running,
+            plan: [
+                TurnPlanStep(step: "Inspect files", status: .completed),
+                TurnPlanStep(step: "Report findings", status: .inProgress)
             ],
-            isStreaming: true
+            planExplanation: "Plan the child task."
+        ))
+        )
+        XCTAssertTrue(mapper.subagentProjectedItemUpdated(
+            threadID: "thread-robie",
+            itemID: "turn-plan-child-turn-1",
+            message: projectedPlan
         ))
 
         var planMessage = try XCTUnwrap(mapper.subagents[0].messages.last)
         XCTAssertEqual(planMessage.planUpdate?.explanation, "Plan the child task.")
-        XCTAssertEqual(planMessage.planUpdate?.text, "Initial plan text. More detail.")
         XCTAssertEqual(planMessage.planUpdate?.completedStepCount, 1)
         XCTAssertTrue(planMessage.planUpdate?.isStreaming ?? false)
 
@@ -681,8 +677,163 @@ final class CodexAgentStateMapperTests: XCTestCase {
         XCTAssertEqual(mapper.subagents[0].messages.last?.notice?.severity, .danger)
         XCTAssertFalse(mapper.subagents[0].messages.last?.notice?.isStreaming ?? true)
     }
+
+    func testAgentNotificationRouterRoutesChildThreadKnownNotifications() {
+        var mapper = CodexAgentStateMapper()
+        mapper.updateSubagentMetadata(id: "thread-robie", name: "Robie", role: "runner")
+
+        let output = CodexAgentNotificationRouter.apply(
+            agentNotification(.known(method: .itemCommandExecutionOutputDelta, params: [
+                "threadId": .string("thread-robie"),
+                "turnId": .string("turn-child"),
+                "itemId": .string("cmd-child"),
+                "delta": .string("1\n")
+            ])),
+            to: &mapper
+        )
+        let storeTurn = CodexTurnSnapshot(
+            id: "turn-child",
+            status: .running,
+            items: [
+                .commandExecution(
+                    id: "cmd-store",
+                    command: "python3 child.py",
+                    output: "store terminal input",
+                    status: "active",
+                    timestamp: Date()
+                )
+            ],
+            itemDetails: [
+                "cmd-store": .commandExecution(CodexCommandExecutionDetail(
+                    command: "python3 child.py",
+                    output: "store terminal input",
+                    status: "active"
+                ))
+            ]
+        )
+        let terminalInput = CodexAgentNotificationRouter.apply(
+            agentNotification(.known(method: .itemCommandExecutionTerminalInteraction, params: [
+                "threadId": .string("thread-robie"),
+                "turnId": .string("turn-child"),
+                "itemId": .string("cmd-store"),
+                "stdin": .string("payload terminal input")
+            ])),
+            to: &mapper,
+            turnSnapshot: { threadID, turnID in
+                threadID == "thread-robie" && turnID == "turn-child" ? storeTurn : nil
+            }
+        )
+        let warning = CodexAgentNotificationRouter.apply(
+            agentNotification(.known(method: .warning, params: [
+                "threadId": .string("thread-robie"),
+                "turnId": .string("turn-child"),
+                "message": .string("Child warning")
+            ])),
+            to: &mapper
+        )
+        let usage = CodexAgentNotificationRouter.apply(
+            agentNotification(.threadTokenUsageUpdated(ThreadTokenUsageUpdatedNotification(
+                threadId: "thread-robie",
+                turnId: "turn-child",
+                tokenUsage: ThreadTokenUsage(raw: [:])
+            ))),
+            to: &mapper
+        )
+
+        XCTAssertEqual(output?.didUpdateAgentState, true)
+        XCTAssertNil(output?.activity)
+        XCTAssertEqual(terminalInput?.didUpdateAgentState, true)
+        XCTAssertNil(terminalInput?.activity)
+        XCTAssertEqual(mapper.subagents[0].messages.first?.commandRun?.output, "1\n")
+        XCTAssertEqual(
+            mapper.subagents[0].messages.first(where: { $0.commandRun?.itemID == "cmd-store" })?.commandRun?.output,
+            "store terminal input"
+        )
+        XCTAssertEqual(warning?.activity?.kind, .notice)
+        XCTAssertEqual(warning?.activity?.title, "Warning")
+        XCTAssertEqual(mapper.subagents[0].messages.last?.notice?.detail, "Child warning")
+        XCTAssertEqual(usage?.didUpdateAgentState, false)
+        XCTAssertNil(usage?.activity)
+    }
+
+    func testAgentNotificationRouterIgnoresParentNotifications() throws {
+        let parentCommand = try decodeThreadItem(#"""
+        {
+          "id": "cmd-parent",
+          "type": "commandExecution",
+          "command": "swift test",
+          "status": "active"
+        }
+        """#)
+
+        var mapper = CodexAgentStateMapper()
+        let result = CodexAgentNotificationRouter.apply(
+            agentNotification(.itemStarted(ItemStartedNotification(threadId: "thread-parent", turnId: "turn-parent", item: parentCommand))),
+            to: &mapper
+        )
+
+        XCTAssertNil(result)
+        XCTAssertTrue(mapper.subagents.isEmpty)
+    }
+
+    func testAgentItemParserExtractsNestedThreadDescriptor() throws {
+        let item = try decodeThreadItem(#"""
+        {
+          "id": "fork-1",
+          "type": "threadFork",
+          "source": {
+            "thread": {
+              "id": "thread-kepler",
+              "title": "Kepler",
+              "prompt": "Inspect architecture boundaries"
+            }
+          }
+        }
+        """#)
+
+        let descriptors = CodexAgentItemParser.subagentDescriptors(from: item)
+
+        XCTAssertEqual(descriptors, [
+            CodexSubagentDescriptor(
+                id: "thread-kepler",
+                name: "Kepler",
+                title: "Kepler",
+                prompt: "Inspect architecture boundaries"
+            )
+        ])
+    }
+
+    func testAgentItemParserReadsCollabPayloadReceiverIDsFromStatesFallback() throws {
+        let item = try decodeThreadItem(#"""
+        {
+          "id": "call_wait",
+          "type": "collabAgentToolCall",
+          "tool": "wait",
+          "agentsStates": {
+            "thread-two": { "status": "running" },
+            "thread-one": { "status": "completed", "message": "done" }
+          }
+        }
+        """#)
+
+        let payload = try XCTUnwrap(CodexAgentItemParser.collabPayload(from: item))
+
+        XCTAssertEqual(payload.tool, "wait")
+        XCTAssertEqual(payload.receiverThreadIDs, ["thread-one", "thread-two"])
+        XCTAssertEqual(payload.prompt, "Subagent task")
+        XCTAssertEqual(payload.status(completed: true), .completed)
+        XCTAssertEqual(CodexAgentItemParser.firstString(in: payload.states["thread-one"] ?? [:], keys: ["message"]), "done")
+    }
 }
 
 private func decodeThreadItem(_ json: String) throws -> ThreadItem {
     try JSONDecoder().decode(ThreadItem.self, from: Data(json.utf8))
+}
+
+private func agentNotification(_ payload: CodexNotificationPayload) -> CodexNotification {
+    CodexNotification(
+        method: payload.knownMethod?.rawValue ?? "unknown",
+        payload: payload,
+        rawParams: [:]
+    )
 }
