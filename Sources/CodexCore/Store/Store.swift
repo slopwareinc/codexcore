@@ -18,12 +18,30 @@ public enum CodexTurnStatus: String, Codable, Sendable {
 }
 
 public struct CodexTurnSnapshot: Identifiable, Codable, Sendable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case status
+        case error
+        case startedAt
+        case completedAt
+        case items
+        case usage
+        case plan
+        case planExplanation
+        case diff
+        case itemDetails
+    }
+
     public var id: String
     public var status: CodexTurnStatus
     public var error: String?
     public var startedAt: Date
     public var completedAt: Date?
     public var items: [CodexTimelineItem]
+    /// Rich item details keyed by item ID. `items` stays lean for SDK callers;
+    /// UI projections use this sidecar when they need command/file/tool
+    /// transcript fields that do not belong in the public timeline enum.
+    public var itemDetails: [String: CodexTimelineItemDetail]
     public var usage: ThreadTokenUsage?
     /// Latest agent plan for this turn (`turn/plan/updated`).
     public var plan: [TurnPlanStep]?
@@ -38,6 +56,7 @@ public struct CodexTurnSnapshot: Identifiable, Codable, Sendable, Equatable {
         startedAt: Date = Date(),
         completedAt: Date? = nil,
         items: [CodexTimelineItem] = [],
+        itemDetails: [String: CodexTimelineItemDetail] = [:],
         usage: ThreadTokenUsage? = nil,
         plan: [TurnPlanStep]? = nil,
         planExplanation: String? = nil,
@@ -49,10 +68,43 @@ public struct CodexTurnSnapshot: Identifiable, Codable, Sendable, Equatable {
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.items = items
+        self.itemDetails = itemDetails
         self.usage = usage
         self.plan = plan
         self.planExplanation = planExplanation
         self.diff = diff
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.status = try container.decode(CodexTurnStatus.self, forKey: .status)
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        self.startedAt = try container.decode(Date.self, forKey: .startedAt)
+        self.completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        self.items = try container.decode([CodexTimelineItem].self, forKey: .items)
+        self.itemDetails = try container.decodeIfPresent([String: CodexTimelineItemDetail].self, forKey: .itemDetails) ?? [:]
+        self.usage = try container.decodeIfPresent(ThreadTokenUsage.self, forKey: .usage)
+        self.plan = try container.decodeIfPresent([TurnPlanStep].self, forKey: .plan)
+        self.planExplanation = try container.decodeIfPresent(String.self, forKey: .planExplanation)
+        self.diff = try container.decodeIfPresent(String.self, forKey: .diff)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(error, forKey: .error)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encode(items, forKey: .items)
+        if !itemDetails.isEmpty {
+            try container.encode(itemDetails, forKey: .itemDetails)
+        }
+        try container.encodeIfPresent(usage, forKey: .usage)
+        try container.encodeIfPresent(plan, forKey: .plan)
+        try container.encodeIfPresent(planExplanation, forKey: .planExplanation)
+        try container.encodeIfPresent(diff, forKey: .diff)
     }
 }
 
@@ -131,12 +183,91 @@ public enum CodexTimelineItem: Identifiable, Codable, Sendable, Equatable {
     }
 }
 
+public enum CodexTimelineItemDetail: Codable, Sendable, Equatable {
+    case assistantMessage(CodexAssistantMessageDetail)
+    case commandExecution(CodexCommandExecutionDetail)
+    case fileChange(CodexFileChangeDetail)
+    case toolCall(CodexToolCallDetail)
+}
+
+public struct CodexAssistantMessageDetail: Codable, Sendable, Equatable {
+    public var phase: String?
+
+    public init(phase: String? = nil) {
+        self.phase = phase
+    }
+}
+
+public struct CodexCommandExecutionDetail: Codable, Sendable, Equatable {
+    public var command: String
+    public var cwd: String?
+    public var output: String
+    public var status: String
+    public var exitCode: Int?
+
+    public init(command: String, cwd: String? = nil, output: String = "", status: String, exitCode: Int? = nil) {
+        self.command = command
+        self.cwd = cwd
+        self.output = output
+        self.status = status
+        self.exitCode = exitCode
+    }
+}
+
+public struct CodexFileChangeDetail: Codable, Sendable, Equatable {
+    public var path: String?
+    public var kind: String
+    public var diff: String
+    public var output: String
+    public var status: String
+
+    public init(path: String? = nil, kind: String = "update", diff: String = "", output: String = "", status: String) {
+        self.path = path
+        self.kind = kind
+        self.diff = diff
+        self.output = output
+        self.status = status
+    }
+}
+
+public struct CodexToolCallDetail: Codable, Sendable, Equatable {
+    public var server: String?
+    public var tool: String
+    public var arguments: String
+    public var status: String
+    public var progress: [String]
+    public var result: String
+    public var error: String?
+    public var durationMilliseconds: Int?
+
+    public init(
+        server: String? = nil,
+        tool: String,
+        arguments: String = "",
+        status: String,
+        progress: [String] = [],
+        result: String = "",
+        error: String? = nil,
+        durationMilliseconds: Int? = nil
+    ) {
+        self.server = server
+        self.tool = tool
+        self.arguments = arguments
+        self.status = status
+        self.progress = progress
+        self.result = result
+        self.error = error
+        self.durationMilliseconds = durationMilliseconds
+    }
+}
+
 // MARK: - CodexCoreStore (Main State Reducer)
 
 @Observable
 @MainActor
 public final class CodexCoreStore {
     public private(set) var activeThread: CodexThreadSnapshot?
+    public private(set) var threadSnapshotsByID: [String: CodexThreadSnapshot]
     public private(set) var isThinking = false
     public private(set) var pendingUserInput: CodexUserInputRequest?
     /// Escalated approval requests awaiting a decision, store-wide. Requests
@@ -147,8 +278,52 @@ public final class CodexCoreStore {
     // Active streaming text buffers by item ID
     private var streamingBuffers: [String: String] = [:]
 
-    public init(activeThread: CodexThreadSnapshot? = nil) {
+    public init(activeThread: CodexThreadSnapshot? = nil, threadSnapshotsByID: [String: CodexThreadSnapshot] = [:]) {
         self.activeThread = activeThread
+        self.threadSnapshotsByID = threadSnapshotsByID
+        if let activeThread {
+            self.threadSnapshotsByID[activeThread.id] = activeThread
+        }
+    }
+
+    public func threadSnapshot(id: String) -> CodexThreadSnapshot? {
+        threadSnapshotsByID[id] ?? (activeThread?.id == id ? activeThread : nil)
+    }
+
+    public func turnSnapshot(threadID: String, turnID: String?) -> CodexTurnSnapshot? {
+        guard let thread = threadSnapshot(id: threadID) else { return nil }
+        if let turnID {
+            return thread.turns.first(where: { $0.id == turnID })
+        }
+        return thread.turns.last
+    }
+
+    public func activateThread(id: String) {
+        if let thread = threadSnapshotsByID[id] {
+            activeThread = thread
+        }
+    }
+
+    private func storeThread(_ thread: CodexThreadSnapshot, activate: Bool = false) {
+        threadSnapshotsByID[thread.id] = thread
+        if activate || activeThread?.id == thread.id {
+            activeThread = thread
+        }
+    }
+
+    private func snapshotForMutation(threadID: String, status: CodexThreadStatus = .active) -> CodexThreadSnapshot {
+        threadSnapshotsByID[threadID]
+            ?? (activeThread?.id == threadID ? activeThread : nil)
+            ?? CodexThreadSnapshot(id: threadID, status: status, updatedAt: Date())
+    }
+
+    private func turnIndex(_ turnID: String, in thread: inout CodexThreadSnapshot) -> Int? {
+        guard !turnID.isEmpty else { return nil }
+        if let index = thread.turns.firstIndex(where: { $0.id == turnID }) {
+            return index
+        }
+        thread.turns.append(CodexTurnSnapshot(id: turnID))
+        return thread.turns.count - 1
     }
 
     // MARK: - Reducer Action Handler
@@ -156,38 +331,31 @@ public final class CodexCoreStore {
     public func dispatch(_ event: CodexServerEvent) {
         switch event {
         case .threadStarted(let threadId, _, let status):
-            if var thread = activeThread, thread.id == threadId {
-                thread.status = CodexThreadStatus(rawValue: status) ?? thread.status
-                thread.updatedAt = Date()
-                self.activeThread = thread
-            } else {
-                self.activeThread = CodexThreadSnapshot(
-                    id: threadId,
-                    status: CodexThreadStatus(rawValue: status) ?? .active,
-                    updatedAt: Date()
-                )
-            }
+            var thread = snapshotForMutation(threadID: threadId)
+            thread.status = CodexThreadStatus(rawValue: status) ?? thread.status
+            thread.updatedAt = Date()
+            storeThread(thread, activate: activeThread == nil)
 
         case .threadStatusChanged(let threadId, let status):
-            guard var thread = activeThread, thread.id == threadId else { return }
+            var thread = snapshotForMutation(threadID: threadId)
             thread.status = CodexThreadStatus(rawValue: status) ?? .idle
             thread.updatedAt = Date()
-            self.activeThread = thread
+            storeThread(thread)
 
         case .threadGoalUpdated(let threadId, let goal):
-            guard var thread = activeThread, thread.id == threadId else { return }
+            var thread = snapshotForMutation(threadID: threadId)
             thread.goal = goal
             thread.updatedAt = Date()
-            self.activeThread = thread
+            storeThread(thread)
 
         case .threadGoalCleared(let threadId):
-            guard var thread = activeThread, thread.id == threadId else { return }
+            var thread = snapshotForMutation(threadID: threadId)
             thread.goal = nil
             thread.updatedAt = Date()
-            self.activeThread = thread
+            storeThread(thread)
 
         case .turnStarted(let threadId, let turnId):
-            guard var thread = activeThread, thread.id == threadId else { return }
+            var thread = snapshotForMutation(threadID: threadId)
             if let idx = thread.turns.firstIndex(where: { $0.id == turnId }) {
                 thread.turns[idx].status = .running
             } else {
@@ -195,11 +363,13 @@ public final class CodexCoreStore {
                 thread.turns.append(turn)
             }
             thread.status = .active
-            isThinking = true
-            self.activeThread = thread
+            if activeThread?.id == threadId {
+                isThinking = true
+            }
+            storeThread(thread)
 
         case .turnCompleted(let threadId, let turnId, let error):
-            guard var thread = activeThread, thread.id == threadId else { return }
+            var thread = snapshotForMutation(threadID: threadId)
             let idx: Int
             if let existing = thread.turns.firstIndex(where: { $0.id == turnId }) {
                 idx = existing
@@ -211,62 +381,67 @@ public final class CodexCoreStore {
             thread.turns[idx].error = error
             thread.turns[idx].completedAt = Date()
             thread.status = .idle
-            isThinking = false
-            self.activeThread = thread
+            if activeThread?.id == threadId {
+                isThinking = false
+            }
+            storeThread(thread)
 
         case .itemStarted(let threadId, let turnId, let item):
-            guard var thread = activeThread, thread.id == threadId,
-                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+            var thread = snapshotForMutation(threadID: threadId)
+            guard let idx = turnIndex(turnId, in: &thread) else { return }
 
-            let timelineItem = mapServerItem(item)
+            let timelineItem = CodexTimelineItemMapper.timelineItem(for: item)
             if thread.turns[idx].items.contains(where: { $0.id == item.id }) {
-                self.activeThread = thread
+                upsertDetail(for: item, in: &thread.turns[idx])
+                storeThread(thread)
                 return
             }
             thread.turns[idx].items.append(timelineItem)
-            self.activeThread = thread
+            upsertDetail(for: item, in: &thread.turns[idx])
+            storeThread(thread)
 
         case .itemCompleted(let threadId, let turnId, let item):
-            guard var thread = activeThread, thread.id == threadId,
-                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+            var thread = snapshotForMutation(threadID: threadId)
+            guard let idx = turnIndex(turnId, in: &thread) else { return }
 
-            let timelineItem = mapServerItem(item)
+            let timelineItem = CodexTimelineItemMapper.timelineItem(for: item)
             if let itemIdx = thread.turns[idx].items.firstIndex(where: { $0.id == item.id }) {
                 thread.turns[idx].items[itemIdx] = timelineItem
             } else {
                 thread.turns[idx].items.append(timelineItem)
             }
+            upsertDetail(for: item, in: &thread.turns[idx])
             streamingBuffers.removeValue(forKey: item.id)
-            self.activeThread = thread
+            storeThread(thread)
 
-        case .messageDelta(_, let turnId, let itemId, let delta):
-            appendDelta(delta, itemId: itemId, turnId: turnId) { text in
+        case .messageDelta(let threadId, let turnId, let itemId, let delta):
+            appendDelta(delta, threadId: threadId, itemId: itemId, turnId: turnId) { text in
                 .assistantMessage(id: itemId, text: text, timestamp: Date(), isStreaming: true)
             }
 
-        case .reasoningDelta(_, let turnId, let itemId, let delta):
-            appendDelta(delta, itemId: itemId, turnId: turnId) { text in
+        case .reasoningDelta(let threadId, let turnId, let itemId, let delta):
+            appendDelta(delta, threadId: threadId, itemId: itemId, turnId: turnId) { text in
                 .reasoning(id: itemId, text: text, timestamp: Date(), isStreaming: true)
             }
 
-        case .planDelta(_, let turnId, let itemId, let delta):
-            appendDelta(delta, itemId: itemId, turnId: turnId) { text in
+        case .planDelta(let threadId, let turnId, let itemId, let delta):
+            appendDelta(delta, threadId: threadId, itemId: itemId, turnId: turnId) { text in
                 .reasoning(id: itemId, text: "Plan update: \(text)", timestamp: Date(), isStreaming: true)
             }
 
-        case .commandOutputDelta(_, let turnId, let itemId, let delta):
-            appendDelta(delta, itemId: itemId, turnId: turnId) { text in
+        case .commandOutputDelta(let threadId, let turnId, let itemId, let delta):
+            appendDelta(delta, threadId: threadId, itemId: itemId, turnId: turnId) { text in
                 .commandExecution(id: itemId, command: "Running...", output: text, status: "active", timestamp: Date())
             }
 
-        case .fileChangeOutputDelta(_, let turnId, let itemId, let delta):
-            appendDelta(delta, itemId: itemId, turnId: turnId) { text in
+        case .fileChangeOutputDelta(let threadId, let turnId, let itemId, let delta):
+            appendDelta(delta, threadId: threadId, itemId: itemId, turnId: turnId) { text in
                 .fileChange(id: itemId, path: "File changes", patch: text, status: "active", timestamp: Date())
             }
 
-        case .fileChangePatchUpdated(_, let turnId, let itemId, let path, let patch):
-            guard var thread = activeThread,
-                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+        case .fileChangePatchUpdated(let threadId, let turnId, let itemId, let path, let patch):
+            var thread = snapshotForMutation(threadID: threadId)
+            guard let idx = turnIndex(turnId, in: &thread) else { return }
             let item = CodexTimelineItem.fileChange(
                 id: itemId,
                 path: path ?? "File changes",
@@ -279,11 +454,18 @@ public final class CodexCoreStore {
             } else {
                 thread.turns[idx].items.append(item)
             }
-            self.activeThread = thread
+            thread.turns[idx].itemDetails[itemId] = .fileChange(CodexFileChangeDetail(
+                path: path,
+                kind: "update",
+                diff: patch,
+                output: "",
+                status: "active"
+            ))
+            storeThread(thread)
 
-        case .mcpToolCallProgress(_, let turnId, let itemId, let message):
-            guard var thread = activeThread,
-                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+        case .mcpToolCallProgress(let threadId, let turnId, let itemId, let message):
+            var thread = snapshotForMutation(threadID: threadId)
+            guard let idx = turnIndex(turnId, in: &thread) else { return }
             if let itemIdx = thread.turns[idx].items.firstIndex(where: { $0.id == itemId }) {
                 if case .mcpToolCall(let id, let server, let tool, _, let timestamp, let progress) = thread.turns[idx].items[itemIdx] {
                     thread.turns[idx].items[itemIdx] = .mcpToolCall(
@@ -305,26 +487,30 @@ public final class CodexCoreStore {
                     progress: [message]
                 ))
             }
-            self.activeThread = thread
+            if let updated = thread.turns[idx].items.first(where: { $0.id == itemId }) {
+                updateStreamingDetail(for: updated, in: &thread.turns[idx])
+            }
+            storeThread(thread)
 
         case .turnPlanUpdated(let threadId, let turnId, let plan, let explanation):
-            guard var thread = activeThread, thread.id == threadId,
-                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+            var thread = snapshotForMutation(threadID: threadId)
+            guard let idx = turnIndex(turnId, in: &thread) else { return }
             thread.turns[idx].plan = plan
             thread.turns[idx].planExplanation = explanation
-            self.activeThread = thread
+            storeThread(thread)
 
         case .turnDiffUpdated(let threadId, let turnId, let diff):
-            guard var thread = activeThread, thread.id == threadId,
-                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+            var thread = snapshotForMutation(threadID: threadId)
+            guard let idx = turnIndex(turnId, in: &thread) else { return }
             thread.turns[idx].diff = diff
-            self.activeThread = thread
+            storeThread(thread)
 
         case .tokenUsageUpdated(let threadId, let turnId, let usage):
-            guard let turnId, var thread = activeThread, thread.id == threadId,
-                  let idx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+            guard let turnId else { return }
+            var thread = snapshotForMutation(threadID: threadId)
+            guard let idx = turnIndex(turnId, in: &thread) else { return }
             thread.turns[idx].usage = usage
-            self.activeThread = thread
+            storeThread(thread)
 
         case .serverError(_, _):
             break
@@ -338,10 +524,14 @@ public final class CodexCoreStore {
         if !pendingApprovals.contains(where: { $0.id == request.id }) {
             pendingApprovals.append(request)
         }
-        guard var thread = activeThread, thread.id == request.threadId else { return }
+        var thread = snapshotForMutation(threadID: request.threadId, status: .waiting)
+        guard !thread.pendingApprovals.contains(where: { $0.id == request.id }) else {
+            storeThread(thread)
+            return
+        }
         thread.pendingApprovals.append(request)
         thread.status = .waiting
-        self.activeThread = thread
+        storeThread(thread)
     }
 
     public func dispatchRequest(_ request: CodexUserInputRequest) {
@@ -350,12 +540,14 @@ public final class CodexCoreStore {
 
     public func resolveApproval(_ requestId: String) {
         pendingApprovals.removeAll(where: { $0.id == requestId })
-        guard var thread = activeThread else { return }
-        thread.pendingApprovals.removeAll(where: { $0.id == requestId })
-        if thread.pendingApprovals.isEmpty, thread.status == .waiting {
-            thread.status = .active
+        for threadID in Array(threadSnapshotsByID.keys) {
+            var thread = threadSnapshotsByID[threadID]!
+            thread.pendingApprovals.removeAll(where: { $0.id == requestId })
+            if thread.pendingApprovals.isEmpty, thread.status == .waiting {
+                thread.status = .active
+            }
+            storeThread(thread)
         }
-        self.activeThread = thread
     }
 
     public func resolveUserInput() {
@@ -364,9 +556,15 @@ public final class CodexCoreStore {
 
     // MARK: - Delta Appender Helper
 
-    private func appendDelta(_ delta: String, itemId: String, turnId: String, itemCreator: (String) -> CodexTimelineItem) {
-        guard var thread = activeThread,
-              let turnIdx = thread.turns.firstIndex(where: { $0.id == turnId }) else { return }
+    private func appendDelta(
+        _ delta: String,
+        threadId: String,
+        itemId: String,
+        turnId: String,
+        itemCreator: (String) -> CodexTimelineItem
+    ) {
+        var thread = snapshotForMutation(threadID: threadId)
+        guard let turnIdx = turnIndex(turnId, in: &thread) else { return }
 
         let currentText = streamingBuffers[itemId, default: ""] + delta
         streamingBuffers[itemId] = currentText
@@ -377,49 +575,68 @@ public final class CodexCoreStore {
         } else {
             thread.turns[turnIdx].items.append(updatedItem)
         }
+        updateStreamingDetail(for: updatedItem, in: &thread.turns[turnIdx])
 
-        self.activeThread = thread
+        storeThread(thread)
     }
 
-    // MARK: - Protocol Mapping Helper
+    private func upsertDetail(for item: CodexServerItem, in turn: inout CodexTurnSnapshot) {
+        guard let detail = CodexTimelineItemMapper.detail(for: item) else {
+            turn.itemDetails.removeValue(forKey: item.id)
+            return
+        }
+        turn.itemDetails[item.id] = detail
+    }
 
-    private func mapServerItem(_ item: CodexServerItem) -> CodexTimelineItem {
-        let st = item.status ?? "completed"
-        switch item.type {
-        case "userMessage":
-            let text = item.raw["text"]?.description ?? item.raw["content"]?.description ?? ""
-            return .userMessage(id: item.id, text: text, timestamp: Date())
-
-        case "assistantMessage", "agentMessage":
-            let text = item.raw["text"]?.description ?? ""
-            return .assistantMessage(id: item.id, text: text, timestamp: Date(), isStreaming: st == "active" || st == "inProgress")
-
-        case "reasoning":
-            let text = item.raw["text"]?.description ?? ""
-            return .reasoning(id: item.id, text: text, timestamp: Date(), isStreaming: st == "active" || st == "inProgress")
-
-        case "toolCall":
-            let name = item.raw["name"]?.description ?? ""
-            let args = item.raw["arguments"]?.description ?? ""
-            return .toolCall(id: item.id, name: name, arguments: args, status: st, timestamp: Date())
-
-        case "commandExecution":
-            let cmd = item.raw["command"]?.description ?? ""
-            let out = item.raw["output"]?.description ?? ""
-            return .commandExecution(id: item.id, command: cmd, output: out, status: st, timestamp: Date())
-
-        case "fileChange":
-            let path = item.raw["path"]?.description ?? ""
-            let patch = item.raw["patch"]?.description ?? ""
-            return .fileChange(id: item.id, path: path, patch: patch, status: st, timestamp: Date())
-
-        case "mcpToolCall":
-            let server = item.raw["serverName"]?.description ?? item.raw["server"]?.description ?? ""
-            let tool = item.raw["toolName"]?.description ?? item.raw["tool"]?.description ?? ""
-            return .mcpToolCall(id: item.id, server: server, tool: tool, status: st, timestamp: Date(), progress: [])
-
+    private func updateStreamingDetail(for item: CodexTimelineItem, in turn: inout CodexTurnSnapshot) {
+        switch item {
+        case .commandExecution(let id, let command, let output, let status, _):
+            let existing: CodexCommandExecutionDetail?
+            if case .commandExecution(let detail)? = turn.itemDetails[id] {
+                existing = detail
+            } else {
+                existing = nil
+            }
+            turn.itemDetails[id] = .commandExecution(CodexCommandExecutionDetail(
+                command: existing?.command ?? command,
+                cwd: existing?.cwd,
+                output: output,
+                status: status,
+                exitCode: existing?.exitCode
+            ))
+        case .fileChange(let id, let path, let patch, let status, _):
+            let existing: CodexFileChangeDetail?
+            if case .fileChange(let detail)? = turn.itemDetails[id] {
+                existing = detail
+            } else {
+                existing = nil
+            }
+            turn.itemDetails[id] = .fileChange(CodexFileChangeDetail(
+                path: existing?.path ?? (path.isEmpty ? nil : path),
+                kind: existing?.kind ?? "update",
+                diff: existing?.diff ?? "",
+                output: patch,
+                status: status
+            ))
+        case .mcpToolCall(let id, let server, let tool, let status, _, let progress):
+            let existing: CodexToolCallDetail?
+            if case .toolCall(let detail)? = turn.itemDetails[id] {
+                existing = detail
+            } else {
+                existing = nil
+            }
+            turn.itemDetails[id] = .toolCall(CodexToolCallDetail(
+                server: existing?.server ?? (server.isEmpty ? nil : server),
+                tool: existing?.tool ?? (tool.isEmpty ? nil : tool) ?? "Tool",
+                arguments: existing?.arguments ?? "",
+                status: status,
+                progress: progress,
+                result: existing?.result ?? "",
+                error: existing?.error,
+                durationMilliseconds: existing?.durationMilliseconds
+            ))
         default:
-            return .warning(id: item.id, text: "Notice: \(item.type) item completed with status \(st)", timestamp: Date())
+            break
         }
     }
 }

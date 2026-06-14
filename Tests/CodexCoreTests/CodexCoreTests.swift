@@ -68,6 +68,28 @@ final class CodexCoreTests: XCTestCase {
         XCTAssertEqual(item.raw["text"], .string("Hello, world!"))
     }
 
+    func testTimelineItemMapperParsesRawTurnPlanItems() throws {
+        let detail = try XCTUnwrap(CodexTimelineItemMapper.turnPlan(from: [
+            "explanation": .string("Keep the reducer canonical."),
+            "plan": .array([
+                .dictionary([
+                    "step": .string("Move plan parsing"),
+                    "status": .string("completed")
+                ]),
+                .dictionary([
+                    "title": .string("Verify history projection"),
+                    "status": .string("inProgress")
+                ])
+            ])
+        ]))
+
+        XCTAssertEqual(detail.explanation, "Keep the reducer canonical.")
+        XCTAssertEqual(detail.plan, [
+            TurnPlanStep(step: "Move plan parsing", status: .completed),
+            TurnPlanStep(step: "Verify history projection", status: .inProgress)
+        ])
+    }
+
     // MARK: - Store & Reducer Pipeline Tests
 
     @MainActor
@@ -115,6 +137,18 @@ final class CodexCoreTests: XCTestCase {
         // 3. Dispatch Assistant Delta Stream
         store.dispatch(.messageDelta(threadId: "thread-abc", turnId: "turn-1", itemId: "item-a", delta: "Swift "))
         store.dispatch(.messageDelta(threadId: "thread-abc", turnId: "turn-1", itemId: "item-a", delta: "is awesome!"))
+        store.dispatch(.commandOutputDelta(
+            threadId: "thread-abc",
+            turnId: "turn-1",
+            itemId: "cmd-a",
+            delta: "build started"
+        ))
+        store.dispatch(.commandOutputDelta(
+            threadId: "thread-abc",
+            turnId: "turn-1",
+            itemId: "cmd-a",
+            delta: "\n$ swift test"
+        ))
         store.dispatch(.fileChangePatchUpdated(
             threadId: "thread-abc",
             turnId: "turn-1",
@@ -142,7 +176,7 @@ final class CodexCoreTests: XCTestCase {
         ))
 
         let turn = store.activeThread?.turns.first
-        XCTAssertEqual(turn?.items.count, 3)
+        XCTAssertEqual(turn?.items.count, 4)
 
         if let item = turn?.items.first {
             switch item {
@@ -179,15 +213,88 @@ final class CodexCoreTests: XCTestCase {
                 XCTFail("Incorrect file change item type mapped")
             }
         }
+        if case .fileChange(let detail)? = turn?.itemDetails["patch-a"] {
+            XCTAssertEqual(detail.path, "Sources/App.swift")
+            XCTAssertTrue(detail.output.isEmpty)
+            XCTAssertTrue(detail.diff.contains("+new"))
+            XCTAssertEqual(detail.status, "active")
+        } else {
+            XCTFail("Missing typed file-change detail")
+        }
+        if case .commandExecution(let detail)? = turn?.itemDetails["cmd-a"] {
+            XCTAssertEqual(detail.command, "Running...")
+            XCTAssertEqual(detail.output, "build started\n$ swift test")
+            XCTAssertEqual(detail.status, "active")
+        } else {
+            XCTFail("Missing typed command detail")
+        }
+        if case .toolCall(let detail)? = turn?.itemDetails["mcp-a"] {
+            XCTAssertEqual(detail.server, "MCP")
+            XCTAssertEqual(detail.tool, "Tool")
+            XCTAssertEqual(detail.status, "inProgress")
+            XCTAssertEqual(detail.progress, ["Reading available tools", "Calling filesystem.read_file"])
+        } else {
+            XCTFail("Missing typed tool-call detail")
+        }
 
         // 4. Finalize Item
         let serverItem = CodexServerItem(id: "item-a", type: "assistantMessage", status: "done", raw: ["text": .string("Swift is awesome!")])
         store.dispatch(.itemCompleted(threadId: "thread-abc", turnId: "turn-1", item: serverItem))
+        XCTAssertNil(store.activeThread?.turns.first?.itemDetails["item-a"])
 
         // 5. Complete Turn
         store.dispatch(.turnCompleted(threadId: "thread-abc", turnId: "turn-1", error: nil))
         XCTAssertFalse(store.isThinking)
         XCTAssertEqual(store.activeThread?.turns.first?.status, .completed)
+    }
+
+    @MainActor
+    func testStoreIndexesNonActiveThreadSnapshotsWithoutHijackingActiveThread() throws {
+        let store = CodexCoreStore()
+        store.dispatch(.threadStarted(threadId: "thread-main", name: nil, status: "active"))
+        store.dispatch(.turnStarted(threadId: "thread-main", turnId: "turn-main"))
+        store.dispatch(.threadStarted(threadId: "thread-child", name: nil, status: "active"))
+        store.dispatch(.turnStarted(threadId: "thread-child", turnId: "turn-child"))
+        store.dispatch(.itemCompleted(
+            threadId: "thread-child",
+            turnId: "turn-child",
+            item: CodexServerItem(
+                id: "cmd-child",
+                type: "commandExecution",
+                status: "completed",
+                raw: [
+                    "command": .string("swift test"),
+                    "output": .string("ok"),
+                    "exitCode": .int(0)
+                ]
+            )
+        ))
+
+        XCTAssertEqual(store.activeThread?.id, "thread-main")
+        let childTurn = store.turnSnapshot(threadID: "thread-child", turnID: "turn-child")
+        XCTAssertEqual(childTurn?.items.map(\.id), ["cmd-child"])
+        if case .commandExecution(let detail)? = childTurn?.itemDetails["cmd-child"] {
+            XCTAssertEqual(detail.command, "swift test")
+            XCTAssertEqual(detail.output, "ok")
+            XCTAssertEqual(detail.exitCode, 0)
+        } else {
+            XCTFail("Missing typed child command detail")
+        }
+    }
+
+    func testTurnSnapshotDecodesWithoutItemDetails() throws {
+        let json = """
+        {
+          "id": "turn-legacy",
+          "status": "completed",
+          "startedAt": 0,
+          "items": []
+        }
+        """
+        let snapshot = try JSONDecoder().decode(CodexTurnSnapshot.self, from: Data(json.utf8))
+
+        XCTAssertEqual(snapshot.id, "turn-legacy")
+        XCTAssertEqual(snapshot.itemDetails, [:])
     }
 
     // MARK: - Exploration Merging & Retention Tests

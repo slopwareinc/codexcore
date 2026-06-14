@@ -190,6 +190,7 @@ public actor CodexClient {
         )
         await MainActor.run {
             store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+            store.activateThread(id: response.thread.id)
         }
         return response
     }
@@ -204,6 +205,7 @@ public actor CodexClient {
         )
         await MainActor.run {
             store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+            store.activateThread(id: response.thread.id)
         }
         return response
     }
@@ -227,11 +229,16 @@ public actor CodexClient {
     public func threadFork(threadId: String, params: ThreadForkParams = ThreadForkParams()) async throws -> ThreadForkResponse {
         var payload = params
         payload.threadId = threadId
-        return try await connection.request(
+        let response: ThreadForkResponse = try await connection.request(
             method: CodexAppServerClientMethod.threadFork.rawValue,
             params: payload,
             response: ThreadForkResponse.self
         )
+        await MainActor.run {
+            store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+            store.activateThread(id: response.thread.id)
+        }
+        return response
     }
 
     public func threadArchive(threadId: String) async throws -> ThreadArchiveResponse {
@@ -481,6 +488,7 @@ public actor CodexClient {
 
         await MainActor.run {
             store.dispatch(.threadStarted(threadId: threadId, name: nil, status: "idle"))
+            store.activateThread(id: threadId)
         }
 
         return threadId
@@ -929,6 +937,13 @@ public actor CodexClient {
     private func handleNotification(_ notification: JSONRPCNotification) async {
         let method = notification.method
         let params = notification.params ?? [:]
+        let storeEvent = storeEventBeforeRouting(method: method, params: params)
+        if let storeEvent {
+            await MainActor.run {
+                store.dispatch(storeEvent)
+            }
+        }
+
         await notificationRouter.route(notification)
 
         // The server resolved a pending approval itself (e.g. the turn was
@@ -980,18 +995,25 @@ public actor CodexClient {
             return
         }
 
-        // Route 4: Standard timeline notifications (Thread/Turn events)
-        // Skip lifecycle noise that carries no timeline state
-        switch method {
-        case "remoteControl/status/changed", "mcpServer/startupStatus/updated", "account/rateLimits/updated", "account/login/completed", "skills/changed":
+        if storeEvent != nil {
             return
-        default:
-            break
         }
+    }
 
-        let event = mapNotificationToEvent(method: method, params: params)
-        await MainActor.run {
-            store.dispatch(event)
+    private func storeEventBeforeRouting(method: String, params: [String: CodexJSONValue]) -> CodexServerEvent? {
+        switch method {
+        case CodexAppServerNotificationMethod.processOutputDelta.rawValue,
+             CodexAppServerNotificationMethod.processExited.rawValue,
+             CodexAppServerNotificationMethod.commandExecOutputDelta.rawValue,
+             CodexAppServerNotificationMethod.serverRequestResolved.rawValue,
+             "remoteControl/status/changed",
+             "mcpServer/startupStatus/updated",
+             "account/rateLimits/updated",
+             "account/login/completed",
+             "skills/changed":
+            return nil
+        default:
+            return mapNotificationToEvent(method: method, params: params)
         }
     }
 
@@ -1101,6 +1123,16 @@ public actor CodexClient {
 
         case "item/commandExecution/outputDelta":
             return .commandOutputDelta(threadId: threadId, turnId: turnId, itemId: itemId, delta: str("delta"))
+
+        case "item/commandExecution/terminalInteraction":
+            let stdin = str("stdin")
+            guard !stdin.isEmpty else { return .unknown(method: method, params: params) }
+            return .commandOutputDelta(
+                threadId: threadId,
+                turnId: turnId,
+                itemId: itemId,
+                delta: "\n$ \(stdin)"
+            )
 
         case "item/fileChange/outputDelta":
             return .fileChangeOutputDelta(threadId: threadId, turnId: turnId, itemId: itemId, delta: str("delta"))
