@@ -14,23 +14,9 @@ public struct CodexThreadHistorySnapshot: Sendable {
         self.init(parentRaw: response, parent: CodexThreadHistoryHydrator.decode(raw: response))
     }
 
-    public init(parentRaw response: CodexJSONValue, parent: CodexHydratedThread) {
+    public init(parentRaw _: CodexJSONValue, parent: CodexHydratedThread) {
         var mapper = CodexAgentStateMapper()
-
-        for turn in Self.turnObjects(from: response) {
-            guard case .array(let items)? = turn["items"] else {
-                continue
-            }
-
-            for itemValue in items {
-                guard case .dictionary = itemValue else { continue }
-                let threadItem = try? itemValue.decode(ThreadItem.self)
-
-                if let item = threadItem, mapper.isSubagentItem(item) {
-                    _ = mapper.itemCompleted(item)
-                }
-            }
-        }
+        _ = mapper.applyChildThreadReferences(parent.snapshot.childThreads)
 
         let messages = parent.snapshot.turns.flatMap(CodexChatTranscriptProjection.messages(for:))
         for message in messages where message.role == .assistant {
@@ -41,6 +27,13 @@ public struct CodexThreadHistorySnapshot: Sendable {
             messages: messages,
             agentStateMapper: mapper
         )
+    }
+
+    public init(hydration: CodexThreadHistoryHydrationResult) {
+        self.init(parentRaw: .dictionary([:]), parent: hydration.parent)
+        for child in hydration.childThreads {
+            _ = applyHydratedChildThread(child)
+        }
     }
 
     public var lifecycleEvents: [CodexAgentLifecycleEvent] {
@@ -84,6 +77,20 @@ public struct CodexThreadHistorySnapshot: Sendable {
         }
 
         return didApply
+    }
+
+    @discardableResult
+    public mutating func applyHydratedChildThread(_ child: CodexHydratedThread) -> Bool {
+        let reference = agentStateMapper.subagents.first(where: { $0.id == child.snapshot.id }).map {
+            CodexChildThreadReference(
+                threadID: $0.id,
+                name: $0.name,
+                title: $0.title,
+                prompt: $0.prompt,
+                status: $0.status.rawValue
+            )
+        }
+        return agentStateMapper.applyHydratedChildThread(child, reference: reference)
     }
 
     private static func turnObjects(from response: CodexJSONValue) -> [[String: CodexJSONValue]] {

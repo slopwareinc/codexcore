@@ -4,18 +4,19 @@ public struct CodexHydratedThread: Sendable, Equatable {
     public var snapshot: CodexThreadSnapshot
     public var agentName: String?
     public var agentRole: String?
-    public var childThreadIDs: [String]
 
     public init(
         snapshot: CodexThreadSnapshot,
         agentName: String? = nil,
-        agentRole: String? = nil,
-        childThreadIDs: [String] = []
+        agentRole: String? = nil
     ) {
         self.snapshot = snapshot
         self.agentName = agentName
         self.agentRole = agentRole
-        self.childThreadIDs = childThreadIDs
+    }
+
+    public var childThreadIDs: [String] {
+        snapshot.childThreads.map(\.threadID)
     }
 }
 
@@ -75,7 +76,7 @@ public enum CodexThreadHistoryHydrator {
         let rawThread = threadObject(from: response) ?? [:]
         let threadID = string(from: rawThread["id"]) ?? fallbackThreadID ?? UUID().uuidString
         var turns: [CodexTurnSnapshot] = []
-        var childThreadIDs: [String] = []
+        var childReferences: [CodexChildThreadReference] = []
 
         for rawTurn in turnObjects(from: response) {
             var turn = turnSnapshot(from: rawTurn)
@@ -88,7 +89,7 @@ public enum CodexThreadHistoryHydrator {
 
             for rawItemValue in rawItems {
                 guard case .dictionary(let rawItem) = rawItemValue else { continue }
-                childThreadIDs.append(contentsOf: extractedChildThreadIDs(from: rawItem))
+                childReferences.append(contentsOf: childThreadReferences(from: rawItem))
 
                 guard let item = try? rawItemValue.decode(CodexServerItem.self) else { continue }
                 if item.type == "plan" {
@@ -126,14 +127,14 @@ public enum CodexThreadHistoryHydrator {
             cwd: string(from: rawThread["cwd"]) ?? "",
             model: string(from: rawThread["model"]) ?? "",
             turns: turns,
+            childThreads: stableUniqueReferences(childReferences),
             updatedAt: updatedAt
         )
 
         return CodexHydratedThread(
             snapshot: snapshot,
             agentName: string(from: rawThread["agentNickname"]) ?? string(from: rawThread["name"]),
-            agentRole: string(from: rawThread["agentRole"]),
-            childThreadIDs: stableUnique(childThreadIDs)
+            agentRole: string(from: rawThread["agentRole"])
         )
     }
 
@@ -238,44 +239,85 @@ public enum CodexThreadHistoryHydrator {
         return Date(timeIntervalSince1970: seconds)
     }
 
-    private static func extractedChildThreadIDs(from rawItem: [String: CodexJSONValue]) -> [String] {
-        var ids: [String] = []
+    private static func childThreadReferences(from rawItem: [String: CodexJSONValue]) -> [CodexChildThreadReference] {
+        var references: [CodexChildThreadReference] = []
+        let itemID = string(from: rawItem["id"])
+        let prompt = string(from: rawItem["prompt"]) ?? string(from: rawItem["message"]) ?? string(from: rawItem["text"])
         for key in ["receiverThreadIds", "receiverThreadIDs", "childThreadIds", "childThreadIDs", "threadIds", "threadIDs"] {
-            ids.append(contentsOf: stringArray(from: rawItem[key]))
+            references.append(contentsOf: stringArray(from: rawItem[key]).map {
+                childThreadReference(threadID: $0, itemID: itemID, rawItem: rawItem, prompt: prompt)
+            })
         }
         if let direct = string(from: rawItem["threadId"]) ?? string(from: rawItem["threadID"]) {
-            ids.append(direct)
+            references.append(childThreadReference(threadID: direct, itemID: itemID, rawItem: rawItem, prompt: prompt))
         }
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["thread"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["source"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["metadata"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["agent"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["subagent"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["subAgent"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["agents"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["subagents"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["subAgents"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["children"]))
-        ids.append(contentsOf: nestedThreadIDs(from: rawItem["threads"]))
-        return ids
+        for key in ["thread", "source", "metadata", "agent", "subagent", "subAgent", "agents", "subagents", "subAgents", "children", "threads"] {
+            references.append(contentsOf: nestedChildThreadReferences(from: rawItem[key], itemID: itemID, fallbackPrompt: prompt))
+        }
+        return references
     }
 
-    private static func nestedThreadIDs(from value: CodexJSONValue?) -> [String] {
+    private static func nestedChildThreadReferences(
+        from value: CodexJSONValue?,
+        itemID: String?,
+        fallbackPrompt: String?
+    ) -> [CodexChildThreadReference] {
         switch value {
         case .dictionary(let object):
-            var ids: [String] = []
+            var references: [CodexChildThreadReference] = []
             if let id = string(from: object["threadId"]) ?? string(from: object["threadID"]) ?? string(from: object["id"]) {
-                ids.append(id)
+                references.append(childThreadReference(
+                    threadID: id,
+                    itemID: itemID,
+                    rawItem: object,
+                    prompt: string(from: object["prompt"]) ?? fallbackPrompt
+                ))
             }
-            ids.append(contentsOf: extractedChildThreadIDs(from: object))
-            return ids
+            references.append(contentsOf: childThreadReferences(from: object))
+            return references
         case .array(let values):
-            return values.flatMap(nestedThreadIDs(from:))
+            return values.flatMap { nestedChildThreadReferences(from: $0, itemID: itemID, fallbackPrompt: fallbackPrompt) }
         case .string(let string):
-            return [string]
+            return [CodexChildThreadReference(threadID: string, itemID: itemID, prompt: fallbackPrompt)]
         case .int, .double, .bool, .null, nil:
             return []
         }
+    }
+
+    private static func childThreadReference(
+        threadID: String,
+        itemID: String?,
+        rawItem: [String: CodexJSONValue],
+        prompt: String?
+    ) -> CodexChildThreadReference {
+        let state = childState(for: threadID, in: rawItem)
+        let name = string(from: rawItem["name"])
+            ?? string(from: rawItem["agentName"])
+            ?? string(from: rawItem["agent_name"])
+            ?? string(from: state?["name"])
+            ?? string(from: state?["agentName"])
+        return CodexChildThreadReference(
+            threadID: threadID,
+            itemID: itemID,
+            name: name,
+            title: string(from: rawItem["title"]) ?? name,
+            prompt: prompt,
+            status: string(from: state?["status"]) ?? string(from: state?["state"]) ?? string(from: rawItem["status"])
+        )
+    }
+
+    private static func childState(
+        for threadID: String,
+        in rawItem: [String: CodexJSONValue]
+    ) -> [String: CodexJSONValue]? {
+        for key in ["agentsStates", "agentStates", "states"] {
+            guard case .dictionary(let states)? = rawItem[key],
+                  case .dictionary(let state)? = states[threadID] else {
+                continue
+            }
+            return state
+        }
+        return nil
     }
 
     private static func stringArray(from value: CodexJSONValue?) -> [String] {
@@ -304,6 +346,11 @@ public enum CodexThreadHistoryHydrator {
     private static func stableUnique(_ values: [String]) -> [String] {
         var seen: Set<String> = []
         return values.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    private static func stableUniqueReferences(_ values: [CodexChildThreadReference]) -> [CodexChildThreadReference] {
+        var seen: Set<String> = []
+        return values.filter { !$0.threadID.isEmpty && seen.insert($0.threadID).inserted }
     }
 }
 

@@ -46,33 +46,12 @@ public enum CodexThreadHistorySession {
         parentRaw: CodexJSONValue,
         loadChildThread: (String) async throws -> CodexJSONValue
     ) async -> CodexThreadHistoryRestoreResult {
-        let parent = CodexThreadHistoryHydrator.decode(raw: parentRaw)
-        var snapshot = CodexThreadHistorySnapshot(parentRaw: parentRaw, parent: parent)
-        var childThreads: [CodexHydratedThread] = []
-        var failedChildThreadIDs: [String] = []
-        var restoredCount = 0
-        var seenThreadIDs: Set<String> = []
-
-        for childThreadID in parent.childThreadIDs where seenThreadIDs.insert(childThreadID).inserted {
-            do {
-                let childRaw = try await loadChildThread(childThreadID)
-                childThreads.append(CodexThreadHistoryHydrator.decode(raw: childRaw, fallbackThreadID: childThreadID))
-                if snapshot.applyChildThread(raw: childRaw, threadID: childThreadID) {
-                    restoredCount += 1
-                }
-            } catch {
-                failedChildThreadIDs.append(childThreadID)
-            }
-        }
+        let hydration = await CodexThreadHistoryHydrator.hydrate(parentRaw: parentRaw, loadChildThread: loadChildThread)
 
         return CodexThreadHistoryRestoreResult(
-            snapshot: snapshot,
-            hydration: CodexThreadHistoryHydrationResult(
-                parent: parent,
-                childThreads: childThreads,
-                failedChildThreadIDs: failedChildThreadIDs
-            ),
-            restoredChildThreadCount: restoredCount
+            snapshot: CodexThreadHistorySnapshot(hydration: hydration),
+            hydration: hydration,
+            restoredChildThreadCount: hydration.restoredChildThreadCount
         )
     }
 

@@ -109,12 +109,26 @@ public struct CodexTurnSnapshot: Identifiable, Codable, Sendable, Equatable {
 }
 
 public struct CodexThreadSnapshot: Identifiable, Codable, Sendable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sessionID
+        case status
+        case cwd
+        case model
+        case turns
+        case childThreads
+        case pendingApprovals
+        case goal
+        case updatedAt
+    }
+
     public var id: String
     public var sessionID: String?
     public var status: CodexThreadStatus
     public var cwd: String
     public var model: String
     public var turns: [CodexTurnSnapshot]
+    public var childThreads: [CodexChildThreadReference]
     public var pendingApprovals: [CodexApprovalRequest]
     public var goal: ThreadGoal?
     public var updatedAt: Date
@@ -126,6 +140,7 @@ public struct CodexThreadSnapshot: Identifiable, Codable, Sendable, Equatable {
         cwd: String = "",
         model: String = "",
         turns: [CodexTurnSnapshot] = [],
+        childThreads: [CodexChildThreadReference] = [],
         pendingApprovals: [CodexApprovalRequest] = [],
         goal: ThreadGoal? = nil,
         updatedAt: Date = Date()
@@ -136,9 +151,66 @@ public struct CodexThreadSnapshot: Identifiable, Codable, Sendable, Equatable {
         self.cwd = cwd
         self.model = model
         self.turns = turns
+        self.childThreads = childThreads
         self.pendingApprovals = pendingApprovals
         self.goal = goal
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
+        self.status = try container.decode(CodexThreadStatus.self, forKey: .status)
+        self.cwd = try container.decode(String.self, forKey: .cwd)
+        self.model = try container.decode(String.self, forKey: .model)
+        self.turns = try container.decode([CodexTurnSnapshot].self, forKey: .turns)
+        self.childThreads = try container.decodeIfPresent([CodexChildThreadReference].self, forKey: .childThreads) ?? []
+        self.pendingApprovals = try container.decode([CodexApprovalRequest].self, forKey: .pendingApprovals)
+        self.goal = try container.decodeIfPresent(ThreadGoal.self, forKey: .goal)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(sessionID, forKey: .sessionID)
+        try container.encode(status, forKey: .status)
+        try container.encode(cwd, forKey: .cwd)
+        try container.encode(model, forKey: .model)
+        try container.encode(turns, forKey: .turns)
+        if !childThreads.isEmpty {
+            try container.encode(childThreads, forKey: .childThreads)
+        }
+        try container.encode(pendingApprovals, forKey: .pendingApprovals)
+        try container.encodeIfPresent(goal, forKey: .goal)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
+}
+
+public struct CodexChildThreadReference: Identifiable, Codable, Sendable, Equatable {
+    public var id: String { threadID }
+    public var threadID: String
+    public var itemID: String?
+    public var name: String?
+    public var title: String?
+    public var prompt: String?
+    public var status: String?
+
+    public init(
+        threadID: String,
+        itemID: String? = nil,
+        name: String? = nil,
+        title: String? = nil,
+        prompt: String? = nil,
+        status: String? = nil
+    ) {
+        self.threadID = threadID
+        self.itemID = itemID
+        self.name = name
+        self.title = title
+        self.prompt = prompt
+        self.status = status
     }
 }
 

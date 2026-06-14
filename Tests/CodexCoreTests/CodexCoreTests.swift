@@ -320,7 +320,11 @@ final class CodexCoreTests: XCTestCase {
                             .dictionary([
                                 "id": .string("spawn-1"),
                                 "type": .string("collabAgentToolCall"),
-                                "receiverThreadIds": .array([.string("thread-child")])
+                                "receiverThreadIds": .array([.string("thread-child")]),
+                                "prompt": .string("Inspect child state"),
+                                "agentsStates": .dictionary([
+                                    "thread-child": .dictionary(["status": .string("running")])
+                                ])
                             ]),
                             .dictionary([
                                 "id": .string("cmd-1"),
@@ -364,6 +368,14 @@ final class CodexCoreTests: XCTestCase {
         XCTAssertEqual(result.parent.snapshot.cwd, "/tmp/CodexCore")
         XCTAssertEqual(result.parent.snapshot.model, "gpt-test")
         XCTAssertEqual(result.parent.childThreadIDs, ["thread-child"])
+        XCTAssertEqual(result.parent.snapshot.childThreads, [
+            CodexChildThreadReference(
+                threadID: "thread-child",
+                itemID: "spawn-1",
+                prompt: "Inspect child state",
+                status: "running"
+            )
+        ])
         XCTAssertEqual(result.parent.snapshot.turns.first?.items.map(\.id), ["user-1", "cmd-1"])
         if case .commandExecution(let detail)? = result.parent.snapshot.turns.first?.itemDetails["cmd-1"] {
             XCTAssertEqual(detail.command, "swift test")
@@ -383,6 +395,25 @@ final class CodexCoreTests: XCTestCase {
             XCTAssertEqual(store.activeThread?.id, "thread-parent")
             XCTAssertEqual(store.turnSnapshot(threadID: "thread-child", turnID: "turn-child")?.items.map(\.id), ["child-answer"])
         }
+    }
+
+    func testThreadSnapshotDecodesWithoutChildThreads() throws {
+        let json = """
+        {
+          "id": "thread-legacy",
+          "status": "idle",
+          "cwd": "",
+          "model": "",
+          "turns": [],
+          "pendingApprovals": [],
+          "updatedAt": 0
+        }
+        """
+
+        let snapshot = try JSONDecoder().decode(CodexThreadSnapshot.self, from: Data(json.utf8))
+
+        XCTAssertEqual(snapshot.id, "thread-legacy")
+        XCTAssertEqual(snapshot.childThreads, [])
     }
 
     // MARK: - Exploration Merging & Retention Tests

@@ -212,6 +212,80 @@ public struct CodexAgentStateMapper: Sendable {
     }
 
     @discardableResult
+    public mutating func applyChildThreadReferences(_ references: [CodexChildThreadReference]) -> Bool {
+        var changed = false
+        for reference in references {
+            let name = reference.name?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? nameForSubagent(id: reference.threadID, state: nil)
+            upsertSubagent(
+                id: reference.threadID,
+                name: name,
+                title: reference.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? name,
+                prompt: reference.prompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Subagent task",
+                status: CodexSubagentState.Status(historyStatus: reference.status) ?? .running,
+                itemID: reference.itemID ?? reference.threadID,
+                result: nil,
+                createdAt: nil,
+                completedAt: nil
+            )
+            changed = true
+        }
+        if changed {
+            ensureSideChat()
+        }
+        return changed
+    }
+
+    @discardableResult
+    public mutating func applyHydratedChildThread(
+        _ child: CodexHydratedThread,
+        reference: CodexChildThreadReference? = nil
+    ) -> Bool {
+        let threadID = child.snapshot.id
+        var messages = child.snapshot.turns.flatMap(CodexChatTranscriptProjection.messages(for:))
+        let firstUserMessage = messages.first(where: { $0.role == .user })?.text
+        let name = child.agentName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? reference?.name?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? nameForSubagent(id: threadID, state: nil)
+        let prompt = firstUserMessage?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? reference?.prompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? "Subagent task"
+        let status = CodexSubagentState.Status(snapshot: child.snapshot)
+            ?? CodexSubagentState.Status(historyStatus: reference?.status)
+            ?? .completed
+        let completedAt = child.snapshot.turns.compactMap(\.completedAt).last
+        let createdAt = child.snapshot.turns.first?.startedAt ?? completedAt ?? Date()
+        if firstUserMessage == nil, !CodexAgentItemParser.isPlaceholderPrompt(prompt) {
+            messages.insert(CodexChatMessage(role: .user, text: prompt, createdAt: createdAt), at: 0)
+        }
+
+        subagentIDsByItemID[reference?.itemID ?? threadID] = threadID
+        if let metadataName = child.agentName ?? reference?.name {
+            _ = updateSubagentMetadata(id: threadID, name: metadataName, role: child.agentRole)
+        }
+
+        let state = CodexSubagentState(
+            id: threadID,
+            name: name,
+            title: reference?.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? name,
+            prompt: prompt,
+            status: status,
+            messages: messages,
+            createdAt: createdAt,
+            completedAt: completedAt
+        )
+
+        if let index = subagents.firstIndex(where: { $0.id == threadID }) {
+            subagents[index] = state
+        } else {
+            subagents.append(state)
+        }
+        subagentTranscriptsByID[threadID] = CodexChatTranscriptState(messages: messages)
+        ensureSideChat()
+        return true
+    }
+
+    @discardableResult
     public mutating func subagentTurnStarted(threadID: String) -> CodexAgentItemUpdate? {
         guard hasSubagentThread(id: threadID) else { return nil }
         let index = ensureSubagentThread(id: threadID)
@@ -674,5 +748,41 @@ public struct CodexAgentStateMapper: Sendable {
         case .closed: return .closed
         case .failed: return .failed
         }
+    }
+}
+
+private extension CodexSubagentState.Status {
+    init?(historyStatus: String?) {
+        switch historyStatus?.lowercased() {
+        case "running", "active", "inprogress", "in_progress":
+            self = .running
+        case "completed", "complete", "done", "success", "succeeded":
+            self = .completed
+        case "closed", "cancelled", "canceled":
+            self = .closed
+        case "failed", "error":
+            self = .failed
+        default:
+            return nil
+        }
+    }
+
+    init?(snapshot: CodexThreadSnapshot) {
+        if snapshot.turns.contains(where: { $0.status == .failed || $0.error != nil }) {
+            self = .failed
+            return
+        }
+        if snapshot.turns.contains(where: { $0.status == .running }) {
+            self = .running
+            return
+        }
+        guard !snapshot.turns.isEmpty else { return nil }
+        self = .completed
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
