@@ -147,7 +147,7 @@ struct PreparingChatView: View {
                 Text("Preparing your chat")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
-                Text(model.serverName.map { "Connected to \($0). Creating a workspace thread…" } ?? "Creating a workspace thread…")
+                Text(model.serverName.map { "Connected to \($0). Loading chat…" } ?? "Loading chat…")
                     .font(.system(size: 14))
                     .foregroundStyle(theme.colors.textSecondary)
                     .multilineTextAlignment(.center)

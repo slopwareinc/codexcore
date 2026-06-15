@@ -274,7 +274,7 @@ final class CodexChatModel {
             guard let codex else { return }
             try await refreshConnectedSession(using: codex)
         } catch {
-            appendActivity(.turn, title: "Thread creation failed", detail: friendlyError(error))
+            appendActivity(.turn, title: "Session refresh failed", detail: friendlyError(error))
         }
     }
 
@@ -493,7 +493,6 @@ final class CodexChatModel {
             guard let archivedID = try await threadSession.archiveCurrentThread(using: codex) else { return }
             clearThreadState()
             appendActivity(.notice, title: "Archived chat", detail: archivedID)
-            try await ensureThread()
             await refreshRecentChats(using: codex)
         } catch {
             appendActivity(.notice, title: "Archive failed", detail: friendlyError(error))
