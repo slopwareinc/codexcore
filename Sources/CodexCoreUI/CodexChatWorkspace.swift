@@ -197,10 +197,10 @@ public struct CodexChatWorkspaceView: View {
 
                 Spacer(minLength: 0)
                 if isSending {
-                    CodexInlineChatStatus(activity: activities.first)
+                    CodexInlineChatStatus(activity: activities.first, onInterrupt: onInterrupt)
                         .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
                         .padding(.horizontal, 14)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, -1)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 CodexComposerBar(
@@ -807,28 +807,72 @@ private struct CodexInlineChatStatus: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let activity: CodexActivity?
+    let onInterrupt: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            ProgressView()
-                .controlSize(.mini)
-                .tint(theme.colors.running)
-            Text(activity?.title ?? "Codex is working")
-                .lineLimit(1)
-            CodexStreamingDots()
-            if let detail = activity?.detail, !detail.isEmpty {
-                Text(detail)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
+        HStack(spacing: 10) {
+            Image(systemName: "target")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(theme.colors.textTertiary)
+
+            HStack(spacing: 5) {
+                Text(title)
+                    .foregroundStyle(theme.colors.textPrimary)
+                if let detail {
+                    Text(detail)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+                CodexStreamingDots()
             }
+            .font(theme.fonts.chat.weight(.medium))
+            .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            InlineStatusIconButton(systemImage: "pencil", help: "Edit objective") {}
+                .disabled(true)
+            InlineStatusIconButton(systemImage: "pause.circle", help: "Pause", action: onInterrupt)
+            InlineStatusIconButton(systemImage: "trash", help: "Clear") {}
+                .disabled(true)
         }
-        .font(theme.fonts.caption.weight(.medium))
-        .foregroundStyle(theme.colors.textSecondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(theme.colors.surfaceElevated.opacity(0.76), in: Capsule())
-        .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
+        .padding(.horizontal, 18)
+        .frame(height: 54)
+        .background(theme.colors.surface.opacity(0.88))
+        .overlay(Rectangle().stroke(theme.colors.border, lineWidth: 1))
         .accessibilityLabel(activity?.title ?? "Codex is working")
+    }
+
+    private var title: String {
+        activity?.title ?? "Codex is working"
+    }
+
+    private var detail: String? {
+        guard let activity else { return nil }
+        let value = activity.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
+private struct InlineStatusIconButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.colors.textTertiary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
