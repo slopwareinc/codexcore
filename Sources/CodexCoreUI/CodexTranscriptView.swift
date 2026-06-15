@@ -361,9 +361,6 @@ public struct CodexAssistantTurnGroupView: View {
                     Text("Codex")
                         .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.textSecondary)
-                    if messages.contains(where: \.isStreaming) {
-                        CodexStreamingDots()
-                    }
                 }
 
                 ForEach(textStreamMessages) { message in
@@ -393,10 +390,16 @@ public struct CodexAssistantTurnGroupView: View {
 
     @ViewBuilder
     private func assistantContent(_ message: CodexChatMessage) -> some View {
-        if message.text.isEmpty && message.isStreaming {
-            CodexThinkingShimmer()
-        } else if message.isStreaming {
-            StreamingAssistantText(text: message.text)
+        if message.isStreaming {
+            HStack(alignment: .bottom, spacing: 9) {
+                if message.text.isEmpty {
+                    CodexThinkingShimmer()
+                } else {
+                    StreamingAssistantText(text: message.text)
+                }
+                CodexWorkingSpinnerBadge()
+                    .padding(.bottom, message.text.isEmpty ? 1 : 2)
+            }
         } else {
             CodexAssistantContentView(blocks: message.renderBlocks)
         }
@@ -734,20 +737,41 @@ public struct CodexAssistantMessageView: View {
                 Text(assistantName)
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textSecondary)
-                if message.isStreaming {
-                    CodexStreamingDots()
-                }
             }
 
-            if message.text.isEmpty && message.isStreaming {
-                CodexThinkingShimmer()
-            } else if message.isStreaming {
-                StreamingAssistantText(text: message.text)
+            if message.isStreaming {
+                HStack(alignment: .bottom, spacing: 9) {
+                    if message.text.isEmpty {
+                        CodexThinkingShimmer()
+                    } else {
+                        StreamingAssistantText(text: message.text)
+                    }
+                    CodexWorkingSpinnerBadge()
+                        .padding(.bottom, message.text.isEmpty ? 1 : 2)
+                }
             } else {
                 CodexAssistantContentView(blocks: message.renderBlocks)
             }
         }
         .frame(maxWidth: 640, alignment: .leading)
+    }
+}
+
+private struct CodexWorkingSpinnerBadge: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ProgressView()
+                .controlSize(.mini)
+                .tint(theme.colors.running)
+            CodexStreamingDots()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
+        .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
+        .accessibilityLabel("Codex is working")
     }
 }
 
