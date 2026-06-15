@@ -280,7 +280,6 @@ final class CodexChatModel {
 
     private func refreshConnectedSession(using codex: Codex) async throws {
         await refreshStartupCatalogs(using: codex)
-        try await ensureThread()
         await refreshRecentChats(using: codex)
     }
 
@@ -344,26 +343,14 @@ final class CodexChatModel {
             return
         }
 
-        do {
-            try await ensureThread()
-            await refreshSlashCommands(using: codex)
-            await refreshRecentChats(using: codex)
-        } catch {
-            appendMessage(.system, "Failed to open project: \(friendlyError(error))")
-            appendActivity(.notice, title: "Project switch failed", detail: friendlyError(error))
-        }
+        await refreshSlashCommands(using: codex)
+        await refreshRecentChats(using: codex)
     }
 
     func startNewChat() async {
         guard codex != nil else { return }
         clearThreadState()
-        do {
-            try await ensureThread()
-            await refreshRecentChats()
-        } catch {
-            appendMessage(.system, "Failed to start chat: \(friendlyError(error))")
-            appendActivity(.turn, title: "New chat failed", detail: friendlyError(error))
-        }
+        await refreshRecentChats()
     }
 
     func resumeChat(id threadID: String) async {

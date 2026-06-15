@@ -721,9 +721,9 @@ private struct CodexExampleProjectSidebar: View {
 
     private var chatDetail: String {
         if let serverName {
-            return isThreadReady ? "Ready on \(serverName)" : "Preparing"
+            return isThreadReady ? "Ready on \(serverName)" : "New chat"
         }
-        return isThreadReady ? "Ready" : "Preparing"
+        return isThreadReady ? "Ready" : "New chat"
     }
 }
 
@@ -808,7 +808,7 @@ private struct ProjectSidebarRow: View {
                         .truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: isSelected ? (isThreadReady ? "checkmark" : "ellipsis") : "chevron.right")
+                Image(systemName: isSelected ? (isThreadReady ? "checkmark" : "plus") : "chevron.right")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(theme.colors.textTertiary)
             }

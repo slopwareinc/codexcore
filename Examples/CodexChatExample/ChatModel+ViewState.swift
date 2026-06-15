@@ -208,7 +208,7 @@ extension CodexChatModel {
     }
 
     var showsChatWorkspace: Bool {
-        isConnected && isAuthenticated && isThreadReady
+        isConnected && isAuthenticated
     }
 
     var canUseGoalPursuit: Bool {
@@ -218,7 +218,6 @@ extension CodexChatModel {
     var canSend: Bool {
         if case .connected = connectionState,
            isAuthenticated,
-           isThreadReady,
            !composerSession.trimmedDraft.isEmpty,
            !isSending || canSendFollowUp {
             return true

@@ -1065,7 +1065,7 @@ public struct CodexSessionSidebar: View {
             VStack(spacing: 8) {
                 SidebarFact(icon: "folder.fill", title: "Workspace", value: workspacePath, mono: true)
                 SidebarFact(icon: "person.badge.key.fill", title: "Auth", value: isAuthenticated ? authLabel : "Sign-in required")
-                SidebarFact(icon: "bubble.left.and.text.bubble.right.fill", title: "Thread", value: isThreadReady ? "Ready" : "Preparing...")
+                SidebarFact(icon: "bubble.left.and.text.bubble.right.fill", title: "Thread", value: isThreadReady ? "Ready" : "Not started")
             }
 
             VStack(alignment: .leading, spacing: 10) {
