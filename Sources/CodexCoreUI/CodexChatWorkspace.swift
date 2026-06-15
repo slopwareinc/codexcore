@@ -196,9 +196,15 @@ public struct CodexChatWorkspaceView: View {
                 )
 
                 Spacer(minLength: 0)
+                if isSending {
+                    CodexInlineChatStatus(activity: activities.first)
+                        .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 8)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 CodexComposerBar(
                     draft: $draft,
-                    connectionState: connectionState,
                     approvalSelection: $approvalSelection,
                     isPlanModeEnabled: $isPlanModeEnabled,
                     approvalOptions: approvalOptions,
@@ -490,7 +496,6 @@ public struct CodexComposerBar: View {
     @Environment(\.codexAgentTheme) private var theme
 
     @Binding private var draft: String
-    private let connectionState: CodexConnectionState
     @Binding private var approvalSelection: CodexApprovalSelection
     @Binding private var isPlanModeEnabled: Bool
     private let approvalOptions: [CodexApprovalSelection]
@@ -512,7 +517,6 @@ public struct CodexComposerBar: View {
 
     public init(
         draft: Binding<String>,
-        connectionState: CodexConnectionState = .disconnected,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
@@ -532,7 +536,6 @@ public struct CodexComposerBar: View {
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil
     ) {
         self._draft = draft
-        self.connectionState = connectionState
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
         self.approvalOptions = approvalOptions
@@ -597,7 +600,6 @@ public struct CodexComposerBar: View {
                     }
 
                     ComposerIconButton(systemImage: "waveform", help: "Dictate") {}
-                    ComposerStatusPill(state: connectionState, isSending: isSending)
 
                     if isSending {
                         // The composer stays live during a run: send steers or
@@ -801,44 +803,32 @@ private struct ComposerIconButton: View {
     }
 }
 
-private struct ComposerStatusPill: View {
+private struct CodexInlineChatStatus: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let state: CodexConnectionState
-    let isSending: Bool
+    let activity: CodexActivity?
 
     var body: some View {
         HStack(spacing: 6) {
-            if isSending {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(theme.colors.running)
-                Text("Working")
-                CodexStreamingDots()
-            } else {
-                Circle()
-                    .fill(color)
-                    .frame(width: 7, height: 7)
-                Text(state.label)
+            ProgressView()
+                .controlSize(.mini)
+                .tint(theme.colors.running)
+            Text(activity?.title ?? "Codex is working")
+                .lineLimit(1)
+            CodexStreamingDots()
+            if let detail = activity?.detail, !detail.isEmpty {
+                Text(detail)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(1)
             }
         }
         .font(theme.fonts.caption.weight(.medium))
         .foregroundStyle(theme.colors.textSecondary)
-        .lineLimit(1)
-        .padding(.horizontal, 9)
-        .frame(height: 30)
-        .background(theme.colors.surfaceSunken.opacity(0.64), in: Capsule())
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(theme.colors.surfaceElevated.opacity(0.76), in: Capsule())
         .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
-        .accessibilityLabel(isSending ? "Codex is working" : state.label)
-    }
-
-    private var color: Color {
-        switch state {
-        case .disconnected: return theme.colors.textTertiary
-        case .connecting: return theme.colors.warning
-        case .connected: return theme.colors.success
-        case .failed: return theme.colors.danger
-        }
+        .accessibilityLabel(activity?.title ?? "Codex is working")
     }
 }
 
