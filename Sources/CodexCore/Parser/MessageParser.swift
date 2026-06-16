@@ -1033,13 +1033,17 @@ public final class MessageParser: Sendable {
         let filePaths: [String]
 
         func metadataValue(forKey key: String) -> String? {
-            let normalized = "metadata" + key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            _ = normalized // avoid unused warning
-            let searchKey = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+            let searchKey = Self.normalizedMetadataKey(key)
             return metadata.first(where: {
-                let currentKey = $0.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-                return currentKey == searchKey
+                Self.normalizedMetadataKey($0.key) == searchKey
             })?.value
+        }
+
+        private static func normalizedMetadataKey(_ key: String) -> String {
+            key.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
