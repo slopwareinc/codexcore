@@ -1075,23 +1075,6 @@ private struct SendButton: View {
     }
 }
 
-private struct CapabilityTag: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let icon: String
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 9.5))
-            Text(text)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-        }
-        .foregroundStyle(theme.colors.textTertiary)
-    }
-}
-
 public struct CodexSessionSidebar: View {
     private let serverName: String?
     private let workspacePath: String
