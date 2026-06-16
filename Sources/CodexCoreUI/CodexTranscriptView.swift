@@ -204,7 +204,7 @@ public struct CodexAgentLifecycleBlock: View {
                         }
 
                         if !event.agentNames.isEmpty {
-                            FlowLayout(spacing: 7) {
+                            HStack(spacing: 7) {
                                 ForEach(event.agentNames, id: \.self) { name in
                                     HStack(spacing: 5) {
                                         Image(systemName: "person.crop.circle.badge.checkmark")
@@ -273,20 +273,6 @@ public struct CodexAgentLifecycleBlock: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(theme.colors.danger)
         }
-    }
-}
-
-private struct FlowLayout<Content: View>: View {
-    let spacing: CGFloat
-    let content: Content
-
-    init(spacing: CGFloat, @ViewBuilder content: () -> Content) {
-        self.spacing = spacing
-        self.content = content()
-    }
-
-    var body: some View {
-        HStack(spacing: spacing) { content }
     }
 }
 

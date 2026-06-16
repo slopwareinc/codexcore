@@ -79,18 +79,14 @@ private struct SummarySection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button {} label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(title)
-                        .font(theme.fonts.caption.weight(.semibold))
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(theme.colors.textTertiary)
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(title)
+                    .font(theme.fonts.caption.weight(.semibold))
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .disabled(true)
+            .foregroundStyle(theme.colors.textTertiary)
 
             content
                 .padding(.leading, 2)
