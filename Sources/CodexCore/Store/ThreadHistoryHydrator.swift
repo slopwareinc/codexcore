@@ -343,11 +343,6 @@ public enum CodexThreadHistoryHydrator {
         }
     }
 
-    private static func stableUnique(_ values: [String]) -> [String] {
-        var seen: Set<String> = []
-        return values.filter { !$0.isEmpty && seen.insert($0).inserted }
-    }
-
     private static func stableUniqueReferences(_ values: [CodexChildThreadReference]) -> [CodexChildThreadReference] {
         var seen: Set<String> = []
         return values.filter { !$0.threadID.isEmpty && seen.insert($0.threadID).inserted }
