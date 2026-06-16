@@ -606,18 +606,13 @@ private struct ComposerAddMenu: View {
 
     var body: some View {
         Menu {
-            Button("Add photos & files") {}
-            Button("Attach Google Chrome") {}
-            Divider()
             Toggle("Plan mode", isOn: $isPlanModeEnabled)
                 .disabled(!canUsePlanMode)
-            Toggle("Pursue goal", isOn: .constant(false))
-            Toggle("Plugins", isOn: .constant(true))
         } label: {
             ComposerChipLabel(systemImage: "plus", title: nil)
         }
         .fixedSize()
-        .help("Add files and more")
+        .help("Conversation options")
     }
 }
 
