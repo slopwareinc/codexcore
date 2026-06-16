@@ -18,8 +18,6 @@ struct CodexExampleAppShell: View {
                 CodexExampleProjectSidebar(
                     serverName: model.serverName,
                     workspacePath: model.workspacePath,
-                    authLabel: model.authLabel,
-                    isAuthenticated: model.isAuthenticated,
                     isThreadReady: model.isThreadReady,
                     currentThreadID: model.currentThreadID,
                     projects: model.recentProjects,
@@ -632,8 +630,6 @@ private struct CodexExampleProjectSidebar: View {
 
     let serverName: String?
     let workspacePath: String
-    let authLabel: String
-    let isAuthenticated: Bool
     let isThreadReady: Bool
     let currentThreadID: String?
     let projects: [CodexProjectSummary]
@@ -653,7 +649,6 @@ private struct CodexExampleProjectSidebar: View {
                         SidebarCommandRow(systemImage: "square.and.pencil", title: "New chat", shortcut: "⌘N", action: onNewChat)
                         SidebarCommandRow(systemImage: "magnifyingglass", title: "Search", shortcut: "⌘K", action: onSearch)
                         SidebarCommandRow(systemImage: "puzzlepiece.extension", title: "Plugins", action: onPlugins)
-                        SidebarCommandRow(systemImage: "clock.arrow.circlepath", title: "Automations")
                     }
 
                     VStack(alignment: .leading, spacing: 5) {
@@ -694,14 +689,6 @@ private struct CodexExampleProjectSidebar: View {
                 .padding(.bottom, 16)
             }
 
-            Divider().overlay(theme.colors.border)
-
-            VStack(spacing: 2) {
-                SidebarCommandRow(systemImage: "person.crop.circle", title: isAuthenticated ? authLabel : "Sign in")
-                SidebarCommandRow(systemImage: "gearshape", title: "Settings")
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
         }
         .frame(width: 303)
         .frame(maxHeight: .infinity)
