@@ -448,50 +448,6 @@ private func codexShortPath(_ path: String) -> String {
     return path
 }
 
-public struct CodexStatusPill: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    private let state: CodexConnectionState
-
-    public init(state: CodexConnectionState) {
-        self.state = state
-    }
-
-    public var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-                .overlay(
-                    Circle().fill(color).frame(width: 7, height: 7)
-                        .opacity(isLive ? 0.6 : 0)
-                        .scaleEffect(isLive ? 2.4 : 1)
-                        .animation(isLive ? .easeOut(duration: 1.4).repeatForever(autoreverses: false) : .default, value: isLive)
-                )
-            Text(state.label)
-                .font(theme.fonts.caption.weight(.medium))
-                .foregroundStyle(theme.colors.textSecondary)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 6)
-        .codexGlass(Capsule())
-    }
-
-    private var isLive: Bool {
-        if case .connected = state { return true }
-        return false
-    }
-
-    private var color: Color {
-        switch state {
-        case .disconnected: return theme.colors.textTertiary
-        case .connecting: return theme.colors.warning
-        case .connected: return theme.colors.success
-        case .failed: return theme.colors.danger
-        }
-    }
-}
-
 public struct CodexComposerBar: View {
     @Environment(\.codexAgentTheme) private var theme
 
