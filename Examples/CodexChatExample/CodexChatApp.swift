@@ -46,7 +46,7 @@ struct CodexChatView: View {
 
             Group {
                 if model.showsChatWorkspace {
-                    ChatWorkspaceView(model: model)
+                    CodexExampleAppShell(model: model)
                         .transition(.opacity)
                 } else if !model.isConnected {
                     WelcomeFlowView(model: model)
@@ -126,15 +126,5 @@ private struct ThemePresetPicker: View {
         .labelsHidden()
         .frame(width: 156)
         .codexGlass(Capsule(), interactive: true)
-    }
-}
-
-// MARK: - Workspace
-
-struct ChatWorkspaceView: View {
-    @Bindable var model: CodexChatModel
-
-    var body: some View {
-        CodexExampleAppShell(model: model)
     }
 }
