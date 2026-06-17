@@ -1,7 +1,7 @@
 import SwiftUI
 import CodexCore
 
-/// A complete reusable Codex chat workspace: transcript, header, composer, and session sidebar.
+/// A complete reusable Codex chat workspace: transcript, header, composer, and agent panels.
 public struct CodexChatWorkspaceView: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -318,18 +318,6 @@ public struct CodexChatHeader: View {
                 )
             }
 
-            ToolbarIconButton(systemImage: "chevron.left", help: "Back") {}
-                .disabled(true)
-            ToolbarIconButton(systemImage: "chevron.right", help: "Forward") {}
-                .disabled(true)
-
-            ToolbarIconButton(systemImage: "square.and.pencil", help: "New chat") {}
-
-            Divider()
-                .overlay(theme.colors.border)
-                .frame(height: 22)
-                .padding(.horizontal, 4)
-
             VStack(alignment: .leading, spacing: 0) {
                 Text("Codex")
                     .font(.system(size: 13, weight: .semibold))
@@ -413,16 +401,12 @@ private struct ChatActionsMenu: View {
 
     var body: some View {
         Menu {
-            actionButton("Pin chat", action: actions.pinChat)
             actionButton("Rename chat", action: actions.renameChat)
             actionButton("Archive chat", action: actions.archiveChat)
             Divider()
             actionButton("Open side chat", action: actions.openSideChat)
             actionButton("Copy", action: actions.copyChat)
             actionButton("Fork", action: actions.forkChat)
-            Divider()
-            actionButton("Add automation...", action: actions.addAutomation)
-            actionButton("Open in new window", action: actions.openInNewWindow)
             Divider()
             Button("Disconnect", action: onDisconnect)
         } label: {

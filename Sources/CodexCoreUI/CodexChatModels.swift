@@ -2,33 +2,24 @@ import Foundation
 import CodexCore
 
 public struct CodexChatActionHandlers {
-    public var pinChat: (() -> Void)?
     public var renameChat: (() -> Void)?
     public var archiveChat: (() -> Void)?
     public var openSideChat: (() -> Void)?
     public var copyChat: (() -> Void)?
     public var forkChat: (() -> Void)?
-    public var addAutomation: (() -> Void)?
-    public var openInNewWindow: (() -> Void)?
 
     public init(
-        pinChat: (() -> Void)? = nil,
         renameChat: (() -> Void)? = nil,
         archiveChat: (() -> Void)? = nil,
         openSideChat: (() -> Void)? = nil,
         copyChat: (() -> Void)? = nil,
-        forkChat: (() -> Void)? = nil,
-        addAutomation: (() -> Void)? = nil,
-        openInNewWindow: (() -> Void)? = nil
+        forkChat: (() -> Void)? = nil
     ) {
-        self.pinChat = pinChat
         self.renameChat = renameChat
         self.archiveChat = archiveChat
         self.openSideChat = openSideChat
         self.copyChat = copyChat
         self.forkChat = forkChat
-        self.addAutomation = addAutomation
-        self.openInNewWindow = openInNewWindow
     }
 }
 
