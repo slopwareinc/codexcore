@@ -614,24 +614,21 @@ public final class Codex: @unchecked Sendable {
 
 }
 
-public final class ChatGPTLoginHandle: Identifiable, @unchecked Sendable {
-    public var id: String { loginId }
-    public let loginId: String
-    public let authUrl: String
+private final class CodexLoginHandleLifecycle: @unchecked Sendable {
+    let loginId: String
 
     private let client: CodexClient
 
-    fileprivate init(client: CodexClient, loginId: String, authUrl: String) {
+    init(client: CodexClient, loginId: String) {
         self.client = client
         self.loginId = loginId
-        self.authUrl = authUrl
     }
 
-    public func stream() -> AsyncStream<CodexNotification> {
+    func stream() -> AsyncStream<CodexNotification> {
         client.loginNotifications(loginId: loginId)
     }
 
-    public func wait() async throws -> AccountLoginCompletedNotification {
+    func wait() async throws -> AccountLoginCompletedNotification {
         for await notification in stream() {
             if case .accountLoginCompleted(let payload) = notification.payload {
                 return payload
@@ -641,42 +638,62 @@ public final class ChatGPTLoginHandle: Identifiable, @unchecked Sendable {
     }
 
     @discardableResult
-    public func cancel() async throws -> CancelLoginAccountResponse {
+    func cancel() async throws -> CancelLoginAccountResponse {
         try await client.accountLoginCancel(loginId: loginId)
+    }
+}
+
+public final class ChatGPTLoginHandle: Identifiable, @unchecked Sendable {
+    public var id: String { loginId }
+    public var loginId: String { lifecycle.loginId }
+    public let authUrl: String
+
+    private let lifecycle: CodexLoginHandleLifecycle
+
+    fileprivate init(client: CodexClient, loginId: String, authUrl: String) {
+        self.lifecycle = CodexLoginHandleLifecycle(client: client, loginId: loginId)
+        self.authUrl = authUrl
+    }
+
+    public func stream() -> AsyncStream<CodexNotification> {
+        lifecycle.stream()
+    }
+
+    public func wait() async throws -> AccountLoginCompletedNotification {
+        try await lifecycle.wait()
+    }
+
+    @discardableResult
+    public func cancel() async throws -> CancelLoginAccountResponse {
+        try await lifecycle.cancel()
     }
 }
 
 public final class DeviceCodeLoginHandle: Identifiable, @unchecked Sendable {
     public var id: String { loginId }
-    public let loginId: String
+    public var loginId: String { lifecycle.loginId }
     public let verificationUrl: String
     public let userCode: String
 
-    private let client: CodexClient
+    private let lifecycle: CodexLoginHandleLifecycle
 
     fileprivate init(client: CodexClient, loginId: String, verificationUrl: String, userCode: String) {
-        self.client = client
-        self.loginId = loginId
+        self.lifecycle = CodexLoginHandleLifecycle(client: client, loginId: loginId)
         self.verificationUrl = verificationUrl
         self.userCode = userCode
     }
 
     public func stream() -> AsyncStream<CodexNotification> {
-        client.loginNotifications(loginId: loginId)
+        lifecycle.stream()
     }
 
     public func wait() async throws -> AccountLoginCompletedNotification {
-        for await notification in stream() {
-            if case .accountLoginCompleted(let payload) = notification.payload {
-                return payload
-            }
-        }
-        throw CodexSDKError.loginStreamEnded(loginId: loginId)
+        try await lifecycle.wait()
     }
 
     @discardableResult
     public func cancel() async throws -> CancelLoginAccountResponse {
-        try await client.accountLoginCancel(loginId: loginId)
+        try await lifecycle.cancel()
     }
 }
 
