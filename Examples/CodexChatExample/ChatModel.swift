@@ -931,7 +931,7 @@ final class CodexChatModel {
         terminalCompletionTask?.cancel()
         terminalOutputTask = nil
         terminalCompletionTask = nil
-        if let session = terminalSession, !session.hasCompleted {
+        if let session = terminalSession, !(await session.hasCompleted) {
             try? await session.terminate()
         }
         terminalSession = nil
