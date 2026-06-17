@@ -4,6 +4,42 @@ struct MarkdownFence {
     let language: String
     let content: String
 
+    static func parseAll(in text: String) -> [MarkdownFence] {
+        let lines = text.components(separatedBy: "\n")
+        var fences: [MarkdownFence] = []
+        var index = 0
+
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let opening = MarkdownFenceOpening(line: trimmed) else {
+                index += 1
+                continue
+            }
+
+            let language = String(trimmed.dropFirst(opening.length))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var collected: [String] = []
+            var cursor = index + 1
+
+            while cursor < lines.count {
+                let candidate = lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+                if MarkdownFenceTracker.isClosing(candidate, marker: opening.marker, minLength: opening.length) {
+                    let content = collected.joined(separator: "\n").trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+                    fences.append(MarkdownFence(language: language, content: content))
+                    index = cursor
+                    break
+                }
+
+                collected.append(lines[cursor])
+                cursor += 1
+            }
+
+            index += 1
+        }
+
+        return fences
+    }
+
     static func parseSingle(_ text: String) -> MarkdownFence? {
         let lines = text.components(separatedBy: "\n")
         guard let firstLine = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),

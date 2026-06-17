@@ -29,11 +29,6 @@ enum CodeReviewPayloadParser {
         options: []
     )
 
-    private struct FenceOpening {
-        let marker: Character
-        let length: Int
-    }
-
     private struct RawFinding: Decodable {
         let title: String
         let body: String
@@ -113,40 +108,14 @@ enum CodeReviewPayloadParser {
     }
 
     private static func extractFencedJSONCandidates(_ text: String) -> [String] {
-        let lines = text.components(separatedBy: "\n")
         var candidates: [String] = []
-        var index = 0
-
-        while index < lines.count {
-            let trimmed = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let opening = openingFence(trimmed) else {
-                index += 1
-                continue
-            }
-
-            let language = String(trimmed.dropFirst(opening.length))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            var contentLines: [String] = []
-            var cursor = index + 1
-
-            while cursor < lines.count {
-                if isClosingFence(lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines), marker: opening.marker, minLength: opening.length) {
-                    appendJSONCandidates(
-                        from: contentLines.joined(separator: "\n"),
-                        language: language,
-                        to: &candidates
-                    )
-                    index = cursor
-                    break
-                }
-                contentLines.append(lines[cursor])
-                cursor += 1
-            }
-
-            index += 1
+        for fence in MarkdownFence.parseAll(in: text) {
+            appendJSONCandidates(
+                from: fence.content,
+                language: fence.language.lowercased(),
+                to: &candidates
+            )
         }
-
         return candidates
     }
 
@@ -209,19 +178,6 @@ enum CodeReviewPayloadParser {
         }
 
         return candidates
-    }
-
-    private static func openingFence(_ line: String) -> FenceOpening? {
-        guard let first = line.first, first == "`" || first == "~" else { return nil }
-
-        let count = line.prefix(while: { $0 == first }).count
-        guard count >= 3 else { return nil }
-        return FenceOpening(marker: first, length: count)
-    }
-
-    private static func isClosingFence(_ line: String, marker: Character, minLength: Int) -> Bool {
-        guard line.allSatisfy({ $0 == marker }) else { return false }
-        return line.count >= minLength
     }
 
     private static func normalizePath(_ path: String) -> String {

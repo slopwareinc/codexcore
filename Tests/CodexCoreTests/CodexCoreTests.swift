@@ -550,6 +550,18 @@ final class CodexCoreTests: XCTestCase {
         XCTAssertEqual(payload?.findings[0].codeLocation?.lineRange?.start, 799)
         XCTAssertEqual(payload?.findings[0].codeLocation?.lineRange?.end, 815)
         XCTAssertEqual(payload?.overallCorrectness, "incorrect")
+
+        let fencedPayload = MessageContentBridge.parseCodeReview(text: """
+        Ignore this shell example:
+        ```bash
+        echo "{}"
+        ```
+
+        ```json
+        \(jsonStr)
+        ```
+        """)
+        XCTAssertEqual(fencedPayload?.findings.first?.title, "Fall back to turn/start when queue sync fails")
     }
 
     func testParseToolCallsMarkdown() throws {
