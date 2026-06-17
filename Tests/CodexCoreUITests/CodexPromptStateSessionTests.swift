@@ -176,28 +176,8 @@ final class CodexPromptStateSessionTests: XCTestCase {
     }
 
     @MainActor
-    func testPromptEventSessionOwnsPollingAndBridgeEventTasks() async {
+    func testPromptEventSessionOwnsBridgeEventTasks() async {
         let session = CodexPromptEventSession()
-        var syncCount = 0
-        let syncExpectation = expectation(description: "approval snapshot synced")
-        session.startApprovalSnapshotMirror(
-            intervalNanoseconds: 10_000_000,
-            snapshot: {
-                (
-                    approvalRequests: [approvalRequest(id: "approval-1", command: "swift test")],
-                    userInput: nil
-                )
-            },
-            onSync: { approvals, userInput in
-                XCTAssertEqual(approvals.map(\.requestId), [.string("approval-1")])
-                XCTAssertNil(userInput)
-                if syncCount == 0 {
-                    syncExpectation.fulfill()
-                }
-                syncCount += 1
-            }
-        )
-        await fulfillment(of: [syncExpectation], timeout: 1)
 
         var continuation: AsyncStream<CodexInteractivePromptEvent>.Continuation?
         let events = AsyncStream<CodexInteractivePromptEvent> { continuation = $0 }
@@ -213,6 +193,54 @@ final class CodexPromptStateSessionTests: XCTestCase {
         XCTAssertEqual(receivedEvents, [.resolved("prompt-1")])
 
         session.reset()
+    }
+
+    @MainActor
+    func testPromptRuntimeSessionSyncsApprovalStoreOnPendingApprovalsChange() async {
+        let store = CodexCoreStore()
+        let runtime = CodexPromptRuntimeSession()
+        var activities: [CodexPromptStateActivity] = []
+        let syncExpectation = expectation(description: "approval synced from store")
+        syncExpectation.expectedFulfillmentCount = 1
+
+        runtime.bindApprovalStore(from: store) { activity in
+            activities.append(activity)
+            syncExpectation.fulfill()
+        }
+
+        store.dispatchRequest(approvalRequest(id: "approval-1", command: "swift test"))
+        await fulfillment(of: [syncExpectation], timeout: 1)
+
+        XCTAssertEqual(runtime.approvalPrompts.map(\.id), ["approval-1"])
+        XCTAssertEqual(activities, [
+            CodexPromptStateActivity(title: "Approval requested", detail: "swift test")
+        ])
+
+        runtime.reset()
+    }
+
+    @MainActor
+    func testPromptRuntimeSessionSyncsUserInputFromStore() async {
+        let store = CodexCoreStore()
+        let runtime = CodexPromptRuntimeSession()
+        var activities: [CodexPromptStateActivity] = []
+        let syncExpectation = expectation(description: "user input synced from store")
+        syncExpectation.expectedFulfillmentCount = 1
+
+        runtime.bindApprovalStore(from: store) { activity in
+            activities.append(activity)
+            syncExpectation.fulfill()
+        }
+
+        store.dispatchRequest(userInputRequest(id: "input-1", question: "Continue?"))
+        await fulfillment(of: [syncExpectation], timeout: 1)
+
+        XCTAssertEqual(runtime.interactivePrompts.map(\.id), ["input-1"])
+        XCTAssertEqual(activities, [
+            CodexPromptStateActivity(title: "Input requested", detail: "Continue?")
+        ])
+
+        runtime.reset()
     }
 
     @MainActor
