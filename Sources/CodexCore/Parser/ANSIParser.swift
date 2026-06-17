@@ -1,18 +1,59 @@
 import Foundation
-import SwiftUI
+
+// MARK: - ANSI semantic color attributes (SGR codes 30–37, 39, 90–97)
+
+public enum ANSIForegroundColor: Equatable, Sendable {
+    case `default`
+    case black
+    case red
+    case green
+    case yellow
+    case blue
+    case purple
+    case cyan
+    case white
+    case brightBlack
+    case brightRed
+    case brightGreen
+    case brightYellow
+    case brightBlue
+    case brightPurple
+    case brightCyan
+    case brightWhite
+}
+
+public enum ANSIBackgroundColor: Equatable, Sendable {
+    case `default`
+    case black
+    case red
+    case green
+    case yellow
+    case blue
+    case purple
+    case cyan
+    case white
+    case brightBlack
+    case brightRed
+    case brightGreen
+    case brightYellow
+    case brightBlue
+    case brightPurple
+    case brightCyan
+    case brightWhite
+}
 
 // MARK: - ANSI Style Definition
 
 public struct ANSIStyle: Equatable, Sendable {
-    public var foregroundColor: Color = .primary
-    public var backgroundColor: Color? = nil
+    public var foregroundColor: ANSIForegroundColor = .default
+    public var backgroundColor: ANSIBackgroundColor? = nil
     public var isBold: Bool = false
     public var isUnderlined: Bool = false
 
     public init() {}
 
     public mutating func reset() {
-        self.foregroundColor = .primary
+        self.foregroundColor = .default
         self.backgroundColor = nil
         self.isBold = false
         self.isUnderlined = false
@@ -111,38 +152,6 @@ public final class ANSIParser: Sendable {
         return segments
     }
 
-    /// Converts styled segments into a single native SwiftUI AttributedString.
-    @available(macOS 12.0, iOS 15.0, *)
-    public func makeAttributedString(from segments: [ANSISegment]) -> Foundation.AttributedString {
-        var result = Foundation.AttributedString()
-
-        for segment in segments {
-            var span = Foundation.AttributedString(segment.text)
-
-            // Apply bold modifier
-            if segment.style.isBold {
-                span.inlinePresentationIntent = .stronglyEmphasized
-            }
-
-            // Apply underline modifier
-            if segment.style.isUnderlined {
-                span.underlineStyle = .single
-            }
-
-            // Apply foreground color
-            span.foregroundColor = segment.style.foregroundColor
-
-            // Apply background color if set
-            if let bg = segment.style.backgroundColor {
-                span.backgroundColor = bg
-            }
-
-            result.append(span)
-        }
-
-        return result
-    }
-
     // MARK: - SGR Parser Helper
 
     private func applySGR(_ params: String, to style: inout ANSIStyle) {
@@ -171,17 +180,17 @@ public final class ANSIParser: Sendable {
             case 35: style.foregroundColor = .purple
             case 36: style.foregroundColor = .cyan
             case 37: style.foregroundColor = .white
-            case 39: style.foregroundColor = .primary // Default foreground
+            case 39: style.foregroundColor = .default
 
-            // Bright Foreground colors
-            case 90: style.foregroundColor = .gray
-            case 91: style.foregroundColor = Color(red: 1.0, green: 0.3, blue: 0.3)
-            case 92: style.foregroundColor = Color(red: 0.3, green: 1.0, blue: 0.3)
-            case 93: style.foregroundColor = Color(red: 1.0, green: 1.0, blue: 0.3)
-            case 94: style.foregroundColor = Color(red: 0.3, green: 0.3, blue: 1.0)
-            case 95: style.foregroundColor = Color(red: 1.0, green: 0.3, blue: 1.0)
-            case 96: style.foregroundColor = Color(red: 0.3, green: 1.0, blue: 1.0)
-            case 97: style.foregroundColor = .white
+            // Bright foreground colors
+            case 90: style.foregroundColor = .brightBlack
+            case 91: style.foregroundColor = .brightRed
+            case 92: style.foregroundColor = .brightGreen
+            case 93: style.foregroundColor = .brightYellow
+            case 94: style.foregroundColor = .brightBlue
+            case 95: style.foregroundColor = .brightPurple
+            case 96: style.foregroundColor = .brightCyan
+            case 97: style.foregroundColor = .brightWhite
 
             // Background colors
             case 40: style.backgroundColor = .black
@@ -192,17 +201,17 @@ public final class ANSIParser: Sendable {
             case 45: style.backgroundColor = .purple
             case 46: style.backgroundColor = .cyan
             case 47: style.backgroundColor = .white
-            case 49: style.backgroundColor = nil // Default background
+            case 49: style.backgroundColor = nil
 
-            // Bright Background colors
-            case 100: style.backgroundColor = .gray
-            case 101: style.backgroundColor = Color(red: 1.0, green: 0.4, blue: 0.4)
-            case 102: style.backgroundColor = Color(red: 0.4, green: 1.0, blue: 0.4)
-            case 103: style.backgroundColor = Color(red: 1.0, green: 1.0, blue: 0.4)
-            case 104: style.backgroundColor = Color(red: 0.4, green: 0.4, blue: 1.0)
-            case 105: style.backgroundColor = Color(red: 1.0, green: 0.4, blue: 1.0)
-            case 106: style.backgroundColor = Color(red: 0.4, green: 1.0, blue: 1.0)
-            case 107: style.backgroundColor = .white
+            // Bright background colors
+            case 100: style.backgroundColor = .brightBlack
+            case 101: style.backgroundColor = .brightRed
+            case 102: style.backgroundColor = .brightGreen
+            case 103: style.backgroundColor = .brightYellow
+            case 104: style.backgroundColor = .brightBlue
+            case 105: style.backgroundColor = .brightPurple
+            case 106: style.backgroundColor = .brightCyan
+            case 107: style.backgroundColor = .brightWhite
 
             default:
                 break
