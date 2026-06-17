@@ -75,7 +75,8 @@ public enum CodexChatNotificationPipeline {
 
         guard mode == .mainTurnStream ||
             goalSession.isActiveTurnNotification(notification) ||
-            mainChatSession.isCompletion(notification) else {
+            mainChatSession.isCompletion(notification) ||
+            isGlobalNoticeCardNotification(notification) else {
             return nil
         }
 
@@ -143,6 +144,9 @@ public enum CodexChatNotificationPipeline {
             if agentStateMapper.updateSubagentMetadata(id: metadata.threadID, name: metadata.name, role: metadata.role) {
                 result.syncAgentState = true
             }
+
+        case .threadListChanged:
+            result.actions.append(.refreshRecentChats)
 
         case .skillsChanged:
             result.actions.append(.refreshSlashCommands(forceReload: true))
@@ -300,5 +304,35 @@ public enum CodexChatNotificationPipeline {
 
     private static func activity(_ kind: CodexActivity.Kind, title: String, detail: String) -> CodexActivity {
         CodexActivity(kind: kind, title: title, detail: detail)
+    }
+
+    private static func isGlobalNoticeCardNotification(_ notification: CodexNotification) -> Bool {
+        let method: CodexAppServerNotificationMethod
+        let params: [String: CodexJSONValue]
+        switch notification.payload {
+        case .known(let knownMethod, let knownParams):
+            method = knownMethod
+            params = knownParams
+        case .unknown(let rawMethod, let rawParams):
+            guard let knownMethod = CodexAppServerNotificationMethod(rawValue: rawMethod) else { return false }
+            method = knownMethod
+            params = rawParams
+        default:
+            return false
+        }
+
+        guard method == .guardianWarning
+            || method == .itemAutoApprovalReviewStarted
+            || method == .itemAutoApprovalReviewCompleted else {
+            return false
+        }
+
+        guard let route = CodexNotificationMetadata.knownRoute(method: method, params: params) else {
+            return false
+        }
+        if case .notice = route {
+            return true
+        }
+        return false
     }
 }
