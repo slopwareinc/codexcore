@@ -64,7 +64,7 @@ final class CodexChatModel {
                 applySideChatUpdate: { [weak self] update in self?.applySideChat(update) }
             )
             runtimeSession.consumeGlobalNotifications(from: codex)
-            startApprovalStoreMirror()
+            bindApprovalStore(from: codex.store)
             let server = codex.metadata.serverInfo?.name ?? "Codex"
             authSession.connected(server: server)
 
@@ -709,9 +709,8 @@ final class CodexChatModel {
         runtimeSession.resetGoal()
     }
 
-    private func startApprovalStoreMirror() {
-        guard let codex else { return }
-        promptRuntime.startApprovalStoreMirror(from: codex) { [weak self] activity in
+    private func bindApprovalStore(from store: CodexCoreStore) {
+        promptRuntime.bindApprovalStore(from: store) { [weak self] activity in
             guard let self else { return }
             appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
