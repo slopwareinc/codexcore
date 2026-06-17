@@ -645,8 +645,8 @@ public final class CodexCoreStore {
         var thread = snapshotForMutation(threadID: threadId)
         guard let turnIdx = turnIndex(turnId, in: &thread) else { return }
 
-        let currentText = streamingBuffers[itemId, default: ""] + delta
-        streamingBuffers[itemId] = currentText
+        streamingBuffers[itemId, default: ""].append(delta)
+        let currentText = streamingBuffers[itemId, default: ""]
 
         let updatedItem = itemCreator(currentText)
         if let itemIdx = thread.turns[turnIdx].items.firstIndex(where: { $0.id == itemId }) {
