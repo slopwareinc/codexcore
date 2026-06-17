@@ -90,6 +90,7 @@ final class CodexChatModel {
     func disconnect() async {
         runtimeSession.reset()
         promptRuntime.reset()
+        mentionSearchSession.reset()
         loginTask?.cancel()
         await promptRuntime.cancelAllPrompts()
         loginTask = nil

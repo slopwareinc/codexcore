@@ -7,20 +7,16 @@ public final class CodexPromptEventSession {
 
     public init() {}
 
-    deinit {
-        interactivePromptEventTask?.cancel()
-    }
-
     public func startInteractivePromptEventListener(
         from bridge: CodexInteractivePromptBridge,
         onEvent: @escaping @MainActor (CodexInteractivePromptEvent) -> Void
     ) {
         interactivePromptEventTask?.cancel()
-        interactivePromptEventTask = Task { [bridge] in
+        interactivePromptEventTask = Task { @MainActor [bridge] in
             let events = await bridge.events()
             for await event in events {
                 guard !Task.isCancelled else { return }
-                await MainActor.run { onEvent(event) }
+                onEvent(event)
             }
         }
     }
@@ -30,10 +26,10 @@ public final class CodexPromptEventSession {
         onEvent: @escaping @MainActor (CodexInteractivePromptEvent) -> Void
     ) {
         interactivePromptEventTask?.cancel()
-        interactivePromptEventTask = Task {
+        interactivePromptEventTask = Task { @MainActor in
             for await event in events {
                 guard !Task.isCancelled else { return }
-                await MainActor.run { onEvent(event) }
+                onEvent(event)
             }
         }
     }
