@@ -27,6 +27,7 @@ public struct CodexGlobalNotificationRouteResult: Equatable, Sendable {
 
 public enum CodexGlobalNotificationAction: Equatable, Sendable {
     case threadStartedMetadata(CodexThreadStartedMetadata)
+    case threadListChanged
     case skillsChanged
     case threadCompacted(threadID: String?)
     case goalUpdated(goal: ThreadGoal, turnID: String?)
@@ -94,6 +95,8 @@ public enum CodexGlobalNotificationRouter {
         switch method {
         case .threadStarted:
             return handled(threadStartedMetadata(from: params).map(CodexGlobalNotificationAction.threadStartedMetadata))
+        case .threadArchived, .threadDeleted, .threadNameUpdated:
+            return handled(.threadListChanged)
         case .skillsChanged:
             return handled(.skillsChanged)
         case .threadCompacted:

@@ -117,6 +117,27 @@ final class CodexNotificationHistoryTests: XCTestCase {
         ))))
         XCTAssertEqual(skills.action, .skillsChanged)
 
+        let archived = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.known(
+            method: .threadArchived,
+            params: ["threadId": .string("thread-1")]
+        ))))
+        XCTAssertEqual(archived.action, .threadListChanged)
+
+        let renamed = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.unknown(
+            method: CodexAppServerNotificationMethod.threadNameUpdated.rawValue,
+            params: [
+                "threadId": .string("thread-1"),
+                "name": .string("Renamed thread")
+            ]
+        ))))
+        XCTAssertEqual(renamed.action, .threadListChanged)
+
+        let deleted = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.known(
+            method: .threadDeleted,
+            params: ["threadId": .string("thread-1")]
+        ))))
+        XCTAssertEqual(deleted.action, .threadListChanged)
+
         let compacted = try XCTUnwrap(CodexGlobalNotificationRouter.apply(transcriptNotification(.known(method: .threadCompacted, params: [
             "thread": .dictionary(["id": .string("thread-1")])
         ]))))
