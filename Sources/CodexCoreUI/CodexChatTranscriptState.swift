@@ -10,6 +10,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     private var planMessageIDsByItemID: [String: UUID]
     private var toolCallMessageIDsByItemID: [String: UUID]
     private var noticeMessageIDsByItemID: [String: UUID]
+    private var reasoningMessageIDsByItemID: [String: UUID]
 
     public init(messages: [CodexChatMessage] = []) {
         self.messages = messages
@@ -19,6 +20,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
         self.planMessageIDsByItemID = [:]
         self.toolCallMessageIDsByItemID = [:]
         self.noticeMessageIDsByItemID = [:]
+        self.reasoningMessageIDsByItemID = [:]
         rebuildItemIndexes()
     }
 
@@ -59,6 +61,9 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
         case .notice:
             guard let notice = message.notice else { return false }
             upsertNotice(notice)
+        case .reasoning:
+            guard let block = message.reasoningBlock else { return false }
+            upsertReasoning(block)
         case .user, .system:
             append(message)
         }
@@ -110,6 +115,9 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
         case "mcpToolCall", "toolCall":
             guard let toolCall = message.toolCall else { return nil }
             upsertToolCall(toolCall)
+        case "reasoning":
+            guard let block = message.reasoningBlock else { return nil }
+            upsertReasoning(block)
         default:
             messages.append(message)
         }
@@ -134,6 +142,45 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
             isStreaming: true
         )
         append(CodexChatTranscriptProjection.commandMessage(run))
+    }
+
+    public mutating func appendReasoningDelta(_ delta: String, itemID: String, isSummary: Bool = false) {
+        if let index = index(for: itemID, in: reasoningMessageIDsByItemID) {
+            messages[index].reasoningBlock?.text.append(delta)
+            if isSummary {
+                messages[index].reasoningBlock?.isSummary = true
+            }
+            messages[index].reasoningBlock?.isStreaming = true
+            messages[index].text = messages[index].reasoningBlock?.text ?? ""
+            messages[index].isStreaming = true
+            return
+        }
+
+        let block = CodexChatMessage.reasoningBlock(
+            itemID: itemID,
+            text: delta,
+            isSummary: isSummary,
+            isStreaming: true
+        )
+        append(CodexChatMessage.reasoningMessage(block))
+    }
+
+    public mutating func upsertReasoning(_ block: CodexChatMessage.ReasoningBlock) {
+        if let index = index(for: block.itemID, in: reasoningMessageIDsByItemID) {
+            var merged = block
+            if merged.text.isEmpty {
+                merged.text = messages[index].reasoningBlock?.text ?? ""
+            }
+            if messages[index].reasoningBlock?.isSummary == true {
+                merged.isSummary = true
+            }
+            messages[index].reasoningBlock = merged
+            messages[index].text = merged.text
+            messages[index].isStreaming = merged.isStreaming
+            return
+        }
+
+        append(CodexChatMessage.reasoningMessage(block))
     }
 
     public mutating func appendFileChangeOutput(_ delta: String, itemID: String) {
@@ -259,6 +306,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
             messages[index].planUpdate?.isStreaming = false
             messages[index].toolCall?.isStreaming = false
             messages[index].notice?.isStreaming = false
+            messages[index].reasoningBlock?.isStreaming = false
         }
     }
 
@@ -301,6 +349,8 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
             return planMessageIDsByItemID[itemID] != nil
         case "mcpToolCall", "toolCall":
             return toolCallMessageIDsByItemID[itemID] != nil
+        case "reasoning":
+            return reasoningMessageIDsByItemID[itemID] != nil
         default:
             return false
         }
@@ -329,6 +379,10 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
         case .notice:
             if let itemID = message.notice?.itemID {
                 noticeMessageIDsByItemID[itemID] = message.id
+            }
+        case .reasoning:
+            if let itemID = message.reasoningBlock?.itemID {
+                reasoningMessageIDsByItemID[itemID] = message.id
             }
         case .user, .system:
             break

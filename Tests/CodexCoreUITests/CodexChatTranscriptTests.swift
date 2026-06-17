@@ -617,4 +617,63 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertEqual(session.messages[0].commandRun?.output, "store output\n")
     }
 
+    func testReasoningAndCommandStreamingRoutesIntoTranscript() throws {
+        let startedReasoning = try transcriptThreadItem([
+            "id": .string("reason-1"),
+            "type": .string("reasoning"),
+            "text": .string(""),
+            "status": .string("inProgress")
+        ])
+        let completedReasoning = try transcriptThreadItem([
+            "id": .string("reason-1"),
+            "type": .string("reasoning"),
+            "text": .string("Need to inspect the failing test first."),
+            "status": .string("completed")
+        ])
+
+        var transcript = CodexChatTranscriptState()
+        routeTranscriptNotification(
+            .itemStarted(ItemStartedNotification(threadId: "thread-1", turnId: "turn-1", item: startedReasoning)),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .known(method: .itemReasoningTextDelta, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("reason-1"),
+                "delta": .string("Need to inspect")
+            ]),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .known(method: .itemReasoningSummaryTextDelta, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("reason-1"),
+                "delta": .string(" the failing test.")
+            ]),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .itemCompleted(ItemCompletedNotification(threadId: "thread-1", turnId: "turn-1", item: completedReasoning)),
+            to: &transcript
+        )
+        routeTranscriptNotification(
+            .known(method: .itemCommandExecutionOutputDelta, params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("cmd-1"),
+                "delta": .string("Build succeeded\n")
+            ]),
+            to: &transcript
+        )
+
+        XCTAssertEqual(transcript.messages.map(\.role), [.reasoning, .terminal])
+        XCTAssertEqual(transcript.messages[0].reasoningBlock?.text, "Need to inspect the failing test first.")
+        XCTAssertEqual(transcript.messages[0].reasoningBlock?.isSummary, true)
+        XCTAssertEqual(transcript.messages[0].reasoningBlock?.isStreaming, false)
+        XCTAssertEqual(transcript.messages[1].commandRun?.output, "Build succeeded\n")
+        XCTAssertTrue(transcript.messages[1].commandRun?.isStreaming == true)
+    }
+
 }

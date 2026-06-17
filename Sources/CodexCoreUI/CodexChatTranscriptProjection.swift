@@ -106,8 +106,13 @@ public enum CodexChatTranscriptProjection {
             }
             return CodexChatMessage(role: .assistant, text: text, detail: phase, isStreaming: isStreaming, createdAt: timestamp)
 
-        case .reasoning:
-            return nil
+        case .reasoning(let id, let text, let timestamp, let isStreaming):
+            let block = CodexChatMessage.reasoningBlock(
+                itemID: id,
+                text: text,
+                isStreaming: isStreaming
+            )
+            return CodexChatMessage.reasoningMessage(block, createdAt: timestamp)
 
         case .toolCall(let id, let name, let arguments, let status, let timestamp):
             if case .toolCall(let detail)? = detail {

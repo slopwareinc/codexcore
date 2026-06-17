@@ -331,6 +331,12 @@ public struct CodexMessageRow: View {
                     CodexNoticeCard(notice: notice)
                 }
             }
+        case .reasoning:
+            if let block = message.reasoningBlock {
+                CodexAgentRow {
+                    CodexReasoningCard(block: block)
+                }
+            }
         case .assistant:
             CodexAgentRow {
                 CodexAssistantMessageView(message: message, assistantName: assistantName)

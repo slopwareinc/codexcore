@@ -6,6 +6,34 @@ public extension CodexChatMessage {
         MessageContentBridge.assistantRenderBlocks(text)
     }
 
+    static func reasoningBlock(
+        itemID: String,
+        text: String = "",
+        isSummary: Bool = false,
+        isStreaming: Bool = false
+    ) -> ReasoningBlock {
+        ReasoningBlock(
+            itemID: itemID,
+            text: text,
+            isSummary: isSummary,
+            isStreaming: isStreaming
+        )
+    }
+
+    static func reasoningMessage(
+        _ block: ReasoningBlock,
+        createdAt: Date = Date()
+    ) -> CodexChatMessage {
+        CodexChatMessage(
+            role: .reasoning,
+            text: block.text,
+            isStreaming: block.isStreaming,
+            createdAt: createdAt,
+            parseContent: false,
+            reasoningBlock: block
+        )
+    }
+
     static func fileChange(
         itemID: String,
         raw: [String: CodexJSONValue],
