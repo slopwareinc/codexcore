@@ -93,6 +93,88 @@ final class CodexPromptStateSessionTests: XCTestCase {
         XCTAssertEqual(response, .dictionary(["answers": .dictionary(["confirm": .string("yes")])]))
     }
 
+    func testInteractivePromptBridgeSecondEventsCallFinishesPreviousStream() async throws {
+        let bridge = CodexInteractivePromptBridge()
+        let request = userInputServerRequest()
+        let expectedPrompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: request))
+
+        let firstEvents = await bridge.events()
+        let firstFinished = expectation(description: "first stream finished")
+        let firstTask = Task {
+            var iterator = firstEvents.makeAsyncIterator()
+            let event = await iterator.next()
+            XCTAssertNil(event)
+            firstFinished.fulfill()
+        }
+
+        let secondEvents = await bridge.events()
+        await fulfillment(of: [firstFinished], timeout: 1)
+        await firstTask.value
+
+        let secondEventTask = Task {
+            var iterator = secondEvents.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let responseTask = Task {
+            await bridge.handle(request)
+        }
+
+        let event = await secondEventTask.value
+        guard case .added(let prompt)? = event else {
+            return XCTFail("Expected added prompt event on second stream")
+        }
+        XCTAssertEqual(prompt.id, expectedPrompt.id)
+
+        await bridge.resolveUserInput(id: expectedPrompt.id, answers: ["confirm": "yes"])
+        _ = await responseTask.value
+    }
+
+    func testInteractivePromptBridgeClearsContinuationOnTermination() async throws {
+        let bridge = CodexInteractivePromptBridge()
+        let request = userInputServerRequest()
+        let expectedPrompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: request))
+
+        do {
+            let firstEvents = await bridge.events()
+            let firstEventTask = Task {
+                var iterator = firstEvents.makeAsyncIterator()
+                return await iterator.next()
+            }
+            let firstResponseTask = Task {
+                await bridge.handle(request)
+            }
+
+            let firstEvent = await firstEventTask.value
+            guard case .added(let prompt)? = firstEvent else {
+                return XCTFail("Expected added prompt event")
+            }
+            XCTAssertEqual(prompt.id, expectedPrompt.id)
+
+            await bridge.resolveUserInput(id: expectedPrompt.id, answers: ["confirm": "yes"])
+            _ = await firstResponseTask.value
+        }
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let secondEvents = await bridge.events()
+        let secondEventTask = Task {
+            var iterator = secondEvents.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let secondResponseTask = Task {
+            await bridge.handle(request)
+        }
+
+        let secondEvent = await secondEventTask.value
+        guard case .added(let replayedPrompt)? = secondEvent else {
+            return XCTFail("Expected prompt event after stream termination")
+        }
+        XCTAssertEqual(replayedPrompt.id, expectedPrompt.id)
+
+        await bridge.resolveUserInput(id: expectedPrompt.id, answers: ["confirm": "yes"])
+        _ = await secondResponseTask.value
+    }
+
     @MainActor
     func testPromptEventSessionOwnsPollingAndBridgeEventTasks() async {
         let session = CodexPromptEventSession()
