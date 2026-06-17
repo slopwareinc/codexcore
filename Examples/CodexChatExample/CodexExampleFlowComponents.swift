@@ -1,15 +1,16 @@
 import SwiftUI
+import CodexCoreUI
 
-public struct CodexGlassPanel<Content: View>: View {
+struct CodexGlassPanel<Content: View>: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let content: Content
 
-    public init(@ViewBuilder content: () -> Content) {
+    init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    public var body: some View {
+    var body: some View {
         content
             .padding(34)
             .frame(maxWidth: 540)
@@ -18,7 +19,7 @@ public struct CodexGlassPanel<Content: View>: View {
     }
 }
 
-public struct CodexLabeledTextField: View {
+struct CodexLabeledTextField: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let title: String
@@ -26,14 +27,14 @@ public struct CodexLabeledTextField: View {
     @Binding private var text: String
     private let systemImage: String
 
-    public init(title: String, subtitle: String, text: Binding<String>, systemImage: String) {
+    init(title: String, subtitle: String, text: Binding<String>, systemImage: String) {
         self.title = title
         self.subtitle = subtitle
         self._text = text
         self.systemImage = systemImage
     }
 
-    public var body: some View {
+    var body: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.system(size: 15))
@@ -63,16 +64,16 @@ public struct CodexLabeledTextField: View {
     }
 }
 
-public struct CodexErrorBanner: View {
+struct CodexErrorBanner: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let message: String
 
-    public init(message: String) {
+    init(message: String) {
         self.message = message
     }
 
-    public var body: some View {
+    var body: some View {
         Label {
             Text(message)
                 .font(.system(size: 12))
@@ -87,20 +88,20 @@ public struct CodexErrorBanner: View {
     }
 }
 
-public struct CodexDeviceCodeCard: View {
+struct CodexDeviceCodeCard: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let code: String
     private let urlString: String?
     private let openURL: OpenURLAction
 
-    public init(code: String, urlString: String?, openURL: OpenURLAction) {
+    init(code: String, urlString: String?, openURL: OpenURLAction) {
         self.code = code
         self.urlString = urlString
         self.openURL = openURL
     }
 
-    public var body: some View {
+    var body: some View {
         VStack(spacing: 10) {
             Text("Enter this code in your browser")
                 .font(.system(size: 11.5, weight: .semibold))
