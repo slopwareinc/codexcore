@@ -108,8 +108,6 @@ public struct CodexComposerBar: View {
                             .transition(.opacity)
                     }
 
-                    ComposerIconButton(systemImage: "waveform", help: "Dictate") {}
-
                     if isSending {
                         // The composer stays live during a run: send steers or
                         // queues the draft, stop interrupts the turn.
