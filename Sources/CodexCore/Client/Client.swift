@@ -885,8 +885,9 @@ public actor CodexClient {
         }
 
         if method == CodexAppServerNotificationMethod.commandExecOutputDelta.rawValue {
-            guard let route = outputDeltaRoute(params: params, targetIDKey: "processId") else { return }
-            activeCommandSessions[route.targetID]?.receiveOutput(
+            guard let route = outputDeltaRoute(params: params, targetIDKey: "processId"),
+                  let session = activeCommandSessions[route.targetID] else { return }
+            await session.receiveOutput(
                 streamName: route.stream,
                 base64Data: route.base64Data,
                 capReached: route.capReached
@@ -1122,13 +1123,13 @@ public actor CodexClient {
         }
     }
 
-    private func completeCommandSession(processId: String, result: CodexCommandExecResult) {
-        activeCommandSessions[processId]?.complete(result)
+    private func completeCommandSession(processId: String, result: CodexCommandExecResult) async {
+        await activeCommandSessions[processId]?.complete(result)
         activeCommandSessions.removeValue(forKey: processId)
     }
 
-    private func failCommandSession(processId: String, error: Error) {
-        activeCommandSessions[processId]?.fail(error)
+    private func failCommandSession(processId: String, error: Error) async {
+        await activeCommandSessions[processId]?.fail(error)
         activeCommandSessions.removeValue(forKey: processId)
     }
 

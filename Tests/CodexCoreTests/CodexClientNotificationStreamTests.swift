@@ -441,7 +441,8 @@ extension CodexClientTerminalTests {
 
         let result = try await waitTask.value
         XCTAssertEqual(result.exitCode, 0)
-        XCTAssertTrue(session.hasCompleted)
+        let hasCompleted = await session.hasCompleted
+        XCTAssertTrue(hasCompleted)
 
         let writePayload = sentPayloads.last { $0["method"]?.description == "command/exec/write" }
         let resizePayload = sentPayloads.last { $0["method"]?.description == "command/exec/resize" }
