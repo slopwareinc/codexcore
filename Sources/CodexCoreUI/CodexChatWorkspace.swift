@@ -12,6 +12,8 @@ public struct CodexChatWorkspaceView: View {
     private let activities: [CodexActivity]
     private let connectionState: CodexConnectionState
     private let workspacePath: String
+    private let rateLimitBannerMessage: String?
+    private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
     private let chatActions: CodexChatActionHandlers
@@ -54,6 +56,8 @@ public struct CodexChatWorkspaceView: View {
         activities: [CodexActivity],
         connectionState: CodexConnectionState,
         workspacePath: String,
+        rateLimitBannerMessage: String? = nil,
+        workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = false,
         chatActions: CodexChatActionHandlers = CodexChatActionHandlers(),
@@ -91,6 +95,8 @@ public struct CodexChatWorkspaceView: View {
         self.activities = activities
         self.connectionState = connectionState
         self.workspacePath = workspacePath
+        self.rateLimitBannerMessage = rateLimitBannerMessage
+        self.workspaceSummary = workspaceSummary
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
         self.chatActions = chatActions
@@ -184,7 +190,12 @@ public struct CodexChatWorkspaceView: View {
                 )
 
                 Spacer(minLength: 0)
-
+                if let rateLimitBannerMessage {
+                    CodexRateLimitBanner(message: rateLimitBannerMessage)
+                        .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 6)
+                }
                 CodexComposerBar(
                     draft: $draft,
                     approvalSelection: $approvalSelection,
@@ -214,6 +225,7 @@ public struct CodexChatWorkspaceView: View {
                 CodexFloatingSummaryPanel(
                     sideChat: sideChat,
                     subagents: subagents,
+                    workspaceSummary: workspaceSummary,
                     onSelectTab: openPanelTab
                 )
                 .padding(.top, 58)

@@ -5,20 +5,41 @@ public struct CodexFloatingSummaryPanel: View {
 
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
+    private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let onSelectTab: (String) -> Void
 
     public init(
         sideChat: CodexSideChatState?,
         subagents: [CodexSubagentState],
+        workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         onSelectTab: @escaping (String) -> Void
     ) {
         self.sideChat = sideChat
         self.subagents = subagents
+        self.workspaceSummary = workspaceSummary
         self.onSelectTab = onSelectTab
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 15) {
+            if let workspaceSummary {
+                SummarySection(title: "Workspace") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(workspaceSummary.workspaceLine)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .lineLimit(2)
+                        if let diffStatsLine = workspaceSummary.diffStatsLine {
+                            Text(diffStatsLine)
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textSecondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                }
+            }
+
             SummarySection(title: "Outputs") {
                 Text("No artifacts yet")
                     .font(theme.fonts.caption)

@@ -45,6 +45,8 @@ struct CodexExampleAppShell: View {
                         activities: model.activities,
                         connectionState: model.connectionState,
                         workspacePath: model.workspacePath,
+                        rateLimitBannerMessage: model.rateLimitBannerMessage,
+                        workspaceSummary: model.workspaceSummaryContext,
                         showsSidebarToggle: true,
                         isSidebarVisible: isSidebarVisible,
                         chatActions: CodexChatActionHandlers(
@@ -94,6 +96,11 @@ struct CodexExampleAppShell: View {
                     .codexFileChangeUndo { change in
                         Task { @MainActor in
                             model.undoFileChange(change)
+                        }
+                    }
+                    .codexFileChangeReview { change in
+                        Task { @MainActor in
+                            model.reviewFileChange(change)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

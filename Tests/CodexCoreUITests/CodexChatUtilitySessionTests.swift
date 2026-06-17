@@ -65,4 +65,28 @@ extension CodexAgentUITests {
         )
     }
 
+    func testChatUtilitySessionFormatsStatusSummaryWithSessionMetadata() {
+        let summary = CodexChatUtilitySession.statusSummary(
+            CodexChatStatusSummaryContext(
+                connectionLabel: "Connected",
+                workspacePath: "/tmp/project",
+                currentThreadID: "thread-123",
+                modelDisplayName: "GPT-5.1 Codex Max",
+                reasoningDisplayName: "High",
+                approvalDisplayName: "Ask for approval",
+                messageCount: 7,
+                isSideChatOpen: true,
+                activeSubagentCount: 2,
+                subagentCount: 3,
+                tokenUsageSummary: "12 / 100 tokens",
+                rateLimitSummary: "Primary window 82% used",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertTrue(summary.contains("Branch: main"))
+        XCTAssertTrue(summary.contains("Tokens: 12 / 100 tokens"))
+        XCTAssertTrue(summary.contains("Rate limits: Primary window 82% used"))
+    }
+
 }

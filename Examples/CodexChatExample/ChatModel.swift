@@ -20,6 +20,8 @@ final class CodexChatModel {
     var workspacePath = defaultWorkspacePath()
     var apiKey = ""
     var themePreset: CodexAgentThemePreset = .officialDark
+    private(set) var gitBranch: String?
+    private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
 
     private var codex: Codex?
     var authSession = CodexAuthSession()
@@ -106,6 +108,8 @@ final class CodexChatModel {
         await promptRuntime.cancelAllPrompts()
         loginTask = nil
         threadSession.reset()
+        accountRateLimitsSnapshot = nil
+        gitBranch = nil
         let codex = self.codex
         self.codex = nil
         await codex?.close()
@@ -293,6 +297,46 @@ final class CodexChatModel {
     private func refreshConnectedSession(using codex: Codex) async throws {
         await refreshStartupCatalogs(using: codex)
         await refreshRecentChats(using: codex)
+        try await refreshRateLimits(using: codex)
+        refreshGitBranch()
+    }
+
+    private func refreshRateLimits(using codex: Codex) async throws {
+        let response = try await codex.rateLimits()
+        accountRateLimitsSnapshot = response.rateLimits
+    }
+
+    private func refreshGitBranch() {
+        let path = workspacePath
+        Task {
+            gitBranch = await Self.gitBranch(in: path)
+        }
+    }
+
+    private func syncAccountMetadata() {
+        accountRateLimitsSnapshot = codex?.store.accountRateLimits ?? accountRateLimitsSnapshot
+    }
+
+    nonisolated private static func gitBranch(in path: String) async -> String? {
+        await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["-C", path, "rev-parse", "--abbrev-ref", "HEAD"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+            do {
+                try process.run()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else { return nil }
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let branch = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return branch?.isEmpty == false ? branch : nil
+            } catch {
+                return nil
+            }
+        }.value
     }
 
     private func refreshSlashCommands(forceReload: Bool = false) async {
@@ -687,6 +731,7 @@ final class CodexChatModel {
     }
 
     private func apply(_ result: CodexChatNotificationPipelineResult) {
+        syncAccountMetadata()
         for activity in result.activities {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         }
@@ -790,8 +835,32 @@ final class CodexChatModel {
             messageCount: messages.count,
             isSideChatOpen: sideChat != nil,
             activeSubagentCount: subagents.filter { $0.status == .running }.count,
-            subagentCount: subagents.count
+            subagentCount: subagents.count,
+            tokenUsageSummary: currentTokenUsageSummary,
+            rateLimitSummary: accountRateLimitsSnapshot.map(CodexRateLimitPresentation.summary),
+            gitBranch: gitBranch
         )
+    }
+
+    var rateLimitBannerMessage: String? {
+        guard let accountRateLimitsSnapshot else { return nil }
+        return CodexRateLimitPresentation.bannerMessage(for: accountRateLimitsSnapshot)
+    }
+
+    var workspaceSummaryContext: CodexWorkspaceSummaryContext {
+        CodexWorkspaceSummaryContext(
+            workspacePath: workspacePath,
+            gitBranch: gitBranch,
+            turnDiff: currentDiff
+        )
+    }
+
+    private var currentTokenUsageSummary: String? {
+        guard let threadID = currentThreadID,
+              let usage = codex?.store.threadSnapshot(id: threadID)?.turns.last?.usage else {
+            return nil
+        }
+        return CodexChatUtilitySession.tokenUsageSummary(usage)
     }
 
     // MARK: - @-mention file search
@@ -813,8 +882,6 @@ final class CodexChatModel {
 
     // MARK: - File change undo
 
-    /// Reverts a file change in the workspace via git. New files are removed;
-    /// modified/deleted files are restored with `git checkout`.
     func undoFileChange(_ change: CodexChatMessage.FileChange) {
         guard let plan = CodexFileChangeUndoSession.plan(for: change, workspacePath: workspacePath) else {
             appendActivity(CodexFileChangeUndoSession.unavailableActivity)
@@ -831,6 +898,33 @@ final class CodexChatModel {
             } catch {
                 await MainActor.run {
                     self.appendActivity(CodexFileChangeUndoSession.failureActivity(message: self.friendlyError(error)))
+                }
+            }
+        }
+    }
+
+    func reviewFileChange(_ change: CodexChatMessage.FileChange) {
+        guard let codex, let threadID = currentThreadID else {
+            appendActivity(.notice, title: "Review unavailable", detail: "Connect and start a thread first")
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await codex.startReview(
+                    threadID: threadID,
+                    target: CodexSchemaReviewTarget(.dictionary([
+                        "itemIds": .array([.string(change.itemID)])
+                    ])),
+                    delivery: .inline
+                )
+                await MainActor.run {
+                    self.appendActivity(.notice, title: "Review started", detail: change.displayPath)
+                }
+            } catch {
+                await MainActor.run {
+                    self.appendActivity(.notice, title: "Review failed", detail: self.friendlyError(error))
                 }
             }
         }
