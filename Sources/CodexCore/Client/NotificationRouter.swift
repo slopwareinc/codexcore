@@ -213,52 +213,53 @@ public actor CodexNotificationRouter {
     private static let maxPendingNotificationsPerStream = 512
 
     private func routeTurn(_ notification: CodexNotification, turnId: String) {
-        let isCompletion = notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue
-
-        if let continuations = turnContinuations[turnId], !continuations.isEmpty {
-            for continuation in continuations.values {
-                continuation.yield(notification)
-                if isCompletion {
-                    continuation.finish()
-                }
-            }
-        } else if registeredTurns.contains(turnId) {
-            appendPending(notification, to: &pendingTurnNotifications[turnId, default: []])
-        } else if isCompletion {
-            // Nobody registered for this turn and it just completed: drop its
-            // replay buffer entirely (mirrors the official Python SDK router).
-            pendingTurnNotifications.removeValue(forKey: turnId)
-        } else {
-            appendPending(notification, to: &pendingTurnNotifications[turnId, default: []])
-        }
-
-        if isCompletion {
-            registeredTurns.remove(turnId)
-            turnContinuations.removeValue(forKey: turnId)
-        }
+        routeScoped(
+            notification,
+            id: turnId,
+            isCompletion: notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue,
+            registered: &registeredTurns,
+            continuations: &turnContinuations,
+            pending: &pendingTurnNotifications
+        )
     }
 
     private func routeLogin(_ notification: CodexNotification, loginId: String) {
-        let isCompletion = notification.method == CodexAppServerNotificationMethod.accountLoginCompleted.rawValue
+        routeScoped(
+            notification,
+            id: loginId,
+            isCompletion: notification.method == CodexAppServerNotificationMethod.accountLoginCompleted.rawValue,
+            registered: &registeredLogins,
+            continuations: &loginContinuations,
+            pending: &pendingLoginNotifications
+        )
+    }
 
-        if let continuations = loginContinuations[loginId], !continuations.isEmpty {
-            for continuation in continuations.values {
+    private func routeScoped(
+        _ notification: CodexNotification,
+        id: String,
+        isCompletion: Bool,
+        registered: inout Set<String>,
+        continuations: inout [String: [UUID: AsyncStream<CodexNotification>.Continuation]],
+        pending: inout [String: [CodexNotification]]
+    ) {
+        if let scopedContinuations = continuations[id], !scopedContinuations.isEmpty {
+            for continuation in scopedContinuations.values {
                 continuation.yield(notification)
                 if isCompletion {
                     continuation.finish()
                 }
             }
-        } else if registeredLogins.contains(loginId) {
-            appendPending(notification, to: &pendingLoginNotifications[loginId, default: []])
+        } else if registered.contains(id) {
+            appendPending(notification, to: &pending[id, default: []])
         } else if isCompletion {
-            pendingLoginNotifications.removeValue(forKey: loginId)
+            pending.removeValue(forKey: id)
         } else {
-            appendPending(notification, to: &pendingLoginNotifications[loginId, default: []])
+            appendPending(notification, to: &pending[id, default: []])
         }
 
         if isCompletion {
-            registeredLogins.remove(loginId)
-            loginContinuations.removeValue(forKey: loginId)
+            registered.remove(id)
+            continuations.removeValue(forKey: id)
         }
     }
 
