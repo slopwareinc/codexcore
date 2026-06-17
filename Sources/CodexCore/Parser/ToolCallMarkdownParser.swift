@@ -1,10 +1,7 @@
 import Foundation
 
 final class ToolCallMarkdownParser {
-    private let bulletRegex = try! NSRegularExpression(
-        pattern: "^(?:[-*•]\\s+|\\d+\\.\\s+)",
-        options: []
-    )
+    private static let bulletRegex = makeRegex(pattern: "^(?:[-*•]\\s+|\\d+\\.\\s+)")
 
     func parse(text: String) -> [ToolCallCardModel] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -198,7 +195,7 @@ final class ToolCallMarkdownParser {
             guard !line.isEmpty else { continue }
 
             let range = NSRange(location: 0, length: line.utf16.count)
-            let deBulleted = bulletRegex.stringByReplacingMatches(in: line, options: [], range: range, withTemplate: "")
+            let deBulleted = Self.bulletRegex.stringByReplacingMatches(in: line, options: [], range: range, withTemplate: "")
 
             for candidate in deBulleted.components(separatedBy: ",") {
                 let normalized = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -842,4 +839,11 @@ final class ToolCallMarkdownParser {
         }
     }
 
+}
+private func makeRegex(pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
+    do {
+        return try NSRegularExpression(pattern: pattern, options: options)
+    } catch {
+        preconditionFailure("Invalid regex pattern `\(pattern)`: \(error)")
+    }
 }

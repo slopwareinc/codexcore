@@ -34,7 +34,7 @@ public struct JSONRPCNotification: Codable, Sendable {
     public let params: [String: CodexJSONValue]?
 }
 
-public enum CodexConnectionError: Error, Sendable, CustomStringConvertible {
+public enum CodexConnectionError: Error, Sendable, CustomStringConvertible, LocalizedError {
     case closed
     case transportFailed(String)
     case decodeFailed(String)
@@ -49,6 +49,8 @@ public enum CodexConnectionError: Error, Sendable, CustomStringConvertible {
             return "Codex connection decode failed: \(message)"
         }
     }
+
+    public var errorDescription: String? { description }
 }
 
 private final class CodexIncomingMessageSequencer: @unchecked Sendable {

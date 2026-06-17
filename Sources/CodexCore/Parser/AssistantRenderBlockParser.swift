@@ -1,13 +1,11 @@
 import Foundation
 
 final class AssistantRenderBlockParser {
-    private let inlineImageRegex = try! NSRegularExpression(
-        pattern: "!\\[[^\\]]*\\]\\(data:image/([^;]+);base64,([A-Za-z0-9+/=\\s]+)\\)",
-        options: []
+    private static let inlineImageRegex = makeRegex(
+        pattern: "!\\[[^\\]]*\\]\\(data:image/([^;]+);base64,([A-Za-z0-9+/=\\s]+)\\)"
     )
-    private let bareDataUriRegex = try! NSRegularExpression(
-        pattern: "data:image/([^;]+);base64,([A-Za-z0-9+/=]+)",
-        options: []
+    private static let bareDataUriRegex = makeRegex(
+        pattern: "data:image/([^;]+);base64,([A-Za-z0-9+/=]+)"
     )
 
     // MARK: - Render Block Extraction
@@ -71,7 +69,7 @@ final class AssistantRenderBlockParser {
         let range = NSRange(location: 0, length: nsText.length)
 
         // Inline images
-        inlineImageRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+        Self.inlineImageRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
             guard let match = match else { return }
             let mStart = match.range.location
             let mEnd = mStart + match.range.length
@@ -88,7 +86,7 @@ final class AssistantRenderBlockParser {
         }
 
         // Bare images
-        bareDataUriRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+        Self.bareDataUriRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
             guard let match = match else { return }
             let mStart = match.range.location
             let mEnd = mStart + match.range.length
@@ -406,5 +404,12 @@ final class AssistantRenderBlockParser {
                 return false
             }
         }
+    }
+}
+private func makeRegex(pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
+    do {
+        return try NSRegularExpression(pattern: pattern, options: options)
+    } catch {
+        preconditionFailure("Invalid regex pattern `\(pattern)`: \(error)")
     }
 }

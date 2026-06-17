@@ -620,7 +620,7 @@ public final class CodexCoreStore {
     public func resolveApproval(_ requestId: String) {
         pendingApprovals.removeAll(where: { $0.id == requestId })
         for threadID in Array(threadSnapshotsByID.keys) {
-            var thread = threadSnapshotsByID[threadID]!
+            guard var thread = threadSnapshotsByID[threadID] else { continue }
             thread.pendingApprovals.removeAll(where: { $0.id == requestId })
             if thread.pendingApprovals.isEmpty, thread.status == .waiting {
                 thread.status = .active

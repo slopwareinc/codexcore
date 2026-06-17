@@ -101,7 +101,7 @@ public struct CodexCodeBlock: View {
     }
 
     private var displayLanguage: String {
-        language?.isEmpty == false ? language! : "code"
+        if let language, !language.isEmpty { language } else { "code" }
     }
 }
 
