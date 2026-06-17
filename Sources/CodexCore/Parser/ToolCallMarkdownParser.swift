@@ -54,32 +54,11 @@ final class ToolCallMarkdownParser {
         let lines = text.components(separatedBy: "\n")
         var blocks: [String] = []
         var current: [String] = []
-        var fenceChar: Character? = nil
-        var fenceLen = 0
-        var inFence = false
+        var fenceTracker = MarkdownFenceTracker()
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if inFence {
-                if let fc = fenceChar {
-                    let closeLen = trimmed.prefix(while: { $0 == fc }).count
-                    if closeLen >= fenceLen && trimmed.dropFirst(closeLen).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        inFence = false
-                        fenceChar = nil
-                    }
-                }
-            } else {
-                let firstChar = trimmed.first
-                if let fc = firstChar, fc == "`" || fc == "~" {
-                    let fl = trimmed.prefix(while: { $0 == fc }).count
-                    if fl >= 3 {
-                        fenceChar = fc
-                        fenceLen = fl
-                        inFence = true
-                    }
-                }
-            }
+            let inFence = fenceTracker.consume(trimmedLine: trimmed)
 
             if !inFence && trimmed.hasPrefix("### ") && !current.isEmpty {
                 let content = current.joined(separator: "\n")
@@ -137,65 +116,13 @@ final class ToolCallMarkdownParser {
         return nil
     }
 
-    private func isClosingFence(_ line: String, marker: Character, minLength: Int) -> Bool {
-        guard line.first == marker else { return false }
-        let length = line.prefix(while: { $0 == marker }).count
-        guard length >= minLength else { return false }
-        return line.dropFirst(length).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private struct FenceOpening {
-        let marker: Character
-        let length: Int
-    }
-
-    private func openingFence(_ line: String) -> FenceOpening? {
-        guard let first = line.first else { return nil }
-        guard first == "`" || first == "~" else { return nil }
-        let length = line.prefix(while: { $0 == first }).count
-        guard length >= 3 else { return nil }
-        return FenceOpening(marker: first, length: length)
-    }
-
-    private struct ParsedFence {
-        let language: String
-        let content: String
-    }
-
-    private func parseSingleFence(_ text: String) -> ParsedFence? {
-        let lines = text.components(separatedBy: "\n")
-        guard let firstLine = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let opening = openingFence(firstLine) else {
-            return nil
-        }
-
-        var collected: [String] = []
-        var closed = false
-        for line in lines.dropFirst() {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isClosingFence(trimmed, marker: opening.marker, minLength: opening.length) {
-                closed = true
-                break
-            }
-            collected.append(line)
-        }
-        guard closed else { return nil }
-
-        let language = String(firstLine.dropFirst(opening.length)).trimmingCharacters(in: .whitespacesAndNewlines)
-        let content = collected.joined(separator: "\n").trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
-        return ParsedFence(language: language, content: content)
-    }
-
     private func splitNamedSections(_ text: String) -> [RawSection] {
         let lines = text.components(separatedBy: "\n")
         var sections: [RawSection] = []
         var currentLabel: String? = nil
         var buffer: [String] = []
         var sawNamedSection = false
-
-        var fenceChar: Character? = nil
-        var fenceLen = 0
-        var inFence = false
+        var fenceTracker = MarkdownFenceTracker()
 
         func flush() {
             let content = buffer.joined(separator: "\n")
@@ -208,26 +135,7 @@ final class ToolCallMarkdownParser {
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if inFence {
-                if let fc = fenceChar {
-                    let closeLen = trimmed.prefix(while: { $0 == fc }).count
-                    if closeLen >= fenceLen && trimmed.dropFirst(closeLen).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        inFence = false
-                        fenceChar = nil
-                    }
-                }
-            } else {
-                let firstChar = trimmed.first
-                if let fc = firstChar, fc == "`" || fc == "~" {
-                    let fl = trimmed.prefix(while: { $0 == fc }).count
-                    if fl >= 3 {
-                        fenceChar = fc
-                        fenceLen = fl
-                        inFence = true
-                    }
-                }
-            }
+            let inFence = fenceTracker.consume(trimmedLine: trimmed)
 
             if !inFence {
                 if let (label, inlineValue) = parseSectionHeader(trimmed) {
@@ -257,10 +165,7 @@ final class ToolCallMarkdownParser {
         let lines = text.components(separatedBy: "\n")
         var chunks: [String] = []
         var current: [String] = []
-
-        var fenceChar: Character? = nil
-        var fenceLen = 0
-        var inFence = false
+        var fenceTracker = MarkdownFenceTracker()
 
         func flush() {
             let content = current.joined(separator: "\n")
@@ -273,26 +178,7 @@ final class ToolCallMarkdownParser {
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if inFence {
-                if let fc = fenceChar {
-                    let closeLen = trimmed.prefix(while: { $0 == fc }).count
-                    if closeLen >= fenceLen && trimmed.dropFirst(closeLen).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        inFence = false
-                        fenceChar = nil
-                    }
-                }
-            } else {
-                let firstChar = trimmed.first
-                if let fc = firstChar, fc == "`" || fc == "~" {
-                    let fl = trimmed.prefix(while: { $0 == fc }).count
-                    if fl >= 3 {
-                        fenceChar = fc
-                        fenceLen = fl
-                        inFence = true
-                    }
-                }
-            }
+            let inFence = fenceTracker.consume(trimmedLine: trimmed)
 
             if !inFence && trimmed == separator {
                 flush()
@@ -361,7 +247,7 @@ final class ToolCallMarkdownParser {
             let content = lines[cursor...].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !content.isEmpty else { continue }
 
-            if let fence = parseSingleFence(content) {
+            if let fence = MarkdownFence.parseSingle(content) {
                 let language = normalizeToken(fence.language)
                 if language == "diff" {
                     sections.append(.diff(label: "Diff", content: fence.content))
@@ -432,7 +318,7 @@ final class ToolCallMarkdownParser {
         case .commandOutput:
             primary.append(makeOutputLike(label: "Output", content: content))
         case .fileDiff:
-            if let fence = parseSingleFence(content) {
+            if let fence = MarkdownFence.parseSingle(content) {
                 if normalizeToken(fence.language) == "diff" {
                     primary.append(.diff(label: "Diff", content: fence.content))
                 } else {
@@ -449,7 +335,7 @@ final class ToolCallMarkdownParser {
                 aux.append(.list(label: "Progress", items: items))
             }
         default:
-            if let fence = parseSingleFence(content) {
+            if let fence = MarkdownFence.parseSingle(content) {
                 let language = normalizeToken(fence.language)
                 if language == "json" {
                     primary.append(.json(label: "Details", content: fence.content))
@@ -472,7 +358,7 @@ final class ToolCallMarkdownParser {
     }
 
     private func makeCodeLike(label: String, content: String, fallbackLanguage: String) -> ToolCallSection {
-        if let fence = parseSingleFence(content) {
+        if let fence = MarkdownFence.parseSingle(content) {
             let language = fence.language.isEmpty ? fallbackLanguage : fence.language
             return .code(label: label, language: language, content: fence.content)
         }
@@ -480,7 +366,7 @@ final class ToolCallMarkdownParser {
     }
 
     private func makeJsonLike(label: String, content: String) -> ToolCallSection {
-        if let fence = parseSingleFence(content) {
+        if let fence = MarkdownFence.parseSingle(content) {
             let lang = normalizeToken(fence.language)
             if lang == "json" || lang.isEmpty {
                 return .json(label: label, content: fence.content)
@@ -497,7 +383,7 @@ final class ToolCallMarkdownParser {
     }
 
     private func makeOutputLike(label: String, content: String) -> ToolCallSection {
-        if let fence = parseSingleFence(content) {
+        if let fence = MarkdownFence.parseSingle(content) {
             let lang = normalizeToken(fence.language)
             if lang == "diff" {
                 return .diff(label: label, content: fence.content)
