@@ -32,6 +32,9 @@ public actor CodexClient {
 
     private var activeCommandSessions: [String: CodexCommandExecSession] = [:]
 
+    private var notificationStreamContinuation: AsyncStream<JSONRPCNotification>.Continuation?
+    private var notificationConsumerTask: Task<Void, Never>?
+
     // Escalated server requests awaiting a host decision (policy `.ask`).
     private var pendingApprovalContinuations: [String: CheckedContinuation<CodexApprovalDecision, Never>] = [:]
     private var pendingApprovalTurnIds: [String: String] = [:]
@@ -71,16 +74,23 @@ public actor CodexClient {
         clientVersion: String = "1.0.0",
         experimentalAPI: Bool = true
     ) async throws -> InitializeResponse {
-        try await connection.start(
+        stopNotificationConsumer()
+
+        let (stream, continuation) = AsyncStream.makeStream(of: JSONRPCNotification.self)
+        notificationStreamContinuation = continuation
+        notificationConsumerTask = Task {
+            for await notification in stream {
+                await self.handleNotification(notification)
+            }
+        }
+
+        return try await connection.start(
             clientName: clientName,
             clientTitle: clientTitle,
             clientVersion: clientVersion,
             experimentalAPI: experimentalAPI,
-            onNotification: { [weak self] notification in
-                guard let self else { return }
-                Task {
-                    await self.handleNotification(notification)
-                }
+            onNotification: { notification in
+                continuation.yield(notification)
             },
             onServerRequest: { [weak self] serverRequest in
                 guard let self else { return .null }
@@ -123,7 +133,7 @@ public actor CodexClient {
 
     public func waitForTurnCompleted(turnId: String) async throws -> TurnCompletedNotification {
         await notificationRouter.registerTurn(turnId)
-        defer { Task { await self.notificationRouter.unregisterTurn(turnId) } }
+        defer { await notificationRouter.unregisterTurn(turnId) }
 
         for await notification in turnNotifications(turnId: turnId) {
             if case .turnCompleted(let payload) = notification.payload, payload.turn.id == turnId {
@@ -136,7 +146,7 @@ public actor CodexClient {
 
     public func waitForLoginCompleted(loginId: String) async throws -> AccountLoginCompletedNotification {
         await notificationRouter.registerLogin(loginId)
-        defer { Task { await self.notificationRouter.unregisterLogin(loginId) } }
+        defer { await notificationRouter.unregisterLogin(loginId) }
 
         for await notification in loginNotifications(loginId: loginId) {
             if case .accountLoginCompleted(let payload) = notification.payload, payload.loginId == loginId {
@@ -472,7 +482,15 @@ public actor CodexClient {
     /// Closes the client connection.
     public func disconnect() async {
         cancelPendingServerRequests()
+        stopNotificationConsumer()
         await connection.stop()
+    }
+
+    private func stopNotificationConsumer() {
+        notificationStreamContinuation?.finish()
+        notificationStreamContinuation = nil
+        notificationConsumerTask?.cancel()
+        notificationConsumerTask = nil
     }
 
     // MARK: - Approval Resolution (policy `.ask`)
