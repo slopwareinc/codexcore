@@ -26,11 +26,15 @@ struct CodexInlineChatStatus: View {
 
             Spacer(minLength: 12)
 
-            InlineStatusIconButton(systemImage: "pencil", help: "Edit objective") {}
-                .disabled(true)
-            InlineStatusIconButton(systemImage: "pause.circle", help: "Pause", action: onInterrupt)
-            InlineStatusIconButton(systemImage: "trash", help: "Clear") {}
-                .disabled(true)
+            Button(action: onInterrupt) {
+                Image(systemName: "pause.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Pause")
         }
         .padding(.horizontal, 18)
         .frame(height: 54)
@@ -50,25 +54,5 @@ struct CodexInlineChatStatus: View {
             return nil
         }
         return value
-    }
-}
-
-private struct InlineStatusIconButton: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let systemImage: String
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(theme.colors.textTertiary)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
     }
 }
