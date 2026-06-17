@@ -375,21 +375,17 @@ private struct CodexAgentPanelContent: View {
     }
 
     private var parentChatPill: some View {
-        Button {} label: {
-            HStack(spacing: 7) {
-                Image(systemName: "arrow.up.left")
-                    .font(.system(size: 10, weight: .semibold))
-                Text("Parent chat")
-                    .font(theme.fonts.caption.weight(.semibold))
-            }
-            .foregroundStyle(theme.colors.textSecondary)
-            .padding(.horizontal, 11)
-            .frame(height: 32)
-            .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
-            .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
+        HStack(spacing: 7) {
+            Image(systemName: "arrow.up.left")
+                .font(.system(size: 10, weight: .semibold))
+            Text("Parent chat")
+                .font(theme.fonts.caption.weight(.semibold))
         }
-        .buttonStyle(.plain)
-        .disabled(true)
+        .foregroundStyle(theme.colors.textSecondary)
+        .padding(.horizontal, 11)
+        .frame(height: 32)
+        .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
+        .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
