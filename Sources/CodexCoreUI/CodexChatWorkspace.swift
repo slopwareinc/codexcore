@@ -177,8 +177,6 @@ public struct CodexChatWorkspaceView: View {
             VStack(spacing: 0) {
                 CodexChatHeader(
                     workspacePath: workspacePath,
-                    connectionState: connectionState,
-                    activities: activities,
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
                     isSummaryPanelOpen: isSummaryPanelOpen,
@@ -281,8 +279,6 @@ public struct CodexChatHeader: View {
 
     public init(
         workspacePath: String,
-        connectionState: CodexConnectionState,
-        activities: [CodexActivity] = [],
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = true,
         isSummaryPanelOpen: Bool = true,
