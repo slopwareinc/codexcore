@@ -43,15 +43,15 @@ public struct CodexCommandExecResult: Sendable, Equatable {
     }
 }
 
-public final class CodexCommandExecSession: @unchecked Sendable {
-    public let processId: String
+public actor CodexCommandExecSession {
+    public nonisolated let processId: String
 
     private let connection: CodexConnection
     private let outputContinuation: AsyncStream<PTYDelta>.Continuation
     private let completionContinuation: AsyncThrowingStream<CodexCommandExecResult, Error>.Continuation
 
-    public let outputStream: AsyncStream<PTYDelta>
-    public let completionStream: AsyncThrowingStream<CodexCommandExecResult, Error>
+    public nonisolated let outputStream: AsyncStream<PTYDelta>
+    public nonisolated let completionStream: AsyncThrowingStream<CodexCommandExecResult, Error>
 
     public private(set) var hasCompleted = false
     public private(set) var result: CodexCommandExecResult?
@@ -130,12 +130,12 @@ public final class CodexCommandExecSession: @unchecked Sendable {
         throw CodexConnectionError.closed
     }
 
-    internal func receiveOutput(streamName: String, base64Data: String, capReached: Bool) {
+    func receiveOutput(streamName: String, base64Data: String, capReached: Bool) {
         guard let delta = PTYDelta(streamName: streamName, base64Data: base64Data, capReached: capReached) else { return }
         outputContinuation.yield(delta)
     }
 
-    internal func complete(_ result: CodexCommandExecResult) {
+    func complete(_ result: CodexCommandExecResult) {
         guard !hasCompleted else { return }
         hasCompleted = true
         self.result = result
@@ -144,7 +144,7 @@ public final class CodexCommandExecSession: @unchecked Sendable {
         completionContinuation.finish()
     }
 
-    internal func fail(_ error: Error) {
+    func fail(_ error: Error) {
         guard !hasCompleted else { return }
         hasCompleted = true
         outputContinuation.finish()
