@@ -123,6 +123,8 @@ public struct CodexServerItem: Codable, Sendable, Identifiable, Equatable {
 public enum CodexServerEvent: Sendable {
     case threadStarted(threadId: String, name: String?, status: String)
     case threadStatusChanged(threadId: String, status: String)
+    case accountUpdated(CodexSchemaAccountUpdatedNotification)
+    case accountRateLimitsUpdated(CodexSchemaAccountRateLimitsUpdatedNotification)
     case threadGoalUpdated(threadId: String, goal: ThreadGoal)
     case threadGoalCleared(threadId: String)
     case turnStarted(threadId: String, turnId: String)

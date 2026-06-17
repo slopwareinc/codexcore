@@ -192,6 +192,15 @@ public actor CodexClient {
         )
     }
 
+    public func accountRateLimitsRead() async throws -> CodexSchemaGetAccountRateLimitsResponse {
+        let params: [String: CodexJSONValue] = [:]
+        return try await connection.request(
+            method: CodexAppServerClientMethod.accountRateLimitsRead.rawValue,
+            params: params,
+            response: CodexSchemaGetAccountRateLimitsResponse.self
+        )
+    }
+
     public func accountLogout() async throws -> LogoutAccountResponse {
         try await connection.request(
             method: CodexAppServerClientMethod.accountLogout.rawValue,
@@ -442,6 +451,26 @@ public actor CodexClient {
             params: ["includeHidden": CodexJSONValue.bool(includeHidden)],
             response: ModelListResponse.self
         )
+    }
+
+    public func reviewStart(_ params: CodexSchemaReviewStartParams) async throws -> CodexSchemaReviewStartResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.reviewStart.rawValue,
+            params: params,
+            response: CodexSchemaReviewStartResponse.self
+        )
+    }
+
+    public func reviewStart(
+        threadID: String,
+        target: CodexSchemaReviewTarget,
+        delivery: CodexSchemaReviewDelivery? = nil
+    ) async throws -> CodexSchemaReviewStartResponse {
+        try await reviewStart(CodexSchemaReviewStartParams(
+            delivery: delivery,
+            target: target,
+            threadID: threadID
+        ))
     }
 
     public func skillsList(_ params: CodexSchemaSkillsListParams = CodexSchemaSkillsListParams()) async throws -> CodexSchemaSkillsListResponse {
@@ -944,7 +973,6 @@ public actor CodexClient {
              CodexAppServerNotificationMethod.serverRequestResolved.rawValue,
              "remoteControl/status/changed",
              "mcpServer/startupStatus/updated",
-             "account/rateLimits/updated",
              "account/login/completed",
              "skills/changed":
             return nil
@@ -1025,6 +1053,18 @@ public actor CodexClient {
 
         case "thread/status/changed":
             return .threadStatusChanged(threadId: threadId, status: extractThreadStatus())
+
+        case CodexAppServerNotificationMethod.accountUpdated.rawValue:
+            if let payload = try? params.decode(CodexSchemaAccountUpdatedNotification.self) {
+                return .accountUpdated(payload)
+            }
+            return .unknown(method: method, params: params)
+
+        case CodexAppServerNotificationMethod.accountRateLimitsUpdated.rawValue:
+            if let payload = try? params.decode(CodexSchemaAccountRateLimitsUpdatedNotification.self) {
+                return .accountRateLimitsUpdated(payload)
+            }
+            return .unknown(method: method, params: params)
 
         case "thread/goal/updated":
             if let payload = try? params.decode(ThreadGoalUpdatedNotification.self) {
