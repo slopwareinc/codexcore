@@ -133,27 +133,29 @@ public actor CodexClient {
 
     public func waitForTurnCompleted(turnId: String) async throws -> TurnCompletedNotification {
         await notificationRouter.registerTurn(turnId)
-        defer { await notificationRouter.unregisterTurn(turnId) }
 
         for await notification in turnNotifications(turnId: turnId) {
             if case .turnCompleted(let payload) = notification.payload, payload.turn.id == turnId {
+                await notificationRouter.unregisterTurn(turnId)
                 return payload
             }
         }
 
+        await notificationRouter.unregisterTurn(turnId)
         throw CodexSDKError.turnStreamEnded(turnId: turnId)
     }
 
     public func waitForLoginCompleted(loginId: String) async throws -> AccountLoginCompletedNotification {
         await notificationRouter.registerLogin(loginId)
-        defer { await notificationRouter.unregisterLogin(loginId) }
 
         for await notification in loginNotifications(loginId: loginId) {
             if case .accountLoginCompleted(let payload) = notification.payload, payload.loginId == loginId {
+                await notificationRouter.unregisterLogin(loginId)
                 return payload
             }
         }
 
+        await notificationRouter.unregisterLogin(loginId)
         throw CodexSDKError.loginStreamEnded(loginId: loginId)
     }
 
