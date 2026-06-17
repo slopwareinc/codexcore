@@ -546,7 +546,7 @@ public actor CodexClient {
               case .dictionary(let turnDict) = turnVal,
               let idVal = turnDict["id"],
               case .string(let turnId) = idVal else {
-            throw JSONRPCError(code: -32603, message: "Invalid turn/start response: \(result)", data: nil)
+            throw CodexSDKError.invalidResponse(method: CodexAppServerClientMethod.turnStart.rawValue, value: result)
         }
 
         await MainActor.run {

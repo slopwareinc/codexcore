@@ -45,7 +45,7 @@ public struct CodexConfig: Sendable {
     }
 }
 
-public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
+public enum CodexSDKError: Error, Sendable, CustomStringConvertible, LocalizedError {
     case runtimeNotFound
     case invalidRuntimePath(String)
     case invalidResponse(method: String, value: CodexJSONValue)
@@ -72,6 +72,8 @@ public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
             return "Turn \(turnId) stream ended before a completion notification."
         }
     }
+
+    public var errorDescription: String? { description }
 }
 
 public struct CodexTurnResult: Sendable, Equatable {

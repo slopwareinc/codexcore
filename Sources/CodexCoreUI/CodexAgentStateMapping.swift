@@ -509,7 +509,7 @@ public struct CodexAgentStateMapper: Sendable {
         }
 
         let lifecycleStatus = lifecycleStatus(from: subagents[index].status)
-        let detail = cleanError?.isEmpty == false ? cleanError! : "Subagent turn finished."
+        let detail = if let cleanError, !cleanError.isEmpty { cleanError } else { "Subagent turn finished." }
         lifecycleEvents.append(CodexAgentLifecycleEvent(
             status: lifecycleStatus,
             title: CodexAgentItemParser.lifecycleTitle(status: subagents[index].status, count: 1),
