@@ -24,10 +24,8 @@ enum CodeReviewPayloadParser {
         return nil
     }
 
-    private static let priorityRegex = try! NSRegularExpression(
-        pattern: "(?i)^\\[(p[0-3])\\]\\s*",
-        options: []
-    )
+    private static let priorityRegex = makeRegex(pattern: "(?i)^\\[(p[0-3])\\]\\s*")
+    private static let driveRegex = makeRegex(pattern: "(?i)^([a-z]):/(.*)$")
 
     private struct RawFinding: Decodable {
         let title: String
@@ -201,9 +199,8 @@ enum CodeReviewPayloadParser {
             }
         }
 
-        let driveRegex = try! NSRegularExpression(pattern: "(?i)^([a-z]):/(.*)$", options: [])
         let range = NSRange(location: 0, length: normalized.utf16.count)
-        if let match = driveRegex.firstMatch(in: normalized, options: [], range: range),
+        if let match = Self.driveRegex.firstMatch(in: normalized, options: [], range: range),
            let dRange = Range(match.range(at: 1), in: normalized),
            let rRange = Range(match.range(at: 2), in: normalized) {
             let drive = normalized[dRange].lowercased()
@@ -235,5 +232,12 @@ enum CodeReviewPayloadParser {
         }
 
         return collapsed
+    }
+}
+private func makeRegex(pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
+    do {
+        return try NSRegularExpression(pattern: pattern, options: options)
+    } catch {
+        preconditionFailure("Invalid regex pattern `\(pattern)`: \(error)")
     }
 }

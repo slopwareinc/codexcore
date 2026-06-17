@@ -14,7 +14,7 @@ public enum CodexRPCErrorKind: String, Codable, Sendable, Equatable {
     case retryLimitExceeded
 }
 
-public struct CodexRPCError: CodexError, Sendable, Equatable, CustomStringConvertible {
+public struct CodexRPCError: CodexError, Sendable, Equatable, CustomStringConvertible, LocalizedError {
     public let code: Int
     public let message: String
     public let data: CodexJSONValue?
@@ -30,6 +30,8 @@ public struct CodexRPCError: CodexError, Sendable, Equatable, CustomStringConver
     public var description: String {
         "JSON-RPC error \(code): \(message)"
     }
+
+    public var errorDescription: String? { description }
 }
 
 public func mapJSONRPCError(code: Int, message: String, data: CodexJSONValue? = nil) -> CodexRPCError {

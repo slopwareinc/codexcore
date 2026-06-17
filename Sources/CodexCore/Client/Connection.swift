@@ -34,9 +34,10 @@ public struct JSONRPCNotification: Codable, Sendable {
     public let params: [String: CodexJSONValue]?
 }
 
-public enum CodexConnectionError: Error, Sendable, CustomStringConvertible {
+public enum CodexConnectionError: Error, Sendable, CustomStringConvertible, LocalizedError {
     case closed
     case transportFailed(String)
+    case decodeFailed(String)
 
     public var description: String {
         switch self {
@@ -44,8 +45,12 @@ public enum CodexConnectionError: Error, Sendable, CustomStringConvertible {
             return "Codex connection closed"
         case .transportFailed(let message):
             return "Codex transport failed: \(message)"
+        case .decodeFailed(let message):
+            return "Codex connection decode failed: \(message)"
         }
     }
+
+    public var errorDescription: String? { description }
 }
 
 private final class CodexIncomingMessageSequencer: @unchecked Sendable {
@@ -300,8 +305,11 @@ public actor CodexConnection {
                         continuation.resume(returning: response.result ?? .null)
                     }
                 }
-            } else {
-                print("[CodexConnection] Failed to decode response: \(message.prefix(200))")
+            } else if let requestId = payload["id"].flatMap(requestId(from:)) {
+                failPendingRequest(
+                    id: requestId,
+                    error: CodexConnectionError.decodeFailed(String(message.prefix(200)))
+                )
             }
             return
         }
@@ -323,6 +331,24 @@ public actor CodexConnection {
         pendingRequests.removeAll()
         for continuation in requests.values {
             continuation.resume(throwing: error)
+        }
+    }
+
+    private func failPendingRequest(id: Int64, error: Error) {
+        guard let continuation = pendingRequests.removeValue(forKey: id) else { return }
+        continuation.resume(throwing: error)
+    }
+
+    private func requestId(from value: CodexJSONValue) -> Int64? {
+        switch value {
+        case .int(let intValue):
+            return Int64(intValue)
+        case .double(let doubleValue):
+            return Int64(doubleValue)
+        case .string(let stringValue):
+            return Int64(stringValue)
+        default:
+            return nil
         }
     }
 

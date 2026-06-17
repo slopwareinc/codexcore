@@ -105,6 +105,11 @@ public enum CodexChatTranscriptNotificationRouter {
             return activity(.tool, title: context.title("Calling tool", sideChat: "Side chat calling tool"), detail: toolCall.displayName)
         case "agentMessage", "assistantMessage":
             return CodexChatTranscriptRouteResult()
+        case "reasoning":
+            guard startedMessage(projectedMessage, item: item, transcript: &transcript) != nil else {
+                return CodexChatTranscriptRouteResult()
+            }
+            return activity(.tool, title: context.title("Thinking", sideChat: "Side chat thinking"), detail: "Reasoning")
         default:
             return nil
         }
@@ -139,6 +144,13 @@ public enum CodexChatTranscriptNotificationRouter {
                 completedAssistantText: message.text
             )
         case "userMessage":
+            return CodexChatTranscriptRouteResult()
+        case "reasoning":
+            if let projectedMessage {
+                _ = transcript.upsertProjectedMessage(projectedMessage, itemID: item.id)
+            } else {
+                _ = transcript.completeItem(item)
+            }
             return CodexChatTranscriptRouteResult()
         case "commandExecution":
             if let projectedMessage {
@@ -251,6 +263,12 @@ public enum CodexChatTranscriptNotificationRouter {
                 return CodexChatTranscriptRouteResult()
             }
             transcript.appendToolCallProgress(update.text, itemID: update.item.itemID)
+            return CodexChatTranscriptRouteResult()
+        case .reasoningTextDelta(let update):
+            transcript.appendReasoningDelta(update.text, itemID: update.item.itemID, isSummary: false)
+            return CodexChatTranscriptRouteResult()
+        case .reasoningSummaryTextDelta(let update):
+            transcript.appendReasoningDelta(update.text, itemID: update.item.itemID, isSummary: true)
             return CodexChatTranscriptRouteResult()
         case .notice(let update):
             guard let notice = CodexChatMessage.notice(

@@ -7,10 +7,6 @@ public final class CodexMentionSearchSession {
 
     public init() {}
 
-    deinit {
-        searchTask?.cancel()
-    }
-
     public func updateQuery(
         _ query: String?,
         codex: Codex?,

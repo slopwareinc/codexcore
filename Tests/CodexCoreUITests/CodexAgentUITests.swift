@@ -50,6 +50,7 @@ final class CodexAgentUITests: XCTestCase {
         XCTAssertEqual(receivedMainTurnIDs, ["turn-main"])
         XCTAssertEqual(finishedMainTurnIDs, ["turn-main"])
         XCTAssertEqual(receivedGlobalMethods, [CodexAppServerNotificationMethod.skillsChanged.rawValue])
+        session.reset()
     }
 
     @MainActor
@@ -126,6 +127,7 @@ final class CodexAgentUITests: XCTestCase {
         )
         XCTAssertEqual(mainActivities, [CodexAppServerNotificationMethod.skillsChanged.rawValue, "turn-main"])
         XCTAssertEqual(sideActivities, [CodexAppServerNotificationMethod.warning.rawValue, "turn-side"])
+        session.reset()
     }
 
     @MainActor
@@ -178,6 +180,7 @@ final class CodexAgentUITests: XCTestCase {
         await fulfillment(of: [globalApplied, sideApplied], timeout: 1.0)
         XCTAssertEqual(globalActions, [.refreshSlashCommands(forceReload: true)])
         XCTAssertEqual(sideActivities, ["Side chat warning"])
+        session.reset()
     }
 
     @MainActor
@@ -275,6 +278,7 @@ final class CodexAgentUITests: XCTestCase {
 
         await fulfillment(of: [secondFinished], timeout: 1.0)
         XCTAssertEqual(finishedTurnIDs, ["turn-new"])
+        session.reset()
     }
 
     @MainActor
@@ -322,6 +326,7 @@ final class CodexAgentUITests: XCTestCase {
             }
         )
         XCTAssertEqual(clearCount, 1)
+        session.reset()
     }
 
     func testFileChangeParsesPatchUpdatedNotificationShape() throws {

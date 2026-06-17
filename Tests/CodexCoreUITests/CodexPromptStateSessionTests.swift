@@ -93,29 +93,91 @@ final class CodexPromptStateSessionTests: XCTestCase {
         XCTAssertEqual(response, .dictionary(["answers": .dictionary(["confirm": .string("yes")])]))
     }
 
-    @MainActor
-    func testPromptEventSessionOwnsPollingAndBridgeEventTasks() async {
-        let session = CodexPromptEventSession()
-        var syncCount = 0
-        let syncExpectation = expectation(description: "approval snapshot synced")
-        session.startApprovalSnapshotMirror(
-            intervalNanoseconds: 10_000_000,
-            snapshot: {
-                (
-                    approvalRequests: [approvalRequest(id: "approval-1", command: "swift test")],
-                    userInput: nil
-                )
-            },
-            onSync: { approvals, userInput in
-                XCTAssertEqual(approvals.map(\.requestId), [.string("approval-1")])
-                XCTAssertNil(userInput)
-                if syncCount == 0 {
-                    syncExpectation.fulfill()
-                }
-                syncCount += 1
+    func testInteractivePromptBridgeSecondEventsCallFinishesPreviousStream() async throws {
+        let bridge = CodexInteractivePromptBridge()
+        let request = userInputServerRequest()
+        let expectedPrompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: request))
+
+        let firstEvents = await bridge.events()
+        let firstFinished = expectation(description: "first stream finished")
+        let firstTask = Task {
+            var iterator = firstEvents.makeAsyncIterator()
+            let event = await iterator.next()
+            XCTAssertNil(event)
+            firstFinished.fulfill()
+        }
+
+        let secondEvents = await bridge.events()
+        await fulfillment(of: [firstFinished], timeout: 1)
+        await firstTask.value
+
+        let secondEventTask = Task {
+            var iterator = secondEvents.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let responseTask = Task {
+            await bridge.handle(request)
+        }
+
+        let event = await secondEventTask.value
+        guard case .added(let prompt)? = event else {
+            return XCTFail("Expected added prompt event on second stream")
+        }
+        XCTAssertEqual(prompt.id, expectedPrompt.id)
+
+        await bridge.resolveUserInput(id: expectedPrompt.id, answers: ["confirm": "yes"])
+        _ = await responseTask.value
+    }
+
+    func testInteractivePromptBridgeClearsContinuationOnTermination() async throws {
+        let bridge = CodexInteractivePromptBridge()
+        let request = userInputServerRequest()
+        let expectedPrompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: request))
+
+        do {
+            let firstEvents = await bridge.events()
+            let firstEventTask = Task {
+                var iterator = firstEvents.makeAsyncIterator()
+                return await iterator.next()
             }
-        )
-        await fulfillment(of: [syncExpectation], timeout: 1)
+            let firstResponseTask = Task {
+                await bridge.handle(request)
+            }
+
+            let firstEvent = await firstEventTask.value
+            guard case .added(let prompt)? = firstEvent else {
+                return XCTFail("Expected added prompt event")
+            }
+            XCTAssertEqual(prompt.id, expectedPrompt.id)
+
+            await bridge.resolveUserInput(id: expectedPrompt.id, answers: ["confirm": "yes"])
+            _ = await firstResponseTask.value
+        }
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let secondEvents = await bridge.events()
+        let secondEventTask = Task {
+            var iterator = secondEvents.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let secondResponseTask = Task {
+            await bridge.handle(request)
+        }
+
+        let secondEvent = await secondEventTask.value
+        guard case .added(let replayedPrompt)? = secondEvent else {
+            return XCTFail("Expected prompt event after stream termination")
+        }
+        XCTAssertEqual(replayedPrompt.id, expectedPrompt.id)
+
+        await bridge.resolveUserInput(id: expectedPrompt.id, answers: ["confirm": "yes"])
+        _ = await secondResponseTask.value
+    }
+
+    @MainActor
+    func testPromptEventSessionOwnsBridgeEventTasks() async {
+        let session = CodexPromptEventSession()
 
         var continuation: AsyncStream<CodexInteractivePromptEvent>.Continuation?
         let events = AsyncStream<CodexInteractivePromptEvent> { continuation = $0 }
@@ -131,6 +193,54 @@ final class CodexPromptStateSessionTests: XCTestCase {
         XCTAssertEqual(receivedEvents, [.resolved("prompt-1")])
 
         session.reset()
+    }
+
+    @MainActor
+    func testPromptRuntimeSessionSyncsApprovalStoreOnPendingApprovalsChange() async {
+        let store = CodexCoreStore()
+        let runtime = CodexPromptRuntimeSession()
+        var activities: [CodexPromptStateActivity] = []
+        let syncExpectation = expectation(description: "approval synced from store")
+        syncExpectation.expectedFulfillmentCount = 1
+
+        runtime.bindApprovalStore(from: store) { activity in
+            activities.append(activity)
+            syncExpectation.fulfill()
+        }
+
+        store.dispatchRequest(approvalRequest(id: "approval-1", command: "swift test"))
+        await fulfillment(of: [syncExpectation], timeout: 1)
+
+        XCTAssertEqual(runtime.approvalPrompts.map(\.id), ["approval-1"])
+        XCTAssertEqual(activities, [
+            CodexPromptStateActivity(title: "Approval requested", detail: "swift test")
+        ])
+
+        runtime.reset()
+    }
+
+    @MainActor
+    func testPromptRuntimeSessionSyncsUserInputFromStore() async {
+        let store = CodexCoreStore()
+        let runtime = CodexPromptRuntimeSession()
+        var activities: [CodexPromptStateActivity] = []
+        let syncExpectation = expectation(description: "user input synced from store")
+        syncExpectation.expectedFulfillmentCount = 1
+
+        runtime.bindApprovalStore(from: store) { activity in
+            activities.append(activity)
+            syncExpectation.fulfill()
+        }
+
+        store.dispatchRequest(userInputRequest(id: "input-1", question: "Continue?"))
+        await fulfillment(of: [syncExpectation], timeout: 1)
+
+        XCTAssertEqual(runtime.interactivePrompts.map(\.id), ["input-1"])
+        XCTAssertEqual(activities, [
+            CodexPromptStateActivity(title: "Input requested", detail: "Continue?")
+        ])
+
+        runtime.reset()
     }
 
     @MainActor

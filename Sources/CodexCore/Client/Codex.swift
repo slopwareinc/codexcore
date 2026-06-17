@@ -45,7 +45,7 @@ public struct CodexConfig: Sendable {
     }
 }
 
-public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
+public enum CodexSDKError: Error, Sendable, CustomStringConvertible, LocalizedError {
     case runtimeNotFound
     case invalidRuntimePath(String)
     case invalidResponse(method: String, value: CodexJSONValue)
@@ -72,6 +72,8 @@ public enum CodexSDKError: Error, Sendable, CustomStringConvertible {
             return "Turn \(turnId) stream ended before a completion notification."
         }
     }
+
+    public var errorDescription: String? { description }
 }
 
 public struct CodexTurnResult: Sendable, Equatable {
@@ -87,7 +89,7 @@ public struct CodexTurnResult: Sendable, Equatable {
 }
 
 public final class Codex: @unchecked Sendable {
-    public let store: CodexCoreStore
+    @MainActor public let store: CodexCoreStore
     public let metadata: InitializeResponse
 
     private let client: CodexClient
@@ -910,20 +912,34 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
         }
     }
 
-    public func snapshots(pollInterval: Duration = .milliseconds(200)) -> AsyncThrowingStream<CodexTurnSnapshot, Error> {
+    public func snapshots() -> AsyncThrowingStream<CodexTurnSnapshot, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 var lastSnapshot: CodexTurnSnapshot?
-                while !Task.isCancelled {
-                    if let snapshot = await self.currentSnapshot(), snapshot != lastSnapshot {
+
+                func emitLatest() async -> CodexTurnSnapshot? {
+                    guard let snapshot = await self.currentSnapshot() else { return nil }
+                    if snapshot != lastSnapshot {
                         continuation.yield(snapshot)
                         lastSnapshot = snapshot
-                        if snapshot.status != .running {
-                            continuation.finish()
-                            return
-                        }
                     }
-                    try await Task.sleep(for: pollInterval)
+                    return snapshot
+                }
+
+                if let snapshot = await emitLatest(), snapshot.status != .running {
+                    continuation.finish()
+                    return
+                }
+
+                for await _ in self.stream() {
+                    if Task.isCancelled {
+                        continuation.finish()
+                        return
+                    }
+                    if let snapshot = await emitLatest(), snapshot.status != .running {
+                        continuation.finish()
+                        return
+                    }
                 }
                 continuation.finish()
             }
@@ -932,20 +948,35 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
     }
 
     public func run(timeout: TimeInterval = 300) async throws -> CodexTurnResult {
-        let deadline = Date().addingTimeInterval(timeout)
+        if Task.isCancelled {
+            throw CancellationError()
+        }
 
-        while Date() < deadline {
-            if let snapshot = await currentSnapshot(), snapshot.status != .running {
-                let result = makeResult(from: snapshot)
+        return try await withThrowingTaskGroup(of: CodexTurnResult.self) { group in
+            group.addTask {
+                _ = try await self.client.waitForTurnCompleted(turnId: self.id)
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+                guard let snapshot = await self.currentSnapshot() else {
+                    throw CodexSDKError.turnStreamEnded(turnId: self.id)
+                }
+                let result = self.makeResult(from: snapshot)
                 if snapshot.status == .failed {
                     throw CodexSDKError.turnFailed(result)
                 }
                 return result
             }
-            try await Task.sleep(for: .milliseconds(200))
+            group.addTask {
+                try await Task.sleep(for: .seconds(timeout))
+                throw CodexSDKError.turnTimedOut(turnId: self.id)
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw CodexSDKError.turnTimedOut(turnId: self.id)
+            }
+            return result
         }
-
-        throw CodexSDKError.turnTimedOut(turnId: id)
     }
 
     private func currentSnapshot() async -> CodexTurnSnapshot? {

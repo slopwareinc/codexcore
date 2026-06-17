@@ -32,7 +32,31 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
         case plan = "Plan"
         case tool = "Tool"
         case notice = "Notice"
+        case reasoning = "Thinking"
         case system = "System"
+    }
+
+    public struct ReasoningBlock: Equatable, Sendable {
+        public var itemID: String
+        public var text: String
+        public var isSummary: Bool
+        public var isStreaming: Bool
+
+        public init(
+            itemID: String,
+            text: String,
+            isSummary: Bool = false,
+            isStreaming: Bool = false
+        ) {
+            self.itemID = itemID
+            self.text = text
+            self.isSummary = isSummary
+            self.isStreaming = isStreaming
+        }
+
+        public var title: String {
+            isSummary ? "Summary" : "Thinking"
+        }
     }
 
     public struct CommandRun: Equatable, Sendable {
@@ -319,6 +343,7 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
     public var planUpdate: PlanUpdate?
     public var toolCall: ToolCall?
     public var notice: Notice?
+    public var reasoningBlock: ReasoningBlock?
 
     public init(
         id: UUID = UUID(),
@@ -333,7 +358,8 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
         fileChange: FileChange? = nil,
         planUpdate: PlanUpdate? = nil,
         toolCall: ToolCall? = nil,
-        notice: Notice? = nil
+        notice: Notice? = nil,
+        reasoningBlock: ReasoningBlock? = nil
     ) {
         self.id = id
         self.role = role
@@ -347,6 +373,7 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
         self.planUpdate = planUpdate
         self.toolCall = toolCall
         self.notice = notice
+        self.reasoningBlock = reasoningBlock
     }
 
     public mutating func setText(_ text: String, parseContent: Bool = true) {

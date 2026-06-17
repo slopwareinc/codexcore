@@ -71,6 +71,8 @@ public enum CodexKnownNotificationRoute: Equatable, Sendable {
     case turnPlanUpdated(CodexKnownTurnPlanNotificationRoute)
     case mcpToolCallProgress(CodexKnownItemTextNotificationRoute)
     case notice(CodexKnownNoticeNotificationRoute)
+    case reasoningTextDelta(CodexKnownItemTextNotificationRoute)
+    case reasoningSummaryTextDelta(CodexKnownItemTextNotificationRoute)
     case turnCompleted(threadID: String?, error: String?)
     case turnStarted(threadID: String?)
 }
@@ -217,6 +219,10 @@ public enum CodexNotificationMetadata {
             ))
         case .itemMCPToolCallProgress:
             return itemTextRoute(params: params, textKey: "message", verbatim: false).map(CodexKnownNotificationRoute.mcpToolCallProgress)
+        case .itemReasoningTextDelta:
+            return itemTextRoute(params: params, textKey: "delta").map(CodexKnownNotificationRoute.reasoningTextDelta)
+        case .itemReasoningSummaryTextDelta:
+            return itemTextRoute(params: params, textKey: "delta").map(CodexKnownNotificationRoute.reasoningSummaryTextDelta)
         case .modelRerouted, .modelVerification, .warning, .guardianWarning, .deprecationNotice, .configWarning, .itemAutoApprovalReviewStarted, .itemAutoApprovalReviewCompleted:
             return .notice(CodexKnownNoticeNotificationRoute(
                 method: method,

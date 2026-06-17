@@ -402,6 +402,20 @@ final class CodexChatRuntimePipelineTests: XCTestCase {
         )
         XCTAssertEqual(skillsChanged?.actions, [.refreshSlashCommands(forceReload: true)])
 
+        let threadArchived = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.known(method: .threadArchived, params: [
+                "threadId": .string("thread-1")
+            ])),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { _, _ in nil }
+        )
+        XCTAssertEqual(threadArchived?.actions, [.refreshRecentChats])
+
         let completed = CodexChatNotificationPipeline.apply(
             transcriptNotification(.turnCompleted(TurnCompletedNotification(
                 threadId: "thread-1",
@@ -421,6 +435,59 @@ final class CodexChatRuntimePipelineTests: XCTestCase {
         XCTAssertEqual(completed?.activities.map(\.kind), [.turn])
         XCTAssertEqual(completed?.activities.map(\.title), ["Turn complete"])
         XCTAssertEqual(completed?.activities.map(\.detail), ["Codex finished"])
+    }
+
+    func testGlobalStreamRoutesGuardianAndAutoApprovalToNoticeCards() {
+        var mainSession = CodexMainChatSession()
+        var goalSession = CodexGoalStateSession()
+        var mapper = CodexAgentStateMapper()
+        var integrations = CodexIntegrationCatalogSession()
+
+        let guardianNotice = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.known(
+                method: .guardianWarning,
+                params: ["message": .string("Manual approval required")]
+            )),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { _, _ in nil }
+        )
+        XCTAssertEqual(guardianNotice?.syncMainTranscript, true)
+        XCTAssertEqual(mainSession.messages.last?.role, .notice)
+        XCTAssertEqual(mainSession.messages.last?.notice?.title, "Guardian warning")
+
+        let reviewStarted = CodexChatNotificationPipeline.apply(
+            transcriptNotification(.unknown(
+                method: CodexAppServerNotificationMethod.itemAutoApprovalReviewStarted.rawValue,
+                params: [
+                    "reviewId": .string("review-1"),
+                    "targetItemId": .string("item-1"),
+                    "review": .dictionary([
+                        "status": .string("approved"),
+                        "rationale": .string("Safe command")
+                    ]),
+                    "action": .dictionary([
+                        "type": .string("command"),
+                        "command": .string("swift test")
+                    ])
+                ]
+            )),
+            mode: .globalStream,
+            currentThreadID: "thread-1",
+            mainChatSession: &mainSession,
+            goalSession: &goalSession,
+            agentStateMapper: &mapper,
+            integrationCatalogSession: &integrations,
+            turnSnapshot: { _, _ in nil }
+        )
+        XCTAssertEqual(reviewStarted?.syncMainTranscript, true)
+        XCTAssertEqual(mainSession.messages.last?.role, .notice)
+        XCTAssertEqual(mainSession.messages.last?.notice?.title, "Auto review approved")
+        XCTAssertTrue(mainSession.messages.last?.notice?.isStreaming ?? false)
     }
 
     @MainActor

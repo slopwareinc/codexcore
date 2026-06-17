@@ -9,12 +9,6 @@ public final class CodexChatStreamSession {
 
     public init() {}
 
-    deinit {
-        mainTurnTask?.cancel()
-        sideChatTurnTask?.cancel()
-        globalNotificationTask?.cancel()
-    }
-
     public func consumeMainTurn(
         _ handle: CodexTurnHandle,
         onNotification: @escaping @MainActor (CodexNotification) -> Void,
@@ -97,13 +91,13 @@ public final class CodexChatStreamSession {
         onFinish: @escaping @MainActor (String) -> Void
     ) {
         mainTurnTask?.cancel()
-        mainTurnTask = Task {
+        mainTurnTask = Task { @MainActor in
             for await notification in notifications {
                 guard !Task.isCancelled else { return }
-                await MainActor.run { onNotification(notification) }
+                onNotification(notification)
             }
             guard !Task.isCancelled else { return }
-            await MainActor.run { onFinish(turnID) }
+            onFinish(turnID)
         }
     }
 
@@ -135,13 +129,13 @@ public final class CodexChatStreamSession {
         onFinish: @escaping @MainActor (String) -> Void
     ) {
         sideChatTurnTask?.cancel()
-        sideChatTurnTask = Task {
+        sideChatTurnTask = Task { @MainActor in
             for await notification in notifications {
                 guard !Task.isCancelled else { return }
-                await MainActor.run { onNotification(notification) }
+                onNotification(notification)
             }
             guard !Task.isCancelled else { return }
-            await MainActor.run { onFinish(turnID) }
+            onFinish(turnID)
         }
     }
 
@@ -171,10 +165,10 @@ public final class CodexChatStreamSession {
         onNotification: @escaping @MainActor (CodexNotification) -> Void
     ) {
         globalNotificationTask?.cancel()
-        globalNotificationTask = Task {
+        globalNotificationTask = Task { @MainActor in
             for await notification in notifications {
                 guard !Task.isCancelled else { return }
-                await MainActor.run { onNotification(notification) }
+                onNotification(notification)
             }
         }
     }

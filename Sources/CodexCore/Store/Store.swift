@@ -632,7 +632,7 @@ public final class CodexCoreStore {
     public func resolveApproval(_ requestId: String) {
         pendingApprovals.removeAll(where: { $0.id == requestId })
         for threadID in Array(threadSnapshotsByID.keys) {
-            var thread = threadSnapshotsByID[threadID]!
+            guard var thread = threadSnapshotsByID[threadID] else { continue }
             thread.pendingApprovals.removeAll(where: { $0.id == requestId })
             if thread.pendingApprovals.isEmpty, thread.status == .waiting {
                 thread.status = .active
@@ -657,8 +657,8 @@ public final class CodexCoreStore {
         var thread = snapshotForMutation(threadID: threadId)
         guard let turnIdx = turnIndex(turnId, in: &thread) else { return }
 
-        let currentText = streamingBuffers[itemId, default: ""] + delta
-        streamingBuffers[itemId] = currentText
+        streamingBuffers[itemId, default: ""].append(delta)
+        let currentText = streamingBuffers[itemId, default: ""]
 
         let updatedItem = itemCreator(currentText)
         if let itemIdx = thread.turns[turnIdx].items.firstIndex(where: { $0.id == itemId }) {

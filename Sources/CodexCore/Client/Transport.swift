@@ -14,11 +14,24 @@ public protocol CodexTransport: Actor, Sendable {
     var isConnected: Bool { get }
 }
 
-public enum CodexTransportError: Error {
+public enum CodexTransportError: Error, Sendable, LocalizedError {
     case processNotRunning
     case writeFailed
     case connectionClosed
     case invalidURL
+
+    public var errorDescription: String? {
+        switch self {
+        case .processNotRunning:
+            return "Codex transport process is not running."
+        case .writeFailed:
+            return "Failed to encode transport payload as UTF-8."
+        case .connectionClosed:
+            return "Codex transport connection is closed."
+        case .invalidURL:
+            return "Codex transport URL is invalid."
+        }
+    }
 }
 
 // MARK: - Subprocess Stdio Transport
@@ -93,11 +106,12 @@ public actor CodexStdioTransport: CodexTransport {
         // --- stdout: FileHandle.readabilityHandler runs on a GCD serial queue,
         //     NOT on Swift's cooperative pool. No blocking read() on the pool.
         let stdoutBuf = LineBuffer()
-        stdoutHandle.readabilityHandler = { handle in
+        stdoutHandle.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else {
                 handle.readabilityHandler = nil
-                Task {
+                Task { [weak self] in
+                    guard let self else { return }
                     if await self.markUnexpectedClose() {
                         onError(CodexTransportError.connectionClosed)
                     }
@@ -224,7 +238,7 @@ public actor CodexWebSocketTransport: CodexTransport {
         }
         let data = try JSONEncoder().encode(payload)
         guard let text = String(data: data, encoding: .utf8) else {
-            return
+            throw CodexTransportError.writeFailed
         }
         try await task.send(.string(text))
     }

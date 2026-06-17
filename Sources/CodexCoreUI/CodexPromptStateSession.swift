@@ -210,6 +210,7 @@ public actor CodexInteractivePromptBridge {
 
     private var pendingPrompts: [String: PendingPrompt] = [:]
     private var eventContinuation: AsyncStream<CodexInteractivePromptEvent>.Continuation?
+    private var eventContinuationID = 0
 
     public init() {}
 
@@ -258,9 +259,20 @@ public actor CodexInteractivePromptBridge {
     }
 
     private func attach(_ continuation: AsyncStream<CodexInteractivePromptEvent>.Continuation) async {
+        eventContinuation?.finish()
+        eventContinuationID += 1
+        let continuationID = eventContinuationID
         eventContinuation = continuation
+        continuation.onTermination = { @Sendable _ in
+            Task { await self.clearEventContinuation(id: continuationID) }
+        }
         for pending in pendingPrompts.values {
             continuation.yield(.added(pending.prompt))
         }
+    }
+
+    private func clearEventContinuation(id: Int) {
+        guard id == eventContinuationID else { return }
+        eventContinuation = nil
     }
 }

@@ -61,11 +61,12 @@ final class CodexChatModel {
                 clientVersion: "1.0.0",
                 approvalPolicy: .ask
             )
-            let codex = try await Codex(config: config, serverRequestHandler: { request in
+            let codex = try await Codex(config: config, serverRequestHandler: { [weak self] request in
                 // MCP elicitations are not covered by the approval policy;
                 // bridge them into the interactive prompt UI. Everything else
                 // falls through (nil) to the SDK's `.ask` flow.
-                await self.promptRuntime.handleMCPServerElicitationRequest(request)
+                guard let self else { return nil }
+                return await self.promptRuntime.handleMCPServerElicitationRequest(request)
             })
             self.codex = codex
             runtimeSession.bindHost(
@@ -75,7 +76,7 @@ final class CodexChatModel {
                 applySideChatUpdate: { [weak self] update in self?.applySideChat(update) }
             )
             runtimeSession.consumeGlobalNotifications(from: codex)
-            startApprovalStoreMirror()
+            bindApprovalStore(from: codex.store)
             let server = codex.metadata.serverInfo?.name ?? "Codex"
             authSession.connected(server: server)
 
@@ -102,6 +103,7 @@ final class CodexChatModel {
         await stopBottomTerminalSession()
         runtimeSession.reset()
         promptRuntime.reset()
+        mentionSearchSession.reset()
         loginTask?.cancel()
         await promptRuntime.cancelAllPrompts()
         loginTask = nil
@@ -763,9 +765,8 @@ final class CodexChatModel {
         runtimeSession.resetGoal()
     }
 
-    private func startApprovalStoreMirror() {
-        guard let codex else { return }
-        promptRuntime.startApprovalStoreMirror(from: codex) { [weak self] activity in
+    private func bindApprovalStore(from store: CodexCoreStore) {
+        promptRuntime.bindApprovalStore(from: store) { [weak self] activity in
             guard let self else { return }
             appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
