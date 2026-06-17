@@ -2,40 +2,70 @@ import Foundation
 
 // MARK: - Message Content Bridge (Swift Implementation)
 
-public enum MessageContentBridge {
-    public static func assistantRenderBlocks(_ text: String) -> [AssistantRenderBlock] {
-        let parsed = store.extractRenderBlocks(text: text)
+public struct MessageContentBridge: Sendable {
+    private let parser: MessageParser
+
+    public init(parser: MessageParser = MessageParser()) {
+        self.parser = parser
+    }
+
+    public func assistantRenderBlocks(_ text: String) -> [AssistantRenderBlock] {
+        let parsed = parser.extractRenderBlocks(text: text)
         return parsed.isEmpty ? [.markdown(text)] : parsed
     }
 
-    public static func segmentAssistantText(_ text: String) -> [AssistantContentSegment] {
-        let parsed = assistantContentSegments(from: assistantRenderBlocks(text))
+    public func segmentAssistantText(_ text: String) -> [AssistantContentSegment] {
+        let parsed = Self.assistantContentSegments(from: assistantRenderBlocks(text))
         return parsed.isEmpty ? [.markdown(text)] : parsed
     }
 
-    public static func normalizedAssistantMarkdown(_ text: String) -> String {
+    public func normalizedAssistantMarkdown(_ text: String) -> String {
         let segments = segmentAssistantText(text)
         let fragments = segments.compactMap { segment -> String? in
             guard case .markdown(let content) = segment else { return nil }
             return content
         }
-        let normalized = combinedMarkdownFragments(fragments)
+        let normalized = Self.combinedMarkdownFragments(fragments)
         return normalized.isEmpty ? text : normalized
     }
 
+    public func containsMath(_ text: String) -> Bool {
+        parser.containsMath(text)
+    }
+
+    public func parseToolCalls(text: String) -> [ToolCallCardModel] {
+        parser.parseToolCalls(text: text)
+    }
+
+    public func parseCodeReview(text: String) -> ConversationCodeReviewData? {
+        parser.parseCodeReview(text: text)
+    }
+
+    public static func assistantRenderBlocks(_ text: String) -> [AssistantRenderBlock] {
+        `default`.assistantRenderBlocks(text)
+    }
+
+    public static func segmentAssistantText(_ text: String) -> [AssistantContentSegment] {
+        `default`.segmentAssistantText(text)
+    }
+
+    public static func normalizedAssistantMarkdown(_ text: String) -> String {
+        `default`.normalizedAssistantMarkdown(text)
+    }
+
     public static func containsMath(_ text: String) -> Bool {
-        store.containsMath(text)
+        `default`.containsMath(text)
     }
 
     public static func parseToolCalls(text: String) -> [ToolCallCardModel] {
-        store.parseToolCalls(text: text)
+        `default`.parseToolCalls(text: text)
     }
 
     public static func parseCodeReview(text: String) -> ConversationCodeReviewData? {
-        store.parseCodeReview(text: text)
+        `default`.parseCodeReview(text: text)
     }
 
-    private static let store = MessageParser()
+    public static let `default` = MessageContentBridge()
 
     private static func assistantContentSegments(from renderBlocks: [AssistantRenderBlock]) -> [AssistantContentSegment] {
         var segments: [AssistantContentSegment] = []
