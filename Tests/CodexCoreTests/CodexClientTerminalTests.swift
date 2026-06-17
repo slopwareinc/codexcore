@@ -334,6 +334,26 @@ final class CodexClientTerminalTests: XCTestCase {
         await retryClient.disconnect()
     }
 
+    func testHighLevelRequestWithRetryOnOverloadDelegatesToClientRetry() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let codex = try await Codex(transport: transport, store: store)
+
+        let value = try await codex.requestWithRetryOnOverload(
+            method: "retry/overload",
+            maxAttempts: 2,
+            initialDelay: .zero,
+            maxDelay: .zero,
+            jitterRatio: 0
+        )
+        XCTAssertEqual(value, .dictionary(["ok": .bool(true)]))
+
+        let retryPayloads = await transport.sentPayloads.filter { $0["method"]?.description == "retry/overload" }
+        XCTAssertEqual(retryPayloads.count, 2)
+
+        await codex.close()
+    }
+
     func testClientNotificationWaitAndTextStreamConveniences() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()

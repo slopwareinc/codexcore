@@ -488,6 +488,24 @@ public final class Codex: @unchecked Sendable {
         try await client.request(method: method, params: params)
     }
 
+    func rawRequestWithClientRetryOnOverload(
+        method: String,
+        params: [String: CodexJSONValue] = [:],
+        maxAttempts: Int = 3,
+        initialDelay: Duration = .milliseconds(250),
+        maxDelay: Duration = .seconds(2),
+        jitterRatio: Double = 0.2
+    ) async throws -> CodexJSONValue {
+        try await client.requestWithRetryOnOverload(
+            method: method,
+            params: params,
+            maxAttempts: maxAttempts,
+            initialDelay: initialDelay,
+            maxDelay: maxDelay,
+            jitterRatio: jitterRatio
+        )
+    }
+
     // MARK: - Approval Resolution (policy `.ask`)
 
     /// Answers a pending approval from `store.pendingApprovals`. Returns `false`

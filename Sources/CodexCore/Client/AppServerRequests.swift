@@ -84,14 +84,14 @@ public extension Codex {
         maxDelay: Duration = .seconds(2),
         jitterRatio: Double = 0.2
     ) async throws -> CodexJSONValue {
-        try await retryOnOverload(
+        try await rawRequestWithClientRetryOnOverload(
+            method: method,
+            params: params,
             maxAttempts: maxAttempts,
             initialDelay: initialDelay,
             maxDelay: maxDelay,
             jitterRatio: jitterRatio
-        ) {
-            try await self.rawRequest(method: method, params: params)
-        }
+        )
     }
 
     @discardableResult
