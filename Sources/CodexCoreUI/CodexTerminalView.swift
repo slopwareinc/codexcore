@@ -1,3 +1,4 @@
+import CodexCore
 import SwiftUI
 
 /// A drop-in SwiftUI monospaced terminal view that binds to a live `command/exec` session.
@@ -20,7 +21,7 @@ public struct CodexTerminalView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(parser.makeAttributedString(from: segments))
+                    Text(ANSITerminalStyle.makeAttributedString(from: segments))
                         .font(.system(.body, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)

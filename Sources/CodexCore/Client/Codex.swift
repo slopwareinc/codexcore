@@ -89,7 +89,7 @@ public struct CodexTurnResult: Sendable, Equatable {
 }
 
 public final class Codex: @unchecked Sendable {
-    public let store: CodexCoreStore
+    @MainActor public let store: CodexCoreStore
     public let metadata: InitializeResponse
 
     private let client: CodexClient

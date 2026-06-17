@@ -1,5 +1,4 @@
 import XCTest
-import SwiftUI
 @testable import CodexCore
 
 // MARK: - Test Suite
@@ -596,7 +595,7 @@ final class CodexClientTerminalTests: XCTestCase {
         XCTAssertEqual(segments[0].style.foregroundColor, .red)
 
         XCTAssertEqual(segments[1].text, " Standard Text")
-        XCTAssertEqual(segments[1].style.foregroundColor, .primary)
+        XCTAssertEqual(segments[1].style.foregroundColor, .default)
 
         // 2. Complex SGR Bold Underlined Blue Background Yellow Foreground
         let complexInput = "\u{001B}[1;4;44;33mStyled Text\u{001B}[0m"
@@ -616,13 +615,6 @@ final class CodexClientTerminalTests: XCTestCase {
         XCTAssertEqual(oscSegments.count, 2)
         XCTAssertEqual(oscSegments[0].text, "Google Link")
         XCTAssertEqual(oscSegments[1].text, " Rest")
-
-        // 4. Swift AttributedString generation
-        if #available(macOS 12.0, iOS 15.0, *) {
-            let attrStr = parser.makeAttributedString(from: segments)
-            let rawStr = String(attrStr.characters)
-            XCTAssertEqual(rawStr, "Red Text Standard Text")
-        }
     }
 
     func sendServerRequest(
