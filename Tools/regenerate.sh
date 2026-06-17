@@ -7,21 +7,16 @@
 #   CODEX_BINARY=/path/to/codex Tools/regenerate.sh   # override binary
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CODEX_BIN="${CODEX_BINARY:-codex}"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app_server_schema_common.sh"
 
 SCHEMA_DIR="$(mktemp -d)"
 trap 'rm -rf "$SCHEMA_DIR"' EXIT
 
-"$CODEX_BIN" app-server generate-json-schema --out "$SCHEMA_DIR" --experimental
-
-python3 "$ROOT/Tools/generate_app_server_methods.py" \
-    --schema-dir "$SCHEMA_DIR" \
-    --out "$ROOT/Sources/CodexCore/Generated/AppServerProtocolMethods.swift"
-
-python3 "$ROOT/Tools/generate_app_server_schema_types.py" \
-    --schema-dir "$SCHEMA_DIR" \
-    --out "$ROOT/Sources/CodexCore/Generated/AppServerSchemaTypes.swift"
+generate_app_server_schema "$SCHEMA_DIR"
+generate_app_server_swift \
+    "$SCHEMA_DIR" \
+    "$ROOT/Sources/CodexCore/Generated/AppServerProtocolMethods.swift" \
+    "$ROOT/Sources/CodexCore/Generated/AppServerSchemaTypes.swift"
 
 "$CODEX_BIN" --version > "$ROOT/Tools/UPSTREAM_VERSION"
 

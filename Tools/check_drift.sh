@@ -5,23 +5,18 @@
 # to refresh them.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CODEX_BIN="${CODEX_BINARY:-codex}"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app_server_schema_common.sh"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 SCHEMA_DIR="$WORK_DIR/schema"
 mkdir -p "$SCHEMA_DIR"
 
-"$CODEX_BIN" app-server generate-json-schema --out "$SCHEMA_DIR" --experimental >/dev/null
-
-python3 "$ROOT/Tools/generate_app_server_methods.py" \
-    --schema-dir "$SCHEMA_DIR" \
-    --out "$WORK_DIR/AppServerProtocolMethods.swift"
-
-python3 "$ROOT/Tools/generate_app_server_schema_types.py" \
-    --schema-dir "$SCHEMA_DIR" \
-    --out "$WORK_DIR/AppServerSchemaTypes.swift"
+generate_app_server_schema "$SCHEMA_DIR" >/dev/null
+generate_app_server_swift \
+    "$SCHEMA_DIR" \
+    "$WORK_DIR/AppServerProtocolMethods.swift" \
+    "$WORK_DIR/AppServerSchemaTypes.swift"
 
 status=0
 for file in AppServerProtocolMethods.swift AppServerSchemaTypes.swift; do
