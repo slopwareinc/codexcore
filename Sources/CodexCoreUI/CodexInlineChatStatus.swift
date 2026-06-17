@@ -1,58 +1,34 @@
 import SwiftUI
 
-struct CodexInlineChatStatus: View {
+/// Minimal in-transcript working indicator matching the official Codex app ("Worked for 28s >").
+struct CodexTurnWorkingBlock: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let activity: CodexActivity?
-    let onInterrupt: () -> Void
+    let state: CodexActiveTurnState
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "target")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(theme.colors.textTertiary)
-
-            HStack(spacing: 5) {
-                Text(title)
-                    .foregroundStyle(theme.colors.textPrimary)
-                if let detail {
-                    Text(detail)
-                        .foregroundStyle(theme.colors.textTertiary)
-                }
-                CodexStreamingDots()
-            }
-            .font(theme.fonts.chat.weight(.medium))
-            .lineLimit(1)
-
-            Spacer(minLength: 12)
-
-            Button(action: onInterrupt) {
-                Image(systemName: "pause.circle")
-                    .font(.system(size: 12, weight: .semibold))
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 6) {
+                Text(label(at: context.date))
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(theme.colors.textTertiary.opacity(0.72))
             }
-            .buttonStyle(.plain)
-            .help("Pause")
+            .padding(.leading, 40)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(label(at: context.date))
         }
-        .padding(.horizontal, 18)
-        .frame(height: 54)
-        .background(theme.colors.surface.opacity(0.88))
-        .overlay(Rectangle().stroke(theme.colors.border, lineWidth: 1))
-        .accessibilityLabel(activity?.title ?? "Codex is working")
     }
 
-    private var title: String {
-        activity?.title ?? "Codex is working"
-    }
-
-    private var detail: String? {
-        guard let activity else { return nil }
-        let value = activity.detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else {
-            return nil
+    private func label(at date: Date) -> String {
+        let elapsed = max(0, Int(date.timeIntervalSince(state.startedAt)))
+        if elapsed >= 1 {
+            return "Worked for \(elapsed)s"
         }
-        return value
+        let title = state.activity?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "Working" : title
     }
 }
