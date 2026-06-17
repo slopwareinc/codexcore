@@ -1,6 +1,17 @@
 import Foundation
 import SwiftUI
 
+/// Inline transcript indicator shown while a turn is in progress before assistant streaming begins.
+public struct CodexActiveTurnState: Equatable, Sendable {
+    public var activity: CodexActivity?
+    public var startedAt: Date
+
+    public init(activity: CodexActivity? = nil, startedAt: Date = Date()) {
+        self.activity = activity
+        self.startedAt = startedAt
+    }
+}
+
 public struct CodexActivity: Identifiable, Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable {
         case turn

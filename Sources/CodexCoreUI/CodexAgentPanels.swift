@@ -62,6 +62,7 @@ public struct CodexFloatingSummaryPanel: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(width: theme.spacing.summaryPanelWidth, alignment: .topLeading)
+        .fixedSize(horizontal: true, vertical: false)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.panel, style: .continuous))
     }
 }
@@ -204,6 +205,7 @@ public struct CodexAgentSidePanel: View {
             resizeHandle
         }
         .shadow(color: .black.opacity(0.24), radius: 24, x: -8)
+        .animation(nil, value: panelWidth)
         .onAppear(perform: ensureSelection)
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
     }
@@ -241,7 +243,11 @@ public struct CodexAgentSidePanel: View {
                 guard let width else { return }
                 let start = resizeStartWidth ?? panelWidth
                 resizeStartWidth = start
-                width.wrappedValue = clamped(start - value.translation.width)
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    width.wrappedValue = clamped(start - value.translation.width)
+                }
             }
             .onEnded { _ in
                 resizeStartWidth = nil

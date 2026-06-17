@@ -44,7 +44,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isAgentPanelOpen = false
     @State private var isSummaryPanelOpen = true
     @State private var selectedPanelTabID: String?
-    @State private var agentPanelWidth: CGFloat = 360
+    @State private var agentPanelWidth: CGFloat = CodexAgentTheme.officialDark.spacing.sidePanelWidth
 
     public init(
         messages: [CodexChatMessage],
@@ -123,46 +123,36 @@ public struct CodexChatWorkspaceView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .topTrailing) {
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    mainColumn
-                }
+        HStack(spacing: 0) {
+            mainColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if isAgentPanelOpen, !panelTabs.isEmpty {
-                    CodexAgentSidePanel(
-                        tabs: panelTabs,
-                        selectedTabID: $selectedPanelTabID,
-                        width: $agentPanelWidth,
-                        sideChatDraft: $sideChatDraft,
-                        isSideChatSending: isSideChatSending,
-                        canSendSideChatMessage: canSendSideChatMessage,
-                        onSendSideChatMessage: onSendSideChatMessage,
-                        onInterruptSideChatMessage: onInterruptSideChatMessage,
-                        onClose: { withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { isAgentPanelOpen = false } }
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-            }
-
-            if isSummaryPanelOpen {
-                CodexFloatingSummaryPanel(
-                    sideChat: sideChat,
-                    subagents: subagents,
-                    onSelectTab: openPanelTab
+            if isAgentPanelOpen, !panelTabs.isEmpty {
+                CodexAgentSidePanel(
+                    tabs: panelTabs,
+                    selectedTabID: $selectedPanelTabID,
+                    width: $agentPanelWidth,
+                    sideChatDraft: $sideChatDraft,
+                    isSideChatSending: isSideChatSending,
+                    canSendSideChatMessage: canSendSideChatMessage,
+                    onSendSideChatMessage: onSendSideChatMessage,
+                    onInterruptSideChatMessage: onInterruptSideChatMessage,
+                    onClose: { withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { isAgentPanelOpen = false } }
                 )
-                .padding(.top, 58)
-                .padding(.trailing, isAgentPanelOpen ? agentPanelWidth + 16 : 16)
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
-                .animation(.spring(response: 0.32, dampingFraction: 0.9), value: isAgentPanelOpen)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+        .animation(.spring(response: 0.32, dampingFraction: 0.9), value: isAgentPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
     }
 
     private var mainColumn: some View {
-        ZStack(alignment: .top) {
-            CodexTranscriptView(messages: messages, lifecycleEvents: lifecycleEvents) {
+        ZStack(alignment: .topTrailing) {
+            CodexTranscriptView(
+                messages: messages,
+                lifecycleEvents: lifecycleEvents,
+                activeTurn: activeTurnState
+            ) {
                 CodexEmptyTranscriptView { prompt in
                     if let onPromptSelected {
                         onPromptSelected(prompt)
@@ -194,13 +184,7 @@ public struct CodexChatWorkspaceView: View {
                 )
 
                 Spacer(minLength: 0)
-                if isSending {
-                    CodexInlineChatStatus(activity: activities.first, onInterrupt: onInterrupt)
-                        .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, -1)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
+
                 CodexComposerBar(
                     draft: $draft,
                     approvalSelection: $approvalSelection,
@@ -225,8 +209,31 @@ public struct CodexChatWorkspaceView: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 10)
             }
+
+            if isSummaryPanelOpen {
+                CodexFloatingSummaryPanel(
+                    sideChat: sideChat,
+                    subagents: subagents,
+                    onSelectTab: openPanelTab
+                )
+                .padding(.top, 58)
+                .padding(.trailing, 16)
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+            }
         }
         .frame(minWidth: 540)
+    }
+
+    private var activeTurnState: CodexActiveTurnState? {
+        guard isSending else { return nil }
+        if let lastAssistant = messages.last(where: { $0.role == .assistant }), lastAssistant.isStreaming {
+            return nil
+        }
+        let turnActivity = activities.first { $0.kind == .turn || $0.kind == .tool }
+        return CodexActiveTurnState(
+            activity: turnActivity,
+            startedAt: activities.first { $0.kind == .turn }?.createdAt ?? turnActivity?.createdAt ?? Date()
+        )
     }
 
     private var panelTabs: [CodexAgentPanelTab] {

@@ -3,15 +3,18 @@ import SwiftUI
 public struct CodexTranscriptView<EmptyContent: View>: View {
     private let messages: [CodexChatMessage]
     private let lifecycleEvents: [CodexAgentLifecycleEvent]
+    private let activeTurn: CodexActiveTurnState?
     private let emptyContent: EmptyContent
 
     public init(
         messages: [CodexChatMessage],
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
+        activeTurn: CodexActiveTurnState? = nil,
         @ViewBuilder emptyContent: () -> EmptyContent
     ) {
         self.messages = messages
         self.lifecycleEvents = lifecycleEvents
+        self.activeTurn = activeTurn
         self.emptyContent = emptyContent()
     }
 
@@ -37,6 +40,10 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                                     .id(item.id)
                             }
                         }
+                        if let activeTurn {
+                            CodexTurnWorkingBlock(state: activeTurn)
+                                .id("active-turn")
+                        }
                         Color.clear.frame(height: 8).id(Self.bottomAnchor)
                     }
                     .padding(.horizontal, 28)
@@ -49,6 +56,9 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             .scrollContentBackground(.hidden)
             .onChange(of: timelineItems.count) { _, _ in scroll(proxy, animated: true) }
             .onChange(of: messages.last?.text) { _, _ in scroll(proxy, animated: false) }
+            .onChange(of: activeTurn != nil) { _, isActive in
+                if isActive { scroll(proxy, animated: true) }
+            }
         }
     }
 
