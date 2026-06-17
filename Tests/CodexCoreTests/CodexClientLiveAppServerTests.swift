@@ -3,9 +3,11 @@ import XCTest
 
 extension CodexClientTerminalTests {
     func testRealCodexAppServerTurnLifecycle() async throws {
+        guard ProcessInfo.processInfo.environment["CODEX_REAL_APP_SERVER_PROBE"] == "1" else {
+            throw XCTSkip("Set CODEX_REAL_APP_SERVER_PROBE=1 to run the live app-server probe.")
+        }
         guard let binaryURL = try? Codex.resolveCodexBinary() else {
-            print("[CodexClientTerminalTests] Skipping: Codex binary not found")
-            return
+            throw XCTSkip("Codex binary not found on PATH or at $CODEX_BINARY.")
         }
 
         let transport = CodexStdioTransport(

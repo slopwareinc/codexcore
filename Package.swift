@@ -32,7 +32,8 @@ let package = Package(
         .target(
             name: "CodexCore",
             dependencies: [],
-            path: "Sources/CodexCore"
+            path: "Sources/CodexCore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
             name: "CodexCoreUI",
@@ -40,27 +41,33 @@ let package = Package(
                 "CodexCore",
                 .product(name: "MarkdownUI", package: "swift-markdown-ui")
             ],
-            path: "Sources/CodexCoreUI"
+            path: "Sources/CodexCoreUI",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
             name: "CodexRun",
             dependencies: ["CodexCore"],
-            path: "Sources/CodexRun"
+            path: "Sources/CodexRun",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
             name: "CodexChatExample",
             dependencies: ["CodexCore", "CodexCoreUI"],
-            path: "Examples/CodexChatExample"
+            path: "Examples/CodexChatExample",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "CodexCoreTests",
             dependencies: ["CodexCore"],
-            path: "Tests/CodexCoreTests"
+            path: "Tests/CodexCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "CodexCoreUITests",
             dependencies: ["CodexCore", "CodexCoreUI"],
-            path: "Tests/CodexCoreUITests"
+            path: "Tests/CodexCoreUITests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         )
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )
