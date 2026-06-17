@@ -377,14 +377,14 @@ public enum CodexAgentNotificationRouter {
         switch message.role {
         case .terminal, .fileChange, .tool:
             return true
-        case .assistant, .plan, .notice, .system, .user:
+        case .assistant, .plan, .notice, .reasoning, .system, .user:
             return false
         }
     }
 
     private static func isStoreBackedLiveMessage(_ message: CodexChatMessage) -> Bool {
         switch message.role {
-        case .assistant, .terminal, .fileChange, .tool:
+        case .assistant, .terminal, .fileChange, .tool, .reasoning:
             return true
         case .plan, .notice, .system, .user:
             return false

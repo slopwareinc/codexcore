@@ -130,6 +130,12 @@ public struct CodexCommandCard: View {
                 .stroke(theme.colors.border, lineWidth: 1)
         )
         .frame(maxWidth: 640, alignment: .leading)
+        .onAppear {
+            if run.isStreaming { expanded = true }
+        }
+        .onChange(of: run.isStreaming) { _, isStreaming in
+            if isStreaming { expanded = true }
+        }
     }
 
     private var header: some View {
@@ -220,6 +226,107 @@ public struct CodexCommandCard: View {
         let lines = run.output.split(whereSeparator: \.isNewline).count
         if lines > 0 { return lines == 1 ? "1 line" : "\(lines) lines" }
         return run.output.count == 1 ? "1 char" : "\(run.output.count) chars"
+    }
+}
+
+/// A collapsible card for streamed model reasoning output.
+public struct CodexReasoningCard: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    private let block: CodexChatMessage.ReasoningBlock
+
+    @State private var expanded = false
+
+    public init(block: CodexChatMessage.ReasoningBlock) {
+        self.block = block
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if expanded { bodyContent }
+        }
+        .background(theme.colors.surfaceElevated.opacity(0.35))
+        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.8), lineWidth: 1)
+        )
+        .frame(maxWidth: 640, alignment: .leading)
+        .onAppear {
+            if block.isStreaming { expanded = true }
+        }
+        .onChange(of: block.isStreaming) { _, isStreaming in
+            if isStreaming { expanded = true }
+        }
+    }
+
+    private var header: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.22)) { expanded.toggle() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.colors.codeFaint)
+
+                Text(block.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.colors.codeText)
+
+                Spacer(minLength: 8)
+
+                if block.isStreaming {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else if !expanded, hasText {
+                    Text(previewText)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(theme.colors.codeFaint)
+                        .lineLimit(1)
+                }
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(theme.colors.codeFaint)
+                    .rotationEffect(.degrees(expanded ? 0 : -90))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(theme.colors.codeHeader.opacity(0.65))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var bodyContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle().fill(theme.colors.border).frame(height: 1)
+            ScrollView(.vertical, showsIndicators: true) {
+                Text(displayText)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .foregroundStyle(hasText ? theme.colors.codeText : theme.colors.codeFaint)
+                    .textSelection(.enabled)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 220)
+        }
+    }
+
+    private var hasText: Bool {
+        !block.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var displayText: String {
+        if hasText { return block.text }
+        return block.isStreaming ? "Thinking..." : "No reasoning captured"
+    }
+
+    private var previewText: String {
+        block.text
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
