@@ -1,11 +1,14 @@
 import Foundation
+import Observation
 import CodexCore
 
 @MainActor
+@Observable
 public final class CodexPromptRuntimeSession {
     private var promptSession: CodexPromptStateSession
     private let eventSession: CodexPromptEventSession
     private let bridge: CodexInteractivePromptBridge
+    private var approvalStoreBindingGeneration = 0
 
     public init(
         promptSession: CodexPromptStateSession = CodexPromptStateSession(),
@@ -32,16 +35,17 @@ public final class CodexPromptRuntimeSession {
         return await bridge.handle(request)
     }
 
-    public func startApprovalStoreMirror(
-        from codex: Codex,
+    public func bindApprovalStore(
+        from store: CodexCoreStore,
         onActivity: @escaping @MainActor (CodexPromptStateActivity) -> Void
     ) {
-        eventSession.startApprovalStoreMirror(from: codex) { [weak self] approvals, userInput in
-            guard let self else { return }
-            for activity in promptSession.sync(approvalRequests: approvals, userInput: userInput) {
-                onActivity(activity)
-            }
-        }
+        cancelApprovalStoreBinding()
+        approvalStoreBindingGeneration += 1
+        observeApprovalStore(
+            store,
+            generation: approvalStoreBindingGeneration,
+            onActivity: onActivity
+        )
     }
 
     public func startInteractivePromptEventListener(
@@ -95,11 +99,35 @@ public final class CodexPromptRuntimeSession {
     }
 
     public func reset() {
+        cancelApprovalStoreBinding()
         eventSession.reset()
         promptSession.reset()
     }
 
     public func cancelAllPrompts() async {
         await bridge.cancelAll()
+    }
+
+    public func cancelApprovalStoreBinding() {
+        approvalStoreBindingGeneration += 1
+    }
+
+    private func observeApprovalStore(
+        _ store: CodexCoreStore,
+        generation: Int,
+        onActivity: @escaping @MainActor (CodexPromptStateActivity) -> Void
+    ) {
+        withObservationTracking {
+            let approvals = store.pendingApprovals
+            let userInput = store.pendingUserInput
+            for activity in promptSession.sync(approvalRequests: approvals, userInput: userInput) {
+                onActivity(activity)
+            }
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.approvalStoreBindingGeneration else { return }
+                self.observeApprovalStore(store, generation: generation, onActivity: onActivity)
+            }
+        }
     }
 }
