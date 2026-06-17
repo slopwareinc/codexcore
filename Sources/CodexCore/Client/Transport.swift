@@ -93,11 +93,12 @@ public actor CodexStdioTransport: CodexTransport {
         // --- stdout: FileHandle.readabilityHandler runs on a GCD serial queue,
         //     NOT on Swift's cooperative pool. No blocking read() on the pool.
         let stdoutBuf = LineBuffer()
-        stdoutHandle.readabilityHandler = { handle in
+        stdoutHandle.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else {
                 handle.readabilityHandler = nil
-                Task {
+                Task { [weak self] in
+                    guard let self else { return }
                     if await self.markUnexpectedClose() {
                         onError(CodexTransportError.connectionClosed)
                     }

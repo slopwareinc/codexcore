@@ -50,11 +50,12 @@ final class CodexChatModel {
                 clientVersion: "1.0.0",
                 approvalPolicy: .ask
             )
-            let codex = try await Codex(config: config, serverRequestHandler: { request in
+            let codex = try await Codex(config: config, serverRequestHandler: { [weak self] request in
                 // MCP elicitations are not covered by the approval policy;
                 // bridge them into the interactive prompt UI. Everything else
                 // falls through (nil) to the SDK's `.ask` flow.
-                await self.promptRuntime.handleMCPServerElicitationRequest(request)
+                guard let self else { return nil }
+                return await self.promptRuntime.handleMCPServerElicitationRequest(request)
             })
             self.codex = codex
             runtimeSession.bindHost(
