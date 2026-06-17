@@ -182,6 +182,10 @@ public final class Codex: @unchecked Sendable {
         try await client.accountRead(GetAccountParams(refreshToken: refreshToken))
     }
 
+    public func rateLimits() async throws -> CodexSchemaGetAccountRateLimitsResponse {
+        try await client.accountRateLimitsRead()
+    }
+
     public func logout() async throws {
         _ = try await client.accountLogout()
     }
@@ -374,6 +378,18 @@ public final class Codex: @unchecked Sendable {
 
     public func models(includeHidden: Bool = false) async throws -> ModelListResponse {
         try await client.modelList(includeHidden: includeHidden)
+    }
+
+    public func startReview(_ params: CodexSchemaReviewStartParams) async throws -> CodexSchemaReviewStartResponse {
+        try await client.reviewStart(params)
+    }
+
+    public func startReview(
+        threadID: String,
+        target: CodexSchemaReviewTarget,
+        delivery: CodexSchemaReviewDelivery? = nil
+    ) async throws -> CodexSchemaReviewStartResponse {
+        try await client.reviewStart(threadID: threadID, target: target, delivery: delivery)
     }
 
     /// Fuzzy-searches file names under the given roots (used for @-mentions).

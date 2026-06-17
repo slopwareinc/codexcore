@@ -77,6 +77,8 @@ actor MockTransport: CodexTransport {
                 }
             case "account/read":
                 result = #"{"requiresOpenaiAuth":false,"account":null}"#
+            case "account/rateLimits/read":
+                result = #"{"rateLimits":{"primary":{"usedPercent":42}}}"#
             case "account/logout", "account/login/cancel", "thread/archive", "thread/name/set", "thread/compact/start", "turn/interrupt":
                 result = "{}"
             case "thread/start":
@@ -103,6 +105,8 @@ actor MockTransport: CodexTransport {
                 result = #"{"turn":{"id":"turn-mock"}}"#
             case "turn/steer":
                 result = #"{"turnId":"turn-mock"}"#
+            case "review/start":
+                result = #"{"reviewThreadId":"review-thread-mock","turn":{"id":"turn-review-mock","items":[],"status":"inProgress"}}"#
             case "skills/list":
                 result = #"{"data":[{"cwd":"/tmp","skills":[{"name":"resume-from-opencode","description":"Resume an OpenCode session","interface":{"displayName":"Resume OpenCode","shortDescription":"Resume a prior OpenCode run","defaultPrompt":"Resume the last OpenCode session."},"path":"/tmp/skills/resume-from-opencode/SKILL.md","scope":"user","enabled":true}],"errors":[]}]}"#
             case "permissionProfile/list":

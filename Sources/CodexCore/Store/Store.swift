@@ -340,6 +340,10 @@ public struct CodexToolCallDetail: Codable, Sendable, Equatable {
 public final class CodexCoreStore {
     public private(set) var activeThread: CodexThreadSnapshot?
     public private(set) var threadSnapshotsByID: [String: CodexThreadSnapshot]
+    public private(set) var accountAuthMode: CodexSchemaAuthMode?
+    public private(set) var accountPlanType: CodexSchemaPlanType?
+    public private(set) var accountRateLimits: CodexSchemaRateLimitSnapshot?
+    public private(set) var accountRateLimitsByLimitID: [String: CodexSchemaRateLimitSnapshot]?
     public private(set) var isThinking = false
     public private(set) var pendingUserInput: CodexUserInputRequest?
     /// Escalated approval requests awaiting a decision, store-wide. Requests
@@ -414,6 +418,14 @@ public final class CodexCoreStore {
             thread.status = CodexThreadStatus(rawValue: status) ?? thread.status
             thread.updatedAt = Date()
             storeThread(thread, activate: activeThread == nil)
+
+        case .accountUpdated(let payload):
+            accountAuthMode = payload.authMode
+            accountPlanType = payload.planType
+
+        case .accountRateLimitsUpdated(let payload):
+            accountRateLimits = payload.rateLimits
+            accountRateLimitsByLimitID = nil
 
         case .threadStatusChanged(let threadId, let status):
             var thread = snapshotForMutation(threadID: threadId)

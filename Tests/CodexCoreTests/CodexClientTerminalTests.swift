@@ -367,6 +367,100 @@ final class CodexClientTerminalTests: XCTestCase {
         await client.disconnect()
     }
 
+    func testAccountRateLimitsAndReviewStartUseTypedRPCMethods() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        let rateLimits = try await client.accountRateLimitsRead()
+        XCTAssertEqual(rateLimits.rateLimits.primary?.usedPercent, 42)
+
+        let reviewResponse = try await client.reviewStart(
+            threadID: "thread-mock",
+            target: CodexSchemaReviewTarget(.dictionary([
+                "turnId": .string("turn-mock"),
+                "itemIds": .array([.string("item-1"), .string("item-2")])
+            ])),
+            delivery: .inline
+        )
+        XCTAssertEqual(reviewResponse.reviewThreadID, "review-thread-mock")
+        XCTAssertEqual(reviewResponse.turn.id, "turn-review-mock")
+
+        let sentPayloads = await transport.sentPayloads
+        let rateLimitsPayload = sentPayloads.last { $0["method"]?.description == "account/rateLimits/read" }
+        XCTAssertNotNil(rateLimitsPayload)
+        if case .dictionary(let params)? = rateLimitsPayload?["params"] {
+            XCTAssertEqual(params, [:])
+        } else {
+            XCTFail("account/rateLimits/read params missing")
+        }
+
+        let reviewPayload = sentPayloads.last { $0["method"]?.description == "review/start" }
+        XCTAssertNotNil(reviewPayload)
+        if case .dictionary(let params)? = reviewPayload?["params"] {
+            XCTAssertEqual(params["threadId"], .string("thread-mock"))
+            XCTAssertEqual(params["delivery"], .string("inline"))
+            XCTAssertEqual(params["target"], .dictionary([
+                "turnId": .string("turn-mock"),
+                "itemIds": .array([.string("item-1"), .string("item-2")])
+            ]))
+        } else {
+            XCTFail("review/start params missing")
+        }
+
+        await client.disconnect()
+    }
+
+    func testAccountAndRateLimitNotificationsDispatchToStore() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "account/updated",
+            "params": {
+                "authMode": "chatgpt",
+                "planType": "pro"
+            }
+        }
+        """)
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "account/rateLimits/updated",
+            "params": {
+                "rateLimits": {
+                    "primary": {
+                        "usedPercent": 73
+                    }
+                }
+            }
+        }
+        """)
+
+        var deadline = Date().addingTimeInterval(2.0)
+        while await store.accountRateLimits?.primary?.usedPercent != 73, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        deadline = Date().addingTimeInterval(2.0)
+        while await store.accountPlanType != .pro, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        let accountAuthMode = await store.accountAuthMode
+        let accountPlanType = await store.accountPlanType
+        let accountRateLimitsUsedPercent = await store.accountRateLimits?.primary?.usedPercent
+        XCTAssertEqual(accountAuthMode, .chatgpt)
+        XCTAssertEqual(accountPlanType, .pro)
+        XCTAssertEqual(accountRateLimitsUsedPercent, 73)
+
+        await client.disconnect()
+    }
+
     func testDefaultCodexHomeMatchesPythonSDKHelper() {
         XCTAssertEqual(defaultCodexHome(), FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path)
     }
@@ -403,9 +497,18 @@ final class CodexClientTerminalTests: XCTestCase {
         try await codex.loginAPIKey("sk-test")
         let account = try await codex.account(refreshToken: true)
         XCTAssertFalse(account.requiresOpenAIAuth)
+        let accountRateLimits = try await codex.rateLimits()
+        XCTAssertEqual(accountRateLimits.rateLimits.primary?.usedPercent, 42)
 
         let thread = try await codex.threadStart(cwd: "/tmp", model: "test-model", sandbox: .workspaceWrite)
         XCTAssertEqual(thread.id, "thread-mock")
+
+        let review = try await codex.startReview(
+            threadID: thread.id,
+            target: CodexSchemaReviewTarget(.dictionary(["turnId": .string("turn-mock")])),
+            delivery: .detached
+        )
+        XCTAssertEqual(review.reviewThreadID, "review-thread-mock")
 
         let listed = try await codex.threadList(limit: 1)
         XCTAssertEqual(listed.data?.first?.id, "thread-mock")
