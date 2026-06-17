@@ -35,64 +35,78 @@ struct CodexExampleAppShell: View {
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
-            CodexChatWorkspaceView(
-                messages: model.messages,
-                lifecycleEvents: model.lifecycleEvents,
-                sideChat: model.sideChat,
-                subagents: model.subagents,
-                activities: model.activities,
-                connectionState: model.connectionState,
-                workspacePath: model.workspacePath,
-                showsSidebarToggle: true,
-                isSidebarVisible: isSidebarVisible,
-                chatActions: CodexChatActionHandlers(
-                    renameChat: {
-                        renameDraft = model.currentChatTitle
-                        isRenameSheetPresented = true
-                    },
-                    archiveChat: { Task { await model.archiveCurrentChat() } },
-                    openSideChat: { model.openSideChat() },
-                    copyChat: { model.copyChatTranscript() },
-                    forkChat: { Task { await model.forkCurrentChat() } }
-                ),
-                approvalOptions: model.approvalOptions,
-                modelOptions: model.modelOptions,
-                slashCommands: model.slashCommands,
-                approvalSelection: $model.approvalSelection,
-                isPlanModeEnabled: $model.isPlanModeEnabled,
-                modelSelection: $model.modelSelection,
-                reasoningSelection: $model.reasoningSelection,
-                draft: $model.draft,
-                sideChatDraft: $model.sideChatDraft,
-                isSending: model.isSending,
-                isSideChatSending: model.isSideChatSending,
-                canSend: model.canSend,
-                canSendSideChatMessage: model.canSendSideChatMessage,
-                canUsePlanMode: model.canUsePlanMode,
-                followUpHint: model.followUpHint,
-                mentionResults: model.mentionResults,
-                onMentionQueryChanged: { model.updateMentionQuery($0) },
-                onMentionSelected: { model.selectMention($0) },
-                onSend: { Task { await model.sendDraft() } },
-                onInterrupt: { Task { await model.interrupt() } },
-                onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
-                onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
-                onToggleSidebar: {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-                        isSidebarVisible.toggle()
+            GeometryReader { proxy in
+                VStack(spacing: 0) {
+                    CodexChatWorkspaceView(
+                        messages: model.messages,
+                        lifecycleEvents: model.lifecycleEvents,
+                        sideChat: model.sideChat,
+                        subagents: model.subagents,
+                        activities: model.activities,
+                        connectionState: model.connectionState,
+                        workspacePath: model.workspacePath,
+                        showsSidebarToggle: true,
+                        isSidebarVisible: isSidebarVisible,
+                        chatActions: CodexChatActionHandlers(
+                            renameChat: {
+                                renameDraft = model.currentChatTitle
+                                isRenameSheetPresented = true
+                            },
+                            archiveChat: { Task { await model.archiveCurrentChat() } },
+                            openSideChat: { model.openSideChat() },
+                            copyChat: { model.copyChatTranscript() },
+                            forkChat: { Task { await model.forkCurrentChat() } }
+                        ),
+                        approvalOptions: model.approvalOptions,
+                        modelOptions: model.modelOptions,
+                        slashCommands: model.slashCommands,
+                        approvalSelection: $model.approvalSelection,
+                        isPlanModeEnabled: $model.isPlanModeEnabled,
+                        modelSelection: $model.modelSelection,
+                        reasoningSelection: $model.reasoningSelection,
+                        draft: $model.draft,
+                        sideChatDraft: $model.sideChatDraft,
+                        isSending: model.isSending,
+                        isSideChatSending: model.isSideChatSending,
+                        canSend: model.canSend,
+                        canSendSideChatMessage: model.canSendSideChatMessage,
+                        canUsePlanMode: model.canUsePlanMode,
+                        followUpHint: model.followUpHint,
+                        mentionResults: model.mentionResults,
+                        onMentionQueryChanged: { model.updateMentionQuery($0) },
+                        onMentionSelected: { model.selectMention($0) },
+                        onSend: { Task { await model.sendDraft() } },
+                        onInterrupt: { Task { await model.interrupt() } },
+                        onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
+                        onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
+                        onToggleSidebar: {
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+                                isSidebarVisible.toggle()
+                            }
+                        },
+                        onDisconnect: { Task { await model.disconnect() } },
+                        onSlashCommandSelected: { command in
+                            model.handleSlashCommand(command) {
+                                isMCPStatusSheetPresented = true
+                            }
+                        }
+                    )
+                    .codexFileChangeUndo { change in
+                        Task { @MainActor in
+                            model.undoFileChange(change)
+                        }
                     }
-                },
-                onDisconnect: { Task { await model.disconnect() } },
-                onSlashCommandSelected: { command in
-                    model.handleSlashCommand(command) {
-                        isMCPStatusSheetPresented = true
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if model.isBottomTerminalVisible {
+                        CodexBottomTerminalPanel(
+                            model: model,
+                            maxHeight: max(180, proxy.size.height - 180)
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-            )
-            .codexFileChangeUndo { change in
-                Task { @MainActor in
-                    model.undoFileChange(change)
-                }
+                .animation(.easeInOut(duration: 0.2), value: model.isBottomTerminalVisible)
             }
         }
         .overlay(alignment: .topTrailing) {

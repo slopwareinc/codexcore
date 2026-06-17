@@ -63,6 +63,26 @@ struct CodexChatView: View {
         }
         .codexAgentTheme(model.themePreset.theme)
         .tint(model.themePreset.theme.colors.accent)
+        .toolbar {
+            if model.showsChatWorkspace {
+                ToolbarItemGroup(placement: .automatic) {
+                    Button {
+                        model.toggleBottomTerminalPanel()
+                    } label: {
+                        Label("Toggle bottom panel", systemImage: "rectangle.bottomthird.inset.filled")
+                    }
+                    .help("Toggle bottom panel")
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+
+                    Button {
+                        Task { await model.openBottomTerminalDemo() }
+                    } label: {
+                        Label("Open terminal", systemImage: "terminal")
+                    }
+                    .help("Open terminal")
+                }
+            }
+        }
     }
 
     private var flowKey: String {

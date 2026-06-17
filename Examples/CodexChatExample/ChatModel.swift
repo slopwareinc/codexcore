@@ -32,6 +32,15 @@ final class CodexChatModel {
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
+    private var terminalSession: CodexCommandExecSession?
+    private var terminalOutputTask: Task<Void, Never>?
+    private var terminalCompletionTask: Task<Void, Never>?
+
+    var isBottomTerminalVisible = false
+    var bottomTerminalHeight: CGFloat = 280
+    var bottomTerminalText = ""
+    var bottomTerminalStatus = "Idle"
+    var isBottomTerminalRunning = false
 
     func connect() async {
         guard authSession.beginConnecting() else { return }
@@ -88,6 +97,7 @@ final class CodexChatModel {
     }
 
     func disconnect() async {
+        await stopBottomTerminalSession()
         runtimeSession.reset()
         promptRuntime.reset()
         loginTask?.cancel()
@@ -836,6 +846,7 @@ final class CodexChatModel {
     }
 
     private func resetSessionState() {
+        Task { await stopBottomTerminalSession() }
         runtimeSession.cancelGlobalNotifications()
         promptRuntime.reset()
         mentionSearchSession.reset()
@@ -848,5 +859,104 @@ final class CodexChatModel {
         runtimeSession.integrationCatalogSession.reset()
         configurationSession.reset()
         clearThreadState()
+    }
+
+    // MARK: - Bottom Terminal Panel
+
+    func toggleBottomTerminalPanel() {
+        isBottomTerminalVisible.toggle()
+    }
+
+    func setBottomTerminalHeight(_ height: CGFloat, maxHeight: CGFloat) {
+        let minHeight: CGFloat = 140
+        let clampedMax = max(minHeight, maxHeight)
+        bottomTerminalHeight = min(max(height, minHeight), clampedMax)
+    }
+
+    func clearBottomTerminalOutput() {
+        bottomTerminalText = ""
+    }
+
+    func openBottomTerminalDemo() async {
+        guard let codex else {
+            appendActivity(.notice, title: "Terminal unavailable", detail: "Connect to Codex before opening terminal output.")
+            return
+        }
+
+        await stopBottomTerminalSession()
+
+        isBottomTerminalVisible = true
+        bottomTerminalText = ""
+        bottomTerminalStatus = "Starting command session..."
+        isBottomTerminalRunning = true
+
+        do {
+            let session = try await codex.startCommandSession(
+                ["echo", "Codex terminal demo"],
+                cwd: workspacePath,
+                tty: false
+            )
+            terminalSession = session
+            bottomTerminalStatus = "Running in \(workspacePath)"
+
+            terminalOutputTask = Task { [weak self] in
+                for await delta in session.outputStream {
+                    await MainActor.run {
+                        self?.appendTerminalDelta(delta)
+                    }
+                }
+            }
+
+            terminalCompletionTask = Task { [weak self] in
+                do {
+                    let result = try await session.wait()
+                    await MainActor.run {
+                        self?.finishBottomTerminalSession(result: result)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.isBottomTerminalRunning = false
+                        self?.bottomTerminalStatus = "Session failed: \(Self.friendlyErrorMessage(error))"
+                    }
+                }
+            }
+        } catch {
+            isBottomTerminalRunning = false
+            bottomTerminalStatus = "Failed to start session: \(friendlyError(error))"
+        }
+    }
+
+    private func stopBottomTerminalSession() async {
+        terminalOutputTask?.cancel()
+        terminalCompletionTask?.cancel()
+        terminalOutputTask = nil
+        terminalCompletionTask = nil
+        if let session = terminalSession, !session.hasCompleted {
+            try? await session.terminate()
+        }
+        terminalSession = nil
+        isBottomTerminalRunning = false
+    }
+
+    private func appendTerminalDelta(_ delta: PTYDelta) {
+        let chunk = String(decoding: delta.data, as: UTF8.self)
+        let prefix = delta.stream == .stderr ? "stderr: " : ""
+        if !chunk.isEmpty {
+            bottomTerminalText += "\(prefix)\(chunk)"
+        }
+        if delta.capReached {
+            bottomTerminalText += "\n[output cap reached]\n"
+        }
+    }
+
+    private func finishBottomTerminalSession(result: CodexCommandExecResult) {
+        terminalSession = nil
+        terminalOutputTask = nil
+        terminalCompletionTask = nil
+        isBottomTerminalRunning = false
+        bottomTerminalStatus = "Exited \(result.exitCode)"
+        if bottomTerminalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bottomTerminalText = "Command finished with exit code \(result.exitCode).\n"
+        }
     }
 }
