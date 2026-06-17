@@ -14,17 +14,6 @@ public enum CodexApprovalDecision: String, Codable, Sendable, Equatable, CaseIte
     /// Deny this request and interrupt the turn.
     case cancel
 
-    /// The equivalent wire value for the legacy v1 `ReviewDecision` used by
-    /// `execCommandApproval` and `applyPatchApproval`.
-    var v1ReviewDecision: String {
-        switch self {
-        case .accept: return "approved"
-        case .acceptForSession: return "approved_for_session"
-        case .decline: return "denied"
-        case .cancel: return "abort"
-        }
-    }
-
     public var isApproval: Bool {
         self == .accept || self == .acceptForSession
     }

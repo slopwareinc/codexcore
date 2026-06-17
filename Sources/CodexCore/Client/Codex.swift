@@ -280,25 +280,32 @@ public final class Codex: @unchecked Sendable {
         ))
     }
 
-    public func threadListRaw(params: [String: CodexJSONValue] = [:]) async throws -> CodexJSONValue {
-        try await client.request(method: CodexAppServerClientMethod.threadList.rawValue, params: params)
+    public func threadListSchema(_ params: CodexSchemaThreadListParams = CodexSchemaThreadListParams()) async throws -> CodexSchemaThreadListResponse {
+        try await client.threadListSchema(params)
     }
 
-    public func threadSearchRaw(
+    public func threadReadSchema(_ threadId: String, includeTurns: Bool = false) async throws -> CodexSchemaThreadReadResponse {
+        try await client.threadReadSchema(threadId: threadId, includeTurns: includeTurns)
+    }
+
+    public func threadSearch(
         searchTerm: String,
         limit: Int? = nil,
         cursor: String? = nil,
         archived: Bool? = false,
-        sortDirection: SortDirection? = .desc,
-        sortKey: ThreadSortKey? = .updatedAt
-    ) async throws -> CodexJSONValue {
-        var params: [String: CodexJSONValue] = ["searchTerm": .string(searchTerm)]
-        if let limit { params["limit"] = .int(limit) }
-        if let cursor { params["cursor"] = .string(cursor) }
-        if let archived { params["archived"] = .bool(archived) }
-        if let sortDirection { params["sortDirection"] = .string(sortDirection.rawValue) }
-        if let sortKey { params["sortKey"] = .string(sortKey.rawValue) }
-        return try await client.request(method: CodexAppServerClientMethod.threadSearch.rawValue, params: params)
+        sortDirection: CodexSchemaSortDirection? = .desc,
+        sortKey: CodexSchemaThreadSortKey? = .updatedAt,
+        sourceKinds: [CodexSchemaThreadSourceKind]? = nil
+    ) async throws -> CodexSchemaThreadSearchResponse {
+        try await client.threadSearch(CodexSchemaThreadSearchParams(
+            archived: archived,
+            cursor: cursor,
+            limit: limit,
+            searchTerm: searchTerm,
+            sortDirection: sortDirection,
+            sortKey: sortKey,
+            sourceKinds: sourceKinds
+        ))
     }
 
     public func threadFork(
@@ -378,66 +385,43 @@ public final class Codex: @unchecked Sendable {
         try await client.fuzzyFileSearch(query: query, roots: roots, cancellationToken: cancellationToken)
     }
 
-    public func skillsListRaw(cwds: [String] = [], forceReload: Bool = false) async throws -> CodexJSONValue {
-        var params: [String: CodexJSONValue] = [:]
-        if !cwds.isEmpty {
-            params["cwds"] = .array(cwds.map { .string($0) })
-        }
-        if forceReload {
-            params["forceReload"] = .bool(true)
-        }
-        return try await client.request(method: CodexAppServerClientMethod.skillsList.rawValue, params: params)
+    public func skillsList(cwds: [String] = [], forceReload: Bool = false) async throws -> CodexSchemaSkillsListResponse {
+        try await client.skillsList(CodexSchemaSkillsListParams(
+            cwds: cwds.isEmpty ? nil : cwds,
+            forceReload: forceReload ? true : nil
+        ))
     }
 
-    public func permissionProfileListRaw(limit: Int? = nil, cursor: String? = nil) async throws -> CodexJSONValue {
-        var params: [String: CodexJSONValue] = [:]
-        if let limit {
-            params["limit"] = .int(limit)
-        }
-        if let cursor {
-            params["cursor"] = .string(cursor)
-        }
-        return try await client.request(method: CodexAppServerClientMethod.permissionProfileList.rawValue, params: params)
+    public func permissionProfileList(limit: Int? = nil, cursor: String? = nil, cwd: String? = nil) async throws -> CodexSchemaPermissionProfileListResponse {
+        try await client.permissionProfileList(CodexSchemaPermissionProfileListParams(cursor: cursor, cwd: cwd, limit: limit))
     }
 
-    public func collaborationModeListRaw() async throws -> CodexJSONValue {
-        try await client.request(method: CodexAppServerClientMethod.collaborationModeList.rawValue, params: [:])
+    public func collaborationModeList() async throws -> CodexSchemaCollaborationModeListResponse {
+        try await client.collaborationModeList()
     }
 
-    public func mcpServerStatusListRaw(
+    public func mcpServerStatusList(
         threadId: String? = nil,
-        detail: String? = "full",
+        detail: CodexSchemaMCPServerStatusDetail? = .full,
         limit: Int? = nil,
         cursor: String? = nil
-    ) async throws -> CodexJSONValue {
-        var params: [String: CodexJSONValue] = [:]
-        if let threadId {
-            params["threadId"] = .string(threadId)
-        }
-        if let detail {
-            params["detail"] = .string(detail)
-        }
-        if let limit {
-            params["limit"] = .int(limit)
-        }
-        if let cursor {
-            params["cursor"] = .string(cursor)
-        }
-        return try await client.request(method: CodexAppServerClientMethod.mcpServerStatusList.rawValue, params: params)
+    ) async throws -> CodexSchemaListMCPServerStatusResponse {
+        try await client.mcpServerStatusList(CodexSchemaListMCPServerStatusParams(
+            cursor: cursor,
+            detail: detail,
+            limit: limit,
+            threadID: threadId
+        ))
     }
 
-    public func pluginListRaw(
+    public func pluginList(
         cwds: [String] = [],
-        marketplaceKinds: [String] = []
-    ) async throws -> CodexJSONValue {
-        var params: [String: CodexJSONValue] = [:]
-        if !cwds.isEmpty {
-            params["cwds"] = .array(cwds.map { .string($0) })
-        }
-        if !marketplaceKinds.isEmpty {
-            params["marketplaceKinds"] = .array(marketplaceKinds.map { .string($0) })
-        }
-        return try await client.request(method: CodexAppServerClientMethod.pluginList.rawValue, params: params)
+        marketplaceKinds: [CodexSchemaPluginListMarketplaceKind] = []
+    ) async throws -> CodexSchemaPluginListResponse {
+        try await client.pluginList(CodexSchemaPluginListParams(
+            cwds: cwds.isEmpty ? nil : cwds.map { CodexAppServerSchemaValue(.string($0)) },
+            marketplaceKinds: marketplaceKinds.isEmpty ? nil : marketplaceKinds
+        ))
     }
 
     public func execCommand(
@@ -484,11 +468,11 @@ public final class Codex: @unchecked Sendable {
         )
     }
 
-    public func rawRequest(method: String, params: [String: CodexJSONValue] = [:]) async throws -> CodexJSONValue {
+    func appServerRequest(method: String, params: [String: CodexJSONValue] = [:]) async throws -> CodexJSONValue {
         try await client.request(method: method, params: params)
     }
 
-    func rawRequestWithClientRetryOnOverload(
+    func appServerRequestWithClientRetryOnOverload(
         method: String,
         params: [String: CodexJSONValue] = [:],
         maxAttempts: Int = 3,
@@ -746,7 +730,7 @@ public final class CodexThread: Identifiable, @unchecked Sendable {
         for (key, value) in additionalParams {
             payload[key] = value
         }
-        let turnId = try await client.startTurn(
+        let turnId = try await client.turnStart(
             threadId: id,
             input: input.map(\.jsonValue),
             additionalParams: payload.filter { $0.key != "threadId" && $0.key != "input" }
@@ -758,7 +742,7 @@ public final class CodexThread: Identifiable, @unchecked Sendable {
         input: [CodexWireInputItem],
         params additionalParams: [String: CodexJSONValue] = [:]
     ) async throws -> CodexTurnHandle {
-        let turnId = try await client.startTurn(
+        let turnId = try await client.turnStart(
             threadId: id,
             input: input.map(\.jsonValue),
             additionalParams: additionalParams
@@ -850,7 +834,8 @@ public final class CodexThread: Identifiable, @unchecked Sendable {
     }
 
     public func interrupt(turnId: String) async throws -> CodexJSONValue {
-        try await client.interruptTurn(threadId: id, turnId: turnId)
+        let response = try await client.turnInterrupt(threadId: id, turnId: turnId)
+        return try CodexJSONValue(encoding: response)
     }
 }
 
@@ -878,11 +863,17 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
     }
 
     public func steer(input: [CodexWireInputItem]) async throws -> CodexJSONValue {
-        try await client.steerTurn(threadId: threadId, expectedTurnId: id, input: input.map(\.jsonValue))
+        let response = try await client.turnSteer(
+            threadId: threadId,
+            expectedTurnId: id,
+            input: input.map { CodexInput.raw($0.jsonValue) }
+        )
+        return try CodexJSONValue(encoding: response)
     }
 
     public func interrupt() async throws -> CodexJSONValue {
-        try await client.interruptTurn(threadId: threadId, turnId: id)
+        let response = try await client.turnInterrupt(threadId: threadId, turnId: id)
+        return try CodexJSONValue(encoding: response)
     }
 
     public func stream() -> AsyncStream<CodexNotification> {

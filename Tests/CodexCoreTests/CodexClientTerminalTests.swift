@@ -77,106 +77,6 @@ final class CodexClientTerminalTests: XCTestCase {
         XCTAssertEqual(activeThread?.status, .active)
     }
 
-    func testPTYTerminalProcessSessionWorkflow() async throws {
-        let transport = MockTransport()
-        let store = await CodexCoreStore()
-        let client = CodexClient(transport: transport, store: store)
-
-        // Connect the client
-        try await client.connect()
-
-        // 1. Spawn process
-        let session = try await client.spawnProcess(
-            command: ["zsh", "-i"],
-            cwd: "/Users/dev/workspace",
-            environment: ["TERM": "xterm-256color"],
-            initialSize: PTYSize(rows: 24, cols: 80)
-        )
-
-        XCTAssertEqual(session.hasExited, false)
-        XCTAssertEqual(session.exitCode, nil)
-
-        // Assert spawn payload sent matching process/spawn spec
-        let spawnPayload = await transport.sentPayloads.last
-        XCTAssertEqual(spawnPayload?["method"]?.description, "process/spawn")
-
-        // 2. Write stdin bytes
-        let keystrokeData = "ls -la\n".data(using: .utf8)!
-        try await session.write(data: keystrokeData)
-
-        let writePayload = await transport.sentPayloads.last
-        XCTAssertEqual(writePayload?["method"]?.description, "process/writeStdin")
-
-        // Verify base64 encoding correctness
-        if let paramsData = try? JSONEncoder().encode(writePayload?["params"]),
-           let paramsMap = try? JSONDecoder().decode([String: CodexJSONValue].self, from: paramsData) {
-            XCTAssertEqual(paramsMap["processHandle"]?.description, session.processHandle)
-            XCTAssertEqual(paramsMap["deltaBase64"]?.description, keystrokeData.base64EncodedString())
-        } else {
-            XCTFail("Invalid stdin parameters payload")
-        }
-
-        // 3. Resize PTY
-        try await session.resize(rows: 40, cols: 120)
-        let resizePayload = await transport.sentPayloads.last
-        XCTAssertEqual(resizePayload?["method"]?.description, "process/resizePty")
-
-        // 4. Stream PTY stdout output delta
-        let ptyOutputExpectation = expectation(description: "PTY stdout output received")
-
-        Task {
-            for await delta in session.outputStream {
-                XCTAssertEqual(delta.stream, .stdout)
-                XCTAssertEqual(String(data: delta.data, encoding: .utf8), "Desktop Documents")
-                ptyOutputExpectation.fulfill()
-            }
-        }
-
-        let testOutputBase64 = "Desktop Documents".data(using: .utf8)!.base64EncodedString()
-        let stdoutNotification = """
-        {
-            "jsonrpc": "2.0",
-            "method": "process/outputDelta",
-            "params": {
-                "processHandle": "\(session.processHandle)",
-                "stream": "stdout",
-                "deltaBase64": "\(testOutputBase64)",
-                "capReached": false
-            }
-        }
-        """
-
-        await transport.receiveMessage(stdoutNotification)
-        await fulfillment(of: [ptyOutputExpectation], timeout: 2.0)
-
-        // 5. Stream PTY process exit
-        let exitExpectation = expectation(description: "PTY process exited")
-
-        Task {
-            for await code in session.exitStream {
-                XCTAssertEqual(code, 0)
-                exitExpectation.fulfill()
-            }
-        }
-
-        let exitNotification = """
-        {
-            "jsonrpc": "2.0",
-            "method": "process/exited",
-            "params": {
-                "processHandle": "\(session.processHandle)",
-                "exitCode": 0
-            }
-        }
-        """
-
-        await transport.receiveMessage(exitNotification)
-        await fulfillment(of: [exitExpectation], timeout: 2.0)
-
-        XCTAssertEqual(session.hasExited, true)
-        XCTAssertEqual(session.exitCode, 0)
-    }
-
     func testHighLevelThreadRunCollectsTurnResult() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()
@@ -529,42 +429,42 @@ final class CodexClientTerminalTests: XCTestCase {
         } else {
             XCTFail("model/list response missing live app-server model shape")
         }
-        let skillsList = try await codex.skillsListRaw(cwds: ["/tmp"], forceReload: true)
+        let skillsList = try CodexJSONValue(encoding: await codex.skillsList(cwds: ["/tmp"], forceReload: true))
         if case .dictionary(let skillsObject) = skillsList,
            case .array(let data)? = skillsObject["data"] {
             XCTAssertEqual(data.count, 1)
         } else {
             XCTFail("skills/list response missing data")
         }
-        let permissionProfiles = try await codex.permissionProfileListRaw()
+        let permissionProfiles = try CodexJSONValue(encoding: await codex.permissionProfileList())
         if case .dictionary(let profileObject) = permissionProfiles,
            case .array(let data)? = profileObject["data"] {
             XCTAssertEqual(data.count, 3)
         } else {
             XCTFail("permissionProfile/list response missing data")
         }
-        let collaborationModes = try await codex.collaborationModeListRaw()
+        let collaborationModes = try CodexJSONValue(encoding: await codex.collaborationModeList())
         if case .dictionary(let modeObject) = collaborationModes,
            case .array(let data)? = modeObject["data"] {
             XCTAssertEqual(data.count, 2)
         } else {
             XCTFail("collaborationMode/list response missing data")
         }
-        let mcpList = try await codex.mcpServerStatusListRaw(threadId: thread.id, detail: "toolsAndAuthOnly", limit: 25)
+        let mcpList = try CodexJSONValue(encoding: await codex.mcpServerStatusList(threadId: thread.id, detail: .toolsAndAuthOnly, limit: 25))
         if case .dictionary(let mcpObject) = mcpList,
            case .array(let data)? = mcpObject["data"] {
             XCTAssertEqual(data.count, 1)
         } else {
             XCTFail("mcpServerStatus/list response missing data")
         }
-        let pluginList = try await codex.pluginListRaw(cwds: ["/tmp"])
+        let pluginList = try CodexJSONValue(encoding: await codex.pluginList(cwds: ["/tmp"]))
         if case .dictionary(let pluginObject) = pluginList,
            case .array(let marketplaces)? = pluginObject["marketplaces"] {
             XCTAssertEqual(marketplaces.count, 1)
         } else {
             XCTFail("plugin/list response missing marketplaces")
         }
-        let searchResults = try await codex.threadSearchRaw(searchTerm: "needle", limit: 10)
+        let searchResults = try CodexJSONValue(encoding: await codex.threadSearch(searchTerm: "needle", limit: 10))
         if case .dictionary(let searchObject) = searchResults,
            case .array(let data)? = searchObject["data"] {
             XCTAssertEqual(data.count, 1)

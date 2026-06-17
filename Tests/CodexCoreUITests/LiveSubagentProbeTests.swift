@@ -18,7 +18,7 @@ final class LiveSubagentProbeTests: XCTestCase {
         let codex = try await Codex(config: config)
         defer { Task { await codex.close() } }
 
-        let modes = try? await codex.rawRequest(method: "collaborationMode/list", params: [:])
+        let modes = try? await codex.appServerRequest(.collaborationModeList)
         print("LIVE_SUBAGENT_PROBE binary=\((try? Codex.resolveCodexBinary(config: config).path) ?? "auto-resolved")")
         print("LIVE_SUBAGENT_PROBE collaborationMode/list=\(modes?.description ?? "nil")")
 

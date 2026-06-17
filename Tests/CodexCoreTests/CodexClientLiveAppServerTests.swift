@@ -23,14 +23,16 @@ extension CodexClientTerminalTests {
         print("✓ Connected")
 
         // 2. Create a thread
-        let threadId = try await client.createThread(cwd: NSHomeDirectory())
+        let threadResponse = try await client.threadStart(ThreadStartParams(cwd: NSHomeDirectory()))
+        let threadId = threadResponse.thread.id
         XCTAssertFalse(threadId.isEmpty)
         var thread = await store.activeThread
         XCTAssertEqual(thread?.id, threadId)
         print("✓ Thread created: \(threadId)")
 
         // 3. Start a turn — this triggers an actual model call
-        let turnId = try await client.startTurn(threadId: threadId, userPrompt: "Reply with exactly one word: Hello")
+        let turnResponse = try await client.turnStart(TurnStartParams(threadId: threadId, input: [.text("Reply with exactly one word: Hello")]))
+        let turnId = turnResponse.turn.id
         XCTAssertFalse(turnId.isEmpty)
         thread = await store.activeThread
         XCTAssertEqual(thread?.turns.last?.id, turnId)
@@ -80,59 +82,4 @@ extension CodexClientTerminalTests {
         print("✓ Disconnected")
     }
 
-    func testRealCodexAppServerProcessSession() async throws {
-        guard let binaryURL = try? Codex.resolveCodexBinary() else {
-            print("[CodexClientTerminalTests] Skipping: Codex binary not found")
-            return
-        }
-
-        let transport = CodexStdioTransport(
-            executableURL: binaryURL,
-            arguments: ["app-server"]
-        )
-
-        let store = await CodexCoreStore()
-        let client = CodexClient(transport: transport, store: store)
-
-        try await client.connect()
-
-        let session = try await client.spawnProcess(
-            command: ["/bin/zsh", "-f"],
-            cwd: NSHomeDirectory(),
-            initialSize: PTYSize(rows: 24, cols: 80)
-        )
-
-        let outputExpectation = expectation(description: "real process output received")
-        let exitExpectation = expectation(description: "real process exited")
-
-        Task {
-            for await delta in session.outputStream {
-                if let text = String(data: delta.data, encoding: .utf8), text.contains("SPAWN_OK") {
-                    outputExpectation.fulfill()
-                    break
-                }
-            }
-        }
-
-        Task {
-            for await _ in session.exitStream {
-                exitExpectation.fulfill()
-                break
-            }
-        }
-
-        try await Task.sleep(for: .milliseconds(500))
-        try await session.write(data: "echo SPAWN_OK\n".data(using: .utf8)!)
-
-        await fulfillment(of: [outputExpectation], timeout: 5.0)
-
-        try await session.kill()
-        await fulfillment(of: [exitExpectation], timeout: 5.0)
-
-        XCTAssertTrue(session.hasExited)
-        await client.disconnect()
-        let disconnected = await transport.isConnected
-        XCTAssertFalse(disconnected)
-
-        print("✓ Real process/spawn + stdin + outputDelta + kill verified")
-    }}
+}

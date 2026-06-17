@@ -92,7 +92,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexChatConfigurationActivity {
         do {
-            return applyPermissionProfileResponse(try await codex.permissionProfileListRaw())
+            return applyPermissionProfileResponse(try CodexJSONValue(encoding: await codex.permissionProfileList()))
         } catch {
             return failPermissionProfileRefresh(message: errorMessage(error))
         }
@@ -137,7 +137,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexChatConfigurationActivity {
         do {
-            return applyCollaborationModeResponse(try await codex.collaborationModeListRaw())
+            return applyCollaborationModeResponse(try CodexJSONValue(encoding: await codex.collaborationModeList()))
         } catch {
             return failCollaborationModeRefresh(message: errorMessage(error))
         }
@@ -197,7 +197,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexChatConfigurationActivity {
         do {
-            return applySlashCommandResponse(try await codex.skillsListRaw(cwds: cwds, forceReload: forceReload))
+            return applySlashCommandResponse(try CodexJSONValue(encoding: await codex.skillsList(cwds: cwds, forceReload: forceReload)))
         } catch {
             return failSlashCommandRefresh(message: errorMessage(error))
         }

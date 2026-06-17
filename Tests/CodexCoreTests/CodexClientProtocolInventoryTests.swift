@@ -78,8 +78,8 @@ extension CodexClientTerminalTests {
         let store = await CodexCoreStore()
         let client = CodexClient(transport: transport, store: store)
         try await client.connect()
-        let threadId = try await client.createThread(cwd: "/tmp")
-        let turnId = try await client.startTurn(threadId: threadId, userPrompt: "hi")
+        let threadId = try await client.threadStart(ThreadStartParams(cwd: "/tmp")).thread.id
+        let turnId = try await client.turnStart(TurnStartParams(threadId: threadId, input: [.text("hi")])).turn.id
 
         let baseParams: [String: CodexJSONValue] = [
             "threadId": .string(threadId),
@@ -112,8 +112,8 @@ extension CodexClientTerminalTests {
             (.itemToolCall, .int(6), baseParams.merging(["tool": .string("client_tool"), "arguments": .dictionary([:])]) { _, new in new }, .dictionary(["contentItems": .array([]), "success": .bool(false)])),
             (.accountChatGPTAuthTokensRefresh, .int(7), ["reason": .string("unauthorized")], .dictionary([:])),
             (.attestationGenerate, .int(8), [:], .dictionary([:])),
-            (.applyPatchApproval, .int(9), ["conversationId": .string(threadId), "callId": .string("call-patch"), "fileChanges": .dictionary([:])], .dictionary(["decision": .string("approved")])),
-            (.execCommandApproval, .int(10), ["conversationId": .string(threadId), "callId": .string("call-exec"), "command": .array([.string("echo"), .string("hi")]), "cwd": .string("/tmp"), "parsedCmd": .array([])], .dictionary(["decision": .string("approved")]))
+            (.applyPatchApproval, .int(9), ["conversationId": .string(threadId), "callId": .string("call-patch"), "fileChanges": .dictionary([:])], .dictionary([:])),
+            (.execCommandApproval, .int(10), ["conversationId": .string(threadId), "callId": .string("call-exec"), "command": .array([.string("echo"), .string("hi")]), "cwd": .string("/tmp"), "parsedCmd": .array([])], .dictionary([:]))
         ]
 
         XCTAssertEqual(cases.count, CodexAppServerProtocolInventory.serverRequestMethodCount)
@@ -141,8 +141,8 @@ extension CodexClientTerminalTests {
         let store = await CodexCoreStore()
         let client = CodexClient(transport: transport, store: store, approvalPolicy: .ask)
         try await client.connect()
-        let threadId = try await client.createThread(cwd: "/tmp")
-        let turnId = try await client.startTurn(threadId: threadId, userPrompt: "hi")
+        let threadId = try await client.threadStart(ThreadStartParams(cwd: "/tmp")).thread.id
+        let turnId = try await client.turnStart(TurnStartParams(threadId: threadId, input: [.text("hi")])).turn.id
 
         let baseParams: [String: CodexJSONValue] = [
             "threadId": .string(threadId),
@@ -193,9 +193,9 @@ extension CodexClientTerminalTests {
         }
 
         let pendingApprovals = await store.pendingApprovals
-        XCTAssertEqual(pendingApprovals.map(\.kind), [.command, .fileChange, .permissions])
+        XCTAssertEqual(Set(pendingApprovals.map(\.kind)), [.command, .fileChange, .permissions])
         let activeThread = await store.activeThread
-        XCTAssertEqual(activeThread?.pendingApprovals.map(\.kind), [.command, .fileChange, .permissions])
+        XCTAssertEqual(Set(activeThread?.pendingApprovals.map(\.kind) ?? []), [.command, .fileChange, .permissions])
         XCTAssertEqual(activeThread?.status, .waiting)
 
         let pendingInput = await store.pendingUserInput

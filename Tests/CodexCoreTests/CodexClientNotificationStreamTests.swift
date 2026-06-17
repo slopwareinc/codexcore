@@ -24,8 +24,8 @@ extension CodexClientTerminalTests {
         }
 
         try await Task.sleep(for: .milliseconds(50))
-        let threadId = try await client.createThread(cwd: "/tmp")
-        let turnId = try await client.startTurn(threadId: threadId, userPrompt: "hi")
+        let threadId = try await client.threadStart(ThreadStartParams(cwd: "/tmp")).thread.id
+        let turnId = try await client.turnStart(TurnStartParams(threadId: threadId, input: [.text("hi")])).turn.id
 
         let deltaNotification = """
         {

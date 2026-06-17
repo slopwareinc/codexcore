@@ -88,9 +88,9 @@ actor MockTransport: CodexTransport {
             case "thread/unarchive":
                 result = #"{"thread":{"id":"thread-unarchived"}}"#
             case "thread/list":
-                result = #"{"data":[{"id":"thread-mock"}],"nextCursor":null,"backwardsCursor":null}"#
+                result = #"{"data":[{"id":"thread-mock","cliVersion":"1.0.0","createdAt":1781075531,"cwd":"/tmp","ephemeral":false,"modelProvider":"openai","preview":"Mock thread","sessionId":"session-mock","source":"cli","status":{"type":"idle"},"turns":[],"updatedAt":1781075531}],"nextCursor":null,"backwardsCursor":null}"#
             case "thread/search":
-                result = #"{"data":[{"thread":{"id":"thread-mock","name":"Search hit","preview":"Matched preview","cwd":"/tmp","status":{"type":"idle"},"parentThreadId":null,"ephemeral":false},"snippet":"needle in transcript"}],"nextCursor":null,"backwardsCursor":null}"#
+                result = #"{"data":[{"thread":{"id":"thread-mock","name":"Search hit","preview":"Matched preview","cliVersion":"1.0.0","createdAt":1781075531,"cwd":"/tmp","ephemeral":false,"modelProvider":"openai","parentThreadId":null,"sessionId":"session-mock","source":"cli","status":{"type":"idle"},"turns":[],"updatedAt":1781075531},"snippet":"needle in transcript"}],"nextCursor":null,"backwardsCursor":null}"#
             case "thread/read":
                 result = #"{"thread":{"id":"thread-mock"}}"#
             case "thread/goal/set":
@@ -110,7 +110,7 @@ actor MockTransport: CodexTransport {
             case "collaborationMode/list":
                 result = #"{"data":[{"name":"Plan","mode":"plan","model":null,"reasoning_effort":"medium"},{"name":"Default","mode":"default","model":null,"reasoning_effort":null}]}"#
             case "mcpServerStatus/list":
-                result = #"{"data":[{"name":"filesystem","authStatus":"unsupported","serverInfo":{"name":"filesystem","title":"Filesystem","version":"1.0.0","description":"Local files"},"tools":{"read_file":{"name":"read_file","title":"Read file","description":"Read a file"}},"resources":[{"name":"workspace","uri":"file:///tmp"}],"resourceTemplates":[{"name":"repo-file","uriTemplate":"file:///{path}"}]}],"nextCursor":null}"#
+                result = #"{"data":[{"name":"filesystem","authStatus":"unsupported","serverInfo":{"name":"filesystem","title":"Filesystem","version":"1.0.0","description":"Local files"},"tools":{"read_file":{"name":"read_file","title":"Read file","description":"Read a file","inputSchema":{"type":"object"}}},"resources":[{"name":"workspace","uri":"file:///tmp"}],"resourceTemplates":[{"name":"repo-file","uriTemplate":"file:///{path}"}]}],"nextCursor":null}"#
             case "plugin/list":
                 result = #"{"marketplaces":[{"name":"local","interface":{"displayName":"Local"},"path":"/tmp/marketplace.json","plugins":[{"authPolicy":"ON_USE","enabled":true,"id":"resume-from-opencode","installPolicy":"INSTALLED_BY_DEFAULT","installed":true,"name":"resume-from-opencode","source":{"type":"local","path":"/tmp/plugins/resume"},"availability":"AVAILABLE","interface":{"displayName":"Resume OpenCode","shortDescription":"Resume an OpenCode run","capabilities":["skills"],"screenshots":[],"screenshotUrls":[]},"keywords":["agents"],"localVersion":"1.0.0"}]}],"marketplaceLoadErrors":[],"featuredPluginIds":[]}"#
             case "model/list":
@@ -152,4 +152,3 @@ actor MockTransport: CodexTransport {
         onError?(error)
     }
 }
-

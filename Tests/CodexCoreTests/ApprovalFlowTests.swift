@@ -122,36 +122,6 @@ final class ApprovalFlowTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty, "resolved approvals must clear from the store")
     }
 
-    func testAskPolicyMapsLegacyV1Decisions() async throws {
-        let (client, store, transport) = try await makeClient(policy: .ask)
-
-        let request = """
-        {
-            "jsonrpc": "2.0",
-            "id": 7,
-            "method": "execCommandApproval",
-            "params": {
-                "conversationId": "thread-mock",
-                "callId": "call-1",
-                "command": "ls",
-                "cwd": "/tmp"
-            }
-        }
-        """
-        await transport.receiveMessage(request)
-
-        let deadline = Date().addingTimeInterval(2.0)
-        while await store.pendingApprovals.isEmpty, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        let pending = await store.pendingApprovals
-        XCTAssertEqual(pending.count, 1)
-
-        await client.resolveApproval(requestId: pending[0].id, decision: .decline)
-        let reply = await waitForReply(in: transport, requestId: 7)
-        XCTAssertEqual(decision(of: reply), "denied")
-    }
-
     func testAskPolicyUserInputRoundTrip() async throws {
         let (client, store, transport) = try await makeClient(policy: .ask)
 

@@ -74,7 +74,7 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     ) async -> CodexIntegrationCatalogActivity {
         beginMCPRefresh()
         do {
-            let raw = try await codex.mcpServerStatusListRaw(threadId: threadID, detail: "full", limit: 100)
+            let raw = try CodexJSONValue(encoding: await codex.mcpServerStatusList(threadId: threadID, detail: .full, limit: 100))
             return applyMCPResponse(raw)
         } catch {
             return failMCPRefresh(message: errorMessage(error))
@@ -125,7 +125,7 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     ) async -> CodexIntegrationCatalogActivity {
         beginPluginRefresh()
         do {
-            return applyPluginResponse(try await codex.pluginListRaw(cwds: cwds))
+            return applyPluginResponse(try CodexJSONValue(encoding: await codex.pluginList(cwds: cwds)))
         } catch {
             return failPluginRefresh(message: errorMessage(error))
         }

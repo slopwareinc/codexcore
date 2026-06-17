@@ -1,18 +1,18 @@
 import SwiftUI
 
-/// A drop-in SwiftUI monospaced terminal view that binds to a live PTY `CodexProcessSession`.
+/// A drop-in SwiftUI monospaced terminal view that binds to a live `command/exec` session.
 ///
 /// It listens to the standard output stream, decodes ANSI escape codes,
 /// updates styled segments, and handles keyboard inputs natively.
 @available(macOS 14.0, iOS 17.0, *)
 public struct CodexTerminalView: View {
-    private let session: CodexProcessSession
+    private let session: CodexCommandExecSession
     private let parser = ANSIParser()
 
     @State private var segments: [ANSISegment] = []
     @State private var rawText = ""
 
-    public init(session: CodexProcessSession) {
+    public init(session: CodexCommandExecSession) {
         self.session = session
     }
 

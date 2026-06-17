@@ -282,21 +282,6 @@ final class CodexCoreTests: XCTestCase {
         }
     }
 
-    func testTurnSnapshotDecodesWithoutItemDetails() throws {
-        let json = """
-        {
-          "id": "turn-legacy",
-          "status": "completed",
-          "startedAt": 0,
-          "items": []
-        }
-        """
-        let snapshot = try JSONDecoder().decode(CodexTurnSnapshot.self, from: Data(json.utf8))
-
-        XCTAssertEqual(snapshot.id, "turn-legacy")
-        XCTAssertEqual(snapshot.itemDetails, [:])
-    }
-
     func testThreadHistoryHydratorBuildsStoreSnapshotsAndChildThreads() async throws {
         let parent: CodexJSONValue = .dictionary([
             "thread": .dictionary([
@@ -395,25 +380,6 @@ final class CodexCoreTests: XCTestCase {
             XCTAssertEqual(store.activeThread?.id, "thread-parent")
             XCTAssertEqual(store.turnSnapshot(threadID: "thread-child", turnID: "turn-child")?.items.map(\.id), ["child-answer"])
         }
-    }
-
-    func testThreadSnapshotDecodesWithoutChildThreads() throws {
-        let json = """
-        {
-          "id": "thread-legacy",
-          "status": "idle",
-          "cwd": "",
-          "model": "",
-          "turns": [],
-          "pendingApprovals": [],
-          "updatedAt": 0
-        }
-        """
-
-        let snapshot = try JSONDecoder().decode(CodexThreadSnapshot.self, from: Data(json.utf8))
-
-        XCTAssertEqual(snapshot.id, "thread-legacy")
-        XCTAssertEqual(snapshot.childThreads, [])
     }
 
     // MARK: - Exploration Merging & Retention Tests

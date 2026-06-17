@@ -69,12 +69,6 @@ public enum CodexThreadHistorySession {
     }
 
     private static func readThreadRaw(threadID: String, using codex: Codex) async throws -> CodexJSONValue {
-        try await codex.rawRequest(
-            method: CodexAppServerClientMethod.threadRead.rawValue,
-            params: [
-                "threadId": .string(threadID),
-                "includeTurns": .bool(true)
-            ]
-        )
+        try CodexJSONValue(encoding: await codex.threadReadSchema(threadID, includeTurns: true))
     }
 }

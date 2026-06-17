@@ -122,7 +122,7 @@ public enum CodexThreadHistoryHydrator {
             ?? Date()
         let snapshot = CodexThreadSnapshot(
             id: threadID,
-            sessionID: string(from: rawThread["sessionId"]) ?? string(from: rawThread["sessionID"]),
+            sessionID: string(from: rawThread["sessionId"]),
             status: threadStatus(from: string(from: rawThread["status"])),
             cwd: string(from: rawThread["cwd"]) ?? "",
             model: string(from: rawThread["model"]) ?? "",
@@ -139,13 +139,7 @@ public enum CodexThreadHistoryHydrator {
     }
 
     private static func readThreadRaw(threadID: String, using codex: Codex) async throws -> CodexJSONValue {
-        try await codex.rawRequest(
-            method: CodexAppServerClientMethod.threadRead.rawValue,
-            params: [
-                "threadId": .string(threadID),
-                "includeTurns": .bool(true)
-            ]
-        )
+        try CodexJSONValue(encoding: await codex.threadReadSchema(threadID, includeTurns: true))
     }
 
     private static func turnObjects(from response: CodexJSONValue) -> [[String: CodexJSONValue]] {
@@ -243,12 +237,12 @@ public enum CodexThreadHistoryHydrator {
         var references: [CodexChildThreadReference] = []
         let itemID = string(from: rawItem["id"])
         let prompt = string(from: rawItem["prompt"]) ?? string(from: rawItem["message"]) ?? string(from: rawItem["text"])
-        for key in ["receiverThreadIds", "receiverThreadIDs", "childThreadIds", "childThreadIDs", "threadIds", "threadIDs"] {
+        for key in ["receiverThreadIds", "childThreadIds", "threadIds"] {
             references.append(contentsOf: stringArray(from: rawItem[key]).map {
                 childThreadReference(threadID: $0, itemID: itemID, rawItem: rawItem, prompt: prompt)
             })
         }
-        if let direct = string(from: rawItem["threadId"]) ?? string(from: rawItem["threadID"]) {
+        if let direct = string(from: rawItem["threadId"]) {
             references.append(childThreadReference(threadID: direct, itemID: itemID, rawItem: rawItem, prompt: prompt))
         }
         for key in ["thread", "source", "metadata", "agent", "subagent", "subAgent", "agents", "subagents", "subAgents", "children", "threads"] {
@@ -265,7 +259,7 @@ public enum CodexThreadHistoryHydrator {
         switch value {
         case .dictionary(let object):
             var references: [CodexChildThreadReference] = []
-            if let id = string(from: object["threadId"]) ?? string(from: object["threadID"]) ?? string(from: object["id"]) {
+            if let id = string(from: object["threadId"]) ?? string(from: object["id"]) {
                 references.append(childThreadReference(
                     threadID: id,
                     itemID: itemID,
@@ -293,7 +287,6 @@ public enum CodexThreadHistoryHydrator {
         let state = childState(for: threadID, in: rawItem)
         let name = string(from: rawItem["name"])
             ?? string(from: rawItem["agentName"])
-            ?? string(from: rawItem["agent_name"])
             ?? string(from: state?["name"])
             ?? string(from: state?["agentName"])
         return CodexChildThreadReference(

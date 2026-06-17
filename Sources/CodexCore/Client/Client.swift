@@ -30,8 +30,6 @@ public actor CodexClient {
     private let approvalPolicy: CodexApprovalPolicy
     public nonisolated let notificationRouter: CodexNotificationRouter
 
-    // Track active PTY process sessions by process handle
-    private var activeSessions: [String: CodexProcessSession] = [:]
     private var activeCommandSessions: [String: CodexCommandExecSession] = [:]
 
     // Escalated server requests awaiting a host decision (policy `.ask`).
@@ -233,6 +231,30 @@ public actor CodexClient {
         )
     }
 
+    public func threadListSchema(_ params: CodexSchemaThreadListParams = CodexSchemaThreadListParams()) async throws -> CodexSchemaThreadListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadList.rawValue,
+            params: params,
+            response: CodexSchemaThreadListResponse.self
+        )
+    }
+
+    public func threadReadSchema(threadId: String, includeTurns: Bool = false) async throws -> CodexSchemaThreadReadResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadRead.rawValue,
+            params: CodexSchemaThreadReadParams(includeTurns: includeTurns, threadID: threadId),
+            response: CodexSchemaThreadReadResponse.self
+        )
+    }
+
+    public func threadSearch(_ params: CodexSchemaThreadSearchParams) async throws -> CodexSchemaThreadSearchResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadSearch.rawValue,
+            params: params,
+            response: CodexSchemaThreadSearchResponse.self
+        )
+    }
+
     public func threadFork(threadId: String, params: ThreadForkParams = ThreadForkParams()) async throws -> ThreadForkResponse {
         var payload = params
         payload.threadId = threadId
@@ -356,7 +378,7 @@ public actor CodexClient {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let turnId = try await self.startTurn(
+                    let turnId = try await self.turnStart(
                         threadId: threadId,
                         input: [CodexInput.text(text).jsonValue],
                         additionalParams: additionalParams
@@ -407,6 +429,43 @@ public actor CodexClient {
             method: CodexAppServerClientMethod.modelList.rawValue,
             params: ["includeHidden": CodexJSONValue.bool(includeHidden)],
             response: ModelListResponse.self
+        )
+    }
+
+    public func skillsList(_ params: CodexSchemaSkillsListParams = CodexSchemaSkillsListParams()) async throws -> CodexSchemaSkillsListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.skillsList.rawValue,
+            params: params,
+            response: CodexSchemaSkillsListResponse.self
+        )
+    }
+
+    public func permissionProfileList(_ params: CodexSchemaPermissionProfileListParams = CodexSchemaPermissionProfileListParams()) async throws -> CodexSchemaPermissionProfileListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.permissionProfileList.rawValue,
+            params: params,
+            response: CodexSchemaPermissionProfileListResponse.self
+        )
+    }
+
+    public func collaborationModeList() async throws -> CodexSchemaCollaborationModeListResponse {
+        let value = try await connection.request(method: CodexAppServerClientMethod.collaborationModeList.rawValue, params: [:])
+        return try value.decode(CodexSchemaCollaborationModeListResponse.self)
+    }
+
+    public func mcpServerStatusList(_ params: CodexSchemaListMCPServerStatusParams = CodexSchemaListMCPServerStatusParams()) async throws -> CodexSchemaListMCPServerStatusResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.mcpServerStatusList.rawValue,
+            params: params,
+            response: CodexSchemaListMCPServerStatusResponse.self
+        )
+    }
+
+    public func pluginList(_ params: CodexSchemaPluginListParams = CodexSchemaPluginListParams()) async throws -> CodexSchemaPluginListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.pluginList.rawValue,
+            params: params,
+            response: CodexSchemaPluginListResponse.self
         )
     }
 
@@ -468,64 +527,18 @@ public actor CodexClient {
         }
     }
 
-    // MARK: - Thread & Turn APIs
+    // MARK: - Turn Helpers
 
-    /// Creates a new conversation thread on the app-server using `thread/start`.
-    /// Returns the thread ID.
     @discardableResult
-    public func createThread(cwd: String, model: String? = nil) async throws -> String {
-        let response = try await threadStart(ThreadStartParams(cwd: cwd, model: model))
-        return response.thread.id
-    }
-
-    /// Creates or starts a thread with raw app-server `thread/start` params.
-    @discardableResult
-    public func startThread(params: [String: CodexJSONValue] = [:]) async throws -> String {
-
-        // thread/start returns {thread: {id: "..."}, model: "...", cwd: "...", ...}
-        let result = try await connection.request(method: CodexAppServerClientMethod.threadStart.rawValue, params: params)
-
-        guard case .dictionary(let dict) = result,
-              let threadVal = dict["thread"],
-              case .dictionary(let threadDict) = threadVal,
-              let idVal = threadDict["id"],
-              case .string(let threadId) = idVal else {
-            throw JSONRPCError(code: -32603, message: "Invalid thread/start response: \(result)", data: nil)
-        }
-
-        await MainActor.run {
-            store.dispatch(.threadStarted(threadId: threadId, name: nil, status: "idle"))
-            store.activateThread(id: threadId)
-        }
-
-        return threadId
-    }
-
-    /// Starts a turn on the thread using `turn/start` with a text `input` array.
-    /// Returns the turn ID.
-    @discardableResult
-    public func startTurn(threadId: String, userPrompt: String) async throws -> String {
-        let inputItem: CodexJSONValue = .dictionary([
-            "type": .string("text"),
-            "text": .string(userPrompt)
-        ])
-
-        return try await startTurn(threadId: threadId, input: [inputItem])
-    }
-
-    /// Starts a turn with pre-normalized Codex wire input items.
-    @discardableResult
-    public func startTurn(
+    func turnStart(
         threadId: String,
         input: [CodexJSONValue],
         additionalParams: [String: CodexJSONValue] = [:]
     ) async throws -> String {
-        // turn/start takes: {threadId, input: [{type: "text", text: "..."}]}
         var params = additionalParams
         params["threadId"] = .string(threadId)
         params["input"] = .array(input)
 
-        // turn/start returns {turn: {id: "...", ...}}
         let result = try await connection.request(method: CodexAppServerClientMethod.turnStart.rawValue, params: params)
 
         guard case .dictionary(let dict) = result,
@@ -544,72 +557,7 @@ public actor CodexClient {
         return turnId
     }
 
-    @discardableResult
-    public func interruptTurn(threadId: String, turnId: String) async throws -> CodexJSONValue {
-        cancelPendingServerRequests(turnId: turnId)
-        return try await connection.request(
-            method: CodexAppServerClientMethod.turnInterrupt.rawValue,
-            params: ["threadId": .string(threadId), "turnId": .string(turnId)]
-        )
-    }
-
-    @discardableResult
-    public func steerTurn(threadId: String, expectedTurnId: String, input: [CodexJSONValue]) async throws -> CodexJSONValue {
-        try await connection.request(
-            method: CodexAppServerClientMethod.turnSteer.rawValue,
-            params: [
-                "threadId": .string(threadId),
-                "expectedTurnId": .string(expectedTurnId),
-                "input": .array(input)
-            ]
-        )
-    }
-
-    // MARK: - Process & Interactive Terminal APIs
-
-    /// Spawns a host process attached to a PTY terminal session.
-    ///
-    /// `process/spawn` is a legacy experimental API; prefer
-    /// `startCommandSession`, which uses the official `command/exec` surface.
-    @available(*, deprecated, message: "Use startCommandSession (command/exec); process/spawn is a legacy experimental API.")
-    public func spawnProcess(
-        command: [String],
-        cwd: String,
-        environment: [String: String]? = nil,
-        initialSize: PTYSize? = nil
-    ) async throws -> CodexProcessSession {
-        let handle = UUID().uuidString
-
-        let session = CodexProcessSession(processHandle: handle, connection: connection)
-        activeSessions[handle] = session
-
-        var params: [String: CodexJSONValue] = [
-            "command": .array(command.map { .string($0) }),
-            "processHandle": .string(handle),
-            "cwd": .string(cwd),
-            "tty": .bool(true),
-            "streamStdin": .bool(true),
-            "streamStdoutStderr": .bool(true)
-        ]
-
-        if let env = environment {
-            let envDict = env.mapValues { CodexJSONValue.string($0) }
-            params["env"] = .dictionary(envDict)
-        }
-
-        if let size = initialSize {
-            params["size"] = .dictionary([
-                "rows": .int(size.rows),
-                "cols": .int(size.cols)
-            ])
-        }
-
-        _ = try await connection.request(method: CodexAppServerClientMethod.processSpawn.rawValue, params: params)
-
-        return session
-    }
-
-    // MARK: - Official command/exec APIs
+    // MARK: - command/exec APIs
 
     public func execCommand(
         command: [String],
@@ -819,35 +767,8 @@ public actor CodexClient {
                 "success": .bool(false)
             ])
 
-        case .accountChatGPTAuthTokensRefresh, .attestationGenerate:
+        case .accountChatGPTAuthTokensRefresh, .attestationGenerate, .execCommandApproval, .applyPatchApproval:
             return .dictionary([:])
-
-        case .execCommandApproval:
-            let req = CodexApprovalRequest(
-                requestId: requestId,
-                kind: .command,
-                threadId: str("conversationId"),
-                turnId: str("turnId"),
-                itemId: str("callId"),
-                command: optionalString(params["command"]),
-                cwd: optionalString(params["cwd"]),
-                reason: optionalString(params["reason"])
-            )
-            let decision = await decideApproval(req)
-            return .dictionary(["decision": .string(decision.v1ReviewDecision)])
-
-        case .applyPatchApproval:
-            let req = CodexApprovalRequest(
-                requestId: requestId,
-                kind: .fileChange,
-                threadId: str("conversationId"),
-                turnId: str("turnId"),
-                itemId: str("callId"),
-                grantRoot: optionalString(params["grantRoot"]),
-                reason: optionalString(params["reason"])
-            )
-            let decision = await decideApproval(req)
-            return .dictionary(["decision": .string(decision.v1ReviewDecision)])
         }
     }
 
@@ -963,29 +884,6 @@ public actor CodexClient {
             }
         }
 
-        // Route 1: PTY standard output chunks
-        if method == CodexAppServerNotificationMethod.processOutputDelta.rawValue {
-            guard let route = outputDeltaRoute(params: params, targetIDKey: "processHandle") else { return }
-            activeSessions[route.targetID]?.receiveOutput(
-                streamName: route.stream,
-                base64Data: route.base64Data,
-                capReached: route.capReached
-            )
-            return
-        }
-
-        // Route 2: PTY process exited
-        if method == CodexAppServerNotificationMethod.processExited.rawValue {
-            guard let handleVal = params["processHandle"],
-                  case .string(let handle) = handleVal,
-                  let code = intParam(params["exitCode"]) else { return }
-
-            activeSessions[handle]?.handleExit(exitCode: Int32(code))
-            activeSessions.removeValue(forKey: handle)
-            return
-        }
-
-        // Route 3: Official command/exec output chunks
         if method == CodexAppServerNotificationMethod.commandExecOutputDelta.rawValue {
             guard let route = outputDeltaRoute(params: params, targetIDKey: "processId") else { return }
             activeCommandSessions[route.targetID]?.receiveOutput(
@@ -1021,9 +919,7 @@ public actor CodexClient {
 
     private func storeEventBeforeRouting(method: String, params: [String: CodexJSONValue]) -> CodexServerEvent? {
         switch method {
-        case CodexAppServerNotificationMethod.processOutputDelta.rawValue,
-             CodexAppServerNotificationMethod.processExited.rawValue,
-             CodexAppServerNotificationMethod.commandExecOutputDelta.rawValue,
+        case CodexAppServerNotificationMethod.commandExecOutputDelta.rawValue,
              CodexAppServerNotificationMethod.serverRequestResolved.rawValue,
              "remoteControl/status/changed",
              "mcpServer/startupStatus/updated",

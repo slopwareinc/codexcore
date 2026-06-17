@@ -58,19 +58,19 @@ public struct CodexThreadListSession: Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexThreadListActivity? {
         do {
-            let currentRaw = try await codex.threadListRaw(params: [
-                "archived": .bool(false),
-                "cwd": .string(currentWorkspacePath),
-                "limit": .int(50),
-                "sortDirection": .string(SortDirection.desc.rawValue),
-                "sortKey": .string(ThreadSortKey.updatedAt.rawValue)
-            ])
-            let allRaw = try await codex.threadListRaw(params: [
-                "archived": .bool(false),
-                "limit": .int(100),
-                "sortDirection": .string(SortDirection.desc.rawValue),
-                "sortKey": .string(ThreadSortKey.updatedAt.rawValue)
-            ])
+            let currentRaw = try CodexJSONValue(encoding: await codex.threadListSchema(CodexSchemaThreadListParams(
+                archived: false,
+                cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
+                limit: 50,
+                sortDirection: .desc,
+                sortKey: .updatedAt
+            )))
+            let allRaw = try CodexJSONValue(encoding: await codex.threadListSchema(CodexSchemaThreadListParams(
+                archived: false,
+                limit: 100,
+                sortDirection: .desc,
+                sortKey: .updatedAt
+            )))
             applyThreadList(currentRaw: currentRaw, allRaw: allRaw, currentWorkspacePath: currentWorkspacePath)
             return nil
         } catch {
@@ -120,7 +120,7 @@ public struct CodexThreadListSession: Sendable {
 
         beginSearch()
         do {
-            let raw = try await codex.threadSearchRaw(searchTerm: searchTerm, limit: 25)
+            let raw = try CodexJSONValue(encoding: await codex.threadSearch(searchTerm: searchTerm, limit: 25))
             let count = applySearchResults(from: raw)
             return CodexThreadListActivity(title: "Searched chats", detail: "\(count) matches for \(searchTerm)")
         } catch {
