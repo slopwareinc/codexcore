@@ -5,10 +5,19 @@ public struct CodexFileChangeUndoKey: EnvironmentKey {
     public static let defaultValue: (@Sendable (CodexChatMessage.FileChange) -> Void)? = nil
 }
 
+public struct CodexFileChangeReviewKey: EnvironmentKey {
+    public static let defaultValue: (@Sendable (CodexChatMessage.FileChange) -> Void)? = nil
+}
+
 public extension EnvironmentValues {
     var codexFileChangeUndo: (@Sendable (CodexChatMessage.FileChange) -> Void)? {
         get { self[CodexFileChangeUndoKey.self] }
         set { self[CodexFileChangeUndoKey.self] = newValue }
+    }
+
+    var codexFileChangeReview: (@Sendable (CodexChatMessage.FileChange) -> Void)? {
+        get { self[CodexFileChangeReviewKey.self] }
+        set { self[CodexFileChangeReviewKey.self] = newValue }
     }
 }
 
@@ -17,12 +26,18 @@ public extension View {
     func codexFileChangeUndo(_ handler: (@Sendable (CodexChatMessage.FileChange) -> Void)?) -> some View {
         environment(\.codexFileChangeUndo, handler)
     }
+
+    /// Enables the Review button on file-change cards in this subtree.
+    func codexFileChangeReview(_ handler: (@Sendable (CodexChatMessage.FileChange) -> Void)?) -> some View {
+        environment(\.codexFileChangeReview, handler)
+    }
 }
 
 /// A collapsible card for app-server file-change and turn-diff updates.
 public struct CodexFileChangeCard: View {
     @Environment(\.codexAgentTheme) private var theme
     @Environment(\.codexFileChangeUndo) private var undoHandler
+    @Environment(\.codexFileChangeReview) private var reviewHandler
 
     private let change: CodexChatMessage.FileChange
     private let onReview: ((CodexChatMessage.FileChange) -> Void)?
@@ -36,6 +51,10 @@ public struct CodexFileChangeCard: View {
     ) {
         self.change = change
         self.onReview = onReview
+    }
+
+    private var reviewAction: ((CodexChatMessage.FileChange) -> Void)? {
+        onReview ?? reviewHandler
     }
 
     public var body: some View {
@@ -97,7 +116,7 @@ public struct CodexFileChangeCard: View {
                 }
                 CodexFileChangeActionButton(title: "Review", systemImage: "eye") {
                     withAnimation(.snappy(duration: 0.22)) { expanded.toggle() }
-                    onReview?(change)
+                    reviewAction?(change)
                 }
 
                 Image(systemName: "chevron.down")
