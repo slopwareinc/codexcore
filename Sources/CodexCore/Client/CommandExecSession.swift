@@ -131,9 +131,8 @@ public final class CodexCommandExecSession: @unchecked Sendable {
     }
 
     internal func receiveOutput(streamName: String, base64Data: String, capReached: Bool) {
-        guard let data = Data(base64Encoded: base64Data) else { return }
-        let streamKind = PTYDelta.StreamKind(rawValue: streamName) ?? .stdout
-        outputContinuation.yield(PTYDelta(stream: streamKind, data: data, capReached: capReached))
+        guard let delta = PTYDelta(streamName: streamName, base64Data: base64Data, capReached: capReached) else { return }
+        outputContinuation.yield(delta)
     }
 
     internal func complete(_ result: CodexCommandExecResult) {

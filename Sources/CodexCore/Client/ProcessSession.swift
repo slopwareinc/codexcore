@@ -11,6 +11,13 @@ public struct PTYDelta: Sendable {
     public let stream: StreamKind
     public let data: Data
     public let capReached: Bool
+
+    internal init?(streamName: String, base64Data: String, capReached: Bool) {
+        guard let data = Data(base64Encoded: base64Data) else { return nil }
+        self.stream = StreamKind(rawValue: streamName) ?? .stdout
+        self.data = data
+        self.capReached = capReached
+    }
 }
 
 // MARK: - CodexProcessSession
@@ -86,10 +93,7 @@ public final class CodexProcessSession: @unchecked Sendable {
     // MARK: - Internal Packet Routing Hooks
 
     internal func receiveOutput(streamName: String, base64Data: String, capReached: Bool) {
-        guard let data = Data(base64Encoded: base64Data) else { return }
-        let streamKind = PTYDelta.StreamKind(rawValue: streamName) ?? .stdout
-
-        let delta = PTYDelta(stream: streamKind, data: data, capReached: capReached)
+        guard let delta = PTYDelta(streamName: streamName, base64Data: base64Data, capReached: capReached) else { return }
         outputContinuation.yield(delta)
     }
 

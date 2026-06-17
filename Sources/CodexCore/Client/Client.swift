@@ -14,6 +14,13 @@ public struct PTYSize: Codable, Sendable {
 
 public typealias CodexServerRequestHandler = @Sendable (JSONRPCServerRequest) async -> CodexJSONValue?
 
+private struct CodexOutputDeltaRoute {
+    var targetID: String
+    var stream: String
+    var base64Data: String
+    var capReached: Bool
+}
+
 // MARK: - CodexClient
 
 public actor CodexClient {
@@ -958,15 +965,12 @@ public actor CodexClient {
 
         // Route 1: PTY standard output chunks
         if method == CodexAppServerNotificationMethod.processOutputDelta.rawValue {
-            guard let handleVal = params["processHandle"],
-                  case .string(let handle) = handleVal,
-                  let streamVal = params["stream"],
-                  case .string(let stream) = streamVal,
-                  let base64Val = params["deltaBase64"],
-                  case .string(let base64) = base64Val else { return }
-            let capReached = boolParam(params["capReached"])
-
-            activeSessions[handle]?.receiveOutput(streamName: stream, base64Data: base64, capReached: capReached)
+            guard let route = outputDeltaRoute(params: params, targetIDKey: "processHandle") else { return }
+            activeSessions[route.targetID]?.receiveOutput(
+                streamName: route.stream,
+                base64Data: route.base64Data,
+                capReached: route.capReached
+            )
             return
         }
 
@@ -983,21 +987,36 @@ public actor CodexClient {
 
         // Route 3: Official command/exec output chunks
         if method == CodexAppServerNotificationMethod.commandExecOutputDelta.rawValue {
-            guard let idVal = params["processId"],
-                  case .string(let processId) = idVal,
-                  let streamVal = params["stream"],
-                  case .string(let stream) = streamVal,
-                  let base64Val = params["deltaBase64"],
-                  case .string(let base64) = base64Val else { return }
-            let capReached = boolParam(params["capReached"])
-
-            activeCommandSessions[processId]?.receiveOutput(streamName: stream, base64Data: base64, capReached: capReached)
+            guard let route = outputDeltaRoute(params: params, targetIDKey: "processId") else { return }
+            activeCommandSessions[route.targetID]?.receiveOutput(
+                streamName: route.stream,
+                base64Data: route.base64Data,
+                capReached: route.capReached
+            )
             return
         }
 
         if storeEvent != nil {
             return
         }
+    }
+
+    private func outputDeltaRoute(
+        params: [String: CodexJSONValue],
+        targetIDKey: String
+    ) -> CodexOutputDeltaRoute? {
+        guard case .string(let targetID)? = params[targetIDKey],
+              case .string(let stream)? = params["stream"],
+              case .string(let base64Data)? = params["deltaBase64"] else {
+            return nil
+        }
+
+        return CodexOutputDeltaRoute(
+            targetID: targetID,
+            stream: stream,
+            base64Data: base64Data,
+            capReached: boolParam(params["capReached"])
+        )
     }
 
     private func storeEventBeforeRouting(method: String, params: [String: CodexJSONValue]) -> CodexServerEvent? {
