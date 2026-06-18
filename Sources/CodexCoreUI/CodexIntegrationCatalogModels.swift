@@ -152,26 +152,15 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     }
 
     private static func dictionary(from value: CodexJSONValue?) -> [String: CodexJSONValue] {
-        guard case .dictionary(let object)? = value else { return [:] }
-        return object
+        CodexJSONCoercion.dictionaryOrEmpty(from: value)
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key], let string = string(from: value)?.nilIfBlank else { continue }
-            return string
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {
-        switch value {
-        case .string(let string): return string
-        case .int(let int): return String(int)
-        case .double(let double): return String(double)
-        case .bool(let bool): return String(bool)
-        case .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.flatString(from: value)
     }
 }
 
@@ -374,40 +363,22 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func dictionary(from value: CodexJSONValue?) -> [String: CodexJSONValue] {
-        guard case .dictionary(let object)? = value else { return [:] }
-        return object
+        CodexJSONCoercion.dictionaryOrEmpty(from: value)
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let string = string(from: object[key])?.nilIfBlank else { continue }
-            return string
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {
-        switch value {
-        case .string(let string): return string
-        case .int(let int): return String(int)
-        case .double(let double): return String(double)
-        case .bool(let bool): return String(bool)
-        case .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.flatString(from: value)
     }
 
     private static func bool(from value: CodexJSONValue?) -> Bool? {
-        switch value {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.bool(from: value)
     }
 
     private static func stringArray(from value: CodexJSONValue?) -> [String] {
-        guard case .array(let values)? = value else { return [] }
-        return values.compactMap { string(from: $0)?.nilIfBlank }
+        CodexJSONCoercion.stringArray(from: value)
     }
 }

@@ -85,7 +85,7 @@ public struct CodexCodeBlock: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(size: 12.5, design: .monospaced))
+                    .font(theme.fonts.code)
                     .foregroundStyle(theme.colors.codeText)
                     .textSelection(.enabled)
                     .padding(12)
@@ -119,45 +119,30 @@ public struct CodexCommandCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            if expanded { outputPane }
-        }
-        .background(theme.colors.codeBackground)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
-        )
-        .frame(maxWidth: 640, alignment: .leading)
-        .onAppear {
-            if run.isStreaming { expanded = true }
-        }
-        .onChange(of: run.isStreaming) { _, isStreaming in
-            if isStreaming { expanded = true }
-        }
-    }
-
-    private var header: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.22)) { expanded.toggle() }
-        } label: {
+        CodexCollapsibleCard(
+            isExpanded: $expanded,
+            background: theme.colors.codeBackground,
+            border: theme.colors.border,
+            headerBackground: theme.colors.codeHeader,
+            headerPadding: theme.spacing.cardHeaderPadding,
+            maxWidth: theme.spacing.cardMaxWidth
+        ) { isExpanded, _ in
             HStack(spacing: 10) {
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(theme.colors.codeFaint)
 
                 Text(run.command)
-                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                    .font(theme.fonts.code.weight(.medium))
                     .foregroundStyle(theme.colors.codeText)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 Spacer(minLength: 8)
 
-                if !expanded && hasOutput {
+                if !isExpanded && hasOutput {
                     Text(outputSummary)
-                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                        .font(theme.fonts.micro)
                         .foregroundStyle(theme.colors.codeFaint)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -169,23 +154,13 @@ public struct CodexCommandCard: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(theme.colors.codeFaint)
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
+                    .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(theme.colors.codeHeader)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var outputPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(theme.colors.border).frame(height: 1)
+        } body: {
             ScrollView(.vertical, showsIndicators: true) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(outputText)
-                        .font(.system(size: 12.5, design: .monospaced))
+                        .font(theme.fonts.code)
                         .foregroundStyle(hasOutput ? theme.colors.codeText : theme.colors.codeFaint)
                         .textSelection(.enabled)
                         .padding(12)
@@ -198,7 +173,7 @@ public struct CodexCommandCard: View {
                 HStack {
                     if let cwd = run.cwd, !cwd.isEmpty {
                         Text(cwd)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(theme.fonts.micro)
                             .foregroundStyle(theme.colors.codeFaint)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -206,10 +181,15 @@ public struct CodexCommandCard: View {
                     Spacer()
                     CodexCopyButton(copied: $copied) { copyToPasteboard(run.output) }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(theme.spacing.cardFooterPadding)
                 .background(theme.colors.codeHeader)
             }
+        }
+        .onAppear {
+            if run.isStreaming { expanded = true }
+        }
+        .onChange(of: run.isStreaming) { _, isStreaming in
+            if isStreaming { expanded = true }
         }
     }
 
@@ -242,29 +222,14 @@ public struct CodexReasoningCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            if expanded { bodyContent }
-        }
-        .background(theme.colors.surfaceElevated.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.8), lineWidth: 1)
-        )
-        .frame(maxWidth: 640, alignment: .leading)
-        .onAppear {
-            if block.isStreaming { expanded = true }
-        }
-        .onChange(of: block.isStreaming) { _, isStreaming in
-            if isStreaming { expanded = true }
-        }
-    }
-
-    private var header: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.22)) { expanded.toggle() }
-        } label: {
+        CodexCollapsibleCard(
+            isExpanded: $expanded,
+            background: theme.colors.surfaceElevated.opacity(0.35),
+            border: theme.colors.border.opacity(0.8),
+            headerBackground: theme.colors.codeHeader.opacity(0.65),
+            headerPadding: theme.spacing.cardHeaderPadding,
+            maxWidth: theme.spacing.cardMaxWidth
+        ) { isExpanded, _ in
             HStack(spacing: 10) {
                 Image(systemName: "brain.head.profile")
                     .font(.system(size: 12, weight: .semibold))
@@ -279,9 +244,9 @@ public struct CodexReasoningCard: View {
                 if block.isStreaming {
                     ProgressView()
                         .controlSize(.mini)
-                } else if !expanded, hasText {
+                } else if !isExpanded, hasText {
                     Text(previewText)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(theme.fonts.micro)
                         .foregroundStyle(theme.colors.codeFaint)
                         .lineLimit(1)
                 }
@@ -289,28 +254,24 @@ public struct CodexReasoningCard: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(theme.colors.codeFaint)
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
+                    .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(theme.colors.codeHeader.opacity(0.65))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var bodyContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(theme.colors.border).frame(height: 1)
+        } body: {
             ScrollView(.vertical, showsIndicators: true) {
                 Text(displayText)
-                    .font(.system(size: 12.5, design: .monospaced))
+                    .font(theme.fonts.code)
                     .foregroundStyle(hasText ? theme.colors.codeText : theme.colors.codeFaint)
                     .textSelection(.enabled)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 220)
+        }
+        .onAppear {
+            if block.isStreaming { expanded = true }
+        }
+        .onChange(of: block.isStreaming) { _, isStreaming in
+            if isStreaming { expanded = true }
         }
     }
 
@@ -345,23 +306,14 @@ public struct CodexPlanCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            if expanded { bodyContent }
-        }
-        .background(theme.colors.codeBackground)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
-        )
-        .frame(maxWidth: 640, alignment: .leading)
-    }
-
-    private var header: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.22)) { expanded.toggle() }
-        } label: {
+        CodexCollapsibleCard(
+            isExpanded: $expanded,
+            background: theme.colors.codeBackground,
+            border: theme.colors.border,
+            headerBackground: theme.colors.codeHeader,
+            headerPadding: theme.spacing.cardHeaderPadding,
+            maxWidth: theme.spacing.cardMaxWidth
+        ) { isExpanded, _ in
             HStack(spacing: 10) {
                 Image(systemName: "checklist")
                     .font(.system(size: 12, weight: .semibold))
@@ -372,7 +324,7 @@ public struct CodexPlanCard: View {
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(theme.colors.codeText)
                     Text(plan.summary)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(theme.fonts.micro)
                         .foregroundStyle(theme.colors.codeFaint)
                 }
 
@@ -383,19 +335,9 @@ public struct CodexPlanCard: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(theme.colors.codeFaint)
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
+                    .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(theme.colors.codeHeader)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var bodyContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(theme.colors.border).frame(height: 1)
+        } body: {
             VStack(alignment: .leading, spacing: 10) {
                 if let explanation = plan.explanation, !explanation.isEmpty {
                     Text(explanation)
@@ -424,8 +366,7 @@ public struct CodexPlanCard: View {
                     Spacer()
                     CodexCopyButton(copied: $copied) { copyToPasteboard(plan.copyText) }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(theme.spacing.cardFooterPadding)
                 .background(theme.colors.codeHeader)
             }
         }
@@ -443,7 +384,7 @@ public struct CodexPlanCard: View {
                     .foregroundStyle(theme.colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(step.displayStatus)
-                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .font(theme.fonts.micro)
                     .foregroundStyle(theme.colors.textTertiary)
             }
         }
@@ -468,21 +409,7 @@ private struct CodexPlanStatusChip: View {
     let plan: CodexChatMessage.PlanUpdate
 
     var body: some View {
-        HStack(spacing: 5) {
-            if plan.isStreaming {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(theme.colors.running)
-            } else {
-                Circle().fill(color).frame(width: 6, height: 6)
-            }
-            Text(label)
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(color)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.16), in: Capsule())
+        CodexStatusChip(color: color, label: label, isStreaming: plan.isStreaming)
     }
 
     private var label: String {
@@ -506,21 +433,7 @@ private struct CodexCommandStatusChip: View {
     let run: CodexChatMessage.CommandRun
 
     var body: some View {
-        HStack(spacing: 5) {
-            if run.isStreaming {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(theme.colors.running)
-            } else {
-                Circle().fill(color).frame(width: 6, height: 6)
-            }
-            Text(label)
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(color)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.16), in: Capsule())
+        CodexStatusChip(color: color, label: label, isStreaming: run.isStreaming)
     }
 
     private var label: String {
@@ -560,7 +473,7 @@ public struct CodexCopyButton: View {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 10, weight: .semibold))
                 Text(copied ? "Copied" : "Copy")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(theme.fonts.micro)
             }
             .foregroundStyle(copied ? theme.colors.success : theme.colors.codeFaint)
         }

@@ -105,15 +105,9 @@ public enum CodexAgentNotificationRouter {
             guard mapper.hasSubagentThread(id: payload.threadId) else { return nil }
             return CodexAgentNotificationRouteResult(didUpdateAgentState: false)
 
-        case .known(let method, let params):
-            return applyKnown(method, params: params, to: &mapper, turnSnapshot: turnSnapshot)
-
-        case .unknown(let method, let params):
-            guard let known = CodexAppServerNotificationMethod(rawValue: method) else { return nil }
-            return applyKnown(known, params: params, to: &mapper, turnSnapshot: turnSnapshot)
-
         default:
-            return nil
+            guard let payload = notification.payload.normalizedKnownPayload else { return nil }
+            return applyKnown(payload.method, params: payload.params, to: &mapper, turnSnapshot: turnSnapshot)
         }
     }
 

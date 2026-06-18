@@ -4,23 +4,23 @@ import CodexCore
 public struct CodexChatTranscriptState: Sendable, Equatable {
     public private(set) var messages: [CodexChatMessage]
 
-    private var assistantMessageIDsByItemID: [String: UUID]
-    private var commandMessageIDsByItemID: [String: UUID]
-    private var fileChangeMessageIDsByItemID: [String: UUID]
-    private var planMessageIDsByItemID: [String: UUID]
-    private var toolCallMessageIDsByItemID: [String: UUID]
-    private var noticeMessageIDsByItemID: [String: UUID]
-    private var reasoningMessageIDsByItemID: [String: UUID]
+    private var messageIDsByRoleAndItemID: [CodexChatMessage.Role: [String: UUID]]
+
+    private static let indexedRolesByItemType: [String: CodexChatMessage.Role] = [
+        "agentMessage": .assistant,
+        "assistantMessage": .assistant,
+        "commandExecution": .terminal,
+        "fileChange": .fileChange,
+        "patch": .fileChange,
+        "plan": .plan,
+        "mcpToolCall": .tool,
+        "toolCall": .tool,
+        "reasoning": .reasoning
+    ]
 
     public init(messages: [CodexChatMessage] = []) {
         self.messages = messages
-        self.assistantMessageIDsByItemID = [:]
-        self.commandMessageIDsByItemID = [:]
-        self.fileChangeMessageIDsByItemID = [:]
-        self.planMessageIDsByItemID = [:]
-        self.toolCallMessageIDsByItemID = [:]
-        self.noticeMessageIDsByItemID = [:]
-        self.reasoningMessageIDsByItemID = [:]
+        self.messageIDsByRoleAndItemID = [:]
         rebuildItemIndexes()
     }
 
@@ -71,7 +71,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func appendAssistantDelta(_ delta: String, itemID: String) {
-        if let index = index(for: itemID, in: assistantMessageIDsByItemID) {
+        if let index = index(for: itemID, role: .assistant) {
             messages[index].appendStreamingText(delta)
             messages[index].isStreaming = true
             return
@@ -79,7 +79,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
 
         var message = CodexChatMessage(role: .assistant, text: delta, isStreaming: true, parseContent: false)
         message.detail = nil
-        assistantMessageIDsByItemID[itemID] = message.id
+        remember(message.id, for: itemID, role: .assistant)
         messages.append(message)
     }
 
@@ -125,7 +125,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func appendCommandOutput(_ delta: String, itemID: String) {
-        if let index = index(for: itemID, in: commandMessageIDsByItemID) {
+        if let index = index(for: itemID, role: .terminal) {
             messages[index].commandRun?.output.append(delta)
             messages[index].commandRun?.isStreaming = true
             messages[index].isStreaming = true
@@ -145,7 +145,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func appendReasoningDelta(_ delta: String, itemID: String, isSummary: Bool = false) {
-        if let index = index(for: itemID, in: reasoningMessageIDsByItemID) {
+        if let index = index(for: itemID, role: .reasoning) {
             messages[index].reasoningBlock?.text.append(delta)
             if isSummary {
                 messages[index].reasoningBlock?.isSummary = true
@@ -166,7 +166,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func upsertReasoning(_ block: CodexChatMessage.ReasoningBlock) {
-        if let index = index(for: block.itemID, in: reasoningMessageIDsByItemID) {
+        if let index = index(for: block.itemID, role: .reasoning) {
             var merged = block
             if merged.text.isEmpty {
                 merged.text = messages[index].reasoningBlock?.text ?? ""
@@ -184,7 +184,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func appendFileChangeOutput(_ delta: String, itemID: String) {
-        if let index = index(for: itemID, in: fileChangeMessageIDsByItemID) {
+        if let index = index(for: itemID, role: .fileChange) {
             messages[index].fileChange?.output.append(delta)
             messages[index].fileChange?.isStreaming = true
             messages[index].isStreaming = true
@@ -200,7 +200,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func upsertFileChange(_ change: CodexChatMessage.FileChange) {
-        if let index = index(for: change.itemID, in: fileChangeMessageIDsByItemID) {
+        if let index = index(for: change.itemID, role: .fileChange) {
             var merged = change
             if merged.diff.isEmpty {
                 merged.diff = messages[index].fileChange?.diff ?? ""
@@ -218,7 +218,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func appendPlanDelta(_ delta: String, itemID: String) {
-        if let index = index(for: itemID, in: planMessageIDsByItemID) {
+        if let index = index(for: itemID, role: .plan) {
             messages[index].planUpdate?.text.append(delta)
             messages[index].planUpdate?.isStreaming = true
             messages[index].text = messages[index].planUpdate?.copyText ?? messages[index].text
@@ -230,7 +230,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func upsertPlan(_ plan: CodexChatMessage.PlanUpdate) {
-        if let index = index(for: plan.itemID, in: planMessageIDsByItemID) {
+        if let index = index(for: plan.itemID, role: .plan) {
             var merged = plan
             if merged.text.isEmpty {
                 merged.text = messages[index].planUpdate?.text ?? ""
@@ -245,7 +245,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func appendToolCallProgress(_ progress: String, itemID: String) {
-        if let index = index(for: itemID, in: toolCallMessageIDsByItemID) {
+        if let index = index(for: itemID, role: .tool) {
             messages[index].toolCall?.progress.append(progress)
             messages[index].toolCall?.isStreaming = true
             messages[index].isStreaming = true
@@ -258,7 +258,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func upsertToolCall(_ toolCall: CodexChatMessage.ToolCall) {
-        if let index = index(for: toolCall.itemID, in: toolCallMessageIDsByItemID) {
+        if let index = index(for: toolCall.itemID, role: .tool) {
             var merged = toolCall
             if merged.progress.isEmpty {
                 merged.progress = messages[index].toolCall?.progress ?? []
@@ -279,7 +279,7 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     public mutating func upsertNotice(_ notice: CodexChatMessage.Notice) {
-        if let index = index(for: notice.itemID, in: noticeMessageIDsByItemID) {
+        if let index = index(for: notice.itemID, role: .notice) {
             messages[index].notice = notice
             messages[index].text = notice.copyText
             messages[index].isStreaming = notice.isStreaming
@@ -311,19 +311,19 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     private mutating func upsertAssistantMessage(_ message: CodexChatMessage, itemID: String) {
-        if let index = index(for: itemID, in: assistantMessageIDsByItemID) {
+        if let index = index(for: itemID, role: .assistant) {
             messages[index].setText(message.text, parseContent: true)
             messages[index].isStreaming = false
             messages[index].detail = message.detail
             return
         }
 
-        assistantMessageIDsByItemID[itemID] = message.id
+        remember(message.id, for: itemID, role: .assistant)
         messages.append(message)
     }
 
     private mutating func upsertCommandRun(_ run: CodexChatMessage.CommandRun) {
-        if let index = index(for: run.itemID, in: commandMessageIDsByItemID) {
+        if let index = index(for: run.itemID, role: .terminal) {
             var finalRun = run
             if finalRun.output.isEmpty {
                 finalRun.output = messages[index].commandRun?.output ?? ""
@@ -338,55 +338,13 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
     }
 
     private func hasMessage(for itemID: String, type: String) -> Bool {
-        switch type {
-        case "agentMessage", "assistantMessage":
-            return assistantMessageIDsByItemID[itemID] != nil
-        case "commandExecution":
-            return commandMessageIDsByItemID[itemID] != nil
-        case "fileChange", "patch":
-            return fileChangeMessageIDsByItemID[itemID] != nil
-        case "plan":
-            return planMessageIDsByItemID[itemID] != nil
-        case "mcpToolCall", "toolCall":
-            return toolCallMessageIDsByItemID[itemID] != nil
-        case "reasoning":
-            return reasoningMessageIDsByItemID[itemID] != nil
-        default:
-            return false
-        }
+        guard let role = Self.indexedRolesByItemType[type] else { return false }
+        return messageIDsByRoleAndItemID[role]?[itemID] != nil
     }
 
     private mutating func remember(_ message: CodexChatMessage) {
-        switch message.role {
-        case .assistant:
-            break
-        case .terminal:
-            if let itemID = message.commandRun?.itemID {
-                commandMessageIDsByItemID[itemID] = message.id
-            }
-        case .fileChange:
-            if let itemID = message.fileChange?.itemID {
-                fileChangeMessageIDsByItemID[itemID] = message.id
-            }
-        case .plan:
-            if let itemID = message.planUpdate?.itemID {
-                planMessageIDsByItemID[itemID] = message.id
-            }
-        case .tool:
-            if let itemID = message.toolCall?.itemID {
-                toolCallMessageIDsByItemID[itemID] = message.id
-            }
-        case .notice:
-            if let itemID = message.notice?.itemID {
-                noticeMessageIDsByItemID[itemID] = message.id
-            }
-        case .reasoning:
-            if let itemID = message.reasoningBlock?.itemID {
-                reasoningMessageIDsByItemID[itemID] = message.id
-            }
-        case .user, .system:
-            break
-        }
+        guard let itemID = itemID(for: message) else { return }
+        remember(message.id, for: itemID, role: message.role)
     }
 
     private mutating func rebuildItemIndexes() {
@@ -395,8 +353,33 @@ public struct CodexChatTranscriptState: Sendable, Equatable {
         }
     }
 
-    private func index(for itemID: String, in index: [String: UUID]) -> Int? {
-        guard let messageID = index[itemID] else { return nil }
+    private mutating func remember(_ messageID: UUID, for itemID: String, role: CodexChatMessage.Role) {
+        messageIDsByRoleAndItemID[role, default: [:]][itemID] = messageID
+    }
+
+    private func itemID(for message: CodexChatMessage) -> String? {
+        switch message.role {
+        case .assistant:
+            return nil
+        case .terminal:
+            return message.commandRun?.itemID
+        case .fileChange:
+            return message.fileChange?.itemID
+        case .plan:
+            return message.planUpdate?.itemID
+        case .tool:
+            return message.toolCall?.itemID
+        case .notice:
+            return message.notice?.itemID
+        case .reasoning:
+            return message.reasoningBlock?.itemID
+        case .user, .system:
+            return nil
+        }
+    }
+
+    private func index(for itemID: String, role: CodexChatMessage.Role) -> Int? {
+        guard let messageID = messageIDsByRoleAndItemID[role]?[itemID] else { return nil }
         return messages.firstIndex(where: { $0.id == messageID })
     }
 }

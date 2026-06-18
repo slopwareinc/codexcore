@@ -72,15 +72,9 @@ public enum CodexChatTranscriptNotificationRouter {
                 context: context
             )
 
-        case .known(let method, let params):
-            return applyKnown(method, params: params, to: &transcript, context: context)
-
-        case .unknown(let method, let params):
-            guard let known = CodexAppServerNotificationMethod(rawValue: method) else { return nil }
-            return applyKnown(known, params: params, to: &transcript, context: context)
-
         default:
-            return nil
+            guard let payload = notification.payload.normalizedKnownPayload else { return nil }
+            return applyKnown(payload.method, params: payload.params, to: &transcript, context: context)
         }
     }
 

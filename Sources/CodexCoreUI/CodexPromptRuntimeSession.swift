@@ -12,8 +12,17 @@ public final class CodexPromptRuntimeSession {
 
     public init(
         promptSession: CodexPromptStateSession = CodexPromptStateSession(),
+        eventSession: CodexPromptEventSession = CodexPromptEventSession()
+    ) {
+        self.promptSession = promptSession
+        self.eventSession = eventSession
+        self.bridge = CodexInteractivePromptBridge()
+    }
+
+    init(
+        promptSession: CodexPromptStateSession = CodexPromptStateSession(),
         eventSession: CodexPromptEventSession = CodexPromptEventSession(),
-        bridge: CodexInteractivePromptBridge = CodexInteractivePromptBridge()
+        bridge: CodexInteractivePromptBridge
     ) {
         self.promptSession = promptSession
         self.eventSession = eventSession
