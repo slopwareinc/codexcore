@@ -55,7 +55,6 @@ final class CodexChatModel {
             // the server reply until this app answers them.
             let config = CodexConfig(
                 cwd: workspacePath,
-                environment: ["CODEX_HOME": defaultCodexHome()],
                 clientName: "codex_swiftui_example",
                 clientTitle: "Codex SwiftUI Example",
                 clientVersion: "1.0.0",
@@ -141,7 +140,7 @@ final class CodexChatModel {
                     _ = try await handle.wait()
                     await self?.finishDeviceCodeLogin()
                 } catch {
-                    await MainActor.run {
+                    await CodexMainActorProjection.run {
                         guard let self else { return }
                         self.appendActivity(self.authSession.deviceCodeEnded(message: self.friendlyError(error)))
                     }
@@ -174,7 +173,7 @@ final class CodexChatModel {
                     return try await thread.turn(submission.turnInput, configuration: self.turnLaunchConfiguration)
                 },
                 onActivity: { [weak self] activity in self?.appendActivity(activity) },
-                errorMessage: Self.friendlyErrorMessage
+                errorMessage: CodexErrorFormat.localizedDescription
             )
             if !didStart {
                 composerSession.restore(submission)
@@ -225,12 +224,12 @@ final class CodexChatModel {
             do {
                 let thread = try await ensureThread()
                 let handle = try await thread.turn(submission.input, configuration: turnLaunchConfiguration)
-                await MainActor.run {
+                await CodexMainActorProjection.run {
                     self.runtimeSession.startMainTurn(handle)
                     self.runtimeSession.consumeMainTurn(handle)
                 }
             } catch {
-                await MainActor.run {
+                await CodexMainActorProjection.run {
                     self.appendActivity(self.runtimeSession.failQueuedFollowUp(
                         submission,
                         message: self.friendlyError(error),
@@ -250,7 +249,7 @@ final class CodexChatModel {
                 return response.goal
             },
             onActivity: { [weak self] activity in self?.appendActivity(activity) },
-            errorMessage: Self.friendlyErrorMessage
+            errorMessage: CodexErrorFormat.localizedDescription
         )
         if !didStart {
             composerSession.restore(submission)
@@ -349,7 +348,7 @@ final class CodexChatModel {
         let activities = await session.refreshStartupCatalogs(
             using: codex,
             cwds: [workspacePath],
-            errorMessage: Self.friendlyErrorMessage
+            errorMessage: CodexErrorFormat.localizedDescription
         )
         configurationSession = session
         appendConfigurationActivities(activities)
@@ -361,7 +360,7 @@ final class CodexChatModel {
             using: codex,
             cwds: [workspacePath],
             forceReload: forceReload,
-            errorMessage: Self.friendlyErrorMessage
+            errorMessage: CodexErrorFormat.localizedDescription
         )
         configurationSession = session
         appendConfigurationActivity(activity)
@@ -377,7 +376,7 @@ final class CodexChatModel {
         let activity = await session.refreshRecentChats(
             using: codex,
             currentWorkspacePath: workspacePath,
-            errorMessage: Self.friendlyErrorMessage
+            errorMessage: CodexErrorFormat.localizedDescription
         )
         threadListSession = session
         if let activity {
@@ -431,7 +430,7 @@ final class CodexChatModel {
 
     func searchChats(query: String) async {
         var session = threadListSession
-        let activity = await session.searchChats(query: query, using: codex, errorMessage: Self.friendlyErrorMessage)
+        let activity = await session.searchChats(query: query, using: codex, errorMessage: CodexErrorFormat.localizedDescription)
         threadListSession = session
         if let activity {
             appendActivity(.notice, title: activity.title, detail: activity.detail)
@@ -452,7 +451,7 @@ final class CodexChatModel {
         let activity = await session.refreshMCPServers(
             using: codex,
             threadID: currentThreadID,
-            errorMessage: Self.friendlyErrorMessage
+            errorMessage: CodexErrorFormat.localizedDescription
         )
         runtimeSession.integrationCatalogSession = session
         appendIntegrationActivity(activity)
@@ -468,7 +467,7 @@ final class CodexChatModel {
         let activity = await session.refreshPlugins(
             using: codex,
             cwds: [workspacePath],
-            errorMessage: Self.friendlyErrorMessage
+            errorMessage: CodexErrorFormat.localizedDescription
         )
         runtimeSession.integrationCatalogSession = session
         appendIntegrationActivity(activity)
@@ -670,7 +669,7 @@ final class CodexChatModel {
                 return try await thread.turn([.text(prompt)], configuration: self.turnLaunchConfiguration)
             },
             onActivity: { [weak self] activity in self?.appendActivity(activity) },
-            errorMessage: Self.friendlyErrorMessage
+            errorMessage: CodexErrorFormat.localizedDescription
         )
     }
 
@@ -805,12 +804,7 @@ final class CodexChatModel {
     }
 
     private func friendlyError(_ error: Error) -> String {
-        Self.friendlyErrorMessage(error)
-    }
-
-    nonisolated private static func friendlyErrorMessage(_ error: Error) -> String {
-        let described = String(describing: error)
-        return described.count > 200 ? String(described.prefix(200)) + "…" : described
+        CodexErrorFormat.localizedDescription(error)
     }
 
     private func applyFastCommand() {
@@ -892,11 +886,11 @@ final class CodexChatModel {
             guard let self, let codex else { return }
             do {
                 _ = try await codex.execCommand(plan.command, cwd: plan.cwd)
-                await MainActor.run {
+                await CodexMainActorProjection.run {
                     self.appendActivity(CodexFileChangeUndoSession.successActivity(relativePath: plan.relativePath))
                 }
             } catch {
-                await MainActor.run {
+                await CodexMainActorProjection.run {
                     self.appendActivity(CodexFileChangeUndoSession.failureActivity(message: self.friendlyError(error)))
                 }
             }
@@ -919,11 +913,11 @@ final class CodexChatModel {
                     ])),
                     delivery: .inline
                 )
-                await MainActor.run {
+                await CodexMainActorProjection.run {
                     self.appendActivity(.notice, title: "Review started", detail: change.displayPath)
                 }
             } catch {
-                await MainActor.run {
+                await CodexMainActorProjection.run {
                     self.appendActivity(.notice, title: "Review failed", detail: self.friendlyError(error))
                 }
             }
@@ -996,7 +990,7 @@ final class CodexChatModel {
 
             terminalOutputTask = Task { [weak self] in
                 for await delta in session.outputStream {
-                    await MainActor.run {
+                    await CodexMainActorProjection.run {
                         self?.appendTerminalDelta(delta)
                     }
                 }
@@ -1005,13 +999,13 @@ final class CodexChatModel {
             terminalCompletionTask = Task { [weak self] in
                 do {
                     let result = try await session.wait()
-                    await MainActor.run {
+                    await CodexMainActorProjection.run {
                         self?.finishBottomTerminalSession(result: result)
                     }
                 } catch {
-                    await MainActor.run {
+                    await CodexMainActorProjection.run {
                         self?.isBottomTerminalRunning = false
-                        self?.bottomTerminalStatus = "Session failed: \(Self.friendlyErrorMessage(error))"
+                        self?.bottomTerminalStatus = "Session failed: \(CodexErrorFormat.localizedDescription(error))"
                     }
                 }
             }
