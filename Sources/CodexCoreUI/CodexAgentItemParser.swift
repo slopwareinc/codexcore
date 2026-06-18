@@ -137,13 +137,8 @@ enum CodexAgentItemParser {
     }
 
     static func subagentStatus(from item: ThreadItem) -> CodexSubagentState.Status {
-        let rawStatus = firstString(in: item.raw, keys: ["status", "state", "phase"])?.lowercased() ?? item.phase?.lowercased()
-        switch rawStatus {
-        case "running", "active", "inprogress", "in_progress": return .running
-        case "failed", "error", "cancelled", "canceled": return .failed
-        case "closed", "archived": return .closed
-        default: return .completed
-        }
+        let rawStatus = firstString(in: item.raw, keys: ["status", "state", "phase"]) ?? item.phase
+        return CodexSubagentState.Status(normalizing: rawStatus, default: .completed)
     }
 
     static func lifecycleDetail(for item: ThreadItem, fallback: String) -> String {

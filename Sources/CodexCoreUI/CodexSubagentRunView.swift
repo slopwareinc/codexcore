@@ -28,7 +28,7 @@ struct CodexSubagentRunInlineView: View {
                                 .foregroundStyle(theme.colors.textSecondary)
                                 .lineLimit(1)
                             Text(summary.agentCountLabel)
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .font(theme.fonts.micro)
                                 .foregroundStyle(theme.colors.textTertiary)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)

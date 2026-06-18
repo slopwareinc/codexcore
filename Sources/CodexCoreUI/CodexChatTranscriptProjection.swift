@@ -320,20 +320,7 @@ public enum CodexChatTranscriptProjection {
     }
 
     public static func string(from value: CodexJSONValue?) -> String? {
-        switch value {
-        case .string(let string): return string.trimmedNonEmpty
-        case .int(let int): return String(int)
-        case .double(let double): return String(double)
-        case .bool(let bool): return String(bool)
-        case .array(let values):
-            return values.compactMap(string(from:)).joined(separator: " ").trimmedNonEmpty
-        case .dictionary(let object):
-            if let text = string(from: object["text"]) { return text }
-            if let value = string(from: object["value"]) { return value }
-            return nil
-        case .null, nil:
-            return nil
-        }
+        CodexJSONCoercion.string(from: value)
     }
 
     public static func verbatimString(from value: CodexJSONValue?) -> String? {
@@ -357,7 +344,7 @@ public enum CodexChatTranscriptProjection {
     }
 
     public static func isActiveStatus(_ status: String) -> Bool {
-        status == "active" || status == "inProgress" || status == "running"
+        CodexSubagentState.Status.normalized(status) == .running
     }
 }
 

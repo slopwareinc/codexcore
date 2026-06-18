@@ -307,27 +307,15 @@ public enum CodexChatNotificationPipeline {
     }
 
     private static func isGlobalNoticeCardNotification(_ notification: CodexNotification) -> Bool {
-        let method: CodexAppServerNotificationMethod
-        let params: [String: CodexJSONValue]
-        switch notification.payload {
-        case .known(let knownMethod, let knownParams):
-            method = knownMethod
-            params = knownParams
-        case .unknown(let rawMethod, let rawParams):
-            guard let knownMethod = CodexAppServerNotificationMethod(rawValue: rawMethod) else { return false }
-            method = knownMethod
-            params = rawParams
-        default:
+        guard let payload = notification.payload.normalizedKnownPayload else { return false }
+
+        guard payload.method == .guardianWarning
+            || payload.method == .itemAutoApprovalReviewStarted
+            || payload.method == .itemAutoApprovalReviewCompleted else {
             return false
         }
 
-        guard method == .guardianWarning
-            || method == .itemAutoApprovalReviewStarted
-            || method == .itemAutoApprovalReviewCompleted else {
-            return false
-        }
-
-        guard let route = CodexNotificationMetadata.knownRoute(method: method, params: params) else {
+        guard let route = CodexNotificationMetadata.knownRoute(method: payload.method, params: payload.params) else {
             return false
         }
         if case .notice = route {

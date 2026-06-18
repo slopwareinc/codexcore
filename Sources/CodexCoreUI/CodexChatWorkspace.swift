@@ -348,7 +348,7 @@ public struct CodexChatHeader: View {
                 .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textTertiary)
             }
-            .frame(maxWidth: 360, alignment: .leading)
+            .frame(maxWidth: theme.spacing.toolbarTitleMaxWidth, alignment: .leading)
 
             Spacer(minLength: 12)
 

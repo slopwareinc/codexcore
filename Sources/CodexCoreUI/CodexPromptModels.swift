@@ -238,12 +238,7 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key], let string = stringValue(value) else { continue }
-            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 
     private static func stringValue(_ value: CodexJSONValue) -> String? {
@@ -483,12 +478,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            let trimmed = stringValue(value).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 
     private static func optionalString(_ value: CodexJSONValue?) -> String? {
