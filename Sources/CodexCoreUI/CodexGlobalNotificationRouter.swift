@@ -77,13 +77,9 @@ public enum CodexGlobalNotificationRouter {
                 return nil
             }
             return handled(.goalTurnStarted(turnID: payload.turn.id))
-        case .known(let method, let params):
-            return applyKnown(method, params: params, context: context)
-        case .unknown(let method, let params):
-            guard let known = CodexAppServerNotificationMethod(rawValue: method) else { return nil }
-            return applyKnown(known, params: params, context: context)
         default:
-            return nil
+            guard let payload = notification.payload.normalizedKnownPayload else { return nil }
+            return applyKnown(payload.method, params: payload.params, context: context)
         }
     }
 

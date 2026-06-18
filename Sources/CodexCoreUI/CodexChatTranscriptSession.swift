@@ -83,13 +83,9 @@ public struct CodexChatTranscriptSession: Sendable, Equatable {
         switch notification.payload {
         case .turnPlanUpdated, .turnDiffUpdated:
             return true
-        case .known(let method, _):
-            return method == .turnPlanUpdated || method == .turnDiffUpdated
-        case .unknown(let method, _):
-            return method == CodexAppServerNotificationMethod.turnPlanUpdated.rawValue
-                || method == CodexAppServerNotificationMethod.turnDiffUpdated.rawValue
         default:
-            return false
+            guard let method = notification.payload.normalizedKnownPayload?.method else { return false }
+            return method == .turnPlanUpdated || method == .turnDiffUpdated
         }
     }
 

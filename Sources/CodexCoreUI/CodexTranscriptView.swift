@@ -51,7 +51,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 24)
                     .padding(.bottom, 28)
-                    .frame(maxWidth: 860, alignment: .leading)
+                    .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
             }
@@ -172,7 +172,7 @@ public struct CodexAgentLifecycleBlock: View {
                                     .lineLimit(1)
                                 if !event.agentNames.isEmpty {
                                     Text(agentCountLabel)
-                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .font(theme.fonts.micro)
                                         .foregroundStyle(theme.colors.textTertiary)
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
@@ -243,7 +243,7 @@ public struct CodexAgentLifecycleBlock: View {
                 RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                     .stroke(theme.colors.border, lineWidth: 1)
             )
-            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
         }
     }
 
@@ -379,7 +379,7 @@ public struct CodexAssistantTurnGroupView: View {
                     assistantContent(primaryMessage)
                 }
             }
-            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
         }
     }
 
@@ -475,7 +475,7 @@ public struct CodexAssistantMessageView: View {
                 CodexAssistantContentView(blocks: message.renderBlocks)
             }
         }
-        .frame(maxWidth: 640, alignment: .leading)
+        .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
     }
 }
 
@@ -539,7 +539,7 @@ public struct CodexUserMessageView: View {
                     RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
                         .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
                 )
-                .frame(maxWidth: 560, alignment: .trailing)
+                .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
         }
     }
 }
@@ -668,7 +668,7 @@ public struct CodexEmptyTranscriptView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 11)
-                        .frame(maxWidth: 420, alignment: .leading)
+                        .frame(maxWidth: theme.spacing.emptyPromptMaxWidth, alignment: .leading)
                         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), interactive: true)
                     }
                     .buttonStyle(.plain)

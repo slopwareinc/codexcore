@@ -75,12 +75,8 @@ public struct CodexTurnLifecycleSession: Sendable {
         switch notification.payload {
         case .turnCompleted:
             return true
-        case .known(let method, _):
-            return method == .turnCompleted
-        case .unknown(let method, _):
-            return method == CodexAppServerNotificationMethod.turnCompleted.rawValue
         default:
-            return false
+            return notification.payload.normalizedKnownPayload?.method == .turnCompleted
         }
     }
 }
