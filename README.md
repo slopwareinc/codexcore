@@ -96,6 +96,10 @@ import CodexCoreUI
 
 struct YourChatView: View {
     @State private var draft = ""
+    @State private var approvalSelection = CodexApprovalSelection.fullAccess
+    @State private var isPlanModeEnabled = false
+    @State private var modelSelection = CodexModelSelection.appServerDefault
+    @State private var reasoningSelection = CodexReasoningSelection.medium
     @State private var messages: [CodexChatMessage] = []
     @State private var lifecycleEvents: [CodexAgentLifecycleEvent] = []
     @State private var sideChat: CodexSideChatState?
@@ -111,9 +115,10 @@ struct YourChatView: View {
             activities: activities,
             connectionState: .connected(server: "Codex"),
             workspacePath: FileManager.default.currentDirectoryPath,
-            authLabel: "ChatGPT",
-            isAuthenticated: true,
-            isThreadReady: true,
+            approvalSelection: $approvalSelection,
+            isPlanModeEnabled: $isPlanModeEnabled,
+            modelSelection: $modelSelection,
+            reasoningSelection: $reasoningSelection,
             draft: $draft,
             isSending: false,
             canSend: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
