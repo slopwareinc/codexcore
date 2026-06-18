@@ -125,36 +125,16 @@ public final class CodexChatRuntimeSession {
             onActivity(state.failTurnSubmission(message: "Runtime host is not connected"))
             return false
         }
-        return await submitMainTurn(
-            submission,
-            start: start,
-            currentThreadID: hostBindings.currentThreadID,
-            store: hostBindings.store,
-            applyResult: hostBindings.applyResult,
-            onActivity: onActivity,
-            errorMessage: errorMessage
-        )
-    }
-
-    @discardableResult
-    public func submitMainTurn(
-        _ submission: CodexComposerSubmission,
-        start: @escaping @MainActor () async throws -> CodexTurnHandle,
-        currentThreadID: @escaping @MainActor () -> String?,
-        store: @escaping @MainActor () -> CodexCoreStore?,
-        applyResult: @escaping @MainActor (CodexChatNotificationPipelineResult) -> Void,
-        onActivity: @escaping @MainActor (CodexActivity) -> Void,
-        errorMessage: (Error) -> String
-    ) async -> Bool {
         onActivity(state.beginTurnSubmission(submission))
         do {
             let handle = try await start()
             state.startMainTurn(handle)
-            consumeMainTurn(
-                handle,
-                currentThreadID: currentThreadID,
-                store: store,
-                applyResult: applyResult
+            consumeMainTurnStream(
+                id: handle.id,
+                notifications: handle.stream(),
+                currentThreadID: hostBindings.currentThreadID,
+                store: hostBindings.store,
+                applyResult: hostBindings.applyResult
             )
             return true
         } catch {
@@ -195,38 +175,18 @@ public final class CodexChatRuntimeSession {
             onActivity(state.failSideChatSubmission(message: "Runtime host is not connected"))
             return false
         }
-        return await submitSideChat(
-            prompt: prompt,
-            start: start,
-            currentThreadID: hostBindings.currentThreadID,
-            store: hostBindings.store,
-            applyUpdate: hostBindings.applySideChatUpdate,
-            onActivity: onActivity,
-            errorMessage: errorMessage
-        )
-    }
-
-    @discardableResult
-    public func submitSideChat(
-        prompt: String,
-        start: @escaping @MainActor () async throws -> CodexTurnHandle,
-        currentThreadID: @escaping @MainActor () -> String?,
-        store: @escaping @MainActor () -> CodexCoreStore?,
-        applyUpdate: @escaping @MainActor (CodexSideChatSessionUpdate) -> Void,
-        onActivity: @escaping @MainActor (CodexActivity) -> Void,
-        errorMessage: (Error) -> String
-    ) async -> Bool {
         for activity in state.beginSideChatSubmission(prompt: prompt) {
             onActivity(activity)
         }
         do {
             let handle = try await start()
             state.startSideChatTurn(handle)
-            consumeSideChatTurn(
-                handle,
-                currentThreadID: currentThreadID,
-                store: store,
-                applyUpdate: applyUpdate
+            consumeSideChatTurnStream(
+                id: handle.id,
+                notifications: handle.stream(),
+                currentThreadID: hostBindings.currentThreadID,
+                store: hostBindings.store,
+                applyUpdate: hostBindings.applySideChatUpdate
             )
             return true
         } catch {
@@ -265,26 +225,12 @@ public final class CodexChatRuntimeSession {
         _ handle: CodexTurnHandle
     ) {
         guard let hostBindings else { return }
-        consumeMainTurn(
-            handle,
-            currentThreadID: hostBindings.currentThreadID,
-            store: hostBindings.store,
-            applyResult: hostBindings.applyResult
-        )
-    }
-
-    public func consumeMainTurn(
-        _ handle: CodexTurnHandle,
-        currentThreadID: @escaping @MainActor () -> String?,
-        store: @escaping @MainActor () -> CodexCoreStore?,
-        applyResult: @escaping @MainActor (CodexChatNotificationPipelineResult) -> Void
-    ) {
         consumeMainTurnStream(
             id: handle.id,
             notifications: handle.stream(),
-            currentThreadID: currentThreadID,
-            store: store,
-            applyResult: applyResult
+            currentThreadID: hostBindings.currentThreadID,
+            store: hostBindings.store,
+            applyResult: hostBindings.applyResult
         )
     }
 
@@ -317,26 +263,12 @@ public final class CodexChatRuntimeSession {
         _ handle: CodexTurnHandle
     ) {
         guard let hostBindings else { return }
-        consumeSideChatTurn(
-            handle,
-            currentThreadID: hostBindings.currentThreadID,
-            store: hostBindings.store,
-            applyUpdate: hostBindings.applySideChatUpdate
-        )
-    }
-
-    public func consumeSideChatTurn(
-        _ handle: CodexTurnHandle,
-        currentThreadID: @escaping @MainActor () -> String?,
-        store: @escaping @MainActor () -> CodexCoreStore?,
-        applyUpdate: @escaping @MainActor (CodexSideChatSessionUpdate) -> Void
-    ) {
         consumeSideChatTurnStream(
             id: handle.id,
             notifications: handle.stream(),
-            currentThreadID: currentThreadID,
-            store: store,
-            applyUpdate: applyUpdate
+            currentThreadID: hostBindings.currentThreadID,
+            store: hostBindings.store,
+            applyUpdate: hostBindings.applySideChatUpdate
         )
     }
 
@@ -368,23 +300,11 @@ public final class CodexChatRuntimeSession {
         from codex: Codex
     ) {
         guard let hostBindings else { return }
-        consumeGlobalNotifications(
-            from: codex,
-            currentThreadID: hostBindings.currentThreadID,
-            applyResult: hostBindings.applyResult
-        )
-    }
-
-    public func consumeGlobalNotifications(
-        from codex: Codex,
-        currentThreadID: @escaping @MainActor () -> String?,
-        applyResult: @escaping @MainActor (CodexChatNotificationPipelineResult) -> Void
-    ) {
         consumeGlobalNotificationStream(
             codex.notifications(),
             store: codex.store,
-            currentThreadID: currentThreadID,
-            applyResult: applyResult
+            currentThreadID: hostBindings.currentThreadID,
+            applyResult: hostBindings.applyResult
         )
     }
 

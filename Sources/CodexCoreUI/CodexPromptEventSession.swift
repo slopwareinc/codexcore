@@ -7,7 +7,7 @@ public final class CodexPromptEventSession {
 
     public init() {}
 
-    public func startInteractivePromptEventListener(
+    func startInteractivePromptEventListener(
         from bridge: CodexInteractivePromptBridge,
         onEvent: @escaping @MainActor (CodexInteractivePromptEvent) -> Void
     ) {

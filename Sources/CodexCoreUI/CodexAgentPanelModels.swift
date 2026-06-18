@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CodexCore
 
 /// Inline transcript indicator shown while a turn is in progress before assistant streaming begins.
 public struct CodexActiveTurnState: Equatable, Sendable {
@@ -145,6 +146,26 @@ public extension CodexSubagentState {
     }
 }
 
+extension CodexSubagentState.Status {
+    init?(historyStatus: String?) {
+        guard let status = Self.normalized(historyStatus) else { return nil }
+        self = status
+    }
+
+    init?(snapshot: CodexThreadSnapshot) {
+        if snapshot.turns.contains(where: { $0.status == .failed || $0.error != nil }) {
+            self = .failed
+            return
+        }
+        if snapshot.turns.contains(where: { $0.status == .running }) {
+            self = .running
+            return
+        }
+        guard !snapshot.turns.isEmpty else { return nil }
+        self = .completed
+    }
+}
+
 public struct CodexSideChatState: Identifiable, Equatable, Sendable {
     public static let defaultID = "side-chat"
 
@@ -242,13 +263,13 @@ extension CodexActivity.Kind {
         }
     }
 
-    var tint: Color {
+    func tint(for theme: CodexAgentTheme) -> Color {
         switch self {
-        case .turn: return CodexTheme.accent
-        case .tool: return CodexTheme.tool
-        case .token: return CodexTheme.success
-        case .login: return CodexTheme.warning
-        case .notice: return CodexTheme.tertiary
+        case .turn: return theme.colors.accent
+        case .tool: return theme.colors.tool
+        case .token: return theme.colors.success
+        case .login: return theme.colors.warning
+        case .notice: return theme.colors.textTertiary
         }
     }
 }

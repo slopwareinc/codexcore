@@ -1,12 +1,12 @@
 import Foundation
 import CodexCore
 
-public extension CodexChatMessage {
-    static func renderBlocks(for text: String) -> [AssistantRenderBlock] {
+extension CodexChatMessage {
+    public static func renderBlocks(for text: String) -> [AssistantRenderBlock] {
         MessageContentBridge.assistantRenderBlocks(text)
     }
 
-    static func reasoningBlock(
+    public static func reasoningBlock(
         itemID: String,
         text: String = "",
         isSummary: Bool = false,
@@ -20,7 +20,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func reasoningMessage(
+    public static func reasoningMessage(
         _ block: ReasoningBlock,
         createdAt: Date = Date()
     ) -> CodexChatMessage {
@@ -74,7 +74,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func fileChange(
+    public static func fileChange(
         itemID: String,
         path: String?,
         diff: String,
@@ -117,7 +117,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func planUpdate(
+    public static func planUpdate(
         itemID: String,
         text: String,
         isStreaming: Bool = true
@@ -166,7 +166,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func toolCall(
+    public static func toolCall(
         itemID: String,
         server: String?,
         tool: String,
@@ -291,7 +291,7 @@ public extension CodexChatMessage {
         }
     }
 
-    static func notice(
+    public static func notice(
         itemID: String,
         kind: String,
         title: String,
@@ -420,19 +420,11 @@ public extension CodexChatMessage {
     }
 
     private static func stringArray(from value: CodexJSONValue?) -> [String] {
-        switch value {
-        case .array(let values):
-            return values.compactMap(string(from:))
-        case let value?:
-            return string(from: value).map { [$0] } ?? []
-        case nil:
-            return []
-        }
+        CodexJSONCoercion.stringArray(from: value)
     }
 
     private static func dictionary(from value: CodexJSONValue?) -> [String: CodexJSONValue]? {
-        guard case .dictionary(let object)? = value else { return nil }
-        return object
+        CodexJSONCoercion.dictionary(from: value)
     }
 
     private static func textRangeSummary(from value: CodexJSONValue?) -> String? {
@@ -589,29 +581,11 @@ public extension CodexChatMessage {
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {
-        switch value {
-        case .string(let string): return string.nilIfBlank
-        case .int(let int): return String(int)
-        case .double(let double): return String(double)
-        case .bool(let bool): return String(bool)
-        case .array(let values):
-            return values.compactMap(string(from:)).joined(separator: " ").nilIfBlank
-        case .dictionary(let object):
-            return string(from: object["type"])
-                ?? string(from: object["message"])
-                ?? string(from: object["text"])
-        case .null, nil:
-            return nil
-        }
+        CodexJSONCoercion.string(from: value)
     }
 
     private static func int(from value: CodexJSONValue?) -> Int? {
-        switch value {
-        case .int(let int): return int
-        case .double(let double): return Int(double)
-        case .string(let string): return Int(string)
-        case .bool, .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.int(from: value)
     }
 
     private static func jsonText(from value: CodexJSONValue?) -> String? {

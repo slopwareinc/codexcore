@@ -191,12 +191,16 @@ final class CodexAgentUITests: XCTestCase {
         var goalActivities: [CodexActivity] = []
         var sideActivities: [CodexActivity] = []
 
-        let didStartMain = await session.submitMainTurn(
-            submission,
-            start: { throw NSError(domain: "CodexRuntimeSessionTests", code: 1) },
+        session.bindHost(
             currentThreadID: { "thread-1" },
             store: { nil },
             applyResult: { _ in },
+            applySideChatUpdate: { _ in }
+        )
+
+        let didStartMain = await session.submitMainTurn(
+            submission,
+            start: { throw NSError(domain: "CodexRuntimeSessionTests", code: 1) },
             onActivity: { mainActivities.append($0) },
             errorMessage: { _ in "offline" }
         )
@@ -226,9 +230,6 @@ final class CodexAgentUITests: XCTestCase {
         let didStartSideChat = await session.submitSideChat(
             prompt: "side quest",
             start: { throw NSError(domain: "CodexRuntimeSessionTests", code: 2) },
-            currentThreadID: { "thread-1" },
-            store: { nil },
-            applyUpdate: { _ in },
             onActivity: { sideActivities.append($0) },
             errorMessage: { _ in "side offline" }
         )

@@ -10,6 +10,81 @@ final class V2TypeTests: XCTestCase {
         XCTAssertEqual(CodexInput.mention(name: "README", path: "README.md").jsonValue, .dictionary(["type": .string("mention"), "name": .string("README"), "path": .string("README.md")]))
     }
 
+    func testDynamicToolSpecEncodesInThreadStartParams() throws {
+        let params = ThreadStartParams(
+            cwd: "/tmp/walkable",
+            dynamicTools: [
+                CodexDynamicToolSpec(
+                    name: "save_notebook_entry",
+                    description: "Save a project notebook entry.",
+                    inputSchema: .dictionary([
+                        "type": .string("object"),
+                        "required": .array([.string("title")]),
+                        "properties": .dictionary([
+                            "title": .dictionary(["type": .string("string")])
+                        ])
+                    ]),
+                    namespace: "walkable",
+                    deferLoading: true
+                )
+            ],
+            serviceName: "walkable"
+        )
+
+        let value = try CodexJSONValue(encoding: params)
+
+        XCTAssertEqual(value.objectValue?["dynamicTools"], .array([
+            .dictionary([
+                "deferLoading": .bool(true),
+                "description": .string("Save a project notebook entry."),
+                "inputSchema": .dictionary([
+                    "type": .string("object"),
+                    "required": .array([.string("title")]),
+                    "properties": .dictionary([
+                        "title": .dictionary(["type": .string("string")])
+                    ])
+                ]),
+                "name": .string("save_notebook_entry"),
+                "namespace": .string("walkable")
+            ])
+        ]))
+    }
+
+    func testDynamicToolCallParsingAndResponseEncoding() throws {
+        let request = JSONRPCServerRequest(
+            id: .int(42),
+            method: CodexAppServerServerRequestMethod.itemToolCall.rawValue,
+            params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("item-1"),
+                "tool": .string("save_notebook_entry"),
+                "arguments": .dictionary(["title": .string("Groove map")])
+            ]
+        )
+
+        let call = try XCTUnwrap(request.dynamicToolCall)
+        XCTAssertEqual(call.requestID, .int(42))
+        XCTAssertEqual(call.threadID, "thread-1")
+        XCTAssertEqual(call.turnID, "turn-1")
+        XCTAssertEqual(call.itemID, "item-1")
+        XCTAssertEqual(call.tool, "save_notebook_entry")
+        XCTAssertEqual(call.argumentsObject, ["title": .string("Groove map")])
+
+        XCTAssertEqual(
+            CodexDynamicToolResponse.success(text: "Saved.").jsonValue,
+            .dictionary([
+                "success": .bool(true),
+                "contentItems": .array([
+                    .dictionary([
+                        "type": .string("inputText"),
+                        "text": .string("Saved.")
+                    ])
+                ])
+            ])
+        )
+    }
+
     func testApprovalModeMappingMatchesPythonSDK() {
         XCTAssertEqual(ApprovalMode.autoReview.settings.approvalPolicy, .onRequest)
         XCTAssertEqual(ApprovalMode.autoReview.settings.approvalsReviewer, .autoReview)

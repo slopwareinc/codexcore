@@ -32,7 +32,7 @@ public struct CodexComposerBar: View {
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
-        slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
+        slashCommands: [CodexSlashCommand] = CodexSlashCommand.defaultCommands,
         isSending: Bool,
         canSend: Bool,
         canUsePlanMode: Bool = true,
@@ -355,7 +355,7 @@ private struct CodexMentionPalette: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Files")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(theme.fonts.micro)
                     .foregroundStyle(theme.colors.textTertiary)
                     .padding(.horizontal, 10)
                     .padding(.top, 4)
@@ -392,7 +392,7 @@ private struct CodexMentionPalette: View {
             }
             .padding(8)
         }
-        .frame(maxWidth: 736, alignment: .leading)
+        .frame(maxWidth: theme.spacing.composerMaxWidth, alignment: .leading)
         .frame(maxHeight: 280, alignment: .top)
         .codexGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
@@ -411,7 +411,7 @@ private struct CodexSlashCommandPalette: View {
                 ForEach(sectionNames, id: \.self) { section in
                     if section != sectionNames.first {
                         Text(section)
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .font(theme.fonts.micro)
                             .foregroundStyle(theme.colors.textTertiary)
                             .padding(.horizontal, 10)
                             .padding(.top, 4)
@@ -436,7 +436,7 @@ private struct CodexSlashCommandPalette: View {
                                 Spacer(minLength: 0)
                                 if let scopeBadge = command.scopeBadge {
                                     Text(scopeBadge)
-                                        .font(.system(size: 10.5, weight: .medium))
+                                        .font(theme.fonts.micro)
                                         .foregroundStyle(theme.colors.textTertiary)
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
@@ -457,7 +457,7 @@ private struct CodexSlashCommandPalette: View {
             }
             .padding(8)
         }
-        .frame(maxWidth: 736, alignment: .leading)
+        .frame(maxWidth: theme.spacing.composerMaxWidth, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
         .codexGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }

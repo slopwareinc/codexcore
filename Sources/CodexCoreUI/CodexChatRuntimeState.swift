@@ -191,15 +191,20 @@ public struct CodexChatRuntimeState: Sendable {
         currentThreadID: String?,
         store: CodexCoreStore?
     ) -> CodexChatNotificationPipelineResult? {
-        CodexChatNotificationRuntime.apply(
+        CodexChatNotificationPipeline.apply(
             notification,
             mode: mode,
             currentThreadID: currentThreadID,
-            store: store,
             mainChatSession: &mainChatSession,
             goalSession: &goalSession,
             agentStateMapper: &agentStateMapper,
-            integrationCatalogSession: &integrationCatalogSession
+            integrationCatalogSession: &integrationCatalogSession,
+            turnSnapshot: { threadID, turnID in
+                guard let store else { return nil }
+                let threadID = threadID ?? currentThreadID
+                guard let threadID else { return nil }
+                return store.turnSnapshot(threadID: threadID, turnID: turnID)
+            }
         )
     }
 
@@ -210,11 +215,18 @@ public struct CodexChatRuntimeState: Sendable {
         store: CodexCoreStore?,
         currentThreadID: String?
     ) -> CodexSideChatSessionUpdate? {
-        CodexChatNotificationRuntime.applySideChat(
+        let turnSnapshot: CodexTurnSnapshot? = {
+            guard let store else { return nil }
+            let threadID = CodexNotificationMetadata.threadID(from: notification) ?? currentThreadID
+            guard let threadID else { return nil }
+            return store.turnSnapshot(
+                threadID: threadID,
+                turnID: CodexNotificationMetadata.turnID(from: notification)
+            )
+        }()
+        return sideChatSession.apply(
             notification,
-            store: store,
-            currentThreadID: currentThreadID,
-            sideChatSession: &sideChatSession
+            turnSnapshot: turnSnapshot
         )
     }
 
@@ -224,8 +236,9 @@ public struct CodexChatRuntimeState: Sendable {
         id turnID: String?,
         currentThreadID: String?
     ) -> CodexChatNotificationPipelineResult? {
-        CodexChatNotificationRuntime.finishMainTurn(
-            id: turnID,
+        guard let update = mainChatSession.finishActiveTurn(id: turnID) else { return nil }
+        return CodexChatNotificationPipeline.apply(
+            update,
             currentThreadID: currentThreadID,
             mainChatSession: &mainChatSession,
             goalSession: &goalSession,
@@ -236,10 +249,7 @@ public struct CodexChatRuntimeState: Sendable {
     @discardableResult
     @MainActor
     public mutating func finishSideChatTurn(id turnID: String?) -> CodexSideChatSessionUpdate? {
-        CodexChatNotificationRuntime.finishSideChatTurn(
-            id: turnID,
-            sideChatSession: &sideChatSession
-        )
+        sideChatSession.finishTurn(id: turnID)
     }
 
     @discardableResult

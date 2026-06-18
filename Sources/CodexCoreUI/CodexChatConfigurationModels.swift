@@ -181,20 +181,7 @@ public struct CodexPermissionProfileSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string):
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null:
-                continue
-            }
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 }
 
@@ -265,27 +252,11 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string): return string
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null: continue
-            }
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 
     private static func bool(in object: [String: CodexJSONValue], key: String) -> Bool? {
-        switch object[key] {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.bool(in: object, key: key)
     }
 
     private static func supportedReasoningSelections(from value: CodexJSONValue?) -> [CodexReasoningSelection] {
@@ -444,20 +415,7 @@ public struct CodexCollaborationModeOption: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string):
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null:
-                continue
-            }
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 }
 
@@ -494,7 +452,11 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         self.skillPath = skillPath
     }
 
-    public static let observedCommands: [CodexSlashCommand] = [
+    public static var defaultCommands: [CodexSlashCommand] {
+        observedCommands
+    }
+
+    static let observedCommands: [CodexSlashCommand] = [
         CodexSlashCommand(
             id: "code-review",
             title: "Code review",
@@ -596,7 +558,7 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
     }
 
     public static func filteredCommands(
-        from commands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
+        from commands: [CodexSlashCommand] = CodexSlashCommand.defaultCommands,
         matching draft: String
     ) -> [CodexSlashCommand] {
         guard let query = query(from: draft), !query.isEmpty else { return commands }
@@ -686,31 +648,14 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string): return string.nilIfBlank
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null: continue
-            }
-        }
-        return nil
+        CodexJSONCoercion.string(in: object, keys: keys)
     }
 
     private static func bool(in object: [String: CodexJSONValue], key: String) -> Bool? {
-        switch object[key] {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.bool(in: object, key: key)
     }
 
     private static func dictionary(in object: [String: CodexJSONValue], key: String) -> [String: CodexJSONValue]? {
-        guard case .dictionary(let dictionary)? = object[key] else { return nil }
-        return dictionary
+        CodexJSONCoercion.dictionary(in: object, key: key)
     }
 }

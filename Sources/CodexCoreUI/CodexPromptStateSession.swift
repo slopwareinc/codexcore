@@ -144,7 +144,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
         return resolved ? .approvalResolved(id: id) : .none
     }
 
-    public func submitInteractivePrompt(
+    func submitInteractivePrompt(
         id: String,
         answers: [String: String],
         using codex: Codex?,
@@ -162,7 +162,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
         }
     }
 
-    public func declineInteractivePrompt(
+    func declineInteractivePrompt(
         id: String,
         using codex: Codex?,
         bridge: CodexInteractivePromptBridge
@@ -179,7 +179,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
         }
     }
 
-    public func acceptInteractivePrompt(
+    func acceptInteractivePrompt(
         id: String,
         bridge: CodexInteractivePromptBridge
     ) async {
@@ -202,7 +202,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
     }
 }
 
-public actor CodexInteractivePromptBridge {
+actor CodexInteractivePromptBridge {
     private struct PendingPrompt {
         var prompt: CodexInteractivePrompt
         var continuation: CheckedContinuation<CodexJSONValue, Never>
@@ -212,15 +212,15 @@ public actor CodexInteractivePromptBridge {
     private var eventContinuation: AsyncStream<CodexInteractivePromptEvent>.Continuation?
     private var eventContinuationID = 0
 
-    public init() {}
+    init() {}
 
-    public func events() -> AsyncStream<CodexInteractivePromptEvent> {
+    func events() -> AsyncStream<CodexInteractivePromptEvent> {
         AsyncStream { continuation in
             Task { await self.attach(continuation) }
         }
     }
 
-    public func handle(_ request: JSONRPCServerRequest) async -> CodexJSONValue? {
+    func handle(_ request: JSONRPCServerRequest) async -> CodexJSONValue? {
         guard let prompt = CodexInteractivePrompt(serverRequest: request) else {
             return nil
         }
@@ -231,25 +231,25 @@ public actor CodexInteractivePromptBridge {
         }
     }
 
-    public func resolveUserInput(id: String, answers: [String: String]) {
+    func resolveUserInput(id: String, answers: [String: String]) {
         guard let pending = pendingPrompts.removeValue(forKey: id) else { return }
         pending.continuation.resume(returning: pending.prompt.userInputResponse(answers: answers))
         eventContinuation?.yield(.resolved(id))
     }
 
-    public func acceptElicitation(id: String) {
+    func acceptElicitation(id: String) {
         guard let pending = pendingPrompts.removeValue(forKey: id) else { return }
         pending.continuation.resume(returning: pending.prompt.acceptElicitationResponse())
         eventContinuation?.yield(.resolved(id))
     }
 
-    public func decline(id: String) {
+    func decline(id: String) {
         guard let pending = pendingPrompts.removeValue(forKey: id) else { return }
         pending.continuation.resume(returning: pending.prompt.declineResponse())
         eventContinuation?.yield(.resolved(id))
     }
 
-    public func cancelAll() {
+    func cancelAll() {
         let prompts = pendingPrompts
         pendingPrompts.removeAll()
         for pending in prompts.values {

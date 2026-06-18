@@ -136,13 +136,22 @@ public struct CodexAgentTheme {
         public var caption: Font
         public var label: Font
         public var code: Font
+        public var micro: Font
 
-        public init(body: Font, chat: Font, caption: Font, label: Font, code: Font) {
+        public init(
+            body: Font,
+            chat: Font,
+            caption: Font,
+            label: Font,
+            code: Font,
+            micro: Font = .system(size: 10.5, weight: .semibold, design: .monospaced)
+        ) {
             self.body = body
             self.chat = chat
             self.caption = caption
             self.label = label
             self.code = code
+            self.micro = micro
         }
 
         public static var official: Fonts {
@@ -151,7 +160,8 @@ public struct CodexAgentTheme {
                 chat: .system(size: 14, weight: .regular),
                 caption: .system(size: 11.5, weight: .regular),
                 label: .system(size: 12, weight: .semibold),
-                code: .system(size: 12.5, design: .monospaced)
+                code: .system(size: 12.5, design: .monospaced),
+                micro: .system(size: 10.5, weight: .semibold, design: .monospaced)
             )
         }
     }
@@ -163,6 +173,14 @@ public struct CodexAgentTheme {
         public var summaryPanelWidth: CGFloat
         public var toolbarHeight: CGFloat
         public var rowGap: CGFloat
+        public var cardMaxWidth: CGFloat
+        public var transcriptOuterMaxWidth: CGFloat
+        public var userBubbleMaxWidth: CGFloat
+        public var toolbarTitleMaxWidth: CGFloat
+        public var emptyPromptMaxWidth: CGFloat
+        public var cardHeaderPadding: EdgeInsets
+        public var cardFooterPadding: EdgeInsets
+        public var chipPadding: EdgeInsets
 
         public init(
             transcriptMaxWidth: CGFloat,
@@ -170,7 +188,15 @@ public struct CodexAgentTheme {
             sidePanelWidth: CGFloat,
             summaryPanelWidth: CGFloat,
             toolbarHeight: CGFloat,
-            rowGap: CGFloat
+            rowGap: CGFloat,
+            cardMaxWidth: CGFloat = 640,
+            transcriptOuterMaxWidth: CGFloat = 860,
+            userBubbleMaxWidth: CGFloat = 560,
+            toolbarTitleMaxWidth: CGFloat = 360,
+            emptyPromptMaxWidth: CGFloat = 420,
+            cardHeaderPadding: EdgeInsets = EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12),
+            cardFooterPadding: EdgeInsets = EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12),
+            chipPadding: EdgeInsets = EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
         ) {
             self.transcriptMaxWidth = transcriptMaxWidth
             self.composerMaxWidth = composerMaxWidth
@@ -178,6 +204,14 @@ public struct CodexAgentTheme {
             self.summaryPanelWidth = summaryPanelWidth
             self.toolbarHeight = toolbarHeight
             self.rowGap = rowGap
+            self.cardMaxWidth = cardMaxWidth
+            self.transcriptOuterMaxWidth = transcriptOuterMaxWidth
+            self.userBubbleMaxWidth = userBubbleMaxWidth
+            self.toolbarTitleMaxWidth = toolbarTitleMaxWidth
+            self.emptyPromptMaxWidth = emptyPromptMaxWidth
+            self.cardHeaderPadding = cardHeaderPadding
+            self.cardFooterPadding = cardFooterPadding
+            self.chipPadding = chipPadding
         }
 
         public static var official: Spacing {
@@ -187,7 +221,15 @@ public struct CodexAgentTheme {
                 sidePanelWidth: 320,
                 summaryPanelWidth: 300,
                 toolbarHeight: 46,
-                rowGap: 12
+                rowGap: 12,
+                cardMaxWidth: 640,
+                transcriptOuterMaxWidth: 860,
+                userBubbleMaxWidth: 560,
+                toolbarTitleMaxWidth: 360,
+                emptyPromptMaxWidth: 420,
+                cardHeaderPadding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12),
+                cardFooterPadding: EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12),
+                chipPadding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
             )
         }
     }
@@ -438,6 +480,7 @@ public enum CodexAgentThemePreset: String, CaseIterable, Identifiable, Sendable 
     }
 }
 
+@available(*, deprecated, message: "Use CodexAgentTheme environment tokens for CodexCoreUI colors, spacing, and radii.")
 public enum CodexTheme {
     public static var canvas: Color { .codexAdaptive(codexHex(0xF4F5F8), codexHex(0x0B0C0F)) }
     public static var surface: Color { .codexAdaptive(codexHex(0xFFFFFF), codexHex(0x16181D)) }
@@ -498,12 +541,38 @@ private func makeCodexGlass(tint: Color?, interactive: Bool) -> Glass {
 public extension View {
     /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
     @ViewBuilder
+    func codexGlass(
+        tint: Color? = nil,
+        interactive: Bool = false
+    ) -> some View {
+        modifier(CodexDefaultGlassModifier(tint: tint, interactive: interactive))
+    }
+
+    /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
+    @ViewBuilder
     func codexGlass<S: Shape>(
-        _ shape: S = RoundedRectangle(cornerRadius: CodexTheme.Radius.lg, style: .continuous),
+        _ shape: S,
         tint: Color? = nil,
         interactive: Bool = false
     ) -> some View {
         modifier(CodexGlassModifier(shape: shape, tint: tint, interactive: interactive))
+    }
+}
+
+private struct CodexDefaultGlassModifier: ViewModifier {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let tint: Color?
+    let interactive: Bool
+
+    func body(content: Content) -> some View {
+        content.modifier(
+            CodexGlassModifier(
+                shape: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+                tint: tint,
+                interactive: interactive
+            )
+        )
     }
 }
 

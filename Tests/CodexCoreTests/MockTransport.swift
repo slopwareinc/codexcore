@@ -115,6 +115,10 @@ actor MockTransport: CodexTransport {
                 result = #"{"data":[{"name":"Plan","mode":"plan","model":null,"reasoning_effort":"medium"},{"name":"Default","mode":"default","model":null,"reasoning_effort":null}]}"#
             case "mcpServerStatus/list":
                 result = #"{"data":[{"name":"filesystem","authStatus":"unsupported","serverInfo":{"name":"filesystem","title":"Filesystem","version":"1.0.0","description":"Local files"},"tools":{"read_file":{"name":"read_file","title":"Read file","description":"Read a file","inputSchema":{"type":"object"}}},"resources":[{"name":"workspace","uri":"file:///tmp"}],"resourceTemplates":[{"name":"repo-file","uriTemplate":"file:///{path}"}]}],"nextCursor":null}"#
+            case "mcpServer/tool/call":
+                result = #"{"content":[{"type":"text","text":"MCP_OK"}],"isError":false}"#
+            case "mcpServer/resource/read":
+                result = #"{"contents":[{"uri":"file:///tmp/readme.md","mimeType":"text/markdown","text":"Hello"}]}"#
             case "plugin/list":
                 result = #"{"marketplaces":[{"name":"local","interface":{"displayName":"Local"},"path":"/tmp/marketplace.json","plugins":[{"authPolicy":"ON_USE","enabled":true,"id":"resume-from-opencode","installPolicy":"INSTALLED_BY_DEFAULT","installed":true,"name":"resume-from-opencode","source":{"type":"local","path":"/tmp/plugins/resume"},"availability":"AVAILABLE","interface":{"displayName":"Resume OpenCode","shortDescription":"Resume an OpenCode run","capabilities":["skills"],"screenshots":[],"screenshotUrls":[]},"keywords":["agents"],"localVersion":"1.0.0"}]}],"marketplaceLoadErrors":[],"featuredPluginIds":[]}"#
             case "model/list":
@@ -145,6 +149,10 @@ actor MockTransport: CodexTransport {
 
     func stop() async {
         isConnected = false
+    }
+
+    func sentPayloadsSnapshot() -> [[String: CodexJSONValue]] {
+        sentPayloads
     }
 
     func receiveMessage(_ msg: String) {

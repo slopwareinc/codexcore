@@ -548,15 +548,7 @@ private struct SubagentStatusBadge: View {
     let status: CodexSubagentState.Status
 
     var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(status.rawValue)
-                .font(.system(size: 10.5, weight: .semibold))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.13), in: Capsule())
+        CodexStatusChip(color: color, label: status.rawValue, isStreaming: status == .running)
     }
 
     private var color: Color {
