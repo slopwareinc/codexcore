@@ -187,6 +187,7 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
     public var config: [String: CodexJSONValue]?
     public var cwd: String?
     public var developerInstructions: String?
+    public var dynamicTools: [CodexDynamicToolSpec]?
     public var ephemeral: Bool?
     public var model: String?
     public var modelProvider: String?
@@ -204,6 +205,7 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
         config: [String: CodexJSONValue]? = nil,
         cwd: String? = nil,
         developerInstructions: String? = nil,
+        dynamicTools: [CodexDynamicToolSpec]? = nil,
         ephemeral: Bool? = nil,
         model: String? = nil,
         modelProvider: String? = nil,
@@ -220,6 +222,7 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
         self.config = config
         self.cwd = cwd
         self.developerInstructions = developerInstructions
+        self.dynamicTools = dynamicTools
         self.ephemeral = ephemeral
         self.model = model
         self.modelProvider = modelProvider

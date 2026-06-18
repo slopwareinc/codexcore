@@ -502,6 +502,22 @@ public actor CodexClient {
         )
     }
 
+    public func mcpServerToolCall(_ params: CodexSchemaMCPServerToolCallParams) async throws -> CodexSchemaMCPServerToolCallResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.mcpServerToolCall.rawValue,
+            params: params,
+            response: CodexSchemaMCPServerToolCallResponse.self
+        )
+    }
+
+    public func mcpServerResourceRead(_ params: CodexSchemaMCPResourceReadParams) async throws -> CodexSchemaMCPResourceReadResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.mcpServerResourceRead.rawValue,
+            params: params,
+            response: CodexSchemaMCPResourceReadResponse.self
+        )
+    }
+
     public func pluginList(_ params: CodexSchemaPluginListParams = CodexSchemaPluginListParams()) async throws -> CodexSchemaPluginListResponse {
         try await connection.request(
             method: CodexAppServerClientMethod.pluginList.rawValue,

@@ -198,6 +198,7 @@ public final class Codex: @unchecked Sendable {
         config threadConfig: [String: CodexJSONValue]? = nil,
         cwd: String? = nil,
         developerInstructions: String? = nil,
+        dynamicTools: [CodexDynamicToolSpec]? = nil,
         ephemeral: Bool? = nil,
         model: String? = nil,
         modelProvider: String? = nil,
@@ -216,6 +217,7 @@ public final class Codex: @unchecked Sendable {
             config: threadConfig,
             cwd: cwd ?? config.cwd,
             developerInstructions: developerInstructions,
+            dynamicTools: dynamicTools,
             ephemeral: ephemeral,
             model: model,
             modelProvider: modelProvider,
@@ -429,6 +431,34 @@ public final class Codex: @unchecked Sendable {
             detail: detail,
             limit: limit,
             threadID: threadId
+        ))
+    }
+
+    public func mcpServerToolCall(
+        threadId: String,
+        server: String,
+        tool: String,
+        arguments: CodexJSONValue? = nil,
+        meta: CodexJSONValue? = nil
+    ) async throws -> CodexSchemaMCPServerToolCallResponse {
+        try await client.mcpServerToolCall(CodexSchemaMCPServerToolCallParams(
+            meta: meta,
+            arguments: arguments,
+            server: server,
+            threadID: threadId,
+            tool: tool
+        ))
+    }
+
+    public func mcpServerResourceRead(
+        threadId: String? = nil,
+        server: String,
+        uri: String
+    ) async throws -> CodexSchemaMCPResourceReadResponse {
+        try await client.mcpServerResourceRead(CodexSchemaMCPResourceReadParams(
+            server: server,
+            threadID: threadId,
+            uri: uri
         ))
     }
 
