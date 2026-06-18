@@ -36,7 +36,11 @@ public struct CodexConfig: Sendable {
         self.launchArgumentsOverride = launchArgumentsOverride
         self.configOverrides = configOverrides
         self.cwd = cwd
-        self.environment = environment
+        var resolvedEnvironment = environment
+        if resolvedEnvironment["CODEX_HOME"]?.isEmpty ?? true {
+            resolvedEnvironment["CODEX_HOME"] = defaultCodexHome()
+        }
+        self.environment = resolvedEnvironment
         self.clientName = clientName
         self.clientTitle = clientTitle
         self.clientVersion = clientVersion
@@ -45,7 +49,7 @@ public struct CodexConfig: Sendable {
     }
 }
 
-public enum CodexSDKError: Error, Sendable, CustomStringConvertible, LocalizedError {
+public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, LocalizedError {
     case runtimeNotFound
     case invalidRuntimePath(String)
     case invalidResponse(method: String, value: CodexJSONValue)
