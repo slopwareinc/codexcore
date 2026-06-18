@@ -242,13 +242,13 @@ extension CodexActivity.Kind {
         }
     }
 
-    var tint: Color {
+    func tint(for theme: CodexAgentTheme) -> Color {
         switch self {
-        case .turn: return CodexTheme.accent
-        case .tool: return CodexTheme.tool
-        case .token: return CodexTheme.success
-        case .login: return CodexTheme.warning
-        case .notice: return CodexTheme.tertiary
+        case .turn: return theme.colors.accent
+        case .tool: return theme.colors.tool
+        case .token: return theme.colors.success
+        case .login: return theme.colors.warning
+        case .notice: return theme.colors.textTertiary
         }
     }
 }

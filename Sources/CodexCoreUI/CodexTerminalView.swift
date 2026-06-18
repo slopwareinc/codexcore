@@ -10,6 +10,7 @@ public struct CodexTerminalView: View {
     private let session: CodexCommandExecSession
     private let parser = ANSIParser()
 
+    @Environment(\.codexAgentTheme) private var theme
     @State private var segments: [ANSISegment] = []
     @State private var rawText = ""
 
@@ -23,6 +24,7 @@ public struct CodexTerminalView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(ANSITerminalStyle.makeAttributedString(from: segments))
                         .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(theme.colors.codeText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
 
@@ -32,7 +34,8 @@ public struct CodexTerminalView: View {
                 }
                 .padding(8)
             }
-            .background(Color(red: 0.05, green: 0.05, blue: 0.05))
+            .background(theme.colors.codeBackground)
+            .tint(theme.colors.codeFaint)
             .task {
                 // Listen to raw stdout/stderr delta chunks from the PTY session
                 for await delta in session.outputStream {

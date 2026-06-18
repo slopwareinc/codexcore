@@ -438,6 +438,7 @@ public enum CodexAgentThemePreset: String, CaseIterable, Identifiable, Sendable 
     }
 }
 
+@available(*, deprecated, message: "Use CodexAgentTheme environment tokens for CodexCoreUI colors, spacing, and radii.")
 public enum CodexTheme {
     public static var canvas: Color { .codexAdaptive(codexHex(0xF4F5F8), codexHex(0x0B0C0F)) }
     public static var surface: Color { .codexAdaptive(codexHex(0xFFFFFF), codexHex(0x16181D)) }
@@ -498,12 +499,38 @@ private func makeCodexGlass(tint: Color?, interactive: Bool) -> Glass {
 public extension View {
     /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
     @ViewBuilder
+    func codexGlass(
+        tint: Color? = nil,
+        interactive: Bool = false
+    ) -> some View {
+        modifier(CodexDefaultGlassModifier(tint: tint, interactive: interactive))
+    }
+
+    /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
+    @ViewBuilder
     func codexGlass<S: Shape>(
-        _ shape: S = RoundedRectangle(cornerRadius: CodexTheme.Radius.lg, style: .continuous),
+        _ shape: S,
         tint: Color? = nil,
         interactive: Bool = false
     ) -> some View {
         modifier(CodexGlassModifier(shape: shape, tint: tint, interactive: interactive))
+    }
+}
+
+private struct CodexDefaultGlassModifier: ViewModifier {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let tint: Color?
+    let interactive: Bool
+
+    func body(content: Content) -> some View {
+        content.modifier(
+            CodexGlassModifier(
+                shape: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+                tint: tint,
+                interactive: interactive
+            )
+        )
     }
 }
 
