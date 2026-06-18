@@ -24,7 +24,7 @@ public struct CodexChatActionHandlers {
 }
 
 public struct CodexChatMessage: Identifiable, Equatable, Sendable {
-    public enum Role: String, Equatable, Sendable {
+    public enum Role: String, Hashable, Sendable {
         case user = "You"
         case assistant = "Codex"
         case terminal = "Terminal"
