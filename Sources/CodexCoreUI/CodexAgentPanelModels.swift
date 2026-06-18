@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CodexCore
 
 /// Inline transcript indicator shown while a turn is in progress before assistant streaming begins.
 public struct CodexActiveTurnState: Equatable, Sendable {
@@ -142,6 +143,26 @@ public extension CodexSubagentState {
         case .closed:
             return "person.crop.circle"
         }
+    }
+}
+
+extension CodexSubagentState.Status {
+    init?(historyStatus: String?) {
+        guard let status = Self.normalized(historyStatus) else { return nil }
+        self = status
+    }
+
+    init?(snapshot: CodexThreadSnapshot) {
+        if snapshot.turns.contains(where: { $0.status == .failed || $0.error != nil }) {
+            self = .failed
+            return
+        }
+        if snapshot.turns.contains(where: { $0.status == .running }) {
+            self = .running
+            return
+        }
+        guard !snapshot.turns.isEmpty else { return nil }
+        self = .completed
     }
 }
 

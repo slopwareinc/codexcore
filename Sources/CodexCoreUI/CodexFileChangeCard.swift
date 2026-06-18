@@ -1,12 +1,12 @@
 import SwiftUI
 import CodexCore
 
-public struct CodexFileChangeUndoKey: EnvironmentKey {
-    public static let defaultValue: (@Sendable (CodexChatMessage.FileChange) -> Void)? = nil
+struct CodexFileChangeUndoKey: EnvironmentKey {
+    static let defaultValue: (@Sendable (CodexChatMessage.FileChange) -> Void)? = nil
 }
 
-public struct CodexFileChangeReviewKey: EnvironmentKey {
-    public static let defaultValue: (@Sendable (CodexChatMessage.FileChange) -> Void)? = nil
+struct CodexFileChangeReviewKey: EnvironmentKey {
+    static let defaultValue: (@Sendable (CodexChatMessage.FileChange) -> Void)? = nil
 }
 
 public extension EnvironmentValues {

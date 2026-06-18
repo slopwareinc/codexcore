@@ -3,7 +3,7 @@ import XCTest
 @testable import CodexCoreUI
 
 extension CodexAgentUITests {
-    func testChatUtilitySessionFormatsTranscriptWithCommandFallback() {
+    func testChatFormatFormatsTranscriptWithCommandFallback() {
         let messages = [
             CodexChatMessage(role: .user, text: "  Build it  "),
             CodexChatMessage(
@@ -20,7 +20,7 @@ extension CodexAgentUITests {
         ]
 
         XCTAssertEqual(
-            CodexChatUtilitySession.transcriptText(messages: messages),
+            CodexChatFormat.transcriptText(messages: messages),
             """
             You: Build it
 
@@ -29,13 +29,13 @@ extension CodexAgentUITests {
         )
     }
 
-    func testChatUtilitySessionFormatsCopyActivityDetail() {
-        XCTAssertEqual(CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: 0), "No transcript text yet")
-        XCTAssertEqual(CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: 2), "2 messages copied")
+    func testChatFormatFormatsCopyActivityDetail() {
+        XCTAssertEqual(CodexChatFormat.copiedTranscriptActivityDetail(messageCount: 0), "No transcript text yet")
+        XCTAssertEqual(CodexChatFormat.copiedTranscriptActivityDetail(messageCount: 2), "2 messages copied")
     }
 
-    func testChatUtilitySessionFormatsStatusSummary() {
-        let summary = CodexChatUtilitySession.statusSummary(
+    func testChatFormatFormatsStatusSummary() {
+        let summary = CodexChatFormat.statusSummary(
             CodexChatStatusSummaryContext(
                 connectionLabel: "Connected",
                 workspacePath: "/tmp/project",
@@ -65,8 +65,8 @@ extension CodexAgentUITests {
         )
     }
 
-    func testChatUtilitySessionFormatsStatusSummaryWithSessionMetadata() {
-        let summary = CodexChatUtilitySession.statusSummary(
+    func testChatFormatFormatsStatusSummaryWithSessionMetadata() {
+        let summary = CodexChatFormat.statusSummary(
             CodexChatStatusSummaryContext(
                 connectionLabel: "Connected",
                 workspacePath: "/tmp/project",

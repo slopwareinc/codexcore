@@ -47,7 +47,7 @@ public struct CodexChatStatusSummaryContext: Equatable, Sendable {
     }
 }
 
-public enum CodexChatUtilitySession {
+public enum CodexChatFormat {
     public static func transcriptText(messages: [CodexChatMessage]) -> String {
         messages.map { message in
             let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)

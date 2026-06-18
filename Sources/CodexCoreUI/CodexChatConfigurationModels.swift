@@ -452,7 +452,11 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         self.skillPath = skillPath
     }
 
-    public static let observedCommands: [CodexSlashCommand] = [
+    public static var defaultCommands: [CodexSlashCommand] {
+        observedCommands
+    }
+
+    static let observedCommands: [CodexSlashCommand] = [
         CodexSlashCommand(
             id: "code-review",
             title: "Code review",
@@ -554,7 +558,7 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
     }
 
     public static func filteredCommands(
-        from commands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
+        from commands: [CodexSlashCommand] = CodexSlashCommand.defaultCommands,
         matching draft: String
     ) -> [CodexSlashCommand] {
         guard let query = query(from: draft), !query.isEmpty else { return commands }
