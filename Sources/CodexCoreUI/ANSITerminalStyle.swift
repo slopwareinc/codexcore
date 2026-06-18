@@ -63,7 +63,9 @@ public enum ANSITerminalStyle: Sendable {
                 span.underlineStyle = .single
             }
 
-            span.foregroundColor = foregroundColor(for: segment.style.foregroundColor)
+            if segment.style.foregroundColor != .default {
+                span.foregroundColor = foregroundColor(for: segment.style.foregroundColor)
+            }
 
             if let background = segment.style.backgroundColor {
                 span.backgroundColor = backgroundColor(for: background)

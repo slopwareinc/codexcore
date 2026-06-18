@@ -499,7 +499,7 @@ public extension View {
     /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
     @ViewBuilder
     func codexGlass<S: Shape>(
-        _ shape: S = RoundedRectangle(cornerRadius: CodexTheme.Radius.lg, style: .continuous),
+        _ shape: S = RoundedRectangle(cornerRadius: 12, style: .continuous),
         tint: Color? = nil,
         interactive: Bool = false
     ) -> some View {

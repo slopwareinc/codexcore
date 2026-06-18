@@ -26,7 +26,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                         .frame(maxWidth: .infinity, minHeight: 420)
                         .padding(.horizontal, 28)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: CodexTheme.Space.xl) {
+                    LazyVStack(alignment: .leading, spacing: 24) {
                         ForEach(timelineItems) { item in
                             switch item {
                             case .message(let message):
