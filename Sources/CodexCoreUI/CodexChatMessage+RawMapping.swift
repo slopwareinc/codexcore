@@ -1,12 +1,12 @@
 import Foundation
 import CodexCore
 
-public extension CodexChatMessage {
-    static func renderBlocks(for text: String) -> [AssistantRenderBlock] {
+extension CodexChatMessage {
+    public static func renderBlocks(for text: String) -> [AssistantRenderBlock] {
         MessageContentBridge.assistantRenderBlocks(text)
     }
 
-    static func reasoningBlock(
+    public static func reasoningBlock(
         itemID: String,
         text: String = "",
         isSummary: Bool = false,
@@ -20,7 +20,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func reasoningMessage(
+    public static func reasoningMessage(
         _ block: ReasoningBlock,
         createdAt: Date = Date()
     ) -> CodexChatMessage {
@@ -74,7 +74,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func fileChange(
+    public static func fileChange(
         itemID: String,
         path: String?,
         diff: String,
@@ -117,7 +117,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func planUpdate(
+    public static func planUpdate(
         itemID: String,
         text: String,
         isStreaming: Bool = true
@@ -166,7 +166,7 @@ public extension CodexChatMessage {
         )
     }
 
-    static func toolCall(
+    public static func toolCall(
         itemID: String,
         server: String?,
         tool: String,
@@ -291,7 +291,7 @@ public extension CodexChatMessage {
         }
     }
 
-    static func notice(
+    public static func notice(
         itemID: String,
         kind: String,
         title: String,

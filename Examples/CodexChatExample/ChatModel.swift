@@ -685,11 +685,11 @@ final class CodexChatModel {
     }
 
     func copyChatTranscript() {
-        let transcript = CodexChatUtilitySession.transcriptText(messages: messages)
+        let transcript = CodexChatFormat.transcriptText(messages: messages)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(transcript, forType: .string)
 
-        let detail = CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: messages.count)
+        let detail = CodexChatFormat.copiedTranscriptActivityDetail(messageCount: messages.count)
         appendActivity(.notice, title: "Copied chat", detail: detail)
     }
 
@@ -717,7 +717,7 @@ final class CodexChatModel {
         case .showModelStatus:
             appendActivity(.notice, title: "Model", detail: "\(modelSelection.displayName) \(reasoningSelection.displayName)")
         case .showCurrentStatus:
-            appendMessage(.system, CodexChatUtilitySession.statusSummary(statusSummaryContext), detail: "status")
+            appendMessage(.system, CodexChatFormat.statusSummary(statusSummaryContext), detail: "status")
             appendActivity(.notice, title: "Status", detail: connectionState.label)
         case .forkCurrentChat:
             Task { await forkCurrentChat() }
@@ -860,7 +860,7 @@ final class CodexChatModel {
               let usage = codex?.store.threadSnapshot(id: threadID)?.turns.last?.usage else {
             return nil
         }
-        return CodexChatUtilitySession.tokenUsageSummary(usage)
+        return CodexChatFormat.tokenUsageSummary(usage)
     }
 
     // MARK: - @-mention file search

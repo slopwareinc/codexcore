@@ -29,7 +29,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         modelSelection: CodexModelSelection = .appServerDefault,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: CodexReasoningSelection = .medium,
-        slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands
+        slashCommands: [CodexSlashCommand] = CodexSlashCommand.defaultCommands
     ) {
         self.approvalSelection = approvalSelection
         self.approvalOptions = approvalOptions
@@ -61,7 +61,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         modelSelection = .appServerDefault
         modelOptions = CodexModelSelection.defaultOptions
         reasoningSelection = .medium
-        slashCommands = CodexSlashCommand.observedCommands
+        slashCommands = CodexSlashCommand.defaultCommands
     }
 
     public mutating func setPlanModeEnabled(_ enabled: Bool) {
@@ -185,7 +185,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     @discardableResult
     public mutating func applySlashCommandResponse(_ raw: CodexJSONValue) -> CodexChatConfigurationActivity {
         let skillCommands = CodexSlashCommand.skillCommands(from: raw)
-        slashCommands = CodexSlashCommand.observedCommands + skillCommands
+        slashCommands = CodexSlashCommand.defaultCommands + skillCommands
         return CodexChatConfigurationActivity(title: "Loaded skills", detail: "\(skillCommands.count) app-server skills")
     }
 
@@ -205,7 +205,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failSlashCommandRefresh(message: String) -> CodexChatConfigurationActivity {
-        slashCommands = CodexSlashCommand.observedCommands
+        slashCommands = CodexSlashCommand.defaultCommands
         return CodexChatConfigurationActivity(title: "Skill list unavailable", detail: message)
     }
 

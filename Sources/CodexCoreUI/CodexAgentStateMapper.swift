@@ -93,12 +93,7 @@ public struct CodexAgentStateMapper: Sendable {
         }
 
         let agentNames = agents.map(\.name)
-        lifecycleEvents.append(CodexAgentLifecycleEvent(
-            status: .spawning,
-            title: agentNames.count == 1 ? "Spawning 1 agent" : "Spawning \(agentNames.count) agents",
-            detail: CodexAgentItemParser.lifecycleDetail(for: item, fallback: "Delegating focused work to side agents."),
-            agentNames: agentNames
-        ))
+        appendLifecycleEvent(CodexAgentLifecycleBuilder.spawning(agents: agents, item: item))
 
         for agent in agents {
             upsertSubagent(
@@ -135,11 +130,12 @@ public struct CodexAgentStateMapper: Sendable {
             subagents[index].status = status
             subagents[index].completedAt = completedAt
             appendResult(result, toSubagentAt: index, createdAt: completedAt)
-            lifecycleEvents.append(CodexAgentLifecycleEvent(
-                status: lifecycleStatus(from: status),
-                title: CodexAgentItemParser.lifecycleTitle(status: status, count: 1),
-                detail: CodexAgentItemParser.lifecycleDetail(for: item, fallback: result ?? "Subagent finished."),
-                agentNames: [subagents[index].name],
+            appendLifecycleEvent(CodexAgentLifecycleBuilder.finished(
+                status: status,
+                item: item,
+                result: result,
+                names: [subagents[index].name],
+                fallback: "Subagent finished.",
                 createdAt: completedAt
             ))
             ensureSideChat()
@@ -168,11 +164,12 @@ public struct CodexAgentStateMapper: Sendable {
             )
         }
 
-        lifecycleEvents.append(CodexAgentLifecycleEvent(
-            status: lifecycleStatus(from: status),
-            title: CodexAgentItemParser.lifecycleTitle(status: status, count: names.count),
-            detail: CodexAgentItemParser.lifecycleDetail(for: item, fallback: result ?? "Subagent work finished."),
-            agentNames: names,
+        appendLifecycleEvent(CodexAgentLifecycleBuilder.finished(
+            status: status,
+            item: item,
+            result: result,
+            names: names,
+            fallback: "Subagent work finished.",
             createdAt: completedAt
         ))
         ensureSideChat()
@@ -508,73 +505,15 @@ public struct CodexAgentStateMapper: Sendable {
             transcript.finishStreamingMessages()
         }
 
-        let lifecycleStatus = lifecycleStatus(from: subagents[index].status)
         let detail = if let cleanError, !cleanError.isEmpty { cleanError } else { "Subagent turn finished." }
-        lifecycleEvents.append(CodexAgentLifecycleEvent(
-            status: lifecycleStatus,
-            title: CodexAgentItemParser.lifecycleTitle(status: subagents[index].status, count: 1),
+        appendLifecycleEvent(CodexAgentLifecycleBuilder.turnFinished(
+            status: subagents[index].status,
+            name: subagents[index].name,
             detail: detail,
-            agentNames: [subagents[index].name],
             createdAt: completedAt
         ))
         ensureSideChat()
         return CodexAgentItemUpdate(activityTitle: "Subagent \(subagents[index].status.rawValue)", activityDetail: subagents[index].name)
-    }
-
-    private mutating func applyCollabAgentToolCall(_ item: ThreadItem, completed: Bool) -> CodexAgentItemUpdate? {
-        guard let payload = CodexAgentItemParser.collabPayload(from: item) else { return nil }
-
-        if payload.tool == "spawnAgent", !completed, payload.receiverThreadIDs.isEmpty {
-            lifecycleEvents.append(CodexAgentLifecycleEvent(
-                status: .spawning,
-                title: "Spawning agent",
-                detail: payload.prompt == "Subagent task" ? "Starting delegated agent." : payload.prompt
-            ))
-            ensureSideChat()
-            return CodexAgentItemUpdate(activityTitle: "Subagent spawning", activityDetail: CodexAgentItemParser.previewText(payload.prompt))
-        }
-
-        guard !payload.receiverThreadIDs.isEmpty else {
-            ensureSideChat()
-            return CodexAgentItemUpdate(
-                activityTitle: CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed),
-                activityDetail: CodexAgentItemParser.previewText(payload.prompt)
-            )
-        }
-
-        let status = payload.status(completed: completed)
-        let now = Date()
-        var names: [String] = []
-        var resultText: String?
-        for receiverID in payload.receiverThreadIDs {
-            let state = payload.states[receiverID]
-            let result = CodexAgentItemParser.firstString(in: state ?? [:], keys: ["message", "summary", "result"])
-            if resultText == nil { resultText = result }
-            let name = nameForSubagent(id: receiverID, state: state)
-            names.append(name)
-            upsertSubagent(
-                id: receiverID,
-                name: name,
-                title: CodexAgentItemParser.titleForCollabPrompt(payload.prompt),
-                prompt: payload.prompt,
-                status: status,
-                itemID: item.id,
-                result: result,
-                createdAt: status == .running ? now : nil,
-                completedAt: status == .running ? nil : now
-            )
-        }
-
-        let lifecycleStatus = lifecycleStatus(from: status)
-        lifecycleEvents.append(CodexAgentLifecycleEvent(
-            status: lifecycleStatus,
-            title: CodexAgentItemParser.collabLifecycleTitle(tool: payload.tool, completed: completed, status: status, names: names),
-            detail: resultText ?? (payload.prompt == "Subagent task" ? CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed) : payload.prompt),
-            agentNames: names,
-            createdAt: now
-        ))
-        ensureSideChat()
-        return CodexAgentItemUpdate(activityTitle: CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed), activityDetail: names.joined(separator: ", "))
     }
 
     private func subagentDescriptors(from item: ThreadItem) -> [CodexSubagentDescriptor] {
@@ -588,7 +527,7 @@ public struct CodexAgentStateMapper: Sendable {
         return CodexAgentItemParser.subagentDescriptors(from: item)
     }
 
-    private mutating func upsertSubagent(
+    mutating func upsertSubagent(
         id: String,
         name: String,
         title: String,
@@ -714,10 +653,14 @@ public struct CodexAgentStateMapper: Sendable {
         syncSubagentTranscript(at: index)
     }
 
-    private mutating func ensureSideChat() {
+    mutating func ensureSideChat() {
         if sideChat == nil {
             sideChat = CodexSideChatState(title: "Side chat", createdAt: Date())
         }
+    }
+
+    mutating func appendLifecycleEvent(_ event: CodexAgentLifecycleEvent) {
+        lifecycleEvents.append(event)
     }
 
     private mutating func replaceAgentName(_ oldName: String, with newName: String) {
@@ -728,7 +671,7 @@ public struct CodexAgentStateMapper: Sendable {
         }
     }
 
-    private func nameForSubagent(id: String, state: [String: CodexJSONValue]?) -> String {
+    func nameForSubagent(id: String, state: [String: CodexJSONValue]?) -> String {
         if let existing = subagents.first(where: { $0.id == id }) {
             return existing.name
         }
@@ -741,44 +684,6 @@ public struct CodexAgentStateMapper: Sendable {
         return "Agent \(subagents.count + 1)"
     }
 
-    private func lifecycleStatus(from status: CodexSubagentState.Status) -> CodexAgentLifecycleEvent.Status {
-        switch status {
-        case .running: return .running
-        case .completed: return .completed
-        case .closed: return .closed
-        case .failed: return .failed
-        }
-    }
-}
-
-private extension CodexSubagentState.Status {
-    init?(historyStatus: String?) {
-        switch historyStatus?.lowercased() {
-        case "running", "active", "inprogress", "in_progress":
-            self = .running
-        case "completed", "complete", "done", "success", "succeeded":
-            self = .completed
-        case "closed", "cancelled", "canceled":
-            self = .closed
-        case "failed", "error":
-            self = .failed
-        default:
-            return nil
-        }
-    }
-
-    init?(snapshot: CodexThreadSnapshot) {
-        if snapshot.turns.contains(where: { $0.status == .failed || $0.error != nil }) {
-            self = .failed
-            return
-        }
-        if snapshot.turns.contains(where: { $0.status == .running }) {
-            self = .running
-            return
-        }
-        guard !snapshot.turns.isEmpty else { return nil }
-        self = .completed
-    }
 }
 
 private extension String {

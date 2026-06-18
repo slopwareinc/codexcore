@@ -63,7 +63,7 @@ public struct CodexChatWorkspaceView: View {
         chatActions: CodexChatActionHandlers = CodexChatActionHandlers(),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
-        slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
+        slashCommands: [CodexSlashCommand] = CodexSlashCommand.defaultCommands,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),

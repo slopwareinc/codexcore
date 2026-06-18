@@ -32,7 +32,7 @@ public struct CodexComposerBar: View {
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
-        slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
+        slashCommands: [CodexSlashCommand] = CodexSlashCommand.defaultCommands,
         isSending: Bool,
         canSend: Bool,
         canUsePlanMode: Bool = true,
