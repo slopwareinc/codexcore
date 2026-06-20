@@ -28,6 +28,9 @@ struct CodexCollabAgentPayload {
         let stateStatuses = states.values.compactMap {
             CodexAgentItemParser.firstString(in: $0, keys: ["status", "state"])?.lowercased()
         }
+        for raw in stateStatuses {
+            if let mapped = CodexAgentItemParser.customSubagentStatusMapping[raw], mapped == .failed { return .failed }
+        }
         if stateStatuses.contains(where: { $0 == "failed" || $0 == "error" || $0 == "cancelled" || $0 == "canceled" }) {
             return .failed
         }
@@ -136,8 +139,11 @@ enum CodexAgentItemParser {
         return []
     }
 
+    nonisolated(unsafe) public static var customSubagentStatusMapping: [String: CodexSubagentState.Status] = [:]
+
     static func subagentStatus(from item: ThreadItem) -> CodexSubagentState.Status {
         let rawStatus = firstString(in: item.raw, keys: ["status", "state", "phase"])?.lowercased() ?? item.phase?.lowercased()
+        if let raw = rawStatus, let mapped = customSubagentStatusMapping[raw] { return mapped }
         switch rawStatus {
         case "running", "active", "inprogress", "in_progress": return .running
         case "failed", "error", "cancelled", "canceled": return .failed

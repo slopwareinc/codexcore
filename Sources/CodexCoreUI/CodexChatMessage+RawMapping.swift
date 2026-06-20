@@ -371,9 +371,14 @@ public extension CodexChatMessage {
         )
     }
 
+    nonisolated(unsafe) static var customApprovalActionSummarizers: [String: @Sendable ([String: CodexJSONValue]) -> String?] = [:]
+
     private static func approvalActionSummary(from action: [String: CodexJSONValue]?) -> String {
-        guard let action else { return "Reviewing requested action" }
-        switch string(from: action["type"]) {
+        guard let action, let type = string(from: action["type"]) else { return "Reviewing requested action" }
+        if let custom = customApprovalActionSummarizers[type]?(action) {
+            return custom
+        }
+        switch type {
         case "command":
             return string(from: action["command"]) ?? "Reviewing command"
         case "execve":
@@ -395,10 +400,8 @@ public extension CodexChatMessage {
             return [server, tool].compactMap { $0 }.joined(separator: ".").nilIfBlank ?? "Reviewing MCP tool call"
         case "requestPermissions":
             return string(from: action["reason"]) ?? "Reviewing permission request"
-        case let type?:
+        default:
             return "Reviewing \(humanize(type))"
-        case nil:
-            return "Reviewing requested action"
         }
     }
 

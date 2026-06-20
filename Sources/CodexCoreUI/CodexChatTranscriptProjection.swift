@@ -356,8 +356,11 @@ public enum CodexChatTranscriptProjection {
         }
     }
 
+    nonisolated(unsafe) public static var customActiveStatusChecker: ((String) -> Bool)?
+
     public static func isActiveStatus(_ status: String) -> Bool {
-        status == "active" || status == "inProgress" || status == "running"
+        if let custom = customActiveStatusChecker?(status) { return custom }
+        return status == "active" || status == "inProgress" || status == "running"
     }
 }
 
