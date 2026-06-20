@@ -143,12 +143,12 @@ public struct CodexChatWorkspaceView: View {
                     canSendSideChatMessage: canSendSideChatMessage,
                     onSendSideChatMessage: onSendSideChatMessage,
                     onInterruptSideChatMessage: onInterruptSideChatMessage,
-                    onClose: { withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { isAgentPanelOpen = false } }
+                    onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { isAgentPanelOpen = false } }
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.9), value: isAgentPanelOpen)
+        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isAgentPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
     }
 
@@ -268,14 +268,14 @@ public struct CodexChatWorkspaceView: View {
 
     private func openPanelTab(_ id: String) {
         selectedPanelTabID = id
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             isAgentPanelOpen = true
         }
     }
 
     private func toggleAgentPanel() {
         if selectedPanelTabID == nil { selectedPanelTabID = panelTabs.first?.id }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             isAgentPanelOpen.toggle()
         }
     }
@@ -373,7 +373,7 @@ public struct CodexChatHeader: View {
         }
         .frame(height: theme.spacing.toolbarHeight)
         .padding(.horizontal, 10)
-        .background(theme.colors.surface.opacity(0.92))
+        .background(theme.colors.surface.opacity(theme.effects.surfaceOpacity))
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(theme.colors.border)
@@ -395,10 +395,10 @@ private struct ToolbarIconButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(theme.fonts.label)
-                .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary.opacity(0.6))
-                .frame(width: 28, height: 28)
+                .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary.opacity(theme.effects.textFaintOpacity))
+                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
                 .background(
-                    isActive ? theme.colors.surfaceElevated.opacity(0.82) : .clear,
+                    isActive ? theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity) : .clear,
                     in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
                 )
         }
@@ -428,7 +428,7 @@ private struct ChatActionsMenu: View {
             Image(systemName: "ellipsis")
                 .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: 28, height: 28)
+                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
                 .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         }
         .fixedSize()

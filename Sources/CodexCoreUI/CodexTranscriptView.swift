@@ -137,13 +137,13 @@ public struct CodexAgentLifecycleBlock: View {
             VStack(alignment: .leading, spacing: 9) {
                 Button {
                     guard isCollapsible else { return }
-                    withAnimation(.snappy(duration: 0.18)) {
+                    withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
                         isExpanded.toggle()
                     }
                 } label: {
                     HStack(alignment: .top, spacing: 9) {
                         statusIcon
-                            .frame(width: 16, height: 16)
+                            .frame(width: theme.spacing.iconMedium, height: theme.spacing.iconMedium)
                             .padding(.top, 1)
 
                         VStack(alignment: .leading, spacing: 4) {
@@ -158,7 +158,7 @@ public struct CodexAgentLifecycleBlock: View {
                                         .foregroundStyle(theme.colors.textTertiary)
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
-                                        .background(theme.colors.surfaceElevated.opacity(0.64), in: Capsule())
+                                        .background(theme.colors.surfaceElevated.opacity(theme.effects.textFaintOpacity), in: Capsule())
                                 }
                             }
 
@@ -209,7 +209,7 @@ public struct CodexAgentLifecycleBlock: View {
                                     .foregroundStyle(theme.colors.textSecondary)
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 5)
-                                    .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
+                                    .background(theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity), in: Capsule())
                                     .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
                                 }
                             }
@@ -220,7 +220,7 @@ public struct CodexAgentLifecycleBlock: View {
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 10)
-            .background(theme.colors.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .background(theme.colors.surface.opacity(theme.effects.glassOpacity), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                     .stroke(theme.colors.border, lineWidth: 1)
@@ -413,7 +413,7 @@ public struct CodexAgentRow<Content: View>: View {
             } else {
                 Circle()
                     .fill(theme.colors.surfaceElevated)
-                    .frame(width: 28, height: 28)
+                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
                     .overlay(Image(systemName: "point.3.connected.trianglepath.dotted").font(theme.fonts.caption))
                     .foregroundStyle(theme.colors.textTertiary)
                     .padding(.top, 2)
@@ -473,7 +473,7 @@ private struct CodexWorkingSpinnerBadge: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
+        .background(theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity), in: Capsule())
         .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
         .accessibilityLabel("Codex is working")
     }

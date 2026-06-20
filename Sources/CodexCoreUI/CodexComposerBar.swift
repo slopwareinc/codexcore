@@ -278,7 +278,7 @@ private struct ComposerChipLabel: View {
         .foregroundStyle(theme.colors.textSecondary)
         .frame(minWidth: title == nil ? 28 : 0, minHeight: 28)
         .padding(.horizontal, title == nil ? 0 : 10)
-        .background(theme.colors.surfaceSunken.opacity(0.72), in: Capsule())
+        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: Capsule())
         .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
         .contentShape(Capsule())
     }
@@ -296,8 +296,8 @@ private struct ComposerIconButton: View {
             Image(systemName: systemImage)
                 .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: 30, height: 30)
-                .background(theme.colors.surfaceSunken.opacity(0.58), in: Circle())
+                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                .background(theme.colors.surfaceSunken.opacity(theme.effects.textFaintOpacity), in: Circle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -314,8 +314,8 @@ private struct ComposerStopButton: View {
             Image(systemName: "stop.fill")
                 .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.danger)
-                .frame(width: 34, height: 34)
-                .background(theme.colors.surfaceSunken.opacity(0.84), in: Circle())
+                .frame(width: theme.spacing.iconLarge + 4, height: theme.spacing.iconLarge + 4)
+                .background(theme.colors.surfaceSunken.opacity(theme.effects.textDimOpacity), in: Circle())
                 .overlay(Circle().stroke(theme.colors.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -382,7 +382,7 @@ private struct CodexMentionPalette: View {
                         .frame(height: 29)
                         .padding(.horizontal, 10)
                         .background(
-                            result.id == results.first?.id ? theme.colors.surfaceElevated.opacity(0.72) : .clear,
+                            result.id == results.first?.id ? theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity) : .clear,
                             in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
                         )
                     }
@@ -390,7 +390,7 @@ private struct CodexMentionPalette: View {
                     .help(result.absolutePath)
                 }
             }
-            .padding(8)
+            .padding(theme.spacing.rowGap)
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 280, alignment: .top)
@@ -440,13 +440,13 @@ private struct CodexSlashCommandPalette: View {
                                         .foregroundStyle(theme.colors.textTertiary)
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
-                                        .background(theme.colors.surfaceSunken.opacity(0.72), in: Capsule())
+                                        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: Capsule())
                                 }
                             }
                             .frame(height: 29)
                             .padding(.horizontal, 10)
                             .background(
-                                command.id == highlightedCommandID ? theme.colors.surfaceElevated.opacity(0.72) : .clear,
+                                command.id == highlightedCommandID ? theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity) : .clear,
                                 in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
                             )
                         }
@@ -455,7 +455,7 @@ private struct CodexSlashCommandPalette: View {
                     }
                 }
             }
-            .padding(8)
+            .padding(theme.spacing.rowGap)
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
@@ -487,7 +487,7 @@ private struct SendButton: View {
             Image(systemName: "arrow.up")
                 .font(theme.fonts.chat)
                 .foregroundStyle(enabled ? theme.colors.onAccent : theme.colors.textTertiary)
-                .frame(width: 34, height: 34)
+                .frame(width: theme.spacing.iconLarge + 4, height: theme.spacing.iconLarge + 4)
         }
         .buttonStyle(.plain)
         .background {
@@ -499,6 +499,6 @@ private struct SendButton: View {
         }
         .keyboardShortcut(.return, modifiers: [.command])
         .disabled(!enabled)
-        .animation(.snappy(duration: 0.2), value: enabled)
+        .animation(.snappy(duration: theme.animations.snappyDuration), value: enabled)
     }
 }

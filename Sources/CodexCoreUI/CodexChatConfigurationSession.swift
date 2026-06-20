@@ -210,19 +210,23 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     }
 
     @discardableResult
-    public mutating func applyFastCommand() -> CodexChatConfigurationActivity {
+    public mutating func applyFastCommand(
+        fallbackQuery: String = "speed",
+        fallbackReasoning: CodexReasoningSelection? = nil
+    ) -> CodexChatConfigurationActivity {
         guard let target = modelOptions.first(where: { option in
-            option.id.caseInsensitiveCompare("speed") == .orderedSame ||
-                option.modelIdentifier?.caseInsensitiveCompare("speed") == .orderedSame ||
-                option.displayName.localizedCaseInsensitiveContains("speed")
+            option.isFastModel ||
+            option.id.caseInsensitiveCompare(fallbackQuery) == .orderedSame ||
+            option.modelIdentifier?.caseInsensitiveCompare(fallbackQuery) == .orderedSame ||
+            option.displayName.localizedCaseInsensitiveContains(fallbackQuery)
         }) else {
-            return CodexChatConfigurationActivity(title: "Fast mode", detail: "No Speed model returned by app-server")
+            return CodexChatConfigurationActivity(title: "Fast mode", detail: "No Fast model returned by app-server")
         }
 
         selectModel(target)
 
-        let supported = supportedReasoning(for: target)
-        if let fastReasoning = [CodexReasoningSelection.minimal, .low, .none].first(where: { supported.contains($0) }) {
+        let supported = target.supportedReasoning
+        if let fastReasoning = fallbackReasoning ?? target.defaultReasoning ?? [CodexReasoningSelection.minimal, .low, .none].first(where: { supported.contains($0) }) {
             reasoningSelection = fastReasoning
         }
 

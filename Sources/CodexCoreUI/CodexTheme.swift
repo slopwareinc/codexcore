@@ -39,19 +39,22 @@ public struct CodexAgentTheme {
     public var spacing: Spacing
     public var radii: Radii
     public var effects: Effects
+    public var animations: Animations
 
     public init(
         colors: Colors,
         fonts: Fonts = .official,
         spacing: Spacing = .official,
         radii: Radii = .official,
-        effects: Effects = .official
+        effects: Effects = .official,
+        animations: Animations = .official
     ) {
         self.colors = colors
         self.fonts = fonts
         self.spacing = spacing
         self.radii = radii
         self.effects = effects
+        self.animations = animations
     }
 
     public struct Colors {
@@ -169,6 +172,9 @@ public struct CodexAgentTheme {
         public var cardMaxWidth: CGFloat
         public var transcriptOuterMaxWidth: CGFloat
         public var userBubbleMaxWidth: CGFloat
+        public var iconSmall: CGFloat
+        public var iconMedium: CGFloat
+        public var iconLarge: CGFloat
 
         public init(
             transcriptMaxWidth: CGFloat,
@@ -179,7 +185,10 @@ public struct CodexAgentTheme {
             rowGap: CGFloat,
             cardMaxWidth: CGFloat,
             transcriptOuterMaxWidth: CGFloat,
-            userBubbleMaxWidth: CGFloat
+            userBubbleMaxWidth: CGFloat,
+            iconSmall: CGFloat = 13,
+            iconMedium: CGFloat = 16,
+            iconLarge: CGFloat = 28
         ) {
             self.transcriptMaxWidth = transcriptMaxWidth
             self.composerMaxWidth = composerMaxWidth
@@ -190,6 +199,9 @@ public struct CodexAgentTheme {
             self.cardMaxWidth = cardMaxWidth
             self.transcriptOuterMaxWidth = transcriptOuterMaxWidth
             self.userBubbleMaxWidth = userBubbleMaxWidth
+            self.iconSmall = iconSmall
+            self.iconMedium = iconMedium
+            self.iconLarge = iconLarge
         }
 
         public static var official: Spacing {
@@ -251,16 +263,50 @@ public struct CodexAgentTheme {
         public var usesLiquidGlass: Bool
         public var surfaceOpacity: Double
         public var glowOpacity: Double
+        public var glassOpacity: Double
+        public var textFaintOpacity: Double
+        public var textDimOpacity: Double
 
-        public init(usesLiquidGlass: Bool, surfaceOpacity: Double, glowOpacity: Double) {
+        public init(
+            usesLiquidGlass: Bool,
+            surfaceOpacity: Double,
+            glowOpacity: Double,
+            glassOpacity: Double = 0.72,
+            textFaintOpacity: Double = 0.6,
+            textDimOpacity: Double = 0.82
+        ) {
             self.usesLiquidGlass = usesLiquidGlass
             self.surfaceOpacity = surfaceOpacity
             self.glowOpacity = glowOpacity
+            self.glassOpacity = glassOpacity
+            self.textFaintOpacity = textFaintOpacity
+            self.textDimOpacity = textDimOpacity
         }
 
         public static var official: Effects {
             Effects(usesLiquidGlass: true, surfaceOpacity: 0.94, glowOpacity: 0.16)
         }
+    }
+
+    public struct Animations {
+        public var defaultDuration: Double
+        public var snappyDuration: Double
+        public var springResponse: Double
+        public var springDamping: Double
+
+        public init(
+            defaultDuration: Double = 0.15,
+            snappyDuration: Double = 0.18,
+            springResponse: Double = 0.32,
+            springDamping: Double = 0.9
+        ) {
+            self.defaultDuration = defaultDuration
+            self.snappyDuration = snappyDuration
+            self.springResponse = springResponse
+            self.springDamping = springDamping
+        }
+
+        public static var official: Animations { Animations() }
     }
 }
 

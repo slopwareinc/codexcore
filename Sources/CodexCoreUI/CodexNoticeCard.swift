@@ -17,7 +17,7 @@ public struct CodexNoticeCard: View {
     public var body: some View {
         CodexCollapsibleCard(
             isExpanded: $expanded,
-            background: theme.colors.surface.opacity(0.72),
+            background: theme.colors.surface.opacity(theme.effects.glassOpacity),
             border: color.opacity(0.42),
             maxWidth: theme.spacing.cardMaxWidth
         ) { isExpanded, toggle in

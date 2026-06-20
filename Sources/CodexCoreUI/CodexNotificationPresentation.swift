@@ -1,8 +1,11 @@
 import Foundation
 import CodexCore
 
-enum CodexNotificationPresentation {
-    static func itemTypeTitle(_ type: String) -> String {
+public enum CodexNotificationPresentation {
+    nonisolated(unsafe) public static var customItemTypeTitles: [String: String] = [:]
+
+    public static func itemTypeTitle(_ type: String) -> String {
+        if let custom = customItemTypeTitles[type] { return custom }
         switch type {
         case "agentMessage", "assistantMessage": return "Codex message"
         case "commandExecution": return "Command"

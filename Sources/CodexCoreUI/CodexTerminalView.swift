@@ -7,6 +7,8 @@ import SwiftUI
 /// updates styled segments, and handles keyboard inputs natively.
 @available(macOS 14.0, iOS 17.0, *)
 public struct CodexTerminalView: View {
+    @Environment(\.codexAgentTheme) private var theme
+    
     private let session: CodexCommandExecSession
     private let parser = ANSIParser()
 
@@ -22,7 +24,7 @@ public struct CodexTerminalView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(ANSITerminalStyle.makeAttributedString(from: segments))
-                        .font(.system(.body, design: .monospaced))
+                        .font(theme.fonts.code)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
 
@@ -30,9 +32,9 @@ public struct CodexTerminalView: View {
                         .frame(height: 1)
                         .id("bottom-marker")
                 }
-                .padding(8)
+                .padding(theme.spacing.rowGap)
             }
-            .background(Color(red: 0.05, green: 0.05, blue: 0.05))
+            .background(theme.colors.codeBackground)
             .task {
                 // Listen to raw stdout/stderr delta chunks from the PTY session
                 for await delta in session.outputStream {
@@ -50,7 +52,7 @@ public struct CodexTerminalView: View {
                     segments = parser.parse(rawText)
 
                     // Scroll to bottom marker
-                    withAnimation(.easeOut(duration: 0.15)) {
+                    withAnimation(.easeOut(duration: theme.animations.defaultDuration)) {
                         proxy.scrollTo("bottom-marker", anchor: .bottom)
                     }
                 }

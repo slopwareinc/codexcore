@@ -225,7 +225,7 @@ public struct CodexAgentSidePanel: View {
         .overlay(alignment: .leading) {
             resizeHandle
         }
-        .shadow(color: .black.opacity(0.24), radius: 24, x: -8)
+        .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 24, x: -8)
         .animation(nil, value: panelWidth)
         .onAppear(perform: ensureSelection)
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
@@ -303,7 +303,7 @@ public struct CodexAgentSidePanel: View {
                 Image(systemName: "sidebar.right")
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
             }
             .buttonStyle(.plain)
             .codexGlass(Circle(), interactive: true)
@@ -351,7 +351,7 @@ private struct AgentPanelTabButton: View {
                 .padding(.horizontal, 10)
                 .frame(height: 28)
                 .background(
-                    isSelected ? theme.colors.surfaceElevated.opacity(0.78) : .clear,
+                    isSelected ? theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity) : .clear,
                     in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                 )
         }
@@ -411,7 +411,7 @@ private struct CodexAgentPanelContent: View {
         .foregroundStyle(theme.colors.textSecondary)
         .padding(.horizontal, 11)
         .frame(height: 32)
-        .background(theme.colors.surfaceElevated.opacity(0.72), in: Capsule())
+        .background(theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity), in: Capsule())
         .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -515,7 +515,7 @@ private struct AgentPanelComposer: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(minHeight: 44)
-                    .background(theme.colors.surfaceElevated.opacity(0.82), in: RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+                    .background(theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity), in: RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous)
                             .stroke(theme.colors.border, lineWidth: 1)

@@ -13,13 +13,13 @@ struct CodexSubagentRunInlineView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                withAnimation(.snappy(duration: 0.18)) {
+                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
                     showsDetails.toggle()
                 }
             } label: {
                 HStack(alignment: .center, spacing: 9) {
                     aggregateIcon
-                        .frame(width: 16, height: 16)
+                        .frame(width: theme.spacing.iconMedium, height: theme.spacing.iconMedium)
 
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 7) {
@@ -32,7 +32,7 @@ struct CodexSubagentRunInlineView: View {
                                 .foregroundStyle(theme.colors.textTertiary)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
-                                .background(theme.colors.surfaceElevated.opacity(0.64), in: Capsule())
+                                .background(theme.colors.surfaceElevated.opacity(theme.effects.textFaintOpacity), in: Capsule())
                         }
 
                         Text(summary.detail)
@@ -56,7 +56,7 @@ struct CodexSubagentRunInlineView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 9)
-                .background(theme.colors.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+                .background(theme.colors.surface.opacity(theme.effects.glassOpacity), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                         .stroke(theme.colors.border, lineWidth: 1)
@@ -70,7 +70,7 @@ struct CodexSubagentRunInlineView: View {
                     ForEach(summary.milestones) { milestone in
                         HStack(spacing: 8) {
                             miniIcon(for: milestone.status)
-                                .frame(width: 13, height: 13)
+                                .frame(width: theme.spacing.iconSmall, height: theme.spacing.iconSmall)
                             Text(milestone.title)
                                 .font(theme.fonts.caption)
                                 .foregroundStyle(theme.colors.textTertiary)

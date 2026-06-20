@@ -206,6 +206,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
     public var isDefault: Bool
     public var defaultReasoning: CodexReasoningSelection?
     public var supportedReasoning: [CodexReasoningSelection]
+    public var isFastModel: Bool
 
     public init(
         id: String,
@@ -214,7 +215,8 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         detail: String? = nil,
         isDefault: Bool = false,
         defaultReasoning: CodexReasoningSelection? = nil,
-        supportedReasoning: [CodexReasoningSelection] = CodexReasoningSelection.defaultOptions
+        supportedReasoning: [CodexReasoningSelection] = CodexReasoningSelection.defaultOptions,
+        isFastModel: Bool = false
     ) {
         self.id = id
         self.displayName = displayName
@@ -223,6 +225,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         self.isDefault = isDefault
         self.defaultReasoning = defaultReasoning
         self.supportedReasoning = supportedReasoning
+        self.isFastModel = isFastModel
     }
 
     public static let appServerDefault = CodexModelSelection(
@@ -231,7 +234,8 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         modelIdentifier: nil,
         detail: "default app-server model",
         isDefault: true,
-        defaultReasoning: .medium
+        defaultReasoning: .medium,
+        isFastModel: false
     )
 
     public static let defaultOptions: [CodexModelSelection] = [.appServerDefault]
@@ -257,7 +261,8 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
                 detail: string(in: object, keys: ["description", "subtitle"]),
                 isDefault: CodexJSONCoercion.bool(in: object, key: "isDefault") ?? false,
                 defaultReasoning: reasoningSelection(from: string(in: object, keys: ["defaultReasoningEffort"])),
-                supportedReasoning: supportedReasoningSelections(from: object["supportedReasoningEfforts"])
+                supportedReasoning: supportedReasoningSelections(from: object["supportedReasoningEfforts"]),
+                isFastModel: CodexJSONCoercion.bool(in: object, key: "isFastModel") ?? false
             )
         case .int, .double, .bool, .array, .null:
             return nil

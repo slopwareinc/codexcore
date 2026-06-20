@@ -35,7 +35,21 @@ public struct CodexChatTranscriptRouteResult: Equatable, Sendable {
     }
 }
 
+public struct CodexTranscriptItemHandler: Sendable {
+    public var start: @Sendable (CodexChatMessage?, ThreadItem, inout CodexChatTranscriptState, CodexChatTranscriptRouteContext) -> CodexChatTranscriptRouteResult?
+    public var complete: @Sendable (CodexChatMessage?, ThreadItem, inout CodexChatTranscriptState, CodexChatTranscriptRouteContext) -> CodexChatTranscriptRouteResult?
+
+    public init(
+        start: @escaping @Sendable (CodexChatMessage?, ThreadItem, inout CodexChatTranscriptState, CodexChatTranscriptRouteContext) -> CodexChatTranscriptRouteResult?,
+        complete: @escaping @Sendable (CodexChatMessage?, ThreadItem, inout CodexChatTranscriptState, CodexChatTranscriptRouteContext) -> CodexChatTranscriptRouteResult?
+    ) {
+        self.start = start
+        self.complete = complete
+    }
+}
+
 public enum CodexChatTranscriptNotificationRouter {
+    nonisolated(unsafe) public static var itemHandlers: [String: CodexTranscriptItemHandler] = [:]
     public static func apply(
         _ notification: CodexNotification,
         to transcript: inout CodexChatTranscriptState,
@@ -90,6 +104,9 @@ public enum CodexChatTranscriptNotificationRouter {
         context: CodexChatTranscriptRouteContext
     ) -> CodexChatTranscriptRouteResult? {
         let projectedMessage = storeProjectedMessage(for: item.id, context: context)
+        if let handler = itemHandlers[item.type] {
+            return handler.start(projectedMessage, item, &transcript, context)
+        }
         switch item.type {
         case "commandExecution":
             guard let message = startedMessage(projectedMessage, item: item, transcript: &transcript), let run = message.commandRun else { return CodexChatTranscriptRouteResult() }
@@ -133,6 +150,9 @@ public enum CodexChatTranscriptNotificationRouter {
         context: CodexChatTranscriptRouteContext
     ) -> CodexChatTranscriptRouteResult? {
         let projectedMessage = storeProjectedMessage(for: item.id, context: context)
+        if let handler = itemHandlers[item.type] {
+            return handler.complete(projectedMessage, item, &transcript, context)
+        }
         switch item.type {
         case "agentMessage", "assistantMessage":
             guard let message = projectedMessage ?? transcript.completeItem(item) else { return CodexChatTranscriptRouteResult() }
