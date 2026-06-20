@@ -13,7 +13,7 @@ public struct CodexRateLimitBanner: View {
     public var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.warning)
 
             Text(message)

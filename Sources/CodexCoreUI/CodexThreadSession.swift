@@ -6,17 +6,20 @@ public struct CodexThreadLaunchConfiguration: Equatable, Sendable {
     public var cwd: String
     public var modelIdentifier: String?
     public var sandbox: Sandbox
+    public var dynamicTools: [CodexDynamicToolSpec]?
 
     public init(
         approvalMode: ApprovalMode,
         cwd: String,
         modelIdentifier: String?,
-        sandbox: Sandbox
+        sandbox: Sandbox,
+        dynamicTools: [CodexDynamicToolSpec]? = nil
     ) {
         self.approvalMode = approvalMode
         self.cwd = cwd
         self.modelIdentifier = modelIdentifier
         self.sandbox = sandbox
+        self.dynamicTools = dynamicTools
     }
 }
 
@@ -75,6 +78,7 @@ public final class CodexThreadSession {
         let thread = try await codex.threadStart(
             approvalMode: configuration.approvalMode,
             cwd: configuration.cwd,
+            dynamicTools: configuration.dynamicTools,
             model: configuration.modelIdentifier,
             sandbox: configuration.sandbox
         )

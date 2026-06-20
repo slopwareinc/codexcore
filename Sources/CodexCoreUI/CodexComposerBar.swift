@@ -268,7 +268,7 @@ private struct ComposerChipLabel: View {
     var body: some View {
         HStack(spacing: title == nil ? 0 : 6) {
             Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .semibold))
+                .font(theme.fonts.caption)
             if let title {
                 Text(title)
                     .font(theme.fonts.caption.weight(.medium))
@@ -294,7 +294,7 @@ private struct ComposerIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .semibold))
+                .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 30, height: 30)
                 .background(theme.colors.surfaceSunken.opacity(0.58), in: Circle())
@@ -312,7 +312,7 @@ private struct ComposerStopButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "stop.fill")
-                .font(.system(size: 12, weight: .bold))
+                .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.danger)
                 .frame(width: 34, height: 34)
                 .background(theme.colors.surfaceSunken.opacity(0.84), in: Circle())
@@ -355,7 +355,7 @@ private struct CodexMentionPalette: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Files")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
                     .padding(.horizontal, 10)
                     .padding(.top, 4)
@@ -366,7 +366,7 @@ private struct CodexMentionPalette: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: result.matchType == .directory ? "folder" : "doc.text")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(theme.fonts.label)
                                 .foregroundStyle(theme.colors.textTertiary)
                                 .frame(width: 18)
                             Text(result.fileName)
@@ -394,7 +394,7 @@ private struct CodexMentionPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 280, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
     }
 }
 
@@ -411,7 +411,7 @@ private struct CodexSlashCommandPalette: View {
                 ForEach(sectionNames, id: \.self) { section in
                     if section != sectionNames.first {
                         Text(section)
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .font(theme.fonts.caption)
                             .foregroundStyle(theme.colors.textTertiary)
                             .padding(.horizontal, 10)
                             .padding(.top, 4)
@@ -423,7 +423,7 @@ private struct CodexSlashCommandPalette: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: command.systemImage)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(theme.fonts.label)
                                     .foregroundStyle(theme.colors.textTertiary)
                                     .frame(width: 18)
                                 Text(command.title)
@@ -436,7 +436,7 @@ private struct CodexSlashCommandPalette: View {
                                 Spacer(minLength: 0)
                                 if let scopeBadge = command.scopeBadge {
                                     Text(scopeBadge)
-                                        .font(.system(size: 10.5, weight: .medium))
+                                        .font(theme.fonts.caption)
                                         .foregroundStyle(theme.colors.textTertiary)
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
@@ -459,7 +459,7 @@ private struct CodexSlashCommandPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
     }
 
     private var highlightedCommandID: String? {
@@ -485,7 +485,7 @@ private struct SendButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "arrow.up")
-                .font(.system(size: 14, weight: .bold))
+                .font(theme.fonts.chat)
                 .foregroundStyle(enabled ? theme.colors.onAccent : theme.colors.textTertiary)
                 .frame(width: 34, height: 34)
         }

@@ -136,22 +136,25 @@ public struct CodexAgentTheme {
         public var caption: Font
         public var label: Font
         public var code: Font
+        public var micro: Font
 
-        public init(body: Font, chat: Font, caption: Font, label: Font, code: Font) {
+        public init(body: Font, chat: Font, caption: Font, label: Font, code: Font, micro: Font) {
             self.body = body
             self.chat = chat
             self.caption = caption
             self.label = label
             self.code = code
+            self.micro = micro
         }
 
         public static var official: Fonts {
             Fonts(
-                body: .system(size: 16, weight: .regular),
-                chat: .system(size: 14, weight: .regular),
-                caption: .system(size: 11.5, weight: .regular),
-                label: .system(size: 12, weight: .semibold),
-                code: .system(size: 12.5, design: .monospaced)
+                body: .body,
+                chat: .callout,
+                caption: .caption,
+                label: .subheadline.weight(.semibold),
+                code: .system(.footnote, design: .monospaced),
+                micro: .system(.caption2, design: .monospaced).weight(.semibold)
             )
         }
     }
@@ -163,6 +166,9 @@ public struct CodexAgentTheme {
         public var summaryPanelWidth: CGFloat
         public var toolbarHeight: CGFloat
         public var rowGap: CGFloat
+        public var cardMaxWidth: CGFloat
+        public var transcriptOuterMaxWidth: CGFloat
+        public var userBubbleMaxWidth: CGFloat
 
         public init(
             transcriptMaxWidth: CGFloat,
@@ -170,7 +176,10 @@ public struct CodexAgentTheme {
             sidePanelWidth: CGFloat,
             summaryPanelWidth: CGFloat,
             toolbarHeight: CGFloat,
-            rowGap: CGFloat
+            rowGap: CGFloat,
+            cardMaxWidth: CGFloat,
+            transcriptOuterMaxWidth: CGFloat,
+            userBubbleMaxWidth: CGFloat
         ) {
             self.transcriptMaxWidth = transcriptMaxWidth
             self.composerMaxWidth = composerMaxWidth
@@ -178,6 +187,9 @@ public struct CodexAgentTheme {
             self.summaryPanelWidth = summaryPanelWidth
             self.toolbarHeight = toolbarHeight
             self.rowGap = rowGap
+            self.cardMaxWidth = cardMaxWidth
+            self.transcriptOuterMaxWidth = transcriptOuterMaxWidth
+            self.userBubbleMaxWidth = userBubbleMaxWidth
         }
 
         public static var official: Spacing {
@@ -187,7 +199,10 @@ public struct CodexAgentTheme {
                 sidePanelWidth: 320,
                 summaryPanelWidth: 300,
                 toolbarHeight: 46,
-                rowGap: 12
+                rowGap: 12,
+                cardMaxWidth: 640,
+                transcriptOuterMaxWidth: 860,
+                userBubbleMaxWidth: 560
             )
         }
     }
@@ -221,12 +236,12 @@ public struct CodexAgentTheme {
 
         public static var official: Radii {
             Radii(
-                small: 6,
-                medium: 10,
-                large: 16,
-                panel: 25,
-                composer: 25,
-                bubble: 18,
+                small: 4,
+                medium: 8,
+                large: 12,
+                panel: 12,
+                composer: 12,
+                bubble: 12,
                 pill: 999
             )
         }
@@ -499,7 +514,7 @@ public extension View {
     /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
     @ViewBuilder
     func codexGlass<S: Shape>(
-        _ shape: S = RoundedRectangle(cornerRadius: CodexTheme.Radius.lg, style: .continuous),
+        _ shape: S,
         tint: Color? = nil,
         interactive: Bool = false
     ) -> some View {

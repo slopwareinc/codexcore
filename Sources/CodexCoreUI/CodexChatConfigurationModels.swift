@@ -255,7 +255,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
                 displayName: displayName,
                 modelIdentifier: model,
                 detail: string(in: object, keys: ["description", "subtitle"]),
-                isDefault: bool(in: object, key: "isDefault") ?? false,
+                isDefault: CodexJSONCoercion.bool(in: object, key: "isDefault") ?? false,
                 defaultReasoning: reasoningSelection(from: string(in: object, keys: ["defaultReasoningEffort"])),
                 supportedReasoning: supportedReasoningSelections(from: object["supportedReasoningEfforts"])
             )
@@ -276,16 +276,6 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
             }
         }
         return nil
-    }
-
-    private static func bool(in object: [String: CodexJSONValue], key: String) -> Bool? {
-        switch object[key] {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
     }
 
     private static func supportedReasoningSelections(from value: CodexJSONValue?) -> [CodexReasoningSelection] {
@@ -647,7 +637,7 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
 
     private static func skillCommand(from value: CodexJSONValue) -> CodexSlashCommand? {
         guard case .dictionary(let object) = value,
-              (bool(in: object, key: "enabled") ?? true),
+              (CodexJSONCoercion.bool(in: object, key: "enabled") ?? true),
               let name = string(in: object, keys: ["name"]),
               let path = string(in: object, keys: ["path"]) else {
             return nil
@@ -697,16 +687,6 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             }
         }
         return nil
-    }
-
-    private static func bool(in object: [String: CodexJSONValue], key: String) -> Bool? {
-        switch object[key] {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
     }
 
     private static func dictionary(in object: [String: CodexJSONValue], key: String) -> [String: CodexJSONValue]? {

@@ -53,7 +53,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             status: Self.status(from: object["status"]),
             modelProvider: Self.string(in: object, keys: ["modelProvider"]),
             parentThreadID: Self.string(in: object, keys: ["parentThreadId"]),
-            isEphemeral: Self.bool(in: object, key: "ephemeral") ?? false,
+            isEphemeral: CodexJSONCoercion.bool(in: object, key: "ephemeral") ?? false,
             createdAt: Self.timeInterval(in: object, key: "createdAt"),
             updatedAt: Self.timeInterval(in: object, key: "updatedAt")
         )
@@ -96,16 +96,6 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             }
         }
         return nil
-    }
-
-    private static func bool(in object: [String: CodexJSONValue], key: String) -> Bool? {
-        switch object[key] {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
     }
 
     private static func timeInterval(in object: [String: CodexJSONValue], key: String) -> TimeInterval? {

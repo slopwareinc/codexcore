@@ -103,7 +103,7 @@ private struct SummarySection<Content: View>: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(theme.fonts.caption)
                 Text(title)
                     .font(theme.fonts.caption.weight(.semibold))
                 Spacer(minLength: 0)
@@ -127,7 +127,7 @@ private struct SummaryRow: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
                     .frame(width: 16)
                 Text(title)
@@ -301,7 +301,7 @@ public struct CodexAgentSidePanel: View {
 
             Button(action: onClose) {
                 Image(systemName: "sidebar.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textTertiary)
                     .frame(width: 28, height: 28)
             }
@@ -315,7 +315,7 @@ public struct CodexAgentSidePanel: View {
     private var emptyPanel: some View {
         VStack(spacing: 10) {
             Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 24))
+                .font(.title2)
                 .foregroundStyle(theme.colors.textTertiary)
             Text("No agent tab selected")
                 .font(theme.fonts.label)
@@ -345,7 +345,7 @@ private struct AgentPanelTabButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(theme.fonts.chat)
                 .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                 .lineLimit(1)
                 .padding(.horizontal, 10)
@@ -404,7 +404,7 @@ private struct CodexAgentPanelContent: View {
     private var parentChatPill: some View {
         HStack(spacing: 7) {
             Image(systemName: "arrow.up.left")
-                .font(.system(size: 10, weight: .semibold))
+                .font(theme.fonts.caption)
             Text("Parent chat")
                 .font(theme.fonts.caption.weight(.semibold))
         }
@@ -420,7 +420,7 @@ private struct CodexAgentPanelContent: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(subagent.name)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(theme.fonts.body)
                     .foregroundStyle(theme.colors.textPrimary)
                 SubagentStatusBadge(status: subagent.status)
             }
@@ -523,7 +523,7 @@ private struct AgentPanelComposer: View {
 
                 Button(action: isSending ? onInterrupt : submit) {
                     Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 25))
+                        .font(.title2)
                         .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
                 }
                 .buttonStyle(.plain)
@@ -548,15 +548,7 @@ private struct SubagentStatusBadge: View {
     let status: CodexSubagentState.Status
 
     var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(status.rawValue)
-                .font(.system(size: 10.5, weight: .semibold))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.13), in: Capsule())
+        CodexStatusChip(color: color, label: status.rawValue, isStreaming: false)
     }
 
     private var color: Color {

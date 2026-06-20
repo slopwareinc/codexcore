@@ -14,61 +14,49 @@ public struct CodexToolCallCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            if expanded { details }
-        }
-        .background(theme.colors.codeBackground)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
-        )
-        .frame(maxWidth: 640, alignment: .leading)
-    }
-
-    private var header: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.22)) { expanded.toggle() }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.colors.codeFaint)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(toolCall.displayName)
-                        .font(.system(size: 12.5, weight: .medium, design: .monospaced))
-                        .foregroundStyle(theme.colors.codeText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(toolCall.summary)
-                        .font(.system(size: 10.5))
+        CodexCollapsibleCard(
+            isExpanded: $expanded,
+            background: theme.colors.codeBackground,
+            border: theme.colors.border,
+            maxWidth: theme.spacing.cardMaxWidth
+        ) { isExpanded, toggle in
+            Button {
+                toggle()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.codeFaint)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(toolCall.displayName)
+                            .font(theme.fonts.code)
+                            .foregroundStyle(theme.colors.codeText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(toolCall.summary)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.codeFaint)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    CodexToolCallStatusChip(toolCall: toolCall)
+
+                    Image(systemName: "chevron.down")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.codeFaint)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 }
-
-                Spacer(minLength: 8)
-
-                CodexToolCallStatusChip(toolCall: toolCall)
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(theme.colors.codeFaint)
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(theme.colors.codeHeader)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(theme.colors.codeHeader)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var details: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(theme.colors.border).frame(height: 1)
+            .buttonStyle(.plain)
+        } body: {
             VStack(alignment: .leading, spacing: 10) {
                 if !toolCall.arguments.isEmpty {
                     detailBlock(title: "Arguments", text: toolCall.arguments)
@@ -94,7 +82,7 @@ public struct CodexToolCallCard: View {
                 HStack {
                     if let duration = toolCall.durationMilliseconds {
                         Text("\(duration) ms")
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(theme.fonts.micro)
                             .foregroundStyle(theme.colors.codeFaint)
                     }
                     Spacer()
@@ -110,10 +98,10 @@ public struct CodexToolCallCard: View {
     private func detailBlock(title: String, text: String, isError: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .font(theme.fonts.micro)
                 .foregroundStyle(isError ? theme.colors.danger : theme.colors.codeFaint)
             Text(text)
-                .font(.system(size: 12.5, design: .monospaced))
+                .font(theme.fonts.code)
                 .foregroundStyle(isError ? theme.colors.danger : theme.colors.codeText)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -128,21 +116,7 @@ private struct CodexToolCallStatusChip: View {
     let toolCall: CodexChatMessage.ToolCall
 
     var body: some View {
-        HStack(spacing: 5) {
-            if toolCall.isStreaming {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(theme.colors.running)
-            } else {
-                Circle().fill(color).frame(width: 6, height: 6)
-            }
-            Text(label)
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(color)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.16), in: Capsule())
+        CodexStatusChip(color: color, label: label, isStreaming: toolCall.isStreaming)
     }
 
     private var label: String {
@@ -157,4 +131,3 @@ private struct CodexToolCallStatusChip: View {
         return theme.colors.success
     }
 }
-

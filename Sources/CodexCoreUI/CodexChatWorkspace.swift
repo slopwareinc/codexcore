@@ -335,12 +335,12 @@ public struct CodexChatHeader: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 Text("Codex")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
                 HStack(spacing: 4) {
                     Image(systemName: "folder")
-                        .font(.system(size: 8.5))
+                        .font(theme.fonts.caption)
                     Text(codexShortPath(workspacePath))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -394,7 +394,7 @@ private struct ToolbarIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .semibold))
+                .font(theme.fonts.label)
                 .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary.opacity(0.6))
                 .frame(width: 28, height: 28)
                 .background(
@@ -426,7 +426,7 @@ private struct ChatActionsMenu: View {
             Button("Disconnect", action: onDisconnect)
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .bold))
+                .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 28, height: 28)
                 .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))

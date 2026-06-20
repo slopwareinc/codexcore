@@ -28,7 +28,7 @@ struct CodexSubagentRunInlineView: View {
                                 .foregroundStyle(theme.colors.textSecondary)
                                 .lineLimit(1)
                             Text(summary.agentCountLabel)
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .font(theme.fonts.caption)
                                 .foregroundStyle(theme.colors.textTertiary)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
@@ -50,7 +50,7 @@ struct CodexSubagentRunInlineView: View {
                     }
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textTertiary)
                         .rotationEffect(.degrees(showsDetails ? 90 : 0))
                 }

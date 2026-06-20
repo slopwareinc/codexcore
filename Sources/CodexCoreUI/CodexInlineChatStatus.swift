@@ -14,7 +14,7 @@ struct CodexTurnWorkingBlock: View {
                     .foregroundStyle(theme.colors.textTertiary)
                     .lineLimit(1)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary.opacity(0.72))
             }
             .padding(.leading, 40)

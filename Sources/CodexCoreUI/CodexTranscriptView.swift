@@ -6,6 +6,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let activeTurn: CodexActiveTurnState?
     private let emptyContent: EmptyContent
 
+    @Environment(\.codexAgentTheme) private var theme
+
     public init(
         messages: [CodexChatMessage],
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
@@ -19,47 +21,41 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     public var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                if timelineItems.isEmpty {
-                    emptyContent
-                        .frame(maxWidth: .infinity, minHeight: 420)
-                        .padding(.horizontal, 28)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: CodexTheme.Space.xl) {
-                        ForEach(timelineItems) { item in
-                            switch item {
-                            case .message(let message):
-                                CodexMessageRow(message: message)
-                                    .id(item.id)
-                            case .assistantTurn(let messages, let lifecycleEvents):
-                                CodexAssistantTurnGroupView(messages: messages, lifecycleEvents: lifecycleEvents)
-                                    .id(item.id)
-                            case .lifecycle(let event):
-                                CodexAgentLifecycleBlock(event: event)
-                                    .id(item.id)
-                            }
-                        }
-                        if let activeTurn {
-                            CodexTurnWorkingBlock(state: activeTurn)
-                                .id("active-turn")
-                        }
-                        Color.clear.frame(height: 8).id(Self.bottomAnchor)
-                    }
+        ScrollView {
+            if timelineItems.isEmpty {
+                emptyContent
+                    .frame(maxWidth: .infinity, minHeight: 420)
                     .padding(.horizontal, 28)
-                    .padding(.top, 24)
-                    .padding(.bottom, 28)
-                    .frame(maxWidth: 860, alignment: .leading)
-                    .frame(maxWidth: .infinity)
+            } else {
+                LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
+                    ForEach(timelineItems) { item in
+                        switch item {
+                        case .message(let message):
+                            CodexMessageRow(message: message)
+                                .id(item.id)
+                        case .assistantTurn(let messages, let lifecycleEvents):
+                            CodexAssistantTurnGroupView(messages: messages, lifecycleEvents: lifecycleEvents)
+                                .id(item.id)
+                        case .lifecycle(let event):
+                            CodexAgentLifecycleBlock(event: event)
+                                .id(item.id)
+                        }
+                    }
+                    if let activeTurn {
+                        CodexTurnWorkingBlock(state: activeTurn)
+                            .id("active-turn")
+                    }
+                    Color.clear.frame(height: 8)
                 }
-            }
-            .scrollContentBackground(.hidden)
-            .onChange(of: timelineItems.count) { _, _ in scroll(proxy, animated: true) }
-            .onChange(of: messages.last?.text) { _, _ in scroll(proxy, animated: false) }
-            .onChange(of: activeTurn != nil) { _, isActive in
-                if isActive { scroll(proxy, animated: true) }
+                .padding(.horizontal, 28)
+                .padding(.top, 24)
+                .padding(.bottom, 28)
+                .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
         }
+        .scrollContentBackground(.hidden)
+        .defaultScrollAnchor(.bottom)
     }
 
     private enum TimelineItem: Identifiable {
@@ -124,18 +120,6 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         flushPending()
         return compacted
     }
-
-    private static var bottomAnchor: String { "transcript-bottom" }
-
-    private func scroll(_ proxy: ScrollViewProxy, animated: Bool) {
-        if animated {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-        }
-    }
 }
 
 public struct CodexAgentLifecycleBlock: View {
@@ -170,7 +154,7 @@ public struct CodexAgentLifecycleBlock: View {
                                     .lineLimit(1)
                                 if !event.agentNames.isEmpty {
                                     Text(agentCountLabel)
-                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .font(theme.fonts.caption)
                                         .foregroundStyle(theme.colors.textTertiary)
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
@@ -193,7 +177,7 @@ public struct CodexAgentLifecycleBlock: View {
                             .foregroundStyle(theme.colors.textTertiary)
 
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(theme.fonts.caption)
                             .foregroundStyle(theme.colors.textTertiary)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                             .opacity(isCollapsible ? 1 : 0.25)
@@ -218,9 +202,9 @@ public struct CodexAgentLifecycleBlock: View {
                                 ForEach(event.agentNames, id: \.self) { name in
                                     HStack(spacing: 5) {
                                         Image(systemName: "person.crop.circle.badge.checkmark")
-                                            .font(.system(size: 10, weight: .semibold))
+                                            .font(theme.fonts.caption)
                                         Text(name)
-                                            .font(.system(size: 11.5, weight: .medium))
+                                            .font(theme.fonts.caption)
                                     }
                                     .foregroundStyle(theme.colors.textSecondary)
                                     .padding(.horizontal, 9)
@@ -241,7 +225,7 @@ public struct CodexAgentLifecycleBlock: View {
                 RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                     .stroke(theme.colors.border, lineWidth: 1)
             )
-            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
         }
     }
 
@@ -377,7 +361,7 @@ public struct CodexAssistantTurnGroupView: View {
                     assistantContent(primaryMessage)
                 }
             }
-            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
         }
     }
 
@@ -430,7 +414,7 @@ public struct CodexAgentRow<Content: View>: View {
                 Circle()
                     .fill(theme.colors.surfaceElevated)
                     .frame(width: 28, height: 28)
-                    .overlay(Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 11)))
+                    .overlay(Image(systemName: "point.3.connected.trianglepath.dotted").font(theme.fonts.caption))
                     .foregroundStyle(theme.colors.textTertiary)
                     .padding(.top, 2)
             }
@@ -473,7 +457,7 @@ public struct CodexAssistantMessageView: View {
                 CodexAssistantContentView(blocks: message.renderBlocks)
             }
         }
-        .frame(maxWidth: 640, alignment: .leading)
+        .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
     }
 }
 
@@ -537,7 +521,7 @@ public struct CodexUserMessageView: View {
                     RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
                         .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
                 )
-                .frame(maxWidth: 560, alignment: .trailing)
+                .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
         }
     }
 }
@@ -555,7 +539,7 @@ public struct CodexSystemMessageView: View {
         HStack {
             Spacer()
             Label(text, systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.warning)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -600,7 +584,7 @@ public struct CodexThinkingShimmer: View {
     public init() {}
 
     public var body: some View {
-        RoundedRectangle(cornerRadius: 6)
+        RoundedRectangle(cornerRadius: theme.radii.small)
             .fill(
                 LinearGradient(
                     colors: [theme.colors.textSecondary.opacity(0.18), theme.colors.textSecondary.opacity(0.35), theme.colors.textSecondary.opacity(0.18)],
@@ -644,12 +628,12 @@ public struct CodexEmptyTranscriptView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: suggestion.systemImage)
-                                .font(.system(size: 13))
+                                .font(theme.fonts.chat)
                                 .foregroundStyle(theme.colors.accent)
                                 .frame(width: 18)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(suggestion.prompt)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(theme.fonts.chat)
                                     .foregroundStyle(theme.colors.textPrimary)
                                     .multilineTextAlignment(.leading)
                                 if let detail = suggestion.detail {
@@ -661,7 +645,7 @@ public struct CodexEmptyTranscriptView: View {
                             }
                             Spacer(minLength: 0)
                             Image(systemName: "arrow.up.left")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(theme.fonts.caption)
                                 .foregroundStyle(theme.colors.textTertiary)
                         }
                         .padding(.horizontal, 14)
