@@ -8,49 +8,100 @@ import UIKit
 #endif
 
 /// Renders parsed assistant content blocks: prose, code blocks, and inline images.
+///
+/// The view is split into a cached `CodexBlock` projection (the new
+/// fast path) and a fallback `AssistantRenderBlock` path for callers
+/// that pre-parsed their content. Both paths render through the same
+/// block views in `CodexBlockView`, so scroll-back is always an O(1)
+/// cache hit.
 public struct CodexAssistantContentView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    private let blocks: [AssistantRenderBlock]
+    private let blocks: [CodexBlock]
+    private let cacheNamespace: String
 
-    public init(blocks: [AssistantRenderBlock]) {
-        self.blocks = blocks
+    public init(blocks: [AssistantRenderBlock], cacheNamespace: String? = nil) {
+        let namespace = cacheNamespace ?? UUID().uuidString
+        self.cacheNamespace = namespace
+        // Map pre-parsed render blocks to the new projector's block
+        // type. Code and image blocks stay as-is; markdown blocks are
+        // re-projected so we get streaming-aware caching, tables, and
+        // headings for free.
+        self.blocks = blocks.enumerated().flatMap { index, block in
+            switch block {
+            case .markdown(let markdown):
+                return CodexBlockProjector.project(
+                    markdown,
+                    previous: nil,
+                    streaming: false,
+                    cacheNamespace: "\(namespace):legacy:\(index)"
+                )
+            case .codeBlock(let language, let code):
+                return [CodexBlock.code(id: "\(namespace):legacy:\(index)", language: language, code: code, complete: true)]
+            case .inlineImage:
+                return [CodexBlock.htmlFallback(id: "\(namespace):legacy:\(index)", text: "[inline image]")]
+            }
+        }
     }
+
+    /// Direct-from-text initializer. Preferred for streaming
+    /// assistant messages because it lets the projector reuse the
+    /// previous block list and only re-parse the live tail.
+    public init(text: String, isStreaming: Bool, cacheNamespace: String, previous: [CodexBlock]? = nil) {
+        self.cacheNamespace = cacheNamespace
+        self.blocks = CodexBlockProjector.project(
+            text,
+            previous: previous,
+            streaming: isStreaming,
+            cacheNamespace: cacheNamespace
+        )
+    }
+
+    public init(projectedBlocks: [CodexBlock], cacheNamespace: String) {
+        self.blocks = projectedBlocks
+        self.cacheNamespace = cacheNamespace
+    }
+
+    /// Exposed so callers streaming a single assistant message can
+    /// pass the previous block list back in on the next delta. This
+    /// is what makes tail-only re-parsing work.
+    public var projectedBlocks: [CodexBlock] { blocks }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: theme.spacing.rowGap) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .markdown(let markdown):
-                    CodexMarkdownText(markdown)
-                case .codeBlock(let language, let code):
-                    CodexCodeBlock(language: language, code: code)
-                case .inlineImage:
-                    Label("Inline image", systemImage: "photo")
-                        .font(.callout)
-                        .foregroundStyle(theme.colors.textSecondary)
-                }
+            ForEach(blocks) { block in
+                CodexBlockView(block: block)
+                    .equatable()
+                    .id(block.id)
             }
         }
     }
 }
 
 /// Chat-tuned GitHub Flavored Markdown renderer.
+///
+/// Kept for backwards compatibility with callers that hold a raw
+/// markdown string. New callers should prefer
+/// `CodexAssistantContentView(text:isStreaming:cacheNamespace:)` so
+/// the projector can do tail-only streaming updates.
 public struct CodexMarkdownText: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let raw: String
+    private let cacheID: String
 
-    public init(_ raw: String) {
+    public init(_ raw: String, cacheID: String? = nil) {
         self.raw = raw
+        self.cacheID = cacheID ?? UUID().uuidString
     }
 
     public var body: some View {
-        CodexMarkdownView(raw)
-            .font(theme.fonts.chat)
-            .foregroundStyle(theme.colors.textPrimary)
-            .lineSpacing(3)
-            .fixedSize(horizontal: false, vertical: true)
+        CodexAssistantContentView(
+            text: raw,
+            isStreaming: false,
+            cacheNamespace: cacheID
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -87,7 +138,6 @@ public struct CodexCodeBlock: View {
                 Text(code)
                     .font(theme.fonts.code)
                     .foregroundStyle(theme.colors.codeText)
-                    .textSelection(.enabled)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -169,7 +219,6 @@ public struct CodexCommandCard: View {
                     Text(outputText)
                         .font(theme.fonts.code)
                         .foregroundStyle(hasOutput ? theme.colors.codeText : theme.colors.codeFaint)
-                        .textSelection(.enabled)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -276,7 +325,6 @@ public struct CodexReasoningCard: View {
                 Text(displayText)
                     .font(theme.fonts.code)
                     .foregroundStyle(hasText ? theme.colors.codeText : theme.colors.codeFaint)
-                    .textSelection(.enabled)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

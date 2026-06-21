@@ -1,8 +1,7 @@
 import SwiftUI
 
 public struct CodexTranscriptView<EmptyContent: View>: View {
-    private let messages: [CodexChatMessage]
-    private let lifecycleEvents: [CodexAgentLifecycleEvent]
+    private let timelineItems: [CodexTranscriptTimelineItem]
     private let activeTurn: CodexActiveTurnState?
     private let emptyContent: EmptyContent
 
@@ -14,8 +13,10 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         activeTurn: CodexActiveTurnState? = nil,
         @ViewBuilder emptyContent: () -> EmptyContent
     ) {
-        self.messages = messages
-        self.lifecycleEvents = lifecycleEvents
+        self.timelineItems = CodexTranscriptTimelineBuilder.build(
+            messages: messages,
+            lifecycleEvents: lifecycleEvents
+        )
         self.activeTurn = activeTurn
         self.emptyContent = emptyContent()
     }
@@ -33,9 +34,43 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                         case .message(let message):
                             CodexMessageRow(message: message)
                                 .id(item.id)
-                        case .assistantTurn(let messages, let lifecycleEvents):
-                            CodexAssistantTurnGroupView(messages: messages, lifecycleEvents: lifecycleEvents)
-                                .id(item.id)
+                        case .assistantTurnHeader(_, let name):
+                            CodexAgentRow(showAvatar: true) {
+                                Text(name)
+                                    .font(theme.fonts.label)
+                                    .foregroundStyle(theme.colors.textSecondary)
+                                    .padding(.bottom, 2)
+                            }
+                            .id(item.id)
+                        case .assistantLifecycle(_, let events):
+                            CodexAgentRow(visibility: .hidden) {
+                                CodexSubagentRunInlineView(events: events)
+                            }
+                            .id(item.id)
+                        case .assistantBlock(_, let block):
+                            CodexAgentRow(visibility: .hidden) {
+                                CodexBlockView(block: block)
+                                    .equatable()
+                            }
+                            .id(item.id)
+                        case .assistantStreamingWorking(_, let text, let isEmpty):
+                            CodexAgentRow(visibility: .hidden) {
+                                HStack(alignment: .bottom, spacing: 9) {
+                                    if isEmpty {
+                                        CodexThinkingShimmer()
+                                    } else {
+                                        Text(verbatim: text)
+                                            .font(theme.fonts.chat)
+                                            .foregroundStyle(theme.colors.textPrimary)
+                                            .lineSpacing(3)
+                                            .multilineTextAlignment(.leading)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    CodexWorkingSpinnerBadge()
+                                        .padding(.bottom, isEmpty ? 1 : 2)
+                                }
+                            }
+                            .id(item.id)
                         case .lifecycle(let event):
                             CodexAgentLifecycleBlock(event: event)
                                 .id(item.id)
@@ -56,69 +91,6 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         }
         .scrollContentBackground(.hidden)
         .defaultScrollAnchor(.bottom)
-    }
-
-    private enum TimelineItem: Identifiable {
-        case message(CodexChatMessage)
-        case assistantTurn(messages: [CodexChatMessage], lifecycleEvents: [CodexAgentLifecycleEvent])
-        case lifecycle(CodexAgentLifecycleEvent)
-
-        var id: String {
-            switch self {
-            case .message(let message): return "message-\(message.id.uuidString)"
-            case .assistantTurn(let messages, let lifecycleEvents):
-                if let message = messages.first { return "assistant-turn-\(message.id.uuidString)" }
-                if let event = lifecycleEvents.first { return "assistant-turn-lifecycle-\(event.id.uuidString)" }
-                return "assistant-turn-empty"
-            case .lifecycle(let event): return "lifecycle-\(event.id.uuidString)"
-            }
-        }
-
-        var createdAt: Date {
-            switch self {
-            case .message(let message): return message.createdAt
-            case .assistantTurn(let messages, let lifecycleEvents):
-                return [messages.first?.createdAt, lifecycleEvents.first?.createdAt]
-                    .compactMap { $0 }
-                    .min() ?? Date()
-            case .lifecycle(let event): return event.createdAt
-            }
-        }
-    }
-
-    private var timelineItems: [TimelineItem] {
-        compactAssistantTurns(
-            (messages.map(TimelineItem.message) + lifecycleEvents.map(TimelineItem.lifecycle))
-            .sorted { lhs, rhs in lhs.createdAt < rhs.createdAt }
-        )
-    }
-
-    private func compactAssistantTurns(_ items: [TimelineItem]) -> [TimelineItem] {
-        var compacted: [TimelineItem] = []
-        var pendingAssistantMessages: [CodexChatMessage] = []
-        var pendingLifecycleEvents: [CodexAgentLifecycleEvent] = []
-
-        func flushPending() {
-            guard !pendingAssistantMessages.isEmpty || !pendingLifecycleEvents.isEmpty else { return }
-            compacted.append(.assistantTurn(messages: pendingAssistantMessages, lifecycleEvents: pendingLifecycleEvents))
-            pendingAssistantMessages = []
-            pendingLifecycleEvents = []
-        }
-
-        for item in items {
-            switch item {
-            case .message(let message) where message.role == .assistant:
-                pendingAssistantMessages.append(message)
-            case .lifecycle(let event):
-                pendingLifecycleEvents.append(event)
-            default:
-                flushPending()
-                compacted.append(item)
-            }
-        }
-
-        flushPending()
-        return compacted
     }
 }
 
@@ -193,7 +165,6 @@ public struct CodexAgentLifecycleBlock: View {
                             Text(event.detail)
                                 .font(theme.fonts.chat)
                                 .foregroundStyle(theme.colors.textTertiary)
-                                .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
 
@@ -387,10 +358,27 @@ public struct CodexAssistantTurnGroupView: View {
                     .padding(.bottom, message.text.isEmpty ? 1 : 2)
             }
         } else {
-            CodexAssistantContentView(blocks: message.renderBlocks)
+            if let projected = message.projectedBlocks {
+                CodexAssistantContentView(
+                    projectedBlocks: projected,
+                    cacheNamespace: message.id.uuidString
+                )
+            } else {
+                CodexAssistantContentView(
+                    text: message.text,
+                    isStreaming: false,
+                    cacheNamespace: message.id.uuidString
+                )
+            }
         }
     }
 
+}
+
+public enum CodexAgentAvatarVisibility {
+    case visible
+    case placeholder
+    case hidden
 }
 
 /// Left-aligned agent row with the Codex avatar.
@@ -398,24 +386,34 @@ public struct CodexAgentRow<Content: View>: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let content: Content
-    private let showAvatar: Bool
+    private let visibility: CodexAgentAvatarVisibility
 
-    public init(showAvatar: Bool = true, @ViewBuilder content: () -> Content) {
-        self.showAvatar = showAvatar
+    public init(visibility: CodexAgentAvatarVisibility = .visible, @ViewBuilder content: () -> Content) {
+        self.visibility = visibility
+        self.content = content()
+    }
+
+    public init(showAvatar: Bool, @ViewBuilder content: () -> Content) {
+        self.visibility = showAvatar ? .visible : .placeholder
         self.content = content()
     }
 
     public var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            if showAvatar {
+            switch visibility {
+            case .visible:
                 CodexBrandMark(size: 28)
                     .padding(.top, 2)
-            } else {
+            case .placeholder:
                 Circle()
                     .fill(theme.colors.surfaceElevated)
                     .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
                     .overlay(Image(systemName: "point.3.connected.trianglepath.dotted").font(theme.fonts.caption))
                     .foregroundStyle(theme.colors.textTertiary)
+                    .padding(.top, 2)
+            case .hidden:
+                Color.clear
+                    .frame(width: 28, height: 28)
                     .padding(.top, 2)
             }
             content
@@ -454,7 +452,18 @@ public struct CodexAssistantMessageView: View {
                         .padding(.bottom, message.text.isEmpty ? 1 : 2)
                 }
             } else {
-                CodexAssistantContentView(blocks: message.renderBlocks)
+                if let projected = message.projectedBlocks {
+                    CodexAssistantContentView(
+                        projectedBlocks: projected,
+                        cacheNamespace: message.id.uuidString
+                    )
+                } else {
+                    CodexAssistantContentView(
+                        text: message.text,
+                        isStreaming: false,
+                        cacheNamespace: message.id.uuidString
+                    )
+                }
             }
         }
         .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
@@ -490,7 +499,6 @@ private struct StreamingAssistantText: View {
             .foregroundStyle(theme.colors.textPrimary)
             .lineSpacing(3)
             .multilineTextAlignment(.leading)
-            .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -512,7 +520,6 @@ public struct CodexUserMessageView: View {
                 .foregroundStyle(theme.colors.textPrimary)
                 .lineSpacing(3)
                 .multilineTextAlignment(.leading)
-                .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
