@@ -393,6 +393,14 @@ final class CodexChatModel {
         }
     }
 
+    func prepareAutomationChat(prompt: String) async {
+        sidebarNavigationSession.selectRoute(.chat)
+        clearThreadState()
+        composerSession.draft = prompt
+        appendActivity(.notice, title: "Automation draft", detail: "Prepared automation chat")
+        await refreshRecentChats()
+    }
+
     func dismissSearchRoute() {
         sidebarNavigationSession.dismissSearchOverlay()
     }

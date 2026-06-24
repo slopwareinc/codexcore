@@ -83,7 +83,7 @@ struct CodexExampleProjectSidebar: View {
             SidebarCommandRow(
                 systemImage: CodexAppRoute.search.systemImage,
                 title: CodexAppRoute.search.title,
-                shortcut: "⌘K",
+                shortcut: "⌘G",
                 isSelected: snapshot.selectedRoute == .search,
                 isCollapsed: snapshot.isCollapsed,
                 action: onOpenSearch
@@ -307,13 +307,24 @@ private struct ProjectSidebarGroupView: View {
                     }
 
                     if group.hasProjectActionsEntry {
-                        Button {
-                            onProjectActions(group.project.workspacePath)
+                        Menu {
+                            Button {
+                                onStartProjectChat(group.project.workspacePath)
+                            } label: {
+                                Label("New chat", systemImage: "square.and.pencil")
+                            }
+
+                            Button {
+                                onSelectProject(group.project.workspacePath)
+                            } label: {
+                                Label("Select project", systemImage: "folder")
+                            }
                         } label: {
                             Image(systemName: "ellipsis")
                                 .font(.system(size: 11, weight: .bold))
                                 .frame(width: 20, height: 30)
                         }
+                        .menuStyle(.borderlessButton)
                         .buttonStyle(.plain)
                         .foregroundStyle(theme.colors.textTertiary)
                         .help("Project actions")

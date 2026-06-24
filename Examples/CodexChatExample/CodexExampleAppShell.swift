@@ -7,6 +7,7 @@ struct CodexExampleAppShell: View {
     @Bindable var model: CodexChatModel
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
+    @State private var isMobilePermissionGatePresented = false
     @State private var renameDraft = ""
 
     var body: some View {
@@ -125,13 +126,19 @@ struct CodexExampleAppShell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.themePreset.theme)
         case .automations:
-            CodexRoutePlaceholder(route: .automations, detail: "No automations")
+            AutomationsRouteView { action in
+                guard let prompt = action.draftPrompt else { return }
+                Task { await model.prepareAutomationChat(prompt: prompt) }
+            }
                 .codexAgentTheme(model.themePreset.theme)
         case .codexMobile:
-            CodexRoutePlaceholder(route: .codexMobile, detail: "No mobile pairing")
+            CodexMobileRouteView(
+                isPermissionGatePresented: $isMobilePermissionGatePresented,
+                onAllow: { isMobilePermissionGatePresented = false }
+            )
                 .codexAgentTheme(model.themePreset.theme)
         case .settingsAbout:
-            CodexRoutePlaceholder(route: .settingsAbout, detail: model.serverName ?? "Codex")
+            SettingsAboutRouteView(serverName: model.serverName)
                 .codexAgentTheme(model.themePreset.theme)
         }
     }
@@ -229,26 +236,295 @@ struct CodexExampleAppShell: View {
     }
 }
 
-private struct CodexRoutePlaceholder: View {
+private struct AutomationsRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let route: CodexAppRoute
-    let detail: String
+    let onAction: (CodexAutomationRouteAction) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 10) {
+                Image(systemName: CodexAppRoute.automations.systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+                Text("Automations")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Spacer(minLength: 0)
+                Button {
+                    onAction(.createViaChat)
+                } label: {
+                    Label("Create via chat", systemImage: "plus.bubble")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Run chats on a schedule or whenever you need them.")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+
+            HStack(spacing: 8) {
+                Text("View templates")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(theme.colors.surfaceElevated.opacity(0.8), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+
+                Button {
+                    onAction(.createViaChat)
+                } label: {
+                    Text("Create via chat")
+                        .font(theme.fonts.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textSecondary)
+
+                Spacer(minLength: 0)
+
+                Button {} label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textTertiary)
+                .disabled(true)
+                .help("New automation options")
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Create your first automation")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+
+                HStack(spacing: 10) {
+                    ForEach(CodexAutomationTemplate.allCases) { template in
+                        AutomationTemplateButton(template: template) {
+                            onAction(.template(template))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.colors.surface)
+    }
+}
+
+private struct AutomationTemplateButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let template: CodexAutomationTemplate
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: template.systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+                Text(template.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(template.isDraftBacked ? theme.colors.textPrimary : theme.colors.textTertiary)
+                    .lineLimit(1)
+            }
+            .padding(12)
+            .frame(width: 156, height: 82, alignment: .leading)
+            .background(theme.colors.surfaceElevated.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(theme.colors.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!template.isDraftBacked)
+        .help(template.title)
+    }
+}
+
+private struct CodexMobileRouteView: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    @Binding var isPermissionGatePresented: Bool
+    let onAllow: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Connect your phone to this Mac")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("Keep working with Codex from your phone, or other device")
+                    .font(.system(size: 14))
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    MobileBenefitRow(systemImage: "arrow.triangle.2.circlepath", title: "Pick up where you left off")
+                    MobileBenefitRow(systemImage: "bell", title: "Stay in the loop")
+                    MobileBenefitRow(systemImage: "sparkles", title: "Start something new")
+
+                    Text("Codex will access your desktop (files, apps, and browser) to complete tasks you send from your phone. This may have security risks. Only connect devices that you own and trust.")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        isPermissionGatePresented = true
+                    } label: {
+                        Text("Get started")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: 420, alignment: .leading)
+
+                PhoneMockView()
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.colors.surface)
+        .sheet(isPresented: $isPermissionGatePresented) {
+            MobilePermissionGate(onCancel: { isPermissionGatePresented = false }, onAllow: onAllow)
+                .codexAgentTheme(theme)
+        }
+    }
+}
+
+private struct MobileBenefitRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let systemImage: String
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(theme.colors.accent)
+                .frame(width: 18)
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(theme.colors.textPrimary)
+        }
+    }
+}
+
+private struct PhoneMockView: View {
+    @Environment(\.codexAgentTheme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Circle()
+                    .fill(theme.colors.success)
+                    .frame(width: 8, height: 8)
+                Text("Codex")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+            }
+            .foregroundStyle(theme.colors.textPrimary)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("Projects")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textTertiary)
+                Text("CodexCore")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("Chats")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textTertiary)
+                Text("Continue release plan")
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+        }
+        .padding(18)
+        .frame(width: 190, height: 300, alignment: .topLeading)
+        .background(theme.colors.surfaceElevated.opacity(0.82), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(theme.colors.border, lineWidth: 1)
+        )
+    }
+}
+
+private struct MobilePermissionGate: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let onCancel: () -> Void
+    let onAllow: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Set up Codex Mobile")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+            Text("Allow devices to control this computer?")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+            Text("This will allow authorized devices like your phone to discover and control Codex on this computer")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Allow", action: onAllow)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .background(theme.colors.surface)
+    }
+}
+
+private struct SettingsAboutRouteView: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let serverName: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: route.systemImage)
+                Image(systemName: CodexAppRoute.settingsAbout.systemImage)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(theme.colors.textSecondary)
-                Text(route.title)
+                Text("Settings")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
             }
 
-            Text(detail)
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textTertiary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("About Codex")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("Codex")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(theme.colors.textSecondary)
+                Text("Version 26.616.81150 • Released Jun 24, 2026")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                Text("© OpenAI")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+            .padding(14)
+            .background(theme.colors.surfaceElevated.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(theme.colors.border, lineWidth: 1)
+            )
+
+            if let serverName {
+                Text(serverName)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
