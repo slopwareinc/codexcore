@@ -138,7 +138,7 @@ public struct CodexComposerBar: View {
                 }
             }
             .padding(10)
-            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         }
         .onAppear { focused = true }
         .onChange(of: mentionQuery) { _, query in
@@ -387,6 +387,8 @@ private struct ComposerChipLabel: View {
     let title: String?
 
     var body: some View {
+        let chipShape = RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+
         HStack(spacing: title == nil ? 0 : 6) {
             Image(systemName: systemImage)
                 .font(theme.fonts.caption)
@@ -399,9 +401,9 @@ private struct ComposerChipLabel: View {
         .foregroundStyle(theme.colors.textSecondary)
         .frame(minWidth: title == nil ? 28 : 0, minHeight: 28)
         .padding(.horizontal, title == nil ? 0 : 10)
-        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: Capsule())
-        .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
-        .contentShape(Capsule())
+        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: chipShape)
+        .overlay(chipShape.stroke(theme.colors.border, lineWidth: 1))
+        .contentShape(chipShape)
     }
 }
 

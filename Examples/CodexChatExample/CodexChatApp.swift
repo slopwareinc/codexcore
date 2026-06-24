@@ -43,6 +43,7 @@ final class CodexChatApp: NSObject, NSApplicationDelegate {
 
     @objc private func newWindow(_ sender: Any?) {
         showMainWindow()
+        Task { await model.startNewChat() }
     }
 
     @objc private func showSettings(_ sender: Any?) {
@@ -98,7 +99,7 @@ final class CodexChatApp: NSObject, NSApplicationDelegate {
         let fileItem = NSMenuItem()
         mainMenu.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
-        let newWindowItem = NSMenuItem(title: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
+        let newWindowItem = NSMenuItem(title: "New Chat", action: #selector(newWindow(_:)), keyEquivalent: "n")
         newWindowItem.target = self
         fileMenu.addItem(newWindowItem)
         fileItem.submenu = fileMenu

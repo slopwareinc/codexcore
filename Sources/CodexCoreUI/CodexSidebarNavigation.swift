@@ -186,6 +186,14 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         selectRoute(.chat)
     }
 
+    public mutating func startNewChat(workspacePath: String) {
+        let normalized = CodexProjectSummary.normalizedPath(workspacePath)
+        selectedProjectPath = normalized
+        selectedThreadID = nil
+        expandedProjectIDs.insert(normalized)
+        selectRoute(.chat)
+    }
+
     public mutating func selectChat(_ threadID: String, workspacePath: String?) {
         selectedThreadID = threadID
         if let workspacePath, !workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

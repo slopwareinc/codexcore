@@ -1,6 +1,30 @@
 import SwiftUI
 import CodexCore
 
+public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
+    public var availableWidth: CGFloat
+
+    public init(availableWidth: CGFloat) {
+        self.availableWidth = max(0, availableWidth)
+    }
+
+    public var usesFloatingSummaryPanel: Bool {
+        availableWidth >= 1_040
+    }
+
+    public var usesPersistentSidePanel: Bool {
+        availableWidth >= 980
+    }
+
+    public var usesOverlaySummaryPanel: Bool {
+        !usesFloatingSummaryPanel
+    }
+
+    public var usesOverlaySidePanel: Bool {
+        !usesPersistentSidePanel
+    }
+}
+
 /// A complete reusable Codex chat workspace: transcript, header, composer, and agent panels.
 public struct CodexChatWorkspaceView: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -52,6 +76,7 @@ public struct CodexChatWorkspaceView: View {
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
     @State private var isAgentPanelOpen = false
     @State private var isSummaryPanelOpen = true
+    @State private var isCompactSummaryPanelPresented = false
     @State private var selectedPanelTabID: String?
     @State private var agentPanelWidth: CGFloat = CodexAgentTheme.officialDark.spacing.sidePanelWidth
 
@@ -150,30 +175,50 @@ public struct CodexChatWorkspaceView: View {
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            mainColumn
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { proxy in
+            let panelState = CodexWorkspaceResponsivePanelState(availableWidth: proxy.size.width)
 
-            if isAgentPanelOpen, !panelTabs.isEmpty {
-                CodexAgentSidePanel(
-                    tabs: panelTabs,
-                    selectedTabID: $selectedPanelTabID,
-                    width: $agentPanelWidth,
-                    sideChatDraft: $sideChatDraft,
-                    isSideChatSending: isSideChatSending,
-                    canSendSideChatMessage: canSendSideChatMessage,
-                    onSendSideChatMessage: onSendSideChatMessage,
-                    onInterruptSideChatMessage: onInterruptSideChatMessage,
-                    onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { isAgentPanelOpen = false } }
-                )
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+            ZStack(alignment: .trailing) {
+                HStack(spacing: 0) {
+                    mainColumn(panelState: panelState)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if panelState.usesPersistentSidePanel, isAgentPanelOpen, !panelTabs.isEmpty {
+                        agentSidePanel(resizable: true)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+                }
+
+                if panelState.usesOverlaySummaryPanel, isCompactSummaryPanelPresented {
+                    compactOverlayBackdrop {
+                        isCompactSummaryPanelPresented = false
+                    }
+                    .transition(.opacity)
+
+                    floatingSummaryPanel
+                        .padding(.top, 58)
+                        .padding(.trailing, 16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+                }
+
+                if panelState.usesOverlaySidePanel, isAgentPanelOpen, !panelTabs.isEmpty {
+                    compactOverlayBackdrop {
+                        isAgentPanelOpen = false
+                    }
+                    .transition(.opacity)
+
+                    agentSidePanel(resizable: false)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isAgentPanelOpen)
+        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .background(theme.colors.canvas.opacity(0.001))
     }
 
-    private var mainColumn: some View {
+    private func mainColumn(panelState: CodexWorkspaceResponsivePanelState) -> some View {
         ZStack(alignment: .topTrailing) {
             CodexTranscriptView(
                 messages: messages,
@@ -197,15 +242,13 @@ public struct CodexChatWorkspaceView: View {
                     workspacePath: workspacePath,
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
-                    isSummaryPanelOpen: isSummaryPanelOpen,
+                    isSummaryPanelOpen: panelState.usesFloatingSummaryPanel ? isSummaryPanelOpen : isCompactSummaryPanelPresented,
                     hasPanelTabs: !panelTabs.isEmpty,
                     isPanelOpen: isAgentPanelOpen,
                     chatActions: workspaceChatActions,
                     onToggleSidebar: onToggleSidebar,
                     onToggleSummaryPanel: {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                            isSummaryPanelOpen.toggle()
-                        }
+                        toggleSummaryPanel(panelState: panelState)
                     },
                     onTogglePanel: toggleAgentPanel,
                     onDisconnect: onDisconnect
@@ -247,18 +290,8 @@ public struct CodexChatWorkspaceView: View {
                 .padding(.bottom, 10)
             }
 
-            if isSummaryPanelOpen {
-                CodexFloatingSummaryPanel(
-                    sideChat: sideChat,
-                    subagents: subagents,
-                    workspaceSummary: workspaceSummary,
-                    gitReviewSession: gitReviewSession,
-                    chatTitle: chatTitle,
-                    onEnvironmentHandoffCompletion: { completion in
-                        onEnvironmentHandoffCompletion?(completion)
-                    },
-                    onSelectTab: openPanelTab
-                )
+            if panelState.usesFloatingSummaryPanel, isSummaryPanelOpen {
+                floatingSummaryPanel
                 .padding(.top, 58)
                 .padding(.trailing, 16)
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
@@ -298,8 +331,43 @@ public struct CodexChatWorkspaceView: View {
         return actions
     }
 
+    private var floatingSummaryPanel: some View {
+        CodexFloatingSummaryPanel(
+            sideChat: sideChat,
+            subagents: subagents,
+            workspaceSummary: workspaceSummary,
+            gitReviewSession: gitReviewSession,
+            chatTitle: chatTitle,
+            onEnvironmentHandoffCompletion: { completion in
+                onEnvironmentHandoffCompletion?(completion)
+            },
+            onSelectTab: openPanelTab
+        )
+    }
+
+    private func agentSidePanel(resizable: Bool) -> some View {
+        CodexAgentSidePanel(
+            tabs: panelTabs,
+            selectedTabID: $selectedPanelTabID,
+            width: resizable ? $agentPanelWidth : .constant(theme.spacing.sidePanelWidth),
+            sideChatDraft: $sideChatDraft,
+            isSideChatSending: isSideChatSending,
+            canSendSideChatMessage: canSendSideChatMessage,
+            onSendSideChatMessage: onSendSideChatMessage,
+            onInterruptSideChatMessage: onInterruptSideChatMessage,
+            onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { isAgentPanelOpen = false } }
+        )
+    }
+
+    private func compactOverlayBackdrop(onDismiss: @escaping () -> Void) -> some View {
+        theme.colors.canvas.opacity(0.42)
+            .ignoresSafeArea()
+            .onTapGesture(perform: onDismiss)
+    }
+
     private func openPanelTab(_ id: String) {
         selectedPanelTabID = id
+        isCompactSummaryPanelPresented = false
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             isAgentPanelOpen = true
         }
@@ -309,6 +377,16 @@ public struct CodexChatWorkspaceView: View {
         if selectedPanelTabID == nil { selectedPanelTabID = panelTabs.first?.id }
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             isAgentPanelOpen.toggle()
+        }
+    }
+
+    private func toggleSummaryPanel(panelState: CodexWorkspaceResponsivePanelState) {
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            if panelState.usesFloatingSummaryPanel {
+                isSummaryPanelOpen.toggle()
+            } else {
+                isCompactSummaryPanelPresented.toggle()
+            }
         }
     }
 }

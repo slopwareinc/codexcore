@@ -333,6 +333,22 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertTrue(session.expandedProjectIDs.contains("/tmp/Other"))
     }
 
+    func testSidebarStartNewChatReturnsToChatRouteAndClearsThreadSelection() {
+        var session = CodexSidebarNavigationSession(
+            currentWorkspacePath: "/tmp/CodexCore",
+            selectedThreadID: "thread-current"
+        )
+
+        session.selectRoute(.settingsAbout)
+        session.startNewChat(workspacePath: "/tmp/CodexCore")
+
+        XCTAssertEqual(session.selectedRoute, .chat)
+        XCTAssertEqual(session.lastContentRoute, .chat)
+        XCTAssertEqual(session.selectedProjectPath, "/tmp/CodexCore")
+        XCTAssertNil(session.selectedThreadID)
+        XCTAssertTrue(session.expandedProjectIDs.contains("/tmp/CodexCore"))
+    }
+
     func testSidebarSnapshotGroupsProjectsAndChildChatAffordances() {
         let chats = [
             CodexThreadSummary(

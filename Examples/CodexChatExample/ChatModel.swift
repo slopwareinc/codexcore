@@ -283,6 +283,7 @@ final class CodexChatModel {
         for activity in route.activities {
             appendActivity(activity)
         }
+        runtimeSession.append(route.noticeMessage)
     }
 
     func handleWorktreeHandoffCompletion(_ completion: CodexWorktreeHandoffCompletion) {
@@ -504,9 +505,9 @@ final class CodexChatModel {
     }
 
     func startNewChat() async {
-        guard codex != nil else { return }
-        sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+        sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
         clearThreadState()
+        guard codex != nil else { return }
         await refreshRecentChats()
     }
 

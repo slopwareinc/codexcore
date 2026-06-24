@@ -39,6 +39,22 @@ extension CodexAgentUITests {
         XCTAssertEqual(panel.tabs[1].messages, [])
     }
 
+    func testWorkspaceResponsivePanelStateSwitchesSummaryAndSidePanelModes() {
+        let wide = CodexWorkspaceResponsivePanelState(availableWidth: 1_180)
+
+        XCTAssertTrue(wide.usesFloatingSummaryPanel)
+        XCTAssertTrue(wide.usesPersistentSidePanel)
+        XCTAssertFalse(wide.usesOverlaySummaryPanel)
+        XCTAssertFalse(wide.usesOverlaySidePanel)
+
+        let narrow = CodexWorkspaceResponsivePanelState(availableWidth: 860)
+
+        XCTAssertFalse(narrow.usesFloatingSummaryPanel)
+        XCTAssertFalse(narrow.usesPersistentSidePanel)
+        XCTAssertTrue(narrow.usesOverlaySummaryPanel)
+        XCTAssertTrue(narrow.usesOverlaySidePanel)
+    }
+
     func testLifecycleFixtureModelsClosedSubagentsWithoutRuntimeDemoCode() {
         let fixture = AgentUIFixture.make()
 
