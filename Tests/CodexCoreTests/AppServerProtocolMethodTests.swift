@@ -52,6 +52,35 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.accountChatGPTAuthTokensRefresh))
     }
 
+    func testCurrentAppProtocolAdditionsArePresent() {
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.accountWorkspaceMessagesRead))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.externalAgentConfigImportReadHistories))
+
+        XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.externalAgentConfigImportProgress))
+        XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.modelSafetyBufferingUpdated))
+
+        XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.currentTimeRead))
+
+        XCTAssertEqual(
+            CodexAppServerSchemaInventory.notificationPayloadByMethod["externalAgentConfig/import/progress"]?.typeName,
+            "CodexSchemaExternalAgentConfigImportProgressNotification"
+        )
+        XCTAssertEqual(
+            CodexAppServerSchemaInventory.notificationPayloadByMethod["model/safetyBuffering/updated"]?.typeName,
+            "CodexSchemaModelSafetyBufferingUpdatedNotification"
+        )
+        XCTAssertEqual(
+            CodexAppServerSchemaInventory.serverRequestParamByMethod["currentTime/read"]?.definitionName,
+            "CurrentTimeReadParams"
+        )
+
+        let definitions = Set(CodexAppServerSchemaInventory.definitions.map(\.name))
+        XCTAssertTrue(definitions.contains("GetWorkspaceMessagesResponse"))
+        XCTAssertTrue(definitions.contains("ExternalAgentConfigImportProgressNotification"))
+        XCTAssertTrue(definitions.contains("LegacyAppPathString"))
+        XCTAssertTrue(definitions.contains("AmazonBedrockCredentialSource"))
+    }
+
     func testGeneratedSchemaTypeInventoryIsConsistent() {
         XCTAssertEqual(CodexAppServerSchemaInventory.definitions.count, CodexAppServerSchemaInventory.definitionCount)
         XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFiles.count, CodexAppServerSchemaInventory.v2SchemaFileCount)
@@ -120,5 +149,34 @@ final class AppServerProtocolMethodTests: XCTestCase {
         )
         XCTAssertGreaterThan(CodexAppServerSchemaInventory.generatedStructCount, 0)
         XCTAssertGreaterThan(CodexAppServerSchemaInventory.generatedEnumCount, 0)
+    }
+
+    func testCurrentAppSchemaAdditionsAreRealSwiftTypes() throws {
+        let appsConfigData = #"{"approvals_reviewer":"user","default_tools_approval_mode":"approve","enabled":true}"#.data(using: .utf8)!
+        let appsConfig = try JSONDecoder().decode(CodexSchemaAppsDefaultConfig.self, from: appsConfigData)
+        XCTAssertEqual(appsConfig.defaultToolsApprovalMode, .approve)
+
+        let workspaceMessagesData = #"{"featureEnabled":true,"messages":[{"messageBody":"Hello","messageId":"msg-1","messageType":"headline"}]}"#.data(using: .utf8)!
+        let workspaceMessages = try JSONDecoder().decode(CodexSchemaGetWorkspaceMessagesResponse.self, from: workspaceMessagesData)
+        XCTAssertTrue(workspaceMessages.featureEnabled)
+        XCTAssertEqual(workspaceMessages.messages.first?.messageID, "msg-1")
+        XCTAssertEqual(workspaceMessages.messages.first?.messageType, .headline)
+
+        let progressData = #"{"importId":"import-1","itemTypeResults":[{"failures":[],"itemType":"CONFIG","successes":[]}]}"#.data(using: .utf8)!
+        let progress = try JSONDecoder().decode(CodexSchemaExternalAgentConfigImportProgressNotification.self, from: progressData)
+        XCTAssertEqual(progress.importID, "import-1")
+        XCTAssertEqual(progress.itemTypeResults.first?.itemType, .cONFIG)
+
+        let bufferingData = #"{"model":"gpt-5.4","reasons":["safety"],"threadId":"thread-1","turnId":"turn-1","useCases":["chat"]}"#.data(using: .utf8)!
+        let buffering = try JSONDecoder().decode(CodexSchemaModelSafetyBufferingUpdatedNotification.self, from: bufferingData)
+        XCTAssertEqual(buffering.threadID, "thread-1")
+        XCTAssertEqual(buffering.reasons, ["safety"])
+
+        let permissions = CodexSchemaAdditionalFileSystemPermissions(
+            read: [CodexAppServerSchemaValue(.string("/tmp/project"))],
+            write: [CodexAppServerSchemaValue(.string("/tmp/project/out"))]
+        )
+        XCTAssertEqual(permissions.read, [CodexAppServerSchemaValue(.string("/tmp/project"))])
+        XCTAssertEqual(CodexSchemaAmazonBedrockCredentialSource.allCases, [.codexManaged, .awsManaged])
     }
 }

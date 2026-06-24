@@ -112,15 +112,27 @@ extension CodexClientTerminalTests {
             (.itemToolCall, .int(6), baseParams.merging(["tool": .string("client_tool"), "arguments": .dictionary([:])]) { _, new in new }, .dictionary(["contentItems": .array([]), "success": .bool(false)])),
             (.accountChatGPTAuthTokensRefresh, .int(7), ["reason": .string("unauthorized")], .dictionary([:])),
             (.attestationGenerate, .int(8), [:], .dictionary([:])),
-            (.applyPatchApproval, .int(9), ["conversationId": .string(threadId), "callId": .string("call-patch"), "fileChanges": .dictionary([:])], .dictionary([:])),
-            (.execCommandApproval, .int(10), ["conversationId": .string(threadId), "callId": .string("call-exec"), "command": .array([.string("echo"), .string("hi")]), "cwd": .string("/tmp"), "parsedCmd": .array([])], .dictionary([:]))
+            (.currentTimeRead, .int(9), ["threadId": .string(threadId)], .dictionary([:])),
+            (.applyPatchApproval, .int(10), ["conversationId": .string(threadId), "callId": .string("call-patch"), "fileChanges": .dictionary([:])], .dictionary([:])),
+            (.execCommandApproval, .int(11), ["conversationId": .string(threadId), "callId": .string("call-exec"), "command": .array([.string("echo"), .string("hi")]), "cwd": .string("/tmp"), "parsedCmd": .array([])], .dictionary([:]))
         ]
 
         XCTAssertEqual(cases.count, CodexAppServerProtocolInventory.serverRequestMethodCount)
 
         for (method, id, params, expectedResult) in cases {
+            let before = Int(Date().timeIntervalSince1970)
             let reply = try await sendServerRequest(method: method, id: id, params: params, transport: transport)
+            let after = Int(Date().timeIntervalSince1970)
             XCTAssertEqual(reply["id"], id)
+            if method == .currentTimeRead {
+                guard case .dictionary(let result)? = reply["result"],
+                      case .int(let currentTimeAt)? = result["currentTimeAt"] else {
+                    return XCTFail("Expected currentTime/read response")
+                }
+                XCTAssertGreaterThanOrEqual(currentTimeAt, before)
+                XCTAssertLessThanOrEqual(currentTimeAt, after)
+                continue
+            }
             XCTAssertEqual(reply["result"], expectedResult, "Unexpected default response for \(method.rawValue)")
         }
 

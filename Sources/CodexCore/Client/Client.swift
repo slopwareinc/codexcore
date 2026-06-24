@@ -832,6 +832,11 @@ public actor CodexClient {
                 "success": .bool(false)
             ])
 
+        case .currentTimeRead:
+            return .dictionary([
+                "currentTimeAt": .int(Int(Date().timeIntervalSince1970))
+            ])
+
         case .accountChatGPTAuthTokensRefresh, .attestationGenerate, .execCommandApproval, .applyPatchApproval:
             return .dictionary([:])
         }

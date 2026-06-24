@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Detects drift between the committed generated protocol files and the
-# app-server schema of the codex binary on PATH (or $CODEX_BINARY).
-# Exits non-zero when the generated files are stale; run Tools/regenerate.sh
-# to refresh them.
+# app-server schema of the selected codex binary. Selection order is
+# $CODEX_BINARY, $CODEX_BIN, embedded /Applications/Codex.app, then PATH codex.
+# Exits non-zero when the generated files are stale; run Tools/regenerate.sh to
+# refresh them.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app_server_schema_common.sh"

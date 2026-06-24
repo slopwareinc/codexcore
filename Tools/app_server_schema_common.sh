@@ -2,7 +2,17 @@
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
-CODEX_BIN="${CODEX_BINARY:-codex}"
+DEFAULT_CODEX_APP_BINARY="/Applications/Codex.app/Contents/Resources/codex"
+
+if [ -n "${CODEX_BINARY:-}" ]; then
+    CODEX_BIN="$CODEX_BINARY"
+elif [ -n "${CODEX_BIN:-}" ]; then
+    CODEX_BIN="$CODEX_BIN"
+elif [ -x "$DEFAULT_CODEX_APP_BINARY" ]; then
+    CODEX_BIN="$DEFAULT_CODEX_APP_BINARY"
+else
+    CODEX_BIN="codex"
+fi
 
 generate_app_server_schema() {
     local schema_dir="$1"

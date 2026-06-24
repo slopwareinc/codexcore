@@ -110,7 +110,7 @@ actor MockTransport: CodexTransport {
             case "skills/list":
                 result = #"{"data":[{"cwd":"/tmp","skills":[{"name":"resume-from-opencode","description":"Resume an OpenCode session","interface":{"displayName":"Resume OpenCode","shortDescription":"Resume a prior OpenCode run","defaultPrompt":"Resume the last OpenCode session."},"path":"/tmp/skills/resume-from-opencode/SKILL.md","scope":"user","enabled":true}],"errors":[]}]}"#
             case "permissionProfile/list":
-                result = #"{"data":[{"id":":read-only","description":null},{"id":":workspace","description":null},{"id":":danger-full-access","description":null}],"nextCursor":null}"#
+                result = #"{"data":[{"id":":read-only","allowed":true,"description":null},{"id":":workspace","allowed":true,"description":null},{"id":":danger-full-access","allowed":true,"description":null}],"nextCursor":null}"#
             case "collaborationMode/list":
                 result = #"{"data":[{"name":"Plan","mode":"plan","model":null,"reasoning_effort":"medium"},{"name":"Default","mode":"default","model":null,"reasoning_effort":null}]}"#
             case "mcpServerStatus/list":

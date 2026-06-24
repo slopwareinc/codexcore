@@ -68,6 +68,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadRealtimeStart = "thread/realtime/start"
     case threadRealtimeAppendAudio = "thread/realtime/appendAudio"
     case threadRealtimeAppendText = "thread/realtime/appendText"
+    case threadRealtimeAppendSpeech = "thread/realtime/appendSpeech"
     case threadRealtimeStop = "thread/realtime/stop"
     case threadRealtimeListVoices = "thread/realtime/listVoices"
     case reviewStart = "review/start"
@@ -97,7 +98,9 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case accountLoginCancel = "account/login/cancel"
     case accountLogout = "account/logout"
     case accountRateLimitsRead = "account/rateLimits/read"
+    case accountRateLimitResetCreditConsume = "account/rateLimitResetCredit/consume"
     case accountUsageRead = "account/usage/read"
+    case accountWorkspaceMessagesRead = "account/workspaceMessages/read"
     case accountSendAddCreditsNudgeEmail = "account/sendAddCreditsNudgeEmail"
     case feedbackUpload = "feedback/upload"
     case commandExec = "command/exec"
@@ -111,6 +114,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case configRead = "config/read"
     case externalAgentConfigDetect = "externalAgentConfig/detect"
     case externalAgentConfigImport = "externalAgentConfig/import"
+    case externalAgentConfigImportReadHistories = "externalAgentConfig/import/readHistories"
     case configValueWrite = "config/value/write"
     case configBatchWrite = "config/batchWrite"
     case configRequirementsRead = "configRequirements/read"
@@ -161,6 +165,7 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case accountRateLimitsUpdated = "account/rateLimits/updated"
     case appListUpdated = "app/list/updated"
     case remoteControlStatusChanged = "remoteControl/status/changed"
+    case externalAgentConfigImportProgress = "externalAgentConfig/import/progress"
     case externalAgentConfigImportCompleted = "externalAgentConfig/import/completed"
     case fsChanged = "fs/changed"
     case itemReasoningSummaryTextDelta = "item/reasoning/summaryTextDelta"
@@ -170,6 +175,7 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case modelRerouted = "model/rerouted"
     case modelVerification = "model/verification"
     case turnModerationMetadata = "turn/moderationMetadata"
+    case modelSafetyBufferingUpdated = "model/safetyBuffering/updated"
     case warning = "warning"
     case guardianWarning = "guardianWarning"
     case deprecationNotice = "deprecationNotice"
@@ -197,11 +203,12 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case itemToolCall = "item/tool/call"
     case accountChatGPTAuthTokensRefresh = "account/chatgptAuthTokens/refresh"
     case attestationGenerate = "attestation/generate"
+    case currentTimeRead = "currentTime/read"
     case applyPatchApproval = "applyPatchApproval"
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 117
-    public static let notificationMethodCount = 66
-    public static let serverRequestMethodCount = 10
+    public static let clientMethodCount = 121
+    public static let notificationMethodCount = 68
+    public static let serverRequestMethodCount = 11
 }

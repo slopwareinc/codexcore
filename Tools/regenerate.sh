@@ -5,6 +5,9 @@
 #
 # Usage: Tools/regenerate.sh
 #   CODEX_BINARY=/path/to/codex Tools/regenerate.sh   # override binary
+#   CODEX_BIN=/path/to/codex Tools/regenerate.sh      # alternate override
+# Without an override, prefers the embedded Codex.app binary when installed,
+# then falls back to codex on PATH.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app_server_schema_common.sh"
