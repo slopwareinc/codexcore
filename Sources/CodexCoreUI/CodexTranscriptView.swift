@@ -34,6 +34,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                         case .message(let message):
                             CodexMessageRow(message: message)
                                 .id(item.id)
+                        case .fileChangeAggregate(_, let changes):
+                            CodexAgentRow {
+                                CodexAggregateFileChangeCard(changes: changes)
+                            }
+                            .id(item.id)
                         case .assistantTurnHeader(_, let name):
                             CodexAgentRow(showAvatar: true) {
                                 Text(name)

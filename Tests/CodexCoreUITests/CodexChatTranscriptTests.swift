@@ -3,6 +3,53 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexChatTranscriptTests: XCTestCase {
+    func testTranscriptTimelineInsertsAggregateBeforeConsecutiveFileChanges() throws {
+        let start = Date(timeIntervalSince1970: 100)
+        let messages = [
+            CodexChatMessage(role: .user, text: "Update files", createdAt: start),
+            fileChangeMessage(path: "README.md", added: 2, removed: 1, createdAt: start.addingTimeInterval(1)),
+            fileChangeMessage(path: "Sources/App.swift", added: 4, removed: 0, createdAt: start.addingTimeInterval(2)),
+            CodexChatMessage(role: .assistant, text: "Done.", createdAt: start.addingTimeInterval(3))
+        ]
+
+        let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
+
+        let aggregateIndex = try XCTUnwrap(timeline.firstIndex { item in
+            if case .fileChangeAggregate = item { return true }
+            return false
+        })
+        let fileMessageIndices = timeline.indices.filter { index in
+            if case .message(let message) = timeline[index], message.role == .fileChange { return true }
+            return false
+        }
+        guard case .fileChangeAggregate(_, let changes) = timeline[aggregateIndex] else {
+            return XCTFail("Expected aggregate file-change item")
+        }
+
+        XCTAssertEqual(changes.map(\.path), ["README.md", "Sources/App.swift"])
+        XCTAssertEqual(fileMessageIndices.count, 2)
+        XCTAssertLessThan(aggregateIndex, try XCTUnwrap(fileMessageIndices.first))
+    }
+
+    func testTranscriptTimelineDoesNotAggregateSingleFileChange() {
+        let start = Date(timeIntervalSince1970: 100)
+        let messages = [
+            CodexChatMessage(role: .user, text: "Update one file", createdAt: start),
+            fileChangeMessage(path: "README.md", added: 2, removed: 1, createdAt: start.addingTimeInterval(1))
+        ]
+
+        let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
+
+        XCTAssertFalse(timeline.contains { item in
+            if case .fileChangeAggregate = item { return true }
+            return false
+        })
+        XCTAssertEqual(timeline.filter {
+            if case .message(let message) = $0, message.role == .fileChange { return true }
+            return false
+        }.count, 1)
+    }
+
     func testTranscriptTimelineCapsAssistantLifecycleGroupsForLazyScrolling() {
         let start = Date(timeIntervalSince1970: 100)
         let messages = (0..<8).map { index in
@@ -715,4 +762,31 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertTrue(transcript.messages[1].commandRun?.isStreaming == true)
     }
 
+    private func fileChangeMessage(path: String, added: Int, removed: Int, createdAt: Date) -> CodexChatMessage {
+        CodexChatMessage(
+            role: .fileChange,
+            text: path,
+            createdAt: createdAt,
+            fileChange: CodexChatMessage.fileChange(
+                itemID: path,
+                path: path,
+                diff: diff(path: path, added: added, removed: removed),
+                kind: "update",
+                status: "completed",
+                isStreaming: false
+            )
+        )
+    }
+
+    private func diff(path: String, added: Int, removed: Int) -> String {
+        var lines = [
+            "diff --git a/\(path) b/\(path)",
+            "--- a/\(path)",
+            "+++ b/\(path)",
+            "@@ -1 +1 @@"
+        ]
+        lines.append(contentsOf: Array(repeating: "-old", count: removed))
+        lines.append(contentsOf: Array(repeating: "+new", count: added))
+        return lines.joined(separator: "\n")
+    }
 }

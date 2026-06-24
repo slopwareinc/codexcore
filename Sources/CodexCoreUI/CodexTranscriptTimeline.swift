@@ -2,6 +2,7 @@ import Foundation
 
 enum CodexTranscriptTimelineItem: Identifiable, Equatable {
     case message(CodexChatMessage)
+    case fileChangeAggregate(id: String, changes: [CodexChatMessage.FileChange])
     case assistantTurnHeader(id: String, assistantName: String)
     case assistantLifecycle(id: String, events: [CodexAgentLifecycleEvent])
     case assistantBlock(id: String, block: CodexBlock)
@@ -12,6 +13,8 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
         switch self {
         case .message(let message):
             return "message-\(message.id.uuidString)"
+        case .fileChangeAggregate(let id, _):
+            return "file-agg-\(id)"
         case .assistantTurnHeader(let id, _):
             return "asst-hdr-\(id)"
         case .assistantLifecycle(let id, _):
@@ -49,6 +52,7 @@ enum CodexTranscriptTimelineBuilder {
             (messages.map(CodexTranscriptTimelineItem.message) + lifecycleEvents.map(CodexTranscriptTimelineItem.lifecycle))
                 .sorted { lhs, rhs in lhs.createdAt < rhs.createdAt }
         )
+        .insertingAggregateFileChangeCards()
     }
 
     private static func compactAssistantTurns(_ items: [CodexTranscriptTimelineItem]) -> [CodexTranscriptTimelineItem] {
@@ -121,5 +125,36 @@ enum CodexTranscriptTimelineBuilder {
 
         flushPending()
         return compacted
+    }
+}
+
+private extension Array where Element == CodexTranscriptTimelineItem {
+    func insertingAggregateFileChangeCards() -> [CodexTranscriptTimelineItem] {
+        var result: [CodexTranscriptTimelineItem] = []
+        var pendingFileChangeMessages: [CodexChatMessage] = []
+
+        func flushPendingFileChanges() {
+            guard !pendingFileChangeMessages.isEmpty else { return }
+            let changes = pendingFileChangeMessages.compactMap(\.fileChange)
+            if changes.count > 1, CodexLiveTurnModel.changeCardSummary(for: changes) != nil {
+                let firstID = pendingFileChangeMessages.first?.id.uuidString ?? UUID().uuidString
+                result.append(.fileChangeAggregate(id: "\(firstID)-\(changes.count)", changes: changes))
+            }
+            result.append(contentsOf: pendingFileChangeMessages.map(CodexTranscriptTimelineItem.message))
+            pendingFileChangeMessages = []
+        }
+
+        for item in self {
+            switch item {
+            case .message(let message) where message.role == .fileChange && message.fileChange != nil:
+                pendingFileChangeMessages.append(message)
+            default:
+                flushPendingFileChanges()
+                result.append(item)
+            }
+        }
+
+        flushPendingFileChanges()
+        return result
     }
 }
