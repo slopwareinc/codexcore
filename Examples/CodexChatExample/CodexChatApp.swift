@@ -4,35 +4,106 @@ import CodexCore
 import CodexCoreUI
 
 @main
-struct CodexChatApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var model = CodexChatModel()
+@MainActor
+final class CodexChatApp: NSObject, NSApplicationDelegate {
+    private static var sharedDelegate: CodexChatApp?
 
-    var body: some Scene {
-        WindowGroup {
-            CodexChatView(model: model)
-                .frame(minWidth: 940, minHeight: 660)
-        }
-        .windowResizability(.contentMinSize)
+    private let model = CodexChatModel()
+    private var mainWindow: NSWindow?
+    private var settingsWindow: NSWindow?
 
-        Settings {
-            CodexSettingsView(model: model)
-                .codexAgentTheme(model.themePreset.theme)
-                .tint(model.themePreset.theme.colors.accent)
-        }
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = CodexChatApp()
+        sharedDelegate = delegate
+        application.delegate = delegate
+        application.setActivationPolicy(.regular)
+        application.finishLaunching()
+        application.run()
     }
-}
 
-/// Promotes the CLI-launched binary to a regular foreground app so it gets a
-/// Dock icon, a menu bar, and — crucially — keyboard focus for text fields.
-final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        configureMainMenu()
+        DispatchQueue.main.async { [weak self] in
+            self?.showMainWindow()
+            NSRunningApplication.current.activate(options: .activateAllWindows)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            showMainWindow()
+        }
+        return true
+    }
+
+    @objc private func newWindow(_ sender: Any?) {
+        showMainWindow()
+    }
+
+    @objc private func showSettings(_ sender: Any?) {
+        if settingsWindow == nil {
+            let controller = NSHostingController(rootView: CodexSettingsView(model: model)
+                .codexAgentTheme(model.themePreset.theme)
+                .tint(model.themePreset.theme.colors.accent))
+            let window = NSWindow(contentViewController: controller)
+            window.title = "Settings"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSRunningApplication.current.activate(options: .activateAllWindows)
+    }
+
+    private func showMainWindow() {
+        if mainWindow == nil {
+            let controller = NSHostingController(rootView: CodexChatView(model: model)
+                .frame(minWidth: 940, minHeight: 660))
+            let window = NSWindow(contentViewController: controller)
+            window.title = "Codex Chat Example"
+            window.setAccessibilityElement(true)
+            window.setAccessibilityRole(.window)
+            window.setAccessibilityTitle("Codex Chat Example")
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.minSize = NSSize(width: 940, height: 660)
+            window.setContentSize(NSSize(width: 1180, height: 760))
+            window.isReleasedWhenClosed = false
+            window.center()
+            mainWindow = window
+        }
+        mainWindow?.makeKeyAndOrderFront(nil)
+        mainWindow?.orderFrontRegardless()
+        NSRunningApplication.current.activate(options: .activateAllWindows)
+    }
+
+    private func configureMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Quit Codex Chat Example", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appItem.submenu = appMenu
+
+        let fileItem = NSMenuItem()
+        mainMenu.addItem(fileItem)
+        let fileMenu = NSMenu(title: "File")
+        let newWindowItem = NSMenuItem(title: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
+        newWindowItem.target = self
+        fileMenu.addItem(newWindowItem)
+        fileItem.submenu = fileMenu
+
+        NSApplication.shared.mainMenu = mainMenu
     }
 }
 
