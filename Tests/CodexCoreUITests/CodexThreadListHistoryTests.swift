@@ -122,6 +122,7 @@ final class CodexThreadListHistoryTests: XCTestCase {
         session.applyThreadList(currentRaw: currentResponse, allRaw: allResponse, currentWorkspacePath: "/tmp/CodexCore")
 
         XCTAssertEqual(session.recentChats.map(\.id), ["thread-current"])
+        XCTAssertEqual(session.allChats.map(\.id), ["thread-current", "thread-other"])
         XCTAssertEqual(session.recentProjects.map(\.workspacePath), ["/tmp/CodexCore", "/tmp/Other"])
         XCTAssertEqual(session.recentProjects.map(\.chatCount), [1, 1])
 
@@ -183,6 +184,109 @@ final class CodexThreadListHistoryTests: XCTestCase {
         let noHistory = CodexProjectSummary.projects(from: [], currentWorkspacePath: "/tmp/NewProject")
         XCTAssertEqual(noHistory.map(\.workspacePath), ["/tmp/NewProject"])
         XCTAssertEqual(noHistory.first?.chatCount, 0)
+    }
+
+    func testSidebarRouteTransitionsPreserveSelectedChatAndSearchOverlayState() {
+        var session = CodexSidebarNavigationSession(currentWorkspacePath: "/tmp/CodexCore")
+
+        session.selectChat("thread-current", workspacePath: "/tmp/CodexCore")
+        session.selectRoute(.plugins)
+        session.selectRoute(.automations)
+        session.selectRoute(.codexMobile)
+        session.selectRoute(.settingsAbout)
+
+        XCTAssertEqual(session.selectedThreadID, "thread-current")
+        XCTAssertEqual(session.selectedProjectPath, "/tmp/CodexCore")
+        XCTAssertEqual(session.selectedRoute, .settingsAbout)
+
+        session.selectRoute(.search)
+        XCTAssertTrue(session.isSearchOverlayPresented)
+        XCTAssertEqual(session.lastContentRoute, .settingsAbout)
+
+        session.dismissSearchOverlay()
+        XCTAssertFalse(session.isSearchOverlayPresented)
+        XCTAssertEqual(session.selectedRoute, .settingsAbout)
+        XCTAssertEqual(session.selectedThreadID, "thread-current")
+    }
+
+    func testSidebarCollapsedProjectSelectionAndExpansionState() {
+        var session = CodexSidebarNavigationSession(currentWorkspacePath: "/tmp/CodexCore")
+
+        XCTAssertFalse(session.isCollapsed)
+        session.toggleCollapsed()
+        XCTAssertTrue(session.isCollapsed)
+        session.setCollapsed(false)
+        XCTAssertFalse(session.isCollapsed)
+
+        session.toggleProject("/tmp/CodexCore")
+        XCTAssertFalse(session.expandedProjectIDs.contains("/tmp/CodexCore"))
+        session.toggleProject("/tmp/Other")
+        XCTAssertTrue(session.expandedProjectIDs.contains("/tmp/Other"))
+
+        session.selectProject("/tmp/Other")
+        XCTAssertEqual(session.selectedRoute, .chat)
+        XCTAssertEqual(session.selectedProjectPath, "/tmp/Other")
+        XCTAssertNil(session.selectedThreadID)
+        XCTAssertTrue(session.expandedProjectIDs.contains("/tmp/Other"))
+    }
+
+    func testSidebarSnapshotGroupsProjectsAndChildChatAffordances() {
+        let chats = [
+            CodexThreadSummary(
+                id: "thread-current",
+                title: "Current project chat",
+                preview: "Preview",
+                workspacePath: "/tmp/CodexCore",
+                updatedAt: 2_000
+            ),
+            CodexThreadSummary(
+                id: "thread-other",
+                title: "Other project chat",
+                workspacePath: "/tmp/Other",
+                updatedAt: 3_000
+            )
+        ]
+        let projects = CodexProjectSummary.projects(from: chats, currentWorkspacePath: "/tmp/CodexCore")
+        var session = CodexSidebarNavigationSession(currentWorkspacePath: "/tmp/CodexCore")
+
+        session.selectChat("thread-other", workspacePath: "/tmp/Other")
+        let snapshot = session.snapshot(
+            projects: projects,
+            chats: chats,
+            currentWorkspacePath: "/tmp/CodexCore",
+            currentThreadID: "thread-current"
+        )
+
+        XCTAssertEqual(snapshot.selectedRoute, .chat)
+        XCTAssertEqual(snapshot.selectedThreadID, "thread-other")
+        XCTAssertFalse(snapshot.showsNoChats)
+        XCTAssertEqual(snapshot.projects.map(\.project.workspacePath), ["/tmp/CodexCore", "/tmp/Other"])
+
+        let other = snapshot.projects[1]
+        XCTAssertTrue(other.isSelected)
+        XCTAssertTrue(other.isExpanded)
+        XCTAssertTrue(other.canStartNewChat)
+        XCTAssertTrue(other.hasProjectActionsEntry)
+        XCTAssertEqual(other.rows.map(\.summary.id), ["thread-other"])
+        XCTAssertTrue(other.rows[0].isSelected)
+        XCTAssertTrue(other.rows[0].canPin)
+        XCTAssertTrue(other.rows[0].canArchive)
+    }
+
+    func testSidebarSnapshotShowsNoChatsEmptyState() {
+        let session = CodexSidebarNavigationSession(currentWorkspacePath: "/tmp/Empty")
+
+        let snapshot = session.snapshot(
+            projects: [],
+            chats: [],
+            currentWorkspacePath: "/tmp/Empty",
+            currentThreadID: nil
+        )
+
+        XCTAssertTrue(snapshot.showsNoChats)
+        XCTAssertEqual(snapshot.noChatsTitle, "No chats")
+        XCTAssertEqual(snapshot.projects.map(\.project.workspacePath), ["/tmp/Empty"])
+        XCTAssertEqual(snapshot.projects.first?.rows, [])
     }
 
     func testThreadHistorySnapshotRestoresMessagesFromRawThreadRead() {

@@ -5,115 +5,37 @@ import CodexCoreUI
 
 struct CodexExampleAppShell: View {
     @Bindable var model: CodexChatModel
-    @State private var isSidebarVisible = true
     @State private var isRenameSheetPresented = false
-    @State private var isSearchSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
-    @State private var isPluginsSheetPresented = false
     @State private var renameDraft = ""
 
     var body: some View {
+        let sidebarSnapshot = model.sidebarSnapshot
+
         HStack(spacing: 0) {
-            if isSidebarVisible {
-                CodexExampleProjectSidebar(
-                    serverName: model.serverName,
-                    workspacePath: model.workspacePath,
-                    isThreadReady: model.isThreadReady,
-                    currentThreadID: model.currentThreadID,
-                    projects: model.recentProjects,
-                    recentChats: model.recentChats,
-                    onNewChat: { Task { await model.startNewChat() } },
-                    onSearch: { isSearchSheetPresented = true },
-                    onPlugins: {
-                        isPluginsSheetPresented = true
-                        Task { await model.refreshPlugins() }
-                    },
-                    onSelectProject: { path in Task { await model.switchWorkspace(to: path) } },
-                    onOpenFolder: { chooseWorkspaceFolder() },
-                    onSelectChat: { threadID in Task { await model.resumeChat(id: threadID) } }
-                )
-                .transition(.move(edge: .leading).combined(with: .opacity))
-            }
+            CodexExampleProjectSidebar(
+                serverName: model.serverName,
+                isThreadReady: model.isThreadReady,
+                snapshot: sidebarSnapshot,
+                onNewChat: { Task { await model.startNewChat() } },
+                onOpenSearch: { model.selectAppRoute(.search) },
+                onSelectRoute: { model.selectAppRoute($0) },
+                onToggleCollapsed: {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+                        model.toggleSidebarCollapsed()
+                    }
+                },
+                onToggleProject: { model.toggleSidebarProject($0) },
+                onStartProjectChat: { path in Task { await model.startNewChat(inProject: path) } },
+                onProjectActions: { _ in },
+                onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
+                onOpenFolder: { chooseWorkspaceFolder() },
+                onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } }
+            )
+            .transition(.move(edge: .leading).combined(with: .opacity))
 
             GeometryReader { proxy in
-                VStack(spacing: 0) {
-                    CodexChatWorkspaceView(
-                        messages: model.messages,
-                        lifecycleEvents: model.lifecycleEvents,
-                        sideChat: model.sideChat,
-                        subagents: model.subagents,
-                        activities: model.activities,
-                        connectionState: model.connectionState,
-                        workspacePath: model.workspacePath,
-                        rateLimitBannerMessage: model.rateLimitBannerMessage,
-                        workspaceSummary: model.workspaceSummaryContext,
-                        showsSidebarToggle: true,
-                        isSidebarVisible: isSidebarVisible,
-                        chatActions: CodexChatActionHandlers(
-                            renameChat: {
-                                renameDraft = model.currentChatTitle
-                                isRenameSheetPresented = true
-                            },
-                            archiveChat: { Task { await model.archiveCurrentChat() } },
-                            openSideChat: { model.openSideChat() },
-                            copyChat: { model.copyChatTranscript() },
-                            forkChat: { Task { await model.forkCurrentChat() } }
-                        ),
-                        approvalOptions: model.approvalOptions,
-                        modelOptions: model.modelOptions,
-                        slashCommands: model.slashCommands,
-                        approvalSelection: $model.approvalSelection,
-                        isPlanModeEnabled: $model.isPlanModeEnabled,
-                        modelSelection: $model.modelSelection,
-                        reasoningSelection: $model.reasoningSelection,
-                        draft: $model.draft,
-                        sideChatDraft: $model.sideChatDraft,
-                        isSending: model.isSending,
-                        isSideChatSending: model.isSideChatSending,
-                        canSend: model.canSend,
-                        canSendSideChatMessage: model.canSendSideChatMessage,
-                        canUsePlanMode: model.canUsePlanMode,
-                        followUpHint: model.followUpHint,
-                        mentionResults: model.mentionResults,
-                        onMentionQueryChanged: { model.updateMentionQuery($0) },
-                        onMentionSelected: { model.selectMention($0) },
-                        onSend: { Task { await model.sendDraft() } },
-                        onInterrupt: { Task { await model.interrupt() } },
-                        onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
-                        onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
-                        onToggleSidebar: {
-                            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-                                isSidebarVisible.toggle()
-                            }
-                        },
-                        onDisconnect: { Task { await model.disconnect() } },
-                        onSlashCommandSelected: { command in
-                            model.handleSlashCommand(command) {
-                                isMCPStatusSheetPresented = true
-                            }
-                        }
-                    )
-                    .codexFileChangeUndo { change in
-                        Task { @MainActor in
-                            model.undoFileChange(change)
-                        }
-                    }
-                    .codexFileChangeReview { change in
-                        Task { @MainActor in
-                            model.reviewFileChange(change)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if model.isBottomTerminalVisible {
-                        CodexBottomTerminalPanel(
-                            model: model,
-                            maxHeight: max(180, proxy.size.height - 180)
-                        )
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                }
-                .animation(.easeInOut(duration: 0.2), value: model.isBottomTerminalVisible)
+                routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -161,12 +83,19 @@ struct CodexExampleAppShell: View {
             )
             .codexAgentTheme(model.themePreset.theme)
         }
-        .sheet(isPresented: $isSearchSheetPresented) {
+        .sheet(isPresented: Binding(
+            get: { model.sidebarSnapshot.isSearchOverlayPresented },
+            set: { isPresented in
+                if !isPresented {
+                    model.dismissSearchRoute()
+                }
+            }
+        )) {
             SearchChatsSheet(
                 model: model,
-                onClose: { isSearchSheetPresented = false },
+                onClose: { model.dismissSearchRoute() },
                 onSelect: { result in
-                    isSearchSheetPresented = false
+                    model.dismissSearchRoute()
                     Task { await model.resumeSearchResult(result) }
                 }
             )
@@ -180,14 +109,112 @@ struct CodexExampleAppShell: View {
             )
             .codexAgentTheme(model.themePreset.theme)
         }
-        .sheet(isPresented: $isPluginsSheetPresented) {
+    }
+
+    @ViewBuilder
+    private func routeContent(proxy: GeometryProxy, selectedRoute: CodexAppRoute) -> some View {
+        switch selectedRoute {
+        case .chat, .search:
+            chatWorkspace(proxy: proxy)
+        case .plugins:
             PluginsSheet(
                 model: model,
-                onClose: { isPluginsSheetPresented = false },
+                onClose: { model.selectAppRoute(.chat) },
                 onRefresh: { Task { await model.refreshPlugins() } }
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.themePreset.theme)
+        case .automations:
+            CodexRoutePlaceholder(route: .automations, detail: "No automations")
+                .codexAgentTheme(model.themePreset.theme)
+        case .codexMobile:
+            CodexRoutePlaceholder(route: .codexMobile, detail: "No mobile pairing")
+                .codexAgentTheme(model.themePreset.theme)
+        case .settingsAbout:
+            CodexRoutePlaceholder(route: .settingsAbout, detail: model.serverName ?? "Codex")
+                .codexAgentTheme(model.themePreset.theme)
         }
+    }
+
+    private func chatWorkspace(proxy: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            CodexChatWorkspaceView(
+                messages: model.messages,
+                lifecycleEvents: model.lifecycleEvents,
+                sideChat: model.sideChat,
+                subagents: model.subagents,
+                activities: model.activities,
+                connectionState: model.connectionState,
+                workspacePath: model.workspacePath,
+                rateLimitBannerMessage: model.rateLimitBannerMessage,
+                workspaceSummary: model.workspaceSummaryContext,
+                showsSidebarToggle: true,
+                isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
+                chatActions: CodexChatActionHandlers(
+                    renameChat: {
+                        renameDraft = model.currentChatTitle
+                        isRenameSheetPresented = true
+                    },
+                    archiveChat: { Task { await model.archiveCurrentChat() } },
+                    openSideChat: { model.openSideChat() },
+                    copyChat: { model.copyChatTranscript() },
+                    forkChat: { Task { await model.forkCurrentChat() } }
+                ),
+                approvalOptions: model.approvalOptions,
+                modelOptions: model.modelOptions,
+                slashCommands: model.slashCommands,
+                approvalSelection: $model.approvalSelection,
+                isPlanModeEnabled: $model.isPlanModeEnabled,
+                modelSelection: $model.modelSelection,
+                reasoningSelection: $model.reasoningSelection,
+                draft: $model.draft,
+                sideChatDraft: $model.sideChatDraft,
+                isSending: model.isSending,
+                isSideChatSending: model.isSideChatSending,
+                canSend: model.canSend,
+                canSendSideChatMessage: model.canSendSideChatMessage,
+                canUsePlanMode: model.canUsePlanMode,
+                followUpHint: model.followUpHint,
+                mentionResults: model.mentionResults,
+                onMentionQueryChanged: { model.updateMentionQuery($0) },
+                onMentionSelected: { model.selectMention($0) },
+                onSend: { Task { await model.sendDraft() } },
+                onInterrupt: { Task { await model.interrupt() } },
+                onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
+                onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
+                onToggleSidebar: {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+                        model.toggleSidebarCollapsed()
+                    }
+                },
+                onDisconnect: { Task { await model.disconnect() } },
+                onSlashCommandSelected: { command in
+                    model.handleSlashCommand(command) {
+                        isMCPStatusSheetPresented = true
+                    }
+                }
+            )
+            .codexFileChangeUndo { change in
+                Task { @MainActor in
+                    model.undoFileChange(change)
+                }
+            }
+            .codexFileChangeReview { change in
+                Task { @MainActor in
+                    model.reviewFileChange(change)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if model.isBottomTerminalVisible {
+                CodexBottomTerminalPanel(
+                    model: model,
+                    maxHeight: max(180, proxy.size.height - 180)
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.isBottomTerminalVisible)
     }
 
     private func chooseWorkspaceFolder() {
@@ -199,6 +226,33 @@ struct CodexExampleAppShell: View {
         panel.directoryURL = URL(fileURLWithPath: model.workspacePath)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await model.switchWorkspace(to: url.path) }
+    }
+}
+
+private struct CodexRoutePlaceholder: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let route: CodexAppRoute
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: route.systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+                Text(route.title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+            }
+
+            Text(detail)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.colors.surface)
     }
 }
 

@@ -13,6 +13,7 @@ public struct CodexThreadListActivity: Equatable, Sendable {
 
 public struct CodexThreadListSession: Sendable {
     public private(set) var recentChats: [CodexThreadSummary]
+    public private(set) var allChats: [CodexThreadSummary]
     public private(set) var recentProjects: [CodexProjectSummary]
     public private(set) var searchResults: [CodexThreadSearchResult]
     public private(set) var isSearching: Bool
@@ -20,6 +21,7 @@ public struct CodexThreadListSession: Sendable {
 
     public init(currentWorkspacePath: String) {
         self.recentChats = []
+        self.allChats = []
         self.recentProjects = CodexProjectSummary.projects(from: [], currentWorkspacePath: currentWorkspacePath)
         self.searchResults = []
         self.isSearching = false
@@ -28,12 +30,13 @@ public struct CodexThreadListSession: Sendable {
 
     public mutating func reset(currentWorkspacePath: String) {
         recentChats = []
+        allChats = []
         recentProjects = CodexProjectSummary.projects(from: [], currentWorkspacePath: currentWorkspacePath)
         clearSearch()
     }
 
     public mutating func refreshProjects(currentWorkspacePath: String) {
-        recentProjects = CodexProjectSummary.projects(from: recentChats, currentWorkspacePath: currentWorkspacePath)
+        recentProjects = CodexProjectSummary.projects(from: allChats.isEmpty ? recentChats : allChats, currentWorkspacePath: currentWorkspacePath)
     }
 
     public mutating func applyThreadList(
@@ -44,6 +47,7 @@ public struct CodexThreadListSession: Sendable {
         let currentChats = Self.visibleThreadSummaries(from: currentRaw)
         let allChats = Self.mergedThreadSummaries(currentChats + Self.visibleThreadSummaries(from: allRaw))
         recentChats = currentChats
+        self.allChats = allChats
         recentProjects = CodexProjectSummary.projects(from: allChats, currentWorkspacePath: currentWorkspacePath)
     }
 

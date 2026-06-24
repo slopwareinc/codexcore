@@ -1,73 +1,39 @@
 import SwiftUI
-import CodexCore
 import CodexCoreUI
 
 struct CodexExampleProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let serverName: String?
-    let workspacePath: String
     let isThreadReady: Bool
-    let currentThreadID: String?
-    let projects: [CodexProjectSummary]
-    let recentChats: [CodexThreadSummary]
+    let snapshot: CodexSidebarSnapshot
     let onNewChat: () -> Void
-    let onSearch: () -> Void
-    let onPlugins: () -> Void
+    let onOpenSearch: () -> Void
+    let onSelectRoute: (CodexAppRoute) -> Void
+    let onToggleCollapsed: () -> Void
+    let onToggleProject: (String) -> Void
+    let onStartProjectChat: (String) -> Void
+    let onProjectActions: (String) -> Void
     let onSelectProject: (String) -> Void
     let onOpenFolder: () -> Void
-    let onSelectChat: (String) -> Void
+    let onSelectChat: (CodexThreadSummary) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
+            sidebarHeader
+
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(spacing: 2) {
-                        SidebarCommandRow(systemImage: "square.and.pencil", title: "New chat", shortcut: "⌘N", action: onNewChat)
-                        SidebarCommandRow(systemImage: "magnifyingglass", title: "Search", shortcut: "⌘K", action: onSearch)
-                        SidebarCommandRow(systemImage: "puzzlepiece.extension", title: "Plugins", action: onPlugins)
-                    }
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        SidebarSectionHeader(title: "Projects")
-                        SidebarCommandRow(systemImage: "folder.badge.plus", title: "Open folder…", action: onOpenFolder)
-                        ForEach(sidebarProjects) { project in
-                            let isSelected = project.workspacePath == CodexProjectSummary.normalizedPath(workspacePath)
-                            ProjectSidebarRow(
-                                title: project.displayName,
-                                detail: project.detail,
-                                isSelected: isSelected,
-                                isThreadReady: isSelected && isThreadReady
-                            ) {
-                                onSelectProject(project.workspacePath)
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        SidebarSectionHeader(title: "Chats")
-                        if recentChats.isEmpty {
-                            SidebarChatRow(title: "Current chat", detail: chatDetail, isSelected: true) {}
-                        } else {
-                            ForEach(recentChats) { chat in
-                                SidebarChatRow(
-                                    title: chat.title,
-                                    detail: chat.detail,
-                                    isSelected: chat.id == currentThreadID
-                                ) {
-                                    onSelectChat(chat.id)
-                                }
-                            }
-                        }
-                    }
+                VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 14) {
+                    routeRows
+                    projectsSection
+                    settingsSection
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 12)
+                .padding(.horizontal, snapshot.isCollapsed ? 8 : 10)
+                .padding(.top, 8)
                 .padding(.bottom, 16)
             }
-
         }
-        .frame(width: 303)
+        .frame(width: snapshot.isCollapsed ? 62 : 303)
         .frame(maxHeight: .infinity)
         .background(theme.colors.surface.opacity(0.96))
         .overlay(alignment: .trailing) {
@@ -77,15 +43,124 @@ struct CodexExampleProjectSidebar: View {
         }
     }
 
-    private var sidebarProjects: [CodexProjectSummary] {
-        projects.isEmpty
-            ? CodexProjectSummary.projects(from: [], currentWorkspacePath: workspacePath)
-            : projects
+    private var sidebarHeader: some View {
+        HStack(spacing: 8) {
+            if !snapshot.isCollapsed {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Codex")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.colors.textPrimary)
+                    Text(connectionDetail)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Button(action: onToggleCollapsed) {
+                Image(systemName: snapshot.isCollapsed ? "sidebar.left" : "sidebar.leading")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.colors.textSecondary)
+            .help(snapshot.isCollapsed ? "Expand sidebar" : "Collapse sidebar")
+        }
+        .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
+        .padding(.vertical, 10)
     }
 
-    private var chatDetail: String {
+    private var routeRows: some View {
+        VStack(spacing: 2) {
+            SidebarCommandRow(
+                systemImage: "square.and.pencil",
+                title: "New chat",
+                shortcut: "⌘N",
+                isCollapsed: snapshot.isCollapsed,
+                action: onNewChat
+            )
+            SidebarCommandRow(
+                systemImage: CodexAppRoute.search.systemImage,
+                title: CodexAppRoute.search.title,
+                shortcut: "⌘K",
+                isSelected: snapshot.selectedRoute == .search,
+                isCollapsed: snapshot.isCollapsed,
+                action: onOpenSearch
+            )
+            SidebarCommandRow(
+                systemImage: CodexAppRoute.plugins.systemImage,
+                title: CodexAppRoute.plugins.title,
+                isSelected: snapshot.selectedRoute == .plugins,
+                isCollapsed: snapshot.isCollapsed,
+                action: { onSelectRoute(.plugins) }
+            )
+            SidebarCommandRow(
+                systemImage: CodexAppRoute.automations.systemImage,
+                title: CodexAppRoute.automations.title,
+                isSelected: snapshot.selectedRoute == .automations,
+                isCollapsed: snapshot.isCollapsed,
+                action: { onSelectRoute(.automations) }
+            )
+            SidebarCommandRow(
+                systemImage: CodexAppRoute.codexMobile.systemImage,
+                title: CodexAppRoute.codexMobile.title,
+                isSelected: snapshot.selectedRoute == .codexMobile,
+                isCollapsed: snapshot.isCollapsed,
+                action: { onSelectRoute(.codexMobile) }
+            )
+        }
+    }
+
+    private var projectsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !snapshot.isCollapsed {
+                SidebarSectionHeader(title: "Projects")
+            }
+
+            SidebarCommandRow(
+                systemImage: "folder.badge.plus",
+                title: "Open folder…",
+                isCollapsed: snapshot.isCollapsed,
+                action: onOpenFolder
+            )
+
+            ForEach(snapshot.projects) { group in
+                ProjectSidebarGroupView(
+                    group: group,
+                    isCollapsed: snapshot.isCollapsed,
+                    isThreadReady: group.isSelected && isThreadReady,
+                    onToggleProject: onToggleProject,
+                    onStartProjectChat: onStartProjectChat,
+                    onProjectActions: onProjectActions,
+                    onSelectProject: onSelectProject,
+                    onSelectChat: onSelectChat
+                )
+            }
+
+            if snapshot.showsNoChats && !snapshot.isCollapsed {
+                Text(snapshot.noChatsTitle)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .padding(.horizontal, 30)
+                    .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private var settingsSection: some View {
+        SidebarCommandRow(
+            systemImage: CodexAppRoute.settingsAbout.systemImage,
+            title: CodexAppRoute.settingsAbout.title,
+            isSelected: snapshot.selectedRoute == .settingsAbout,
+            isCollapsed: snapshot.isCollapsed,
+            action: { onSelectRoute(.settingsAbout) }
+        )
+    }
+
+    private var connectionDetail: String {
         if let serverName {
-            return isThreadReady ? "Ready on \(serverName)" : "New chat"
+            return isThreadReady ? "Ready on \(serverName)" : serverName
         }
         return isThreadReady ? "Ready" : "New chat"
     }
@@ -97,6 +172,8 @@ private struct SidebarCommandRow: View {
     let systemImage: String
     let title: String
     var shortcut: String?
+    var isSelected = false
+    var isCollapsed = false
     var action: () -> Void = {}
 
     var body: some View {
@@ -104,24 +181,32 @@ private struct SidebarCommandRow: View {
             HStack(spacing: 9) {
                 Image(systemName: systemImage)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(theme.colors.textTertiary)
+                    .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textTertiary)
                     .frame(width: 18)
-                Text(title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let shortcut {
-                    Text(shortcut)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
+                if !isCollapsed {
+                    Text(title)
+                        .font(.system(size: 13))
+                        .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let shortcut {
+                        Text(shortcut)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                    }
                 }
             }
             .frame(height: 31)
-            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+            .padding(.horizontal, isCollapsed ? 4 : 8)
             .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         }
         .buttonStyle(.plain)
+        .background(
+            isSelected ? theme.colors.surfaceElevated.opacity(0.62) : .clear,
+            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+        )
+        .help(title)
     }
 }
 
@@ -144,56 +229,136 @@ private struct SidebarSectionHeader: View {
     }
 }
 
-private struct ProjectSidebarRow: View {
+private struct ProjectSidebarGroupView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let title: String
-    let detail: String
-    let isSelected: Bool
+    let group: CodexSidebarProjectGroup
+    let isCollapsed: Bool
     let isThreadReady: Bool
-    let action: () -> Void
+    let onToggleProject: (String) -> Void
+    let onStartProjectChat: (String) -> Void
+    let onProjectActions: (String) -> Void
+    let onSelectProject: (String) -> Void
+    let onSelectChat: (CodexThreadSummary) -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Image(systemName: "folder")
-                    .font(.system(size: 12, weight: .medium))
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                if !isCollapsed {
+                    Button {
+                        onToggleProject(group.project.workspacePath)
+                    } label: {
+                        Image(systemName: group.isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .frame(width: 18, height: 30)
+                    }
+                    .buttonStyle(.plain)
                     .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(theme.colors.textPrimary)
-                        .lineLimit(1)
-                    Text(detail)
+                    .help(group.isExpanded ? "Collapse project" : "Expand project")
+                }
+
+                Button {
+                    onSelectProject(group.project.workspacePath)
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .frame(width: 18)
+                        if !isCollapsed {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(group.project.displayName)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(theme.colors.textPrimary)
+                                    .lineLimit(1)
+                                Text(projectDetail)
+                                    .font(theme.fonts.caption)
+                                    .foregroundStyle(theme.colors.textTertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .frame(height: isCollapsed ? 31 : 38)
+                    .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+                    .padding(.horizontal, isCollapsed ? 4 : 8)
+                    .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .background(
+                    group.isSelected && !hasSelectedThread ? theme.colors.surfaceElevated.opacity(0.58) : .clear,
+                    in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                )
+                .help(group.project.displayName)
+
+                if !isCollapsed {
+                    if group.canStartNewChat {
+                        Button {
+                            onStartProjectChat(group.project.workspacePath)
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .bold))
+                                .frame(width: 20, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .help("New chat in project")
+                    }
+
+                    if group.hasProjectActionsEntry {
+                        Button {
+                            onProjectActions(group.project.workspacePath)
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 11, weight: .bold))
+                                .frame(width: 20, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .help("Project actions")
+                    }
+                }
+            }
+
+            if group.isExpanded && !isCollapsed {
+                if group.rows.isEmpty {
+                    Text("No chats")
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .padding(.leading, 30)
+                        .padding(.vertical, 5)
+                } else {
+                    ForEach(group.rows) { row in
+                        SidebarChatRow(row: row) {
+                            onSelectChat(row.summary)
+                        }
+                        .padding(.leading, 22)
+                    }
                 }
-                Spacer(minLength: 0)
-                Image(systemName: isSelected ? (isThreadReady ? "checkmark" : "plus") : "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(theme.colors.textTertiary)
             }
-            .padding(.horizontal, 8)
-            .frame(height: 38)
-            .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .background(
-            isSelected ? theme.colors.surfaceElevated.opacity(0.58) : .clear,
-            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-        )
+    }
+
+    private var projectDetail: String {
+        if isThreadReady {
+            return "Ready"
+        }
+        if group.project.chatCount == 1 {
+            return "1 chat"
+        }
+        return "\(group.project.chatCount) chats"
+    }
+
+    private var hasSelectedThread: Bool {
+        group.rows.contains { $0.isSelected }
     }
 }
 
 private struct SidebarChatRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let title: String
-    let detail: String
-    let isSelected: Bool
+    let row: CodexSidebarThreadRow
     let action: () -> Void
 
     var body: some View {
@@ -204,16 +369,26 @@ private struct SidebarChatRow: View {
                     .foregroundStyle(theme.colors.textTertiary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
+                    Text(row.summary.title)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                        .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                         .lineLimit(1)
-                    Text(detail.isEmpty ? "No activity yet" : detail)
+                    Text(row.summary.detail.isEmpty ? "No activity yet" : row.summary.detail)
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textTertiary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                HStack(spacing: 5) {
+                    if row.canPin {
+                        Image(systemName: "pin")
+                    }
+                    if row.canArchive {
+                        Image(systemName: "archivebox")
+                    }
+                }
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(theme.colors.textTertiary.opacity(0.75))
             }
             .padding(.horizontal, 8)
             .frame(height: 38)
@@ -221,7 +396,7 @@ private struct SidebarChatRow: View {
         }
         .buttonStyle(.plain)
         .background(
-            isSelected ? theme.colors.surfaceElevated.opacity(0.58) : .clear,
+            row.isSelected ? theme.colors.surfaceElevated.opacity(0.58) : .clear,
             in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         )
     }

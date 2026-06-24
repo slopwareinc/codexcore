@@ -28,6 +28,7 @@ final class CodexChatModel {
     let threadSession = CodexThreadSession()
     private var loginTask: Task<Void, Never>?
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
+    var sidebarNavigationSession = CodexSidebarNavigationSession(currentWorkspacePath: defaultWorkspacePath())
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession()
     var activityLog = CodexActivityLogSession()
@@ -385,12 +386,57 @@ final class CodexChatModel {
         }
     }
 
+    func selectAppRoute(_ route: CodexAppRoute) {
+        sidebarNavigationSession.selectRoute(route)
+        if route == .plugins {
+            Task { await refreshPlugins() }
+        }
+    }
+
+    func dismissSearchRoute() {
+        sidebarNavigationSession.dismissSearchOverlay()
+    }
+
+    func toggleSidebarCollapsed() {
+        sidebarNavigationSession.toggleCollapsed()
+    }
+
+    func toggleSidebarProject(_ workspacePath: String) {
+        sidebarNavigationSession.toggleProject(workspacePath)
+    }
+
+    func selectSidebarProject(_ path: String) async {
+        sidebarNavigationSession.selectProject(path)
+        await switchWorkspace(to: path)
+    }
+
+    func startNewChat(inProject path: String) async {
+        sidebarNavigationSession.selectProject(path)
+        if CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
+            await switchWorkspace(to: path)
+        }
+        await startNewChat()
+    }
+
+    func selectSidebarChat(_ chat: CodexThreadSummary) async {
+        sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
+        if let path = chat.workspacePath,
+           CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
+            await switchWorkspace(to: path)
+        }
+        await resumeChat(id: chat.id)
+    }
+
     func switchWorkspace(to path: String) async {
         let normalized = CodexProjectSummary.normalizedPath(path)
         guard !normalized.isEmpty else { return }
-        guard normalized != CodexProjectSummary.normalizedPath(workspacePath) else { return }
+        guard normalized != CodexProjectSummary.normalizedPath(workspacePath) else {
+            sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: currentThreadID)
+            return
+        }
 
         workspacePath = normalized
+        sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         clearThreadState()
         appendActivity(.notice, title: "Switched project", detail: normalized)
 
@@ -405,6 +451,7 @@ final class CodexChatModel {
 
     func startNewChat() async {
         guard codex != nil else { return }
+        sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         clearThreadState()
         await refreshRecentChats()
     }
@@ -421,6 +468,7 @@ final class CodexChatModel {
             )
             await hydrateThreadHistory(for: resumedThread, using: codex)
             await refreshGoal(for: resumedThread)
+            sidebarNavigationSession.selectChat(threadID, workspacePath: workspacePath)
             appendActivity(.notice, title: "Resumed chat", detail: threadID)
             await refreshRecentChats(using: codex)
         } catch {
@@ -517,6 +565,7 @@ final class CodexChatModel {
             let normalized = CodexProjectSummary.normalizedPath(workspace)
             if normalized != CodexProjectSummary.normalizedPath(workspacePath) {
                 workspacePath = normalized
+                sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
                 clearThreadState()
                 appendActivity(.notice, title: "Switched project", detail: normalized)
             }
@@ -535,6 +584,7 @@ final class CodexChatModel {
             }
             clearThreadState(keepCurrentThread: true)
             await hydrateThreadHistory(for: fork.thread, using: codex)
+            sidebarNavigationSession.selectChat(fork.thread.id, workspacePath: workspacePath)
             appendActivity(.notice, title: "Forked chat", detail: fork.sourceID)
             await refreshRecentChats(using: codex)
         } catch {
@@ -548,6 +598,7 @@ final class CodexChatModel {
         do {
             guard let archivedID = try await threadSession.archiveCurrentThread(using: codex) else { return }
             clearThreadState()
+            sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
             appendActivity(.notice, title: "Archived chat", detail: archivedID)
             await refreshRecentChats(using: codex)
         } catch {
@@ -951,6 +1002,7 @@ final class CodexChatModel {
         codex = nil
         authSession.resetAuthentication()
         threadListSession.reset(currentWorkspacePath: workspacePath)
+        sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         runtimeSession.integrationCatalogSession.reset()
         configurationSession.reset()
         clearThreadState()

@@ -37,8 +37,21 @@ extension CodexChatModel {
         threadListSession.recentChats
     }
 
+    var allSidebarChats: [CodexThreadSummary] {
+        threadListSession.allChats.isEmpty ? threadListSession.recentChats : threadListSession.allChats
+    }
+
     var recentProjects: [CodexProjectSummary] {
         threadListSession.recentProjects
+    }
+
+    var sidebarSnapshot: CodexSidebarSnapshot {
+        sidebarNavigationSession.snapshot(
+            projects: recentProjects,
+            chats: allSidebarChats,
+            currentWorkspacePath: workspacePath,
+            currentThreadID: currentThreadID
+        )
     }
 
     var searchResults: [CodexThreadSearchResult] {
