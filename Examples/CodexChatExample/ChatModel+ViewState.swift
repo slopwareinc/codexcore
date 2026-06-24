@@ -165,6 +165,14 @@ extension CodexChatModel {
         runtimeSession.currentDiff
     }
 
+    var gitReviewSession: CodexGitReviewSession? {
+        CodexGitReviewSnapshot
+            .fromTurnDiff(branchName: gitBranch, turnDiff: currentDiff)
+            .map { snapshot in
+                CodexGitReviewSession(snapshot: snapshot)
+            }
+    }
+
     var followUpBehavior: CodexFollowUpBehavior {
         get { composerSession.followUpBehavior }
         set { composerSession.followUpBehavior = newValue }

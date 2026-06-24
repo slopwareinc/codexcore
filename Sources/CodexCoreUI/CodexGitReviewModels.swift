@@ -167,6 +167,27 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         self.pullRequestExists = pullRequestExists
     }
 
+    public static func fromTurnDiff(
+        branchName: String?,
+        turnDiff: String?,
+        upstreamBranchName: String? = nil,
+        reviewFilePaths: [String]? = nil,
+        unpushedCommitCount: Int = 0,
+        pullRequestExists: Bool = false
+    ) -> CodexGitReviewSnapshot? {
+        guard let turnDiff = turnDiff?.nilIfBlank else { return nil }
+        let files = parseFiles(from: turnDiff)
+        guard !files.isEmpty else { return nil }
+        return CodexGitReviewSnapshot(
+            branchName: branchName?.nilIfBlank ?? "HEAD",
+            upstreamBranchName: upstreamBranchName,
+            files: files,
+            reviewFilePaths: reviewFilePaths,
+            unpushedCommitCount: unpushedCommitCount,
+            pullRequestExists: pullRequestExists
+        )
+    }
+
     public var stagedFiles: [CodexGitReviewFileChange] {
         files.filter(\.isStaged)
     }
@@ -229,6 +250,67 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
                 isMismatch: false
             )
         )
+    }
+
+    private static func parseFiles(from diff: String) -> [CodexGitReviewFileChange] {
+        struct Builder {
+            var path: String
+            var addedLines: Int = 0
+            var removedLines: Int = 0
+        }
+
+        var builders: [String: Builder] = [:]
+        var order: [String] = []
+        var currentPath: String?
+
+        func normalizePath(_ path: Substring) -> String? {
+            var value = String(path)
+            if value.hasPrefix("a/") || value.hasPrefix("b/") {
+                value.removeFirst(2)
+            }
+            return value == "/dev/null" ? nil : value.nilIfBlank
+        }
+
+        for line in diff.split(whereSeparator: \.isNewline) {
+            if line.hasPrefix("diff --git ") {
+                let parts = line.split(separator: " ")
+                if parts.count >= 4, let path = normalizePath(parts[3]) {
+                    currentPath = path
+                    if builders[path] == nil {
+                        builders[path] = Builder(path: path)
+                        order.append(path)
+                    }
+                }
+                continue
+            }
+
+            if line.hasPrefix("+++ "), let path = normalizePath(line.dropFirst(4)) {
+                currentPath = path
+                if builders[path] == nil {
+                    builders[path] = Builder(path: path)
+                    order.append(path)
+                }
+                continue
+            }
+
+            guard let path = currentPath else { continue }
+            if line.hasPrefix("+") && !line.hasPrefix("+++") {
+                builders[path]?.addedLines += 1
+            } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+                builders[path]?.removedLines += 1
+            }
+        }
+
+        return order.compactMap { path in
+            guard let builder = builders[path] else { return nil }
+            return CodexGitReviewFileChange(
+                path: builder.path,
+                status: .modified,
+                isStaged: false,
+                addedLines: builder.addedLines,
+                removedLines: builder.removedLines
+            )
+        }
     }
 }
 

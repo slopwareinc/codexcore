@@ -15,6 +15,7 @@ public struct CodexChatWorkspaceView: View {
     private let chatTitle: String
     private let rateLimitBannerMessage: String?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
+    private let gitReviewSession: CodexGitReviewSession?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
     private let chatActions: CodexChatActionHandlers
@@ -65,6 +66,7 @@ public struct CodexChatWorkspaceView: View {
         chatTitle: String = "Codex",
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
+        gitReviewSession: CodexGitReviewSession? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = false,
         chatActions: CodexChatActionHandlers = CodexChatActionHandlers(),
@@ -110,6 +112,7 @@ public struct CodexChatWorkspaceView: View {
         self.chatTitle = chatTitle
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
+        self.gitReviewSession = gitReviewSession
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
         self.chatActions = chatActions
@@ -249,6 +252,7 @@ public struct CodexChatWorkspaceView: View {
                     sideChat: sideChat,
                     subagents: subagents,
                     workspaceSummary: workspaceSummary,
+                    gitReviewSession: gitReviewSession,
                     chatTitle: chatTitle,
                     onEnvironmentHandoffCompletion: { completion in
                         onEnvironmentHandoffCompletion?(completion)
@@ -278,6 +282,7 @@ public struct CodexChatWorkspaceView: View {
     private var panelTabs: [CodexAgentPanelTab] {
         var tabs: [CodexAgentPanelTab] = []
         if let sideChat { tabs.append(.sideChat(sideChat)) }
+        if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
         tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent))
         return tabs
     }

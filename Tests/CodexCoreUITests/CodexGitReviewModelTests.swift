@@ -134,6 +134,36 @@ final class CodexGitReviewModelTests: XCTestCase {
         ))
     }
 
+    func testTurnDiffBuildsReviewSnapshotForVisiblePanelSeed() throws {
+        let diff = """
+        diff --git a/Sources/One.swift b/Sources/One.swift
+        index 1111111..2222222 100644
+        --- a/Sources/One.swift
+        +++ b/Sources/One.swift
+        @@ -1,2 +1,3 @@
+        -old
+        +new
+        +more
+        diff --git a/Tests/OneTests.swift b/Tests/OneTests.swift
+        index 3333333..4444444 100644
+        --- a/Tests/OneTests.swift
+        +++ b/Tests/OneTests.swift
+        @@ -1 +1 @@
+        -old test
+        +new test
+        """
+
+        let snapshot = try XCTUnwrap(CodexGitReviewSnapshot.fromTurnDiff(
+            branchName: "codex/review-panel",
+            turnDiff: diff
+        ))
+
+        XCTAssertEqual(snapshot.branchSummary.title, "codex/review-panel (2)")
+        XCTAssertEqual(snapshot.files.map(\.path), ["Sources/One.swift", "Tests/OneTests.swift"])
+        XCTAssertEqual(snapshot.commitStats(includeUnstaged: true), CodexGitReviewDiffStats(changedFiles: 2, addedLines: 3, removedLines: 2))
+        XCTAssertNil(CodexGitReviewSnapshot.fromTurnDiff(branchName: "main", turnDiff: " "))
+    }
+
     private func dirtySnapshot() -> CodexGitReviewSnapshot {
         CodexGitReviewSnapshot(
             branchName: "codex/review-panel",

@@ -6,6 +6,7 @@ public struct CodexFloatingSummaryPanel: View {
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
     private let workspaceSummary: CodexWorkspaceSummaryContext?
+    private let gitReviewSession: CodexGitReviewSession?
     private let chatTitle: String
     private let onEnvironmentHandoffCompletion: @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void
     private let onSelectTab: (String) -> Void
@@ -14,6 +15,7 @@ public struct CodexFloatingSummaryPanel: View {
         sideChat: CodexSideChatState?,
         subagents: [CodexSubagentState],
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
+        gitReviewSession: CodexGitReviewSession? = nil,
         chatTitle: String = "Codex",
         onEnvironmentHandoffCompletion: @escaping @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void = { _ in },
         onSelectTab: @escaping (String) -> Void
@@ -21,6 +23,7 @@ public struct CodexFloatingSummaryPanel: View {
         self.sideChat = sideChat
         self.subagents = subagents
         self.workspaceSummary = workspaceSummary
+        self.gitReviewSession = gitReviewSession
         self.chatTitle = chatTitle
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onSelectTab = onSelectTab
@@ -63,6 +66,18 @@ public struct CodexFloatingSummaryPanel: View {
                     .foregroundStyle(theme.colors.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
+            }
+
+            if let gitReviewSession {
+                SummarySection(title: "Changes") {
+                    SummaryRow(title: gitReviewSession.branchSummary.title, systemImage: "arrow.triangle.branch") {
+                        onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+                    }
+                    Text(gitReviewSession.commitStats.summary)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .padding(.leading, 30)
+                }
             }
 
             SummarySection(title: "Side chats") {
@@ -406,6 +421,8 @@ private struct CodexAgentPanelContent: View {
                             assistantName: subagent.name,
                             empty: "No transcript returned yet."
                         )
+                    case .review(let session):
+                        CodexGitReviewPanel(session: session)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -494,6 +511,8 @@ private struct CodexAgentPanelContent: View {
                 onSend: {},
                 onInterrupt: {}
             )
+        case .review:
+            EmptyView()
         }
     }
 }

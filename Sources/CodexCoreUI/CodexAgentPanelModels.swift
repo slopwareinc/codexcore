@@ -169,11 +169,13 @@ public struct CodexSideChatState: Identifiable, Equatable, Sendable {
 public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
     case sideChat(CodexSideChatState)
     case subagent(CodexSubagentState)
+    case review(CodexGitReviewSession)
 
     public var id: String {
         switch self {
         case .sideChat(let sideChat): return sideChat.id
         case .subagent(let subagent): return subagent.id
+        case .review: return "review"
         }
     }
 
@@ -181,6 +183,7 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
         switch self {
         case .sideChat(let sideChat): return sideChat.title
         case .subagent(let subagent): return subagent.name
+        case .review: return "Review"
         }
     }
 
@@ -188,6 +191,7 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
         switch self {
         case .sideChat(let sideChat): return sideChat.messages
         case .subagent(let subagent): return subagent.messages
+        case .review: return []
         }
     }
 }
@@ -197,22 +201,26 @@ public struct CodexAgentPanelState: Equatable, Sendable {
     public var selectedTabID: String?
     public var sideChat: CodexSideChatState?
     public var subagents: [CodexSubagentState]
+    public var gitReviewSession: CodexGitReviewSession?
 
     public init(
         isOpen: Bool = false,
         selectedTabID: String? = nil,
         sideChat: CodexSideChatState? = nil,
-        subagents: [CodexSubagentState] = []
+        subagents: [CodexSubagentState] = [],
+        gitReviewSession: CodexGitReviewSession? = nil
     ) {
         self.isOpen = isOpen
         self.selectedTabID = selectedTabID
         self.sideChat = sideChat
         self.subagents = subagents
+        self.gitReviewSession = gitReviewSession
     }
 
     public var tabs: [CodexAgentPanelTab] {
         var tabs: [CodexAgentPanelTab] = []
         if let sideChat { tabs.append(.sideChat(sideChat)) }
+        if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
         tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent))
         return tabs
     }

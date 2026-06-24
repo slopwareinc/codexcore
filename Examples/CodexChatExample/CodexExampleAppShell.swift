@@ -158,6 +158,7 @@ struct CodexExampleAppShell: View {
                 chatTitle: model.currentChatTitle,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
+                gitReviewSession: model.gitReviewSession,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 chatActions: currentChatActionHandlers,

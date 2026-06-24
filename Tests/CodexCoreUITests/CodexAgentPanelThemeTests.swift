@@ -19,6 +19,26 @@ extension CodexAgentUITests {
         XCTAssertEqual(panel.tabs[2].messages.last?.text, "Side-panel findings")
     }
 
+    func testAgentPanelStateAddsReviewTabWhenGitReviewSessionExists() {
+        let fixture = AgentUIFixture.make()
+        let review = CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(
+            branchName: "codex/review-panel",
+            files: [
+                CodexGitReviewFileChange(path: "Sources/Review.swift", status: .modified, isStaged: false, addedLines: 2)
+            ]
+        ))
+        let panel = CodexAgentPanelState(
+            isOpen: true,
+            sideChat: fixture.sideChat,
+            subagents: fixture.subagents,
+            gitReviewSession: review
+        )
+
+        XCTAssertEqual(panel.tabs.map(\.title), ["Side chat", "Review", "Chandrasekhar", "Copernicus"])
+        XCTAssertEqual(panel.tabs[1].id, "review")
+        XCTAssertEqual(panel.tabs[1].messages, [])
+    }
+
     func testLifecycleFixtureModelsClosedSubagentsWithoutRuntimeDemoCode() {
         let fixture = AgentUIFixture.make()
 
