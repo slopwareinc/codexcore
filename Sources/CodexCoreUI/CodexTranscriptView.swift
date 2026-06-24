@@ -667,8 +667,9 @@ public struct CodexEmptyTranscriptView: View {
     }
 
     public static let defaultPrompts = [
-        CodexPromptSuggestion(systemImage: "message.badge", prompt: "Connect messaging", detail: "get context from team discussions"),
-        CodexPromptSuggestion(systemImage: "envelope", prompt: "Connect email", detail: "summarize stakeholder asks"),
-        CodexPromptSuggestion(systemImage: "folder.badge.plus", prompt: "Connect files", detail: "review results, research, and plans")
+        CodexPromptSuggestion(systemImage: "ladybug", prompt: "Debug an issue"),
+        CodexPromptSuggestion(systemImage: "list.bullet.clipboard", prompt: "Plan implementation"),
+        CodexPromptSuggestion(systemImage: "arrow.triangle.pull", prompt: "Review a PR"),
+        CodexPromptSuggestion(systemImage: "app.connected.to.app.below.fill", prompt: "Connect your favorite apps to Codex")
     ]
 }

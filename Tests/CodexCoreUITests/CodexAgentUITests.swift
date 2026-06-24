@@ -631,15 +631,12 @@ final class CodexAgentUITests: XCTestCase {
     @MainActor
     func testEmptyTranscriptDefaultPromptsMatchObservedCodexBlankState() {
         XCTAssertEqual(CodexEmptyTranscriptView.defaultPrompts.map(\.prompt), [
-            "Connect messaging",
-            "Connect email",
-            "Connect files"
+            "Debug an issue",
+            "Plan implementation",
+            "Review a PR",
+            "Connect your favorite apps to Codex"
         ])
-        XCTAssertEqual(CodexEmptyTranscriptView.defaultPrompts.map(\.detail), [
-            "get context from team discussions",
-            "summarize stakeholder asks",
-            "review results, research, and plans"
-        ])
+        XCTAssertEqual(CodexEmptyTranscriptView.defaultPrompts.map(\.detail), [nil, nil, nil, nil])
     }
 
     func testSubagentRunSummaryCompletionWinsOverHistoricalRunningEvents() {
