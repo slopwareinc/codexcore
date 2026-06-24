@@ -2,6 +2,7 @@ import Foundation
 
 enum CodexTranscriptTimelineItem: Identifiable, Equatable {
     case message(CodexChatMessage)
+    case operationAggregate(id: String, rows: [CodexLiveTurnOperationRow])
     case fileChangeAggregate(id: String, changes: [CodexChatMessage.FileChange])
     case assistantTurnHeader(id: String, assistantName: String)
     case assistantLifecycle(id: String, events: [CodexAgentLifecycleEvent])
@@ -13,6 +14,8 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
         switch self {
         case .message(let message):
             return "message-\(message.id.uuidString)"
+        case .operationAggregate(let id, _):
+            return "op-agg-\(id)"
         case .fileChangeAggregate(let id, _):
             return "file-agg-\(id)"
         case .assistantTurnHeader(let id, _):
@@ -52,6 +55,7 @@ enum CodexTranscriptTimelineBuilder {
             (messages.map(CodexTranscriptTimelineItem.message) + lifecycleEvents.map(CodexTranscriptTimelineItem.lifecycle))
                 .sorted { lhs, rhs in lhs.createdAt < rhs.createdAt }
         )
+        .insertingOperationAggregateRows()
         .insertingAggregateFileChangeCards()
     }
 
@@ -129,6 +133,35 @@ enum CodexTranscriptTimelineBuilder {
 }
 
 private extension Array where Element == CodexTranscriptTimelineItem {
+    func insertingOperationAggregateRows() -> [CodexTranscriptTimelineItem] {
+        var result: [CodexTranscriptTimelineItem] = []
+        var pendingOperationMessages: [CodexChatMessage] = []
+
+        func flushPendingOperations() {
+            guard !pendingOperationMessages.isEmpty else { return }
+            let rows = CodexLiveTurnModel.operationRows(for: pendingOperationMessages)
+            if pendingOperationMessages.count > 1, !rows.isEmpty {
+                let firstID = pendingOperationMessages.first?.id.uuidString ?? UUID().uuidString
+                result.append(.operationAggregate(id: "\(firstID)-\(pendingOperationMessages.count)", rows: rows))
+            }
+            result.append(contentsOf: pendingOperationMessages.map(CodexTranscriptTimelineItem.message))
+            pendingOperationMessages = []
+        }
+
+        for item in self {
+            switch item {
+            case .message(let message) where message.isOperationSummaryInput:
+                pendingOperationMessages.append(message)
+            default:
+                flushPendingOperations()
+                result.append(item)
+            }
+        }
+
+        flushPendingOperations()
+        return result
+    }
+
     func insertingAggregateFileChangeCards() -> [CodexTranscriptTimelineItem] {
         var result: [CodexTranscriptTimelineItem] = []
         var pendingFileChangeMessages: [CodexChatMessage] = []
@@ -156,5 +189,20 @@ private extension Array where Element == CodexTranscriptTimelineItem {
 
         flushPendingFileChanges()
         return result
+    }
+}
+
+private extension CodexChatMessage {
+    var isOperationSummaryInput: Bool {
+        switch role {
+        case .terminal:
+            return commandRun != nil
+        case .tool:
+            return toolCall != nil
+        case .fileChange:
+            return fileChange != nil
+        case .assistant, .user, .system, .plan, .notice, .reasoning:
+            return false
+        }
     }
 }

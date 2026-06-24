@@ -3,6 +3,58 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexChatTranscriptTests: XCTestCase {
+    func testTranscriptTimelineInsertsOperationAggregateBeforeConsecutiveOperationMessages() throws {
+        let start = Date(timeIntervalSince1970: 100)
+        let messages = [
+            CodexChatMessage(role: .user, text: "Inspect and test", createdAt: start),
+            commandMessage("ls", createdAt: start.addingTimeInterval(1)),
+            readMessage("README.md", createdAt: start.addingTimeInterval(2)),
+            fileChangeMessage(path: "README.md", added: 2, removed: 1, createdAt: start.addingTimeInterval(3)),
+            commandMessage("npm test", duration: "1s", createdAt: start.addingTimeInterval(4)),
+            CodexChatMessage(role: .assistant, text: "Done.", createdAt: start.addingTimeInterval(5))
+        ]
+
+        let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
+
+        let aggregateIndex = try XCTUnwrap(timeline.firstIndex { item in
+            if case .operationAggregate = item { return true }
+            return false
+        })
+        guard case .operationAggregate(_, let rows) = timeline[aggregateIndex] else {
+            return XCTFail("Expected operation aggregate item")
+        }
+        let operationMessageIndices = timeline.indices.filter { index in
+            if case .message(let message) = timeline[index], [.terminal, .tool, .fileChange].contains(message.role) {
+                return true
+            }
+            return false
+        }
+
+        XCTAssertEqual(rows.map(\.title), [
+            "Listed files",
+            "Read 1 file",
+            "Edited 1 file",
+            "Ran npm test for 1s"
+        ])
+        XCTAssertEqual(operationMessageIndices.count, 4)
+        XCTAssertLessThan(aggregateIndex, try XCTUnwrap(operationMessageIndices.first))
+    }
+
+    func testTranscriptTimelineDoesNotAggregateSingleOperationMessage() {
+        let start = Date(timeIntervalSince1970: 100)
+        let messages = [
+            CodexChatMessage(role: .user, text: "Run status", createdAt: start),
+            commandMessage("git status --short", createdAt: start.addingTimeInterval(1))
+        ]
+
+        let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
+
+        XCTAssertFalse(timeline.contains { item in
+            if case .operationAggregate = item { return true }
+            return false
+        })
+    }
+
     func testTranscriptTimelineInsertsAggregateBeforeConsecutiveFileChanges() throws {
         let start = Date(timeIntervalSince1970: 100)
         let messages = [
@@ -773,6 +825,38 @@ final class CodexChatTranscriptTests: XCTestCase {
                 diff: diff(path: path, added: added, removed: removed),
                 kind: "update",
                 status: "completed",
+                isStreaming: false
+            )
+        )
+    }
+
+    private func commandMessage(_ command: String, duration: String? = nil, createdAt: Date) -> CodexChatMessage {
+        CodexChatMessage(
+            role: .terminal,
+            text: command,
+            createdAt: createdAt,
+            commandRun: CodexChatMessage.CommandRun(
+                itemID: command,
+                command: command,
+                output: duration.map { "duration=\($0)" } ?? "",
+                status: "completed",
+                exitCode: 0,
+                isStreaming: false
+            )
+        )
+    }
+
+    private func readMessage(_ path: String, createdAt: Date) -> CodexChatMessage {
+        CodexChatMessage(
+            role: .tool,
+            text: "Read \(path)",
+            createdAt: createdAt,
+            toolCall: CodexChatMessage.ToolCall(
+                itemID: path,
+                server: "filesystem",
+                tool: "read_file",
+                progress: ["Read \(path)"],
+                result: path,
                 isStreaming: false
             )
         )
