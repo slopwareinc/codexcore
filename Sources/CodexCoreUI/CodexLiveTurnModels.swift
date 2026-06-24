@@ -100,6 +100,19 @@ public enum CodexLiveTurnModel {
         )
     }
 
+    public static func phaseState(
+        for activeTurn: CodexActiveTurnState,
+        now: Date = Date()
+    ) -> CodexLiveTurnPhaseState {
+        phaseState(isActive: true, startedAt: activeTurn.startedAt, now: now)
+    }
+
+    public static func responseActionTitles(for message: CodexChatMessage) -> [String] {
+        guard message.role == .assistant, !message.isStreaming else { return [] }
+        guard !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return responseActionTitles
+    }
+
     public static func operationRows(for messages: [CodexChatMessage]) -> [CodexLiveTurnOperationRow] {
         var rows: [CodexLiveTurnOperationRow] = []
         var commandGroup: [CodexChatMessage.CommandRun] = []

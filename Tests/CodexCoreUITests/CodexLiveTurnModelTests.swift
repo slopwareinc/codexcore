@@ -30,6 +30,25 @@ final class CodexLiveTurnModelTests: XCTestCase {
         XCTAssertNil(finished.stopShortcut)
     }
 
+    func testActiveTurnPhaseAdapterUsesWorkingState() {
+        let start = Date(timeIntervalSince1970: 250)
+        let activeTurn = CodexActiveTurnState(
+            activity: CodexActivity(kind: .turn, title: "Queued", detail: "", createdAt: start),
+            startedAt: start
+        )
+
+        let phase = CodexLiveTurnModel.phaseState(
+            for: activeTurn,
+            now: start.addingTimeInterval(15)
+        )
+
+        XCTAssertEqual(phase.statusTitle, "Working")
+        XCTAssertEqual(phase.thinkingTitle, "Thinking")
+        XCTAssertEqual(phase.elapsedLabel, "Working for 15s")
+        XCTAssertEqual(phase.stopTitle, "Stop")
+        XCTAssertEqual(phase.stopShortcut, "Esc")
+    }
+
     func testFirstOracleLiveTurnOperationRowsAndFinalResponseActions() {
         let messages = firstImplementationTurnMessages()
 
@@ -51,6 +70,18 @@ final class CodexLiveTurnModelTests: XCTestCase {
             "Bad response",
             "Fork from this point"
         ])
+        XCTAssertEqual(
+            CodexLiveTurnModel.responseActionTitles(for: assistant("Done.")),
+            CodexLiveTurnModel.responseActionTitles
+        )
+        XCTAssertEqual(
+            CodexLiveTurnModel.responseActionTitles(for: CodexChatMessage(role: .assistant, text: "Streaming", isStreaming: true)),
+            []
+        )
+        XCTAssertEqual(
+            CodexLiveTurnModel.responseActionTitles(for: CodexChatMessage(role: .assistant, text: "   ")),
+            []
+        )
     }
 
     func testFirstOracleLiveTurnAggregateChangeCardSummary() throws {

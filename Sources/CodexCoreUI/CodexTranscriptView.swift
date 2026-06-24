@@ -321,7 +321,7 @@ public struct CodexAssistantTurnGroupView: View {
                 }
 
                 ForEach(textStreamMessages) { message in
-                    assistantContent(message)
+                    assistantContent(message, showsResponseActions: false)
                 }
 
                 if !lifecycleEvents.isEmpty {
@@ -329,7 +329,7 @@ public struct CodexAssistantTurnGroupView: View {
                 }
 
                 if let primaryMessage {
-                    assistantContent(primaryMessage)
+                    assistantContent(primaryMessage, showsResponseActions: true)
                 }
             }
             .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
@@ -346,7 +346,7 @@ public struct CodexAssistantTurnGroupView: View {
     }
 
     @ViewBuilder
-    private func assistantContent(_ message: CodexChatMessage) -> some View {
+    private func assistantContent(_ message: CodexChatMessage, showsResponseActions: Bool) -> some View {
         if message.isStreaming {
             HStack(alignment: .bottom, spacing: 9) {
                 if message.text.isEmpty {
@@ -369,6 +369,12 @@ public struct CodexAssistantTurnGroupView: View {
                     isStreaming: false,
                     cacheNamespace: message.id.uuidString
                 )
+            }
+            if showsResponseActions {
+                let actionTitles = CodexLiveTurnModel.responseActionTitles(for: message)
+                if !actionTitles.isEmpty {
+                    CodexResponseActionRow(titles: actionTitles, copyText: message.text)
+                }
             }
         }
     }
@@ -464,9 +470,55 @@ public struct CodexAssistantMessageView: View {
                         cacheNamespace: message.id.uuidString
                     )
                 }
+                let actionTitles = CodexLiveTurnModel.responseActionTitles(for: message)
+                if !actionTitles.isEmpty {
+                    CodexResponseActionRow(titles: actionTitles, copyText: message.text)
+                }
             }
         }
         .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+    }
+}
+
+private struct CodexResponseActionRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var copied = false
+
+    let titles: [String]
+    let copyText: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(titles, id: \.self) { title in
+                if title == "Copy" {
+                    CodexCopyButton(copied: $copied) {
+                        copyToPasteboard(copyText)
+                    }
+                    .help(title)
+                } else {
+                    Label(title, systemImage: icon(for: title))
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .help("\(title) unavailable in this build")
+                }
+            }
+        }
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(titles.joined(separator: ", "))
+    }
+
+    private func icon(for title: String) -> String {
+        switch title {
+        case "Good response":
+            return "hand.thumbsup"
+        case "Bad response":
+            return "hand.thumbsdown"
+        case "Fork from this point":
+            return "arrow.triangle.branch"
+        default:
+            return "circle"
+        }
     }
 }
 
