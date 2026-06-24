@@ -275,35 +275,58 @@ private struct ComposerModelMenu: View {
     @Binding var reasoning: CodexReasoningSelection
 
     var body: some View {
+        let state = menuState
+
         Menu {
-            Section("Reasoning") {
-                ForEach(availableReasoningOptions) { option in
+            Section(state.reasoningTitle) {
+                ForEach(state.reasoningItems) { item in
                     Button {
-                        reasoning = option
+                        reasoning = item.selection
                     } label: {
-                        if reasoning == option {
-                            Label(option.displayName, systemImage: "checkmark")
+                        if item.isSelected {
+                            Label(item.title, systemImage: "checkmark")
                         } else {
-                            Text(option.displayName)
+                            Text(item.title)
                         }
                     }
                 }
             }
             Divider()
-            ForEach(availableModelOptions) { option in
-                Button {
-                    model = option
-                    reconcileReasoning(for: option)
-                } label: {
-                    if model == option {
-                        Label(option.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(option.displayName)
+
+            Menu(state.gptFamilyTitle) {
+                ForEach(state.gptFamilyItems) { item in
+                    Button {
+                        selectModel(item.selection)
+                    } label: {
+                        if item.isSelected {
+                            Label(item.title, systemImage: "checkmark")
+                        } else {
+                            Text(item.title)
+                        }
                     }
+                    .help(item.detail ?? item.title)
+                }
+            }
+
+            Menu(state.speedTitle) {
+                ForEach(state.speedItems) { item in
+                    Button {
+                        if let selection = item.selection {
+                            selectModel(selection)
+                        }
+                    } label: {
+                        if item.isSelected {
+                            Label(item.title, systemImage: "checkmark")
+                        } else {
+                            Text(item.title)
+                        }
+                    }
+                    .disabled(!item.isEnabled)
+                    .help(item.detail)
                 }
             }
         } label: {
-            ComposerChipLabel(systemImage: "sparkles", title: "\(model.displayName) \(reasoning.displayName)")
+            ComposerChipLabel(systemImage: "sparkles", title: state.displayTitle)
         }
         .fixedSize()
         .help("Model and reasoning")
@@ -312,22 +335,21 @@ private struct ComposerModelMenu: View {
         }
     }
 
-    private var availableModelOptions: [CodexModelSelection] {
-        modelOptions.isEmpty ? CodexModelSelection.defaultOptions : modelOptions
+    private var menuState: CodexComposerModelMenuState {
+        CodexComposerModelMenuModel.state(
+            modelOptions: modelOptions,
+            selectedModel: model,
+            selectedReasoning: reasoning
+        )
     }
 
-    private var availableReasoningOptions: [CodexReasoningSelection] {
-        model.supportedReasoning.isEmpty ? CodexReasoningSelection.defaultOptions : model.supportedReasoning
+    private func selectModel(_ selection: CodexModelSelection) {
+        model = selection
+        reasoning = CodexComposerModelMenuModel.reconciledReasoning(reasoning, for: selection)
     }
 
     private func reconcileReasoning(for model: CodexModelSelection) {
-        let supported = model.supportedReasoning.isEmpty ? CodexReasoningSelection.defaultOptions : model.supportedReasoning
-        if supported.contains(reasoning) { return }
-        if let defaultReasoning = model.defaultReasoning, supported.contains(defaultReasoning) {
-            reasoning = defaultReasoning
-        } else {
-            reasoning = supported.first ?? .medium
-        }
+        reasoning = CodexComposerModelMenuModel.reconciledReasoning(reasoning, for: model)
     }
 }
 
