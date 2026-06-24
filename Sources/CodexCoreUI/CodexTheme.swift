@@ -251,8 +251,8 @@ public struct CodexAgentTheme {
                 small: 4,
                 medium: 8,
                 large: 12,
-                panel: 12,
-                composer: 12,
+                panel: 25,
+                composer: 25,
                 bubble: 12,
                 pill: 999
             )

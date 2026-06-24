@@ -111,7 +111,7 @@ public struct CodexAuthSession: Equatable, Sendable {
 
     public mutating func apiKeyAccepted() -> CodexActivity {
         isAuthenticated = true
-        authLabel = "API key"
+        authLabel = "OpenAI API key"
         deviceCode = nil
         deviceCodeURL = nil
         return CodexActivity(kind: .login, title: "API key accepted", detail: "Authentication updated")
@@ -129,10 +129,10 @@ public struct CodexAuthSession: Equatable, Sendable {
 
     public mutating func deviceCodeCompleted() -> CodexActivity {
         isAuthenticated = true
-        authLabel = "Authenticated"
+        authLabel = "ChatGPT"
         deviceCode = nil
         deviceCodeURL = nil
-        return CodexActivity(kind: .login, title: "Signed in securely", detail: "Authentication updated")
+        return CodexActivity(kind: .login, title: "Signed in with ChatGPT", detail: "Authentication updated")
     }
 
     public func deviceCodeEnded(message: String) -> CodexActivity {

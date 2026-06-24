@@ -3,6 +3,45 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexChatTranscriptTests: XCTestCase {
+    func testTranscriptTimelineCapsAssistantLifecycleGroupsForLazyScrolling() {
+        let start = Date(timeIntervalSince1970: 100)
+        let messages = (0..<8).map { index in
+            CodexChatMessage(
+                role: .assistant,
+                text: "Assistant message \(index)",
+                createdAt: start.addingTimeInterval(Double(index * 4))
+            )
+        }
+        let events = (0..<40).map { index in
+            CodexAgentLifecycleEvent(
+                status: index == 39 ? .completed : .running,
+                title: "Lifecycle \(index)",
+                agentNames: ["Agent \(index % 3)"],
+                createdAt: start.addingTimeInterval(Double(index))
+            )
+        }
+
+        let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: events)
+        let assistantHeaders = timeline.filter {
+            if case .assistantTurnHeader = $0 { return true }
+            return false
+        }
+        let lifecycleGroups = timeline.compactMap {
+            if case .assistantLifecycle(_, let events) = $0 { return events }
+            return nil
+        }
+        let assistantBlocks = timeline.filter {
+            if case .assistantBlock = $0 { return true }
+            return false
+        }
+
+        XCTAssertGreaterThan(lifecycleGroups.count, 1)
+        XCTAssertEqual(assistantHeaders.count, messages.count)
+        XCTAssertEqual(assistantBlocks.count, messages.count)
+        XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, events.count)
+        XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
+    }
+
     func testChatTranscriptProjectionMapsRawItemsThroughTimelineMapper() throws {
         let commandValue: CodexJSONValue = .dictionary([
             "id": .string("cmd-1"),
