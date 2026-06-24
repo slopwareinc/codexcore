@@ -12,6 +12,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     public var isEphemeral: Bool
     public var createdAt: TimeInterval?
     public var updatedAt: TimeInterval?
+    public var recencyAt: TimeInterval?
 
     public init(
         id: String,
@@ -23,7 +24,8 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         parentThreadID: String? = nil,
         isEphemeral: Bool = false,
         createdAt: TimeInterval? = nil,
-        updatedAt: TimeInterval? = nil
+        updatedAt: TimeInterval? = nil,
+        recencyAt: TimeInterval? = nil
     ) {
         self.id = id
         self.title = title
@@ -35,6 +37,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.isEphemeral = isEphemeral
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.recencyAt = recencyAt
     }
 
     public init?(raw value: CodexJSONValue) {
@@ -55,7 +58,8 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             parentThreadID: Self.string(in: object, keys: ["parentThreadId"]),
             isEphemeral: CodexJSONCoercion.bool(in: object, key: "ephemeral") ?? false,
             createdAt: Self.timeInterval(in: object, key: "createdAt"),
-            updatedAt: Self.timeInterval(in: object, key: "updatedAt")
+            updatedAt: Self.timeInterval(in: object, key: "updatedAt"),
+            recencyAt: Self.timeInterval(in: object, key: "recencyAt")
         )
     }
 

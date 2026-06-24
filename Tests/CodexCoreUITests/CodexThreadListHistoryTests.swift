@@ -16,7 +16,8 @@ final class CodexThreadListHistoryTests: XCTestCase {
                     "parentThreadId": .null,
                     "ephemeral": .bool(false),
                     "createdAt": .int(1_000),
-                    "updatedAt": .int(2_000)
+                    "updatedAt": .int(2_000),
+                    "recencyAt": .int(3_000)
                 ]),
                 .dictionary([
                     "id": .string("thread-side"),
@@ -40,6 +41,7 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertEqual(summaries[0].status, "idle")
         XCTAssertEqual(summaries[0].workspacePath, "/tmp/CodexCore")
         XCTAssertEqual(summaries[0].updatedAt, 2_000)
+        XCTAssertEqual(summaries[0].recencyAt, 3_000)
         XCTAssertEqual(summaries[1].title, "Side investigation")
         XCTAssertEqual(summaries[1].status, "active")
         XCTAssertEqual(summaries[1].parentThreadID, "thread-main")
@@ -271,6 +273,52 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertTrue(other.rows[0].isSelected)
         XCTAssertTrue(other.rows[0].canPin)
         XCTAssertTrue(other.rows[0].canArchive)
+    }
+
+    func testSidebarSnapshotBuildsPinnedRowsAndAffordanceState() {
+        let chats = [
+            CodexThreadSummary(
+                id: "thread-a",
+                title: "Newest pinned",
+                workspacePath: "/tmp/CodexCore",
+                updatedAt: 4_000,
+                recencyAt: 4_500
+            ),
+            CodexThreadSummary(
+                id: "thread-b",
+                title: "Older unpinned",
+                workspacePath: "/tmp/CodexCore",
+                updatedAt: 3_000,
+                recencyAt: 3_500
+            ),
+            CodexThreadSummary(
+                id: "thread-c",
+                title: "Pinned by explicit order",
+                workspacePath: "/tmp/Other",
+                updatedAt: 2_000,
+                recencyAt: 2_500
+            )
+        ]
+        let projects = CodexProjectSummary.projects(from: chats, currentWorkspacePath: "/tmp/CodexCore")
+        let session = CodexSidebarNavigationSession(currentWorkspacePath: "/tmp/CodexCore")
+
+        let snapshot = session.snapshot(
+            projects: projects,
+            chats: chats,
+            currentWorkspacePath: "/tmp/CodexCore",
+            currentThreadID: "thread-c",
+            pinnedThreadIDs: ["thread-c", "thread-a"]
+        )
+
+        XCTAssertEqual(snapshot.pinnedRows.map(\.summary.id), ["thread-c", "thread-a"])
+        XCTAssertEqual(snapshot.pinnedRows.map(\.isPinned), [true, true])
+        XCTAssertEqual(snapshot.pinnedRows.map(\.canPin), [true, true])
+        XCTAssertEqual(snapshot.pinnedRows.map(\.canArchive), [true, true])
+        XCTAssertTrue(snapshot.pinnedRows[0].isSelected)
+
+        let currentProjectRows = snapshot.projects.first?.rows ?? []
+        XCTAssertEqual(currentProjectRows.map(\.summary.id), ["thread-a", "thread-b"])
+        XCTAssertEqual(currentProjectRows.map(\.isPinned), [true, false])
     }
 
     func testSidebarSnapshotShowsNoChatsEmptyState() {

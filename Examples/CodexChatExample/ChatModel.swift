@@ -29,6 +29,7 @@ final class CodexChatModel {
     private var loginTask: Task<Void, Never>?
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
     var sidebarNavigationSession = CodexSidebarNavigationSession(currentWorkspacePath: defaultWorkspacePath())
+    var pinnedThreadIDs = CodexPinnedThreadStorage.load()
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession()
     var activityLog = CodexActivityLogSession()
@@ -531,11 +532,31 @@ final class CodexChatModel {
     }
 
     func pinCurrentChat() {
-        guard currentThreadID != nil else {
+        guard let threadID = currentThreadID else {
             appendActivity(.notice, title: "Pin unavailable", detail: "No active chat to pin")
             return
         }
-        appendActivity(.notice, title: "Pin unavailable", detail: "Pin chat is not wired to app-server yet")
+        setThreadPinned(threadID, pinned: !pinnedThreadIDs.contains(threadID))
+    }
+
+    func toggleSidebarChatPin(_ chat: CodexThreadSummary) {
+        setThreadPinned(chat.id, pinned: !pinnedThreadIDs.contains(chat.id))
+    }
+
+    func archiveSidebarChat(_ chat: CodexThreadSummary) async {
+        guard let codex else { return }
+        do {
+            _ = try await codex.threadArchive(chat.id)
+            setThreadPinned(chat.id, pinned: false, announces: false)
+            if chat.id == currentThreadID {
+                clearThreadState()
+                sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+            }
+            appendActivity(.notice, title: "Archived chat", detail: chat.id)
+            await refreshRecentChats(using: codex)
+        } catch {
+            appendActivity(.notice, title: "Archive failed", detail: friendlyError(error))
+        }
     }
 
     func addAutomationForCurrentChat() {
@@ -1041,6 +1062,22 @@ final class CodexChatModel {
         clearThreadState()
     }
 
+    private func setThreadPinned(_ threadID: String, pinned: Bool, announces: Bool = true) {
+        if pinned {
+            pinnedThreadIDs.removeAll { $0 == threadID }
+            pinnedThreadIDs.insert(threadID, at: 0)
+        } else {
+            pinnedThreadIDs.removeAll { $0 == threadID }
+        }
+        CodexPinnedThreadStorage.save(pinnedThreadIDs)
+        guard announces else { return }
+        appendActivity(
+            .notice,
+            title: pinned ? "Pinned chat" : "Unpinned chat",
+            detail: threadID
+        )
+    }
+
     // MARK: - Bottom Terminal Panel
 
     func toggleBottomTerminalPanel() {
@@ -1138,5 +1175,29 @@ final class CodexChatModel {
         if bottomTerminalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             bottomTerminalText = "Command finished with exit code \(result.exitCode).\n"
         }
+    }
+}
+
+enum CodexPinnedThreadStorage {
+    private static let key = "CodexChatExample.pinnedThreadIDs"
+
+    static func load() -> [String] {
+        let ids = UserDefaults.standard.stringArray(forKey: key) ?? []
+        return deduped(ids)
+    }
+
+    static func save(_ ids: [String]) {
+        UserDefaults.standard.set(deduped(ids), forKey: key)
+    }
+
+    private static func deduped(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for id in ids where !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if seen.insert(id).inserted {
+                result.append(id)
+            }
+        }
+        return result
     }
 }

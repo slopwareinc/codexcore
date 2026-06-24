@@ -34,6 +34,7 @@ public enum CodexAppRoute: String, CaseIterable, Sendable, Equatable {
 public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
     public var summary: CodexThreadSummary
     public var isSelected: Bool
+    public var isPinned: Bool
     public var canPin: Bool
     public var canArchive: Bool
 
@@ -42,11 +43,13 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
     public init(
         summary: CodexThreadSummary,
         isSelected: Bool = false,
+        isPinned: Bool = false,
         canPin: Bool = true,
         canArchive: Bool = true
     ) {
         self.summary = summary
         self.isSelected = isSelected
+        self.isPinned = isPinned
         self.canPin = canPin
         self.canArchive = canArchive
     }
@@ -86,6 +89,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
     public var isSearchOverlayPresented: Bool
     public var selectedProjectPath: String
     public var selectedThreadID: String?
+    public var pinnedRows: [CodexSidebarThreadRow]
     public var projects: [CodexSidebarProjectGroup]
     public var showsNoChats: Bool
     public var noChatsTitle: String
@@ -97,6 +101,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         isSearchOverlayPresented: Bool,
         selectedProjectPath: String,
         selectedThreadID: String?,
+        pinnedRows: [CodexSidebarThreadRow] = [],
         projects: [CodexSidebarProjectGroup],
         showsNoChats: Bool,
         noChatsTitle: String = "No chats"
@@ -107,6 +112,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         self.isSearchOverlayPresented = isSearchOverlayPresented
         self.selectedProjectPath = CodexProjectSummary.normalizedPath(selectedProjectPath)
         self.selectedThreadID = selectedThreadID
+        self.pinnedRows = pinnedRows
         self.projects = projects
         self.showsNoChats = showsNoChats
         self.noChatsTitle = noChatsTitle
@@ -201,10 +207,13 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         projects: [CodexProjectSummary],
         chats: [CodexThreadSummary],
         currentWorkspacePath: String,
-        currentThreadID: String?
+        currentThreadID: String?,
+        pinnedThreadIDs: [String] = []
     ) -> CodexSidebarSnapshot {
         let normalizedCurrent = CodexProjectSummary.normalizedPath(currentWorkspacePath)
         let effectiveThreadID = selectedThreadID ?? currentThreadID
+        let pinnedOrder = Dictionary(uniqueKeysWithValues: pinnedThreadIDs.enumerated().map { ($0.element, $0.offset) })
+        let pinnedIDSet = Set(pinnedThreadIDs)
         let effectiveProjects = projects.isEmpty
             ? CodexProjectSummary.projects(from: chats, currentWorkspacePath: normalizedCurrent)
             : projects
@@ -213,15 +222,35 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             CodexProjectSummary.normalizedPath(summary.workspacePath ?? normalizedCurrent)
         }
 
-        let projectGroups = effectiveProjects.map { project in
-            let rows = (groupedChats[project.workspacePath] ?? []).map { chat in
-                CodexSidebarThreadRow(
-                    summary: chat,
-                    isSelected: chat.id == effectiveThreadID,
-                    canPin: true,
-                    canArchive: true
-                )
+        let row: (CodexThreadSummary) -> CodexSidebarThreadRow = { chat in
+            CodexSidebarThreadRow(
+                summary: chat,
+                isSelected: chat.id == effectiveThreadID,
+                isPinned: pinnedIDSet.contains(chat.id),
+                canPin: true,
+                canArchive: true
+            )
+        }
+
+        let pinnedRows = chats
+            .filter { pinnedIDSet.contains($0.id) }
+            .sorted { lhs, rhs in
+                let left = pinnedOrder[lhs.id] ?? Int.max
+                let right = pinnedOrder[rhs.id] ?? Int.max
+                if left != right { return left < right }
+                return Self.compareByRecency(lhs, rhs)
             }
+            .map(row)
+
+        let projectGroups = effectiveProjects.map { project in
+            let rows = (groupedChats[project.workspacePath] ?? [])
+                .sorted { lhs, rhs in
+                    let leftPinned = pinnedIDSet.contains(lhs.id)
+                    let rightPinned = pinnedIDSet.contains(rhs.id)
+                    if leftPinned != rightPinned { return leftPinned && !rightPinned }
+                    return Self.compareByRecency(lhs, rhs)
+                }
+                .map(row)
             return CodexSidebarProjectGroup(
                 project: project,
                 rows: rows,
@@ -239,8 +268,16 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             isSearchOverlayPresented: isSearchOverlayPresented,
             selectedProjectPath: selectedProjectPath,
             selectedThreadID: effectiveThreadID,
+            pinnedRows: pinnedRows,
             projects: projectGroups,
             showsNoChats: chats.isEmpty
         )
+    }
+
+    private static func compareByRecency(_ lhs: CodexThreadSummary, _ rhs: CodexThreadSummary) -> Bool {
+        let left = lhs.recencyAt ?? lhs.updatedAt ?? lhs.createdAt ?? 0
+        let right = rhs.recencyAt ?? rhs.updatedAt ?? rhs.createdAt ?? 0
+        if left != right { return left > right }
+        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
     }
 }

@@ -50,7 +50,8 @@ extension CodexChatModel {
             projects: recentProjects,
             chats: allSidebarChats,
             currentWorkspacePath: workspacePath,
-            currentThreadID: currentThreadID
+            currentThreadID: currentThreadID,
+            pinnedThreadIDs: pinnedThreadIDs
         )
     }
 

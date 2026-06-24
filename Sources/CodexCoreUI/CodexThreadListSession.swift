@@ -67,13 +67,13 @@ public struct CodexThreadListSession: Sendable {
                 cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
                 limit: 50,
                 sortDirection: .desc,
-                sortKey: .updatedAt
+                sortKey: .recencyAt
             )))
             let allRaw = try CodexJSONValue(encoding: await codex.threadListSchema(CodexSchemaThreadListParams(
                 archived: false,
                 limit: 100,
                 sortDirection: .desc,
-                sortKey: .updatedAt
+                sortKey: .recencyAt
             )))
             applyThreadList(currentRaw: currentRaw, allRaw: allRaw, currentWorkspacePath: currentWorkspacePath)
             return nil

@@ -17,6 +17,8 @@ struct CodexExampleProjectSidebar: View {
     let onSelectProject: (String) -> Void
     let onOpenFolder: () -> Void
     let onSelectChat: (CodexThreadSummary) -> Void
+    let onTogglePinChat: (CodexThreadSummary) -> Void
+    let onArchiveChat: (CodexThreadSummary) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -118,6 +120,18 @@ struct CodexExampleProjectSidebar: View {
                 SidebarSectionHeader(title: "Projects")
             }
 
+            if !snapshot.pinnedRows.isEmpty && !snapshot.isCollapsed {
+                SidebarSectionHeader(title: "Pinned")
+                ForEach(snapshot.pinnedRows) { row in
+                    SidebarChatRow(
+                        row: row,
+                        onSelect: { onSelectChat(row.summary) },
+                        onTogglePin: { onTogglePinChat(row.summary) },
+                        onArchive: { onArchiveChat(row.summary) }
+                    )
+                }
+            }
+
             SidebarCommandRow(
                 systemImage: "folder.badge.plus",
                 title: "Open folder…",
@@ -134,7 +148,9 @@ struct CodexExampleProjectSidebar: View {
                     onStartProjectChat: onStartProjectChat,
                     onProjectActions: onProjectActions,
                     onSelectProject: onSelectProject,
-                    onSelectChat: onSelectChat
+                    onSelectChat: onSelectChat,
+                    onTogglePinChat: onTogglePinChat,
+                    onArchiveChat: onArchiveChat
                 )
             }
 
@@ -240,6 +256,8 @@ private struct ProjectSidebarGroupView: View {
     let onProjectActions: (String) -> Void
     let onSelectProject: (String) -> Void
     let onSelectChat: (CodexThreadSummary) -> Void
+    let onTogglePinChat: (CodexThreadSummary) -> Void
+    let onArchiveChat: (CodexThreadSummary) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -341,9 +359,12 @@ private struct ProjectSidebarGroupView: View {
                         .padding(.vertical, 5)
                 } else {
                     ForEach(group.rows) { row in
-                        SidebarChatRow(row: row) {
-                            onSelectChat(row.summary)
-                        }
+                        SidebarChatRow(
+                            row: row,
+                            onSelect: { onSelectChat(row.summary) },
+                            onTogglePin: { onTogglePinChat(row.summary) },
+                            onArchive: { onArchiveChat(row.summary) }
+                        )
                         .padding(.leading, 22)
                     }
                 }
@@ -370,45 +391,57 @@ private struct SidebarChatRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let row: CodexSidebarThreadRow
-    let action: () -> Void
+    let onSelect: () -> Void
+    let onTogglePin: () -> Void
+    let onArchive: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Image(systemName: "bubble.left")
-                    .font(.system(size: 12, weight: .medium))
+        HStack(spacing: 9) {
+            Image(systemName: "bubble.left")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.colors.textTertiary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.summary.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                    .lineLimit(1)
+                Text(row.summary.detail.isEmpty ? "No activity yet" : row.summary.detail)
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.summary.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                        .lineLimit(1)
-                    Text(row.summary.detail.isEmpty ? "No activity yet" : row.summary.detail)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                HStack(spacing: 5) {
-                    if row.canPin {
-                        Image(systemName: "pin")
-                    }
-                    if row.canArchive {
-                        Image(systemName: "archivebox")
-                    }
-                }
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(theme.colors.textTertiary.opacity(0.75))
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 8)
-            .frame(height: 38)
-            .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+            Spacer(minLength: 0)
+            HStack(spacing: 5) {
+                if row.canPin {
+                    Button(action: onTogglePin) {
+                        Image(systemName: row.isPinned ? "pin.fill" : "pin")
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(row.isPinned ? theme.colors.accent : theme.colors.textTertiary.opacity(0.75))
+                    .help(row.isPinned ? "Unpin chat" : "Pin chat")
+                }
+                if row.canArchive {
+                    Button(action: onArchive) {
+                        Image(systemName: "archivebox")
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.colors.textTertiary.opacity(0.75))
+                    .help("Archive chat")
+                }
+            }
+            .font(.system(size: 9, weight: .medium))
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .frame(height: 38)
+        .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+        .onTapGesture(perform: onSelect)
         .background(
             row.isSelected ? theme.colors.surfaceElevated.opacity(0.58) : .clear,
             in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         )
+        .help(row.summary.title)
     }
 }

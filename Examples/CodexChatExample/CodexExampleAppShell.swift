@@ -31,7 +31,9 @@ struct CodexExampleAppShell: View {
                 onProjectActions: { _ in },
                 onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
                 onOpenFolder: { chooseWorkspaceFolder() },
-                onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } }
+                onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
+                onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
+                onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
             )
             .transition(.move(edge: .leading).combined(with: .opacity))
 
