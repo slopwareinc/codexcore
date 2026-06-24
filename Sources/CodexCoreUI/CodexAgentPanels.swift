@@ -6,17 +6,20 @@ public struct CodexFloatingSummaryPanel: View {
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
     private let workspaceSummary: CodexWorkspaceSummaryContext?
+    private let chatTitle: String
     private let onSelectTab: (String) -> Void
 
     public init(
         sideChat: CodexSideChatState?,
         subagents: [CodexSubagentState],
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
+        chatTitle: String = "Codex",
         onSelectTab: @escaping (String) -> Void
     ) {
         self.sideChat = sideChat
         self.subagents = subagents
         self.workspaceSummary = workspaceSummary
+        self.chatTitle = chatTitle
         self.onSelectTab = onSelectTab
     }
 
@@ -37,6 +40,16 @@ public struct CodexFloatingSummaryPanel: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
+                }
+
+                SummarySection(title: "Environment") {
+                    CodexProjectEnvironmentPanel(
+                        environment: CodexProjectEnvironmentState(
+                            workspacePath: workspaceSummary.workspacePath,
+                            branchName: workspaceSummary.gitBranch
+                        ),
+                        threadTitle: chatTitle
+                    )
                 }
             }
 

@@ -129,6 +129,53 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(completion.activity.detail, "Worktree handoff is not available in this build")
         XCTAssertNil(completion.resultCard)
     }
+
+    func testEnvironmentPanelSessionPreparesRowsAndModalDefaults() {
+        var session = CodexProjectEnvironmentPanelSession(environment: CodexProjectEnvironmentState(
+            workspacePath: "/Users/me/repo",
+            branchName: "main",
+            usageRemainingLabel: "80% remaining"
+        ))
+
+        XCTAssertEqual(session.rows, [
+            CodexProjectEnvironmentPanelRow(title: "Mode", value: "Local"),
+            CodexProjectEnvironmentPanelRow(title: "Branch", value: "main"),
+            CodexProjectEnvironmentPanelRow(title: "Path", value: "/Users/me/repo"),
+            CodexProjectEnvironmentPanelRow(title: "Usage", value: "80% remaining")
+        ])
+
+        session.prepareModal(threadTitle: "Review PR #42")
+
+        XCTAssertEqual(session.modal, CodexWorktreeHandoffModalState(
+            threadTitle: "Review PR #42",
+            sourcePath: "/Users/me/repo",
+            targetPath: "/Users/me/repo-worktrees/review-pr-42"
+        ))
+    }
+
+    func testEnvironmentPanelSessionAppliesCompletionActivityAndResultCard() async throws {
+        var session = CodexProjectEnvironmentPanelSession(environment: CodexProjectEnvironmentState(
+            workspacePath: "/repo",
+            branchName: "main"
+        ))
+        session.prepareModal(threadTitle: "Implement stats", targetPath: "/repo-worktrees/stats")
+
+        let modal = try XCTUnwrap(session.modal)
+        let completion = await CodexWorktreeHandoffSession.perform(
+            modal: modal,
+            environment: session.environment,
+            provider: MockWorktreeHandoffProvider(result: CodexWorktreeHandoffResult(
+                title: "Implement stats",
+                branchName: "codex/implement-stats",
+                worktreePath: "/repo-worktrees/stats"
+            ))
+        )
+        session.apply(completion)
+
+        XCTAssertEqual(session.environment.selection, .worktree)
+        XCTAssertEqual(session.lastActivity?.title, "Handed-off to worktree")
+        XCTAssertEqual(session.resultCard?.detail, "codex/implement-stats at /repo-worktrees/stats")
+    }
 }
 
 private struct MockWorktreeHandoffProvider: CodexWorktreeHandoffProviding {

@@ -208,6 +208,78 @@ public struct CodexWorktreeHandoffCompletion: Equatable, Sendable {
     }
 }
 
+public struct CodexProjectEnvironmentPanelRow: Equatable, Sendable {
+    public var title: String
+    public var value: String
+
+    public init(title: String, value: String) {
+        self.title = title
+        self.value = value
+    }
+}
+
+public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
+    public var environment: CodexProjectEnvironmentState
+    public var modal: CodexWorktreeHandoffModalState?
+    public var lastActivity: CodexActivity?
+    public var resultCard: CodexWorktreeHandoffResultCard?
+
+    public init(
+        environment: CodexProjectEnvironmentState,
+        modal: CodexWorktreeHandoffModalState? = nil,
+        lastActivity: CodexActivity? = nil,
+        resultCard: CodexWorktreeHandoffResultCard? = nil
+    ) {
+        self.environment = environment
+        self.modal = modal
+        self.lastActivity = lastActivity
+        self.resultCard = resultCard
+    }
+
+    public var rows: [CodexProjectEnvironmentPanelRow] {
+        var rows = [
+            CodexProjectEnvironmentPanelRow(title: "Mode", value: environment.selection.title),
+            CodexProjectEnvironmentPanelRow(title: "Branch", value: environment.branchName?.nilIfBlank ?? "No branch"),
+            CodexProjectEnvironmentPanelRow(title: "Path", value: environment.worktreePath?.nilIfBlank ?? environment.workspacePath)
+        ]
+        if let usage = environment.usageRemainingLabel?.nilIfBlank {
+            rows.append(CodexProjectEnvironmentPanelRow(title: "Usage", value: usage))
+        }
+        return rows
+    }
+
+    public mutating func prepareModal(threadTitle: String, targetPath: String? = nil) {
+        modal = CodexWorktreeHandoffModalState(
+            threadTitle: threadTitle,
+            sourcePath: environment.workspacePath,
+            targetPath: targetPath ?? Self.defaultTargetPath(sourcePath: environment.workspacePath, threadTitle: threadTitle)
+        )
+        lastActivity = nil
+        resultCard = nil
+    }
+
+    public mutating func apply(_ completion: CodexWorktreeHandoffCompletion) {
+        environment = completion.environment
+        lastActivity = completion.activity
+        resultCard = completion.resultCard
+    }
+
+    public static func defaultTargetPath(sourcePath: String, threadTitle: String) -> String {
+        let source = sourcePath.trimmedForHandoff
+        guard !source.isEmpty else { return "" }
+        let sourceURL = URL(fileURLWithPath: source)
+        let branchName = CodexWorktreeHandoffModalState.defaultBranchName(for: threadTitle)
+        let slug = branchName
+            .replacingOccurrences(of: "codex/", with: "")
+            .replacingOccurrences(of: "/", with: "-")
+        return sourceURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(sourceURL.lastPathComponent)-worktrees")
+            .appendingPathComponent(slug)
+            .path
+    }
+}
+
 public protocol CodexWorktreeHandoffProviding: Sendable {
     func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult
 }

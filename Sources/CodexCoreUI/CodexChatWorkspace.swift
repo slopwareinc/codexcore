@@ -246,6 +246,7 @@ public struct CodexChatWorkspaceView: View {
                     sideChat: sideChat,
                     subagents: subagents,
                     workspaceSummary: workspaceSummary,
+                    chatTitle: chatTitle,
                     onSelectTab: openPanelTab
                 )
                 .padding(.top, 58)
