@@ -530,6 +530,31 @@ final class CodexChatModel {
         appendIntegrationActivity(activity)
     }
 
+    func pinCurrentChat() {
+        guard currentThreadID != nil else {
+            appendActivity(.notice, title: "Pin unavailable", detail: "No active chat to pin")
+            return
+        }
+        appendActivity(.notice, title: "Pin unavailable", detail: "Pin chat is not wired to app-server yet")
+    }
+
+    func addAutomationForCurrentChat() {
+        guard currentThreadID != nil else {
+            appendActivity(.notice, title: "Automation unavailable", detail: "No active chat to automate")
+            return
+        }
+        selectAppRoute(.automations)
+        appendActivity(.notice, title: "Automation", detail: "Opened Automations route for this chat")
+    }
+
+    func openCurrentChatInNewWindow() {
+        guard currentThreadID != nil else {
+            appendActivity(.notice, title: "Open window unavailable", detail: "No active chat to open")
+            return
+        }
+        appendActivity(.notice, title: "Open window unavailable", detail: "Open in new window is not wired yet")
+    }
+
     func resolveApprovalPrompt(id: String, approved: Bool) {
         Task { [weak self] in
             guard let self else { return }

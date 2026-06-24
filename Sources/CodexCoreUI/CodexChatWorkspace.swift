@@ -12,6 +12,7 @@ public struct CodexChatWorkspaceView: View {
     private let activities: [CodexActivity]
     private let connectionState: CodexConnectionState
     private let workspacePath: String
+    private let chatTitle: String
     private let rateLimitBannerMessage: String?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let showsSidebarToggle: Bool
@@ -56,6 +57,7 @@ public struct CodexChatWorkspaceView: View {
         activities: [CodexActivity],
         connectionState: CodexConnectionState,
         workspacePath: String,
+        chatTitle: String = "Codex",
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         showsSidebarToggle: Bool = false,
@@ -95,6 +97,7 @@ public struct CodexChatWorkspaceView: View {
         self.activities = activities
         self.connectionState = connectionState
         self.workspacePath = workspacePath
+        self.chatTitle = chatTitle
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
         self.showsSidebarToggle = showsSidebarToggle
@@ -172,6 +175,7 @@ public struct CodexChatWorkspaceView: View {
 
             VStack(spacing: 0) {
                 CodexChatHeader(
+                    title: chatTitle,
                     workspacePath: workspacePath,
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
@@ -284,6 +288,7 @@ public struct CodexChatWorkspaceView: View {
 public struct CodexChatHeader: View {
     @Environment(\.codexAgentTheme) private var theme
 
+    private let title: String
     private let workspacePath: String
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
@@ -297,6 +302,7 @@ public struct CodexChatHeader: View {
     private let onDisconnect: () -> Void
 
     public init(
+        title: String = "Codex",
         workspacePath: String,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = true,
@@ -309,6 +315,7 @@ public struct CodexChatHeader: View {
         onTogglePanel: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void
     ) {
+        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Codex" : title
         self.workspacePath = workspacePath
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
@@ -334,7 +341,7 @@ public struct CodexChatHeader: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                Text("Codex")
+                Text(title)
                     .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
@@ -352,12 +359,23 @@ public struct CodexChatHeader: View {
 
             Spacer(minLength: 12)
 
+            Button {
+                chatActions.perform(.openInNewWindow)
+            } label: {
+                Text("Open in")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(chatActions.handler(for: .openInNewWindow) == nil)
+            .help("Open in new window")
+
             ChatActionsMenu(actions: chatActions, onDisconnect: onDisconnect)
 
             ToolbarIconButton(
                 systemImage: "list.bullet.rectangle",
                 isActive: isSummaryPanelOpen,
-                help: "Toggle summary",
+                help: "Toggle pinned summary",
                 action: onToggleSummaryPanel
             )
 
@@ -365,7 +383,7 @@ public struct CodexChatHeader: View {
                 systemImage: "sidebar.right",
                 isActive: isPanelOpen,
                 isEnabled: hasPanelTabs,
-                help: "Toggle side chat",
+                help: "Toggle side panel",
                 action: onTogglePanel
             )
 
@@ -416,12 +434,17 @@ private struct ChatActionsMenu: View {
 
     var body: some View {
         Menu {
-            actionButton("Rename chat", action: actions.renameChat)
-            actionButton("Archive chat", action: actions.archiveChat)
+            ForEach(actions.menuItems.prefix(3), id: \.id) { item in
+                actionButton(item)
+            }
             Divider()
-            actionButton("Open side chat", action: actions.openSideChat)
-            actionButton("Copy", action: actions.copyChat)
-            actionButton("Fork", action: actions.forkChat)
+            ForEach(actions.menuItems.dropFirst(3).prefix(3), id: \.id) { item in
+                actionButton(item)
+            }
+            Divider()
+            ForEach(actions.menuItems.dropFirst(6), id: \.id) { item in
+                actionButton(item)
+            }
             Divider()
             Button("Disconnect", action: onDisconnect)
         } label: {
@@ -435,9 +458,11 @@ private struct ChatActionsMenu: View {
         .help("Chat actions")
     }
 
-    private func actionButton(_ title: String, action: (() -> Void)?) -> some View {
-        Button(title) { action?() }
-            .disabled(action == nil)
+    private func actionButton(_ item: CodexChatActionMenuItem) -> some View {
+        Button(item.displayTitle) {
+            actions.perform(item.id)
+        }
+        .disabled(!item.isEnabled)
     }
 }
 

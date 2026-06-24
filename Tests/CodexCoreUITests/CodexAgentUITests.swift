@@ -567,21 +567,63 @@ final class CodexAgentUITests: XCTestCase {
     }
 
     func testChatActionHandlersExposeHostWiredActions() {
+        var didPinChat = false
         var didOpenSideChat = false
         var didCopyChat = false
+        var didAddAutomation = false
         let actions = CodexChatActionHandlers(
+            pinChat: { didPinChat = true },
             openSideChat: { didOpenSideChat = true },
-            copyChat: { didCopyChat = true }
+            copyChat: { didCopyChat = true },
+            addAutomation: { didAddAutomation = true }
         )
 
+        XCTAssertNil(CodexChatActionHandlers().pinChat)
         XCTAssertNil(CodexChatActionHandlers().openSideChat)
         XCTAssertNil(CodexChatActionHandlers().copyChat)
+        XCTAssertNil(CodexChatActionHandlers().addAutomation)
+        XCTAssertTrue(CodexChatActionHandlers().menuItems.allSatisfy { !$0.isEnabled })
 
-        actions.openSideChat?()
-        actions.copyChat?()
+        XCTAssertEqual(actions.menuItems.map(\.id), [
+            .pinChat,
+            .renameChat,
+            .archiveChat,
+            .openSideChat,
+            .copy,
+            .fork,
+            .addAutomation,
+            .openInNewWindow
+        ])
+        XCTAssertEqual(actions.menuItems.map(\.displayTitle), [
+            "Pin chat ⌥⌘P",
+            "Rename chat ⌥⌘R",
+            "Archive chat ⇧⌘A",
+            "Open side chat ⌥⌘S",
+            "Copy",
+            "Fork",
+            "Add automation…",
+            "Open in new window"
+        ])
+        XCTAssertEqual(actions.menuItems.map(\.isEnabled), [
+            true,
+            false,
+            false,
+            true,
+            true,
+            false,
+            true,
+            false
+        ])
 
+        actions.perform(.pinChat)
+        actions.perform(.openSideChat)
+        actions.perform(.copy)
+        actions.perform(.addAutomation)
+
+        XCTAssertTrue(didPinChat)
         XCTAssertTrue(didOpenSideChat)
         XCTAssertTrue(didCopyChat)
+        XCTAssertTrue(didAddAutomation)
         XCTAssertEqual(CodexSideChatState.defaultID, "side-chat")
         XCTAssertEqual(CodexSideChatState().id, CodexSideChatState.defaultID)
     }

@@ -2,24 +2,135 @@ import Foundation
 import CodexCore
 
 public struct CodexChatActionHandlers {
+    public var pinChat: (() -> Void)?
     public var renameChat: (() -> Void)?
     public var archiveChat: (() -> Void)?
     public var openSideChat: (() -> Void)?
     public var copyChat: (() -> Void)?
     public var forkChat: (() -> Void)?
+    public var addAutomation: (() -> Void)?
+    public var openInNewWindow: (() -> Void)?
 
     public init(
+        pinChat: (() -> Void)? = nil,
         renameChat: (() -> Void)? = nil,
         archiveChat: (() -> Void)? = nil,
         openSideChat: (() -> Void)? = nil,
         copyChat: (() -> Void)? = nil,
-        forkChat: (() -> Void)? = nil
+        forkChat: (() -> Void)? = nil,
+        addAutomation: (() -> Void)? = nil,
+        openInNewWindow: (() -> Void)? = nil
     ) {
+        self.pinChat = pinChat
         self.renameChat = renameChat
         self.archiveChat = archiveChat
         self.openSideChat = openSideChat
         self.copyChat = copyChat
         self.forkChat = forkChat
+        self.addAutomation = addAutomation
+        self.openInNewWindow = openInNewWindow
+    }
+
+    public var menuItems: [CodexChatActionMenuItem] {
+        CodexChatActionID.allCases.map { id in
+            CodexChatActionMenuItem(
+                id: id,
+                title: id.title,
+                shortcut: id.shortcut,
+                isEnabled: handler(for: id) != nil
+            )
+        }
+    }
+
+    public func perform(_ id: CodexChatActionID) {
+        handler(for: id)?()
+    }
+
+    public func handler(for id: CodexChatActionID) -> (() -> Void)? {
+        switch id {
+        case .pinChat:
+            return pinChat
+        case .renameChat:
+            return renameChat
+        case .archiveChat:
+            return archiveChat
+        case .openSideChat:
+            return openSideChat
+        case .copy:
+            return copyChat
+        case .fork:
+            return forkChat
+        case .addAutomation:
+            return addAutomation
+        case .openInNewWindow:
+            return openInNewWindow
+        }
+    }
+}
+
+public enum CodexChatActionID: String, CaseIterable, Equatable, Sendable {
+    case pinChat
+    case renameChat
+    case archiveChat
+    case openSideChat
+    case copy
+    case fork
+    case addAutomation
+    case openInNewWindow
+
+    public var title: String {
+        switch self {
+        case .pinChat:
+            return "Pin chat"
+        case .renameChat:
+            return "Rename chat"
+        case .archiveChat:
+            return "Archive chat"
+        case .openSideChat:
+            return "Open side chat"
+        case .copy:
+            return "Copy"
+        case .fork:
+            return "Fork"
+        case .addAutomation:
+            return "Add automation…"
+        case .openInNewWindow:
+            return "Open in new window"
+        }
+    }
+
+    public var shortcut: String? {
+        switch self {
+        case .pinChat:
+            return "⌥⌘P"
+        case .renameChat:
+            return "⌥⌘R"
+        case .archiveChat:
+            return "⇧⌘A"
+        case .openSideChat:
+            return "⌥⌘S"
+        case .copy, .fork, .addAutomation, .openInNewWindow:
+            return nil
+        }
+    }
+}
+
+public struct CodexChatActionMenuItem: Equatable, Sendable {
+    public var id: CodexChatActionID
+    public var title: String
+    public var shortcut: String?
+    public var isEnabled: Bool
+
+    public init(id: CodexChatActionID, title: String, shortcut: String? = nil, isEnabled: Bool) {
+        self.id = id
+        self.title = title
+        self.shortcut = shortcut
+        self.isEnabled = isEnabled
+    }
+
+    public var displayTitle: String {
+        guard let shortcut else { return title }
+        return "\(title) \(shortcut)"
     }
 }
 

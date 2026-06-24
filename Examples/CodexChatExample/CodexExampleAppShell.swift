@@ -153,20 +153,12 @@ struct CodexExampleAppShell: View {
                 activities: model.activities,
                 connectionState: model.connectionState,
                 workspacePath: model.workspacePath,
+                chatTitle: model.currentChatTitle,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
-                chatActions: CodexChatActionHandlers(
-                    renameChat: {
-                        renameDraft = model.currentChatTitle
-                        isRenameSheetPresented = true
-                    },
-                    archiveChat: { Task { await model.archiveCurrentChat() } },
-                    openSideChat: { model.openSideChat() },
-                    copyChat: { model.copyChatTranscript() },
-                    forkChat: { Task { await model.forkCurrentChat() } }
-                ),
+                chatActions: currentChatActionHandlers,
                 approvalOptions: model.approvalOptions,
                 modelOptions: model.modelOptions,
                 slashCommands: model.slashCommands,
@@ -233,6 +225,25 @@ struct CodexExampleAppShell: View {
         panel.directoryURL = URL(fileURLWithPath: model.workspacePath)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await model.switchWorkspace(to: url.path) }
+    }
+
+    private var currentChatActionHandlers: CodexChatActionHandlers {
+        guard model.currentThreadID != nil else {
+            return CodexChatActionHandlers()
+        }
+        return CodexChatActionHandlers(
+            pinChat: { model.pinCurrentChat() },
+            renameChat: {
+                renameDraft = model.currentChatTitle
+                isRenameSheetPresented = true
+            },
+            archiveChat: { Task { await model.archiveCurrentChat() } },
+            openSideChat: { model.openSideChat() },
+            copyChat: { model.copyChatTranscript() },
+            forkChat: { Task { await model.forkCurrentChat() } },
+            addAutomation: { model.addAutomationForCurrentChat() },
+            openInNewWindow: { model.openCurrentChatInNewWindow() }
+        )
     }
 }
 
