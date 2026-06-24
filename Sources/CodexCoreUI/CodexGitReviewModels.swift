@@ -99,6 +99,45 @@ public struct CodexGitBranchDirtySummary: Equatable, Sendable {
     }
 }
 
+public struct CodexGitBranchPickerOption: Equatable, Sendable {
+    public var branchName: String
+    public var dirtyFileCount: Int
+    public var isCurrent: Bool
+
+    public init(branchName: String, dirtyFileCount: Int = 0, isCurrent: Bool = false) {
+        self.branchName = branchName.nilIfBlank ?? "HEAD"
+        self.dirtyFileCount = max(0, dirtyFileCount)
+        self.isCurrent = isCurrent
+    }
+
+    public var title: String {
+        dirtyFileCount == 0 ? branchName : "\(branchName) (\(dirtyFileCount))"
+    }
+}
+
+public struct CodexGitBranchPickerState: Equatable, Sendable {
+    public var options: [CodexGitBranchPickerOption]
+    public var currentBranchName: String
+    public var canCreateOrCheckout: Bool
+    public var createOrCheckoutDisabledReason: String?
+
+    public init(
+        options: [CodexGitBranchPickerOption],
+        currentBranchName: String,
+        canCreateOrCheckout: Bool,
+        createOrCheckoutDisabledReason: String?
+    ) {
+        self.options = options
+        self.currentBranchName = currentBranchName.nilIfBlank ?? "HEAD"
+        self.canCreateOrCheckout = canCreateOrCheckout
+        self.createOrCheckoutDisabledReason = createOrCheckoutDisabledReason
+    }
+
+    public var currentTitle: String {
+        options.first(where: \.isCurrent)?.title ?? currentBranchName
+    }
+}
+
 public struct CodexGitReviewEmptyState: Equatable, Sendable {
     public var title: String
     public var detail: String
@@ -146,6 +185,7 @@ public struct CodexGitCommitDraft: Equatable, Sendable {
 public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public var branchName: String
     public var upstreamBranchName: String?
+    public var branchOptions: [CodexGitBranchPickerOption]
     public var files: [CodexGitReviewFileChange]
     public var reviewFilePaths: [String]?
     public var unpushedCommitCount: Int
@@ -154,6 +194,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public init(
         branchName: String,
         upstreamBranchName: String? = nil,
+        branchOptions: [CodexGitBranchPickerOption] = [],
         files: [CodexGitReviewFileChange] = [],
         reviewFilePaths: [String]? = nil,
         unpushedCommitCount: Int = 0,
@@ -161,6 +202,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     ) {
         self.branchName = branchName.nilIfBlank ?? "HEAD"
         self.upstreamBranchName = upstreamBranchName?.nilIfBlank
+        self.branchOptions = branchOptions
         self.files = files
         self.reviewFilePaths = reviewFilePaths
         self.unpushedCommitCount = max(0, unpushedCommitCount)
@@ -171,6 +213,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         branchName: String?,
         turnDiff: String?,
         upstreamBranchName: String? = nil,
+        branchOptions: [CodexGitBranchPickerOption] = [],
         reviewFilePaths: [String]? = nil,
         unpushedCommitCount: Int = 0,
         pullRequestExists: Bool = false
@@ -181,6 +224,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         return CodexGitReviewSnapshot(
             branchName: branchName?.nilIfBlank ?? "HEAD",
             upstreamBranchName: upstreamBranchName,
+            branchOptions: branchOptions,
             files: files,
             reviewFilePaths: reviewFilePaths,
             unpushedCommitCount: unpushedCommitCount,
@@ -211,6 +255,35 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
             stagedFileCount: stagedFiles.count,
             unstagedFileCount: unstagedFiles.count,
             unpushedCommitCount: unpushedCommitCount
+        )
+    }
+
+    public var branchPicker: CodexGitBranchPickerState {
+        var seenCurrent = false
+        var options = branchOptions.map { option in
+            var normalized = option
+            normalized.isCurrent = normalized.branchName == branchName
+            if normalized.isCurrent {
+                normalized.dirtyFileCount = max(normalized.dirtyFileCount, files.count)
+                seenCurrent = true
+            }
+            return normalized
+        }
+
+        if !seenCurrent {
+            options.insert(CodexGitBranchPickerOption(
+                branchName: branchName,
+                dirtyFileCount: files.count,
+                isCurrent: true
+            ), at: 0)
+        }
+
+        let canCreateOrCheckout = !hasUncommittedChanges
+        return CodexGitBranchPickerState(
+            options: options,
+            currentBranchName: branchName,
+            canCreateOrCheckout: canCreateOrCheckout,
+            createOrCheckoutDisabledReason: canCreateOrCheckout ? nil : "Commit or discard changes before switching branches"
         )
     }
 

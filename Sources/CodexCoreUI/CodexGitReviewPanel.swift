@@ -21,16 +21,34 @@ public struct CodexGitReviewPanel: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let branchPicker = session.snapshot.branchPicker
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                Text(session.branchSummary.title)
-                    .font(theme.fonts.body.weight(.semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                Menu {
+                    ForEach(branchPicker.options, id: \.branchName) { option in
+                        Button(action: {}) {
+                            if option.isCurrent {
+                                Label(option.title, systemImage: "checkmark")
+                            } else {
+                                Text(option.title)
+                            }
+                        }
+                        .disabled(true)
+                    }
+
+                    Divider()
+
+                    Button("Create or checkout branch", action: {})
+                        .disabled(!branchPicker.canCreateOrCheckout)
+                } label: {
+                    Label(branchPicker.currentTitle, systemImage: "arrow.triangle.branch")
+                        .font(theme.fonts.body.weight(.semibold))
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .menuStyle(.borderlessButton)
+                .help(branchPicker.createOrCheckoutDisabledReason ?? "Branch checkout is not wired in this build")
             }
 
             Text(session.commitStats.summary)

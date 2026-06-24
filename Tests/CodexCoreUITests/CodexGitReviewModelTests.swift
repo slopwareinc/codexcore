@@ -17,6 +17,46 @@ final class CodexGitReviewModelTests: XCTestCase {
         XCTAssertEqual(session.commitStats.summary, "3 files +15 -4")
     }
 
+    func testBranchPickerShowsDirtyCountAndDisablesCreateCheckoutWhenDirty() {
+        let snapshot = CodexGitReviewSnapshot(
+            branchName: "codex/review-panel",
+            upstreamBranchName: "origin/codex/review-panel",
+            branchOptions: [
+                CodexGitBranchPickerOption(branchName: "main"),
+                CodexGitBranchPickerOption(branchName: "codex/review-panel")
+            ],
+            files: [
+                CodexGitReviewFileChange(path: "Sources/Review.swift", status: .modified, isStaged: true),
+                CodexGitReviewFileChange(path: "Sources/Panel.swift", status: .added, isStaged: false)
+            ]
+        )
+
+        let picker = snapshot.branchPicker
+
+        XCTAssertEqual(picker.currentTitle, "codex/review-panel (2)")
+        XCTAssertEqual(picker.options.map(\.title), ["main", "codex/review-panel (2)"])
+        XCTAssertEqual(picker.options.map(\.isCurrent), [false, true])
+        XCTAssertFalse(picker.canCreateOrCheckout)
+        XCTAssertEqual(picker.createOrCheckoutDisabledReason, "Commit or discard changes before switching branches")
+    }
+
+    func testBranchPickerEnablesCreateCheckoutWhenCleanAndAddsCurrentBranch() {
+        let snapshot = CodexGitReviewSnapshot(
+            branchName: "codex/review-panel",
+            upstreamBranchName: "origin/codex/review-panel",
+            branchOptions: [
+                CodexGitBranchPickerOption(branchName: "main")
+            ]
+        )
+
+        let picker = snapshot.branchPicker
+
+        XCTAssertEqual(picker.options.map(\.title), ["codex/review-panel", "main"])
+        XCTAssertEqual(picker.options.map(\.isCurrent), [true, false])
+        XCTAssertTrue(picker.canCreateOrCheckout)
+        XCTAssertNil(picker.createOrCheckoutDisabledReason)
+    }
+
     func testIncludeUnstagedToggleChangesCommitStatsAndCommitAvailability() {
         var session = CodexGitReviewSession(
             snapshot: dirtySnapshot(),
