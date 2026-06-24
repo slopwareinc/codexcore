@@ -153,6 +153,107 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertFalse(session.isSearching)
     }
 
+    func testThreadListSessionRenamesThreadAcrossSidebarAndSearchState() {
+        let currentResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("thread-current"),
+                    "name": .string("Old title"),
+                    "cwd": .string("/tmp/CodexCore"),
+                    "updatedAt": .int(2_000)
+                ])
+            ])
+        ])
+        let allResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("thread-current"),
+                    "name": .string("Old title"),
+                    "cwd": .string("/tmp/CodexCore"),
+                    "updatedAt": .int(2_000)
+                ]),
+                .dictionary([
+                    "id": .string("thread-other"),
+                    "name": .string("Other chat"),
+                    "cwd": .string("/tmp/Other"),
+                    "updatedAt": .int(3_000)
+                ])
+            ])
+        ])
+        var session = CodexThreadListSession(currentWorkspacePath: "/tmp/CodexCore")
+        session.applyThreadList(currentRaw: currentResponse, allRaw: allResponse, currentWorkspacePath: "/tmp/CodexCore")
+        _ = session.applySearchResults(from: .dictionary([
+            "data": .array([
+                .dictionary([
+                    "thread": .dictionary([
+                        "id": .string("thread-current"),
+                        "name": .string("Old title"),
+                        "cwd": .string("/tmp/CodexCore")
+                    ]),
+                    "snippet": .string("needle")
+                ])
+            ])
+        ]))
+
+        session.renameThread(id: "thread-current", title: "  New title  ", currentWorkspacePath: "/tmp/CodexCore")
+
+        XCTAssertEqual(session.recentChats.first?.title, "New title")
+        XCTAssertEqual(session.allChats.first(where: { $0.id == "thread-current" })?.title, "New title")
+        XCTAssertEqual(session.searchResults.first?.thread.title, "New title")
+        XCTAssertEqual(session.recentProjects.first?.displayName, "CodexCore")
+    }
+
+    func testThreadListSessionRemovesArchivedThreadAcrossSidebarAndSearchState() {
+        let currentResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("thread-current"),
+                    "name": .string("Current chat"),
+                    "cwd": .string("/tmp/CodexCore"),
+                    "updatedAt": .int(2_000)
+                ])
+            ])
+        ])
+        let allResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("thread-current"),
+                    "name": .string("Current chat"),
+                    "cwd": .string("/tmp/CodexCore"),
+                    "updatedAt": .int(2_000)
+                ]),
+                .dictionary([
+                    "id": .string("thread-other"),
+                    "name": .string("Other chat"),
+                    "cwd": .string("/tmp/Other"),
+                    "updatedAt": .int(3_000)
+                ])
+            ])
+        ])
+        var session = CodexThreadListSession(currentWorkspacePath: "/tmp/CodexCore")
+        session.applyThreadList(currentRaw: currentResponse, allRaw: allResponse, currentWorkspacePath: "/tmp/CodexCore")
+        _ = session.applySearchResults(from: .dictionary([
+            "data": .array([
+                .dictionary([
+                    "thread": .dictionary([
+                        "id": .string("thread-current"),
+                        "name": .string("Current chat"),
+                        "cwd": .string("/tmp/CodexCore")
+                    ]),
+                    "snippet": .string("needle")
+                ])
+            ])
+        ]))
+
+        session.removeThread(id: "thread-current", currentWorkspacePath: "/tmp/CodexCore")
+
+        XCTAssertTrue(session.recentChats.isEmpty)
+        XCTAssertEqual(session.allChats.map(\.id), ["thread-other"])
+        XCTAssertTrue(session.searchResults.isEmpty)
+        XCTAssertEqual(session.recentProjects.map(\.workspacePath), ["/tmp/CodexCore", "/tmp/Other"])
+        XCTAssertEqual(session.recentProjects.map(\.chatCount), [0, 1])
+    }
+
     func testProjectSummariesGroupVisibleThreadsByWorkspace() {
         let summaries = [
             CodexThreadSummary(

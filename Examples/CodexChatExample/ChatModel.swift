@@ -548,6 +548,7 @@ final class CodexChatModel {
         do {
             _ = try await codex.threadArchive(chat.id)
             setThreadPinned(chat.id, pinned: false, announces: false)
+            removeChatFromSidebar(chat.id)
             if chat.id == currentThreadID {
                 clearThreadState()
                 sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
@@ -560,20 +561,25 @@ final class CodexChatModel {
     }
 
     func addAutomationForCurrentChat() {
-        guard currentThreadID != nil else {
+        guard let threadID = currentThreadID else {
             appendActivity(.notice, title: "Automation unavailable", detail: "No active chat to automate")
             return
         }
-        selectAppRoute(.automations)
-        appendActivity(.notice, title: "Automation", detail: "Opened Automations route for this chat")
+        composerSession.draft = CodexThreadLifecycleActionModel.addAutomationDraftPrompt(
+            threadID: threadID,
+            threadTitle: currentChatTitle,
+            workspacePath: workspacePath
+        )
+        selectAppRoute(.chat)
+        appendActivity(.notice, title: "Automation draft", detail: "Prepared automation draft for \(currentChatTitle)")
     }
 
     func openCurrentChatInNewWindow() {
-        guard currentThreadID != nil else {
+        guard let threadID = currentThreadID else {
             appendActivity(.notice, title: "Open window unavailable", detail: "No active chat to open")
             return
         }
-        appendActivity(.notice, title: "Open window unavailable", detail: "Open in new window is not wired yet")
+        appendActivity(CodexThreadLifecycleActionModel.openInNewWindowUnavailableActivity(threadID: threadID))
     }
 
     func resolveApprovalPrompt(id: String, approved: Bool) {
@@ -651,6 +657,8 @@ final class CodexChatModel {
         guard let codex else { return }
         do {
             guard let archivedID = try await threadSession.archiveCurrentThread(using: codex) else { return }
+            setThreadPinned(archivedID, pinned: false, announces: false)
+            removeChatFromSidebar(archivedID)
             clearThreadState()
             sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
             appendActivity(.notice, title: "Archived chat", detail: archivedID)
@@ -666,6 +674,7 @@ final class CodexChatModel {
         guard !trimmed.isEmpty else { return }
         do {
             _ = try await thread.setName(trimmed)
+            renameChatInSidebar(thread.id, title: trimmed)
             appendActivity(.notice, title: "Renamed chat", detail: trimmed)
             await refreshRecentChats()
         } catch {
@@ -1076,6 +1085,18 @@ final class CodexChatModel {
             title: pinned ? "Pinned chat" : "Unpinned chat",
             detail: threadID
         )
+    }
+
+    private func renameChatInSidebar(_ threadID: String, title: String) {
+        var session = threadListSession
+        session.renameThread(id: threadID, title: title, currentWorkspacePath: workspacePath)
+        threadListSession = session
+    }
+
+    private func removeChatFromSidebar(_ threadID: String) {
+        var session = threadListSession
+        session.removeThread(id: threadID, currentWorkspacePath: workspacePath)
+        threadListSession = session
     }
 
     // MARK: - Bottom Terminal Panel

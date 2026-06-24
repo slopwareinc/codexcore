@@ -218,7 +218,7 @@ extension CodexChatModel {
 
     var currentChatTitle: String {
         guard let currentThreadID else { return "Current chat" }
-        return recentChats.first(where: { $0.id == currentThreadID })?.title ?? "Current chat"
+        return allSidebarChats.first(where: { $0.id == currentThreadID })?.title ?? "Current chat"
     }
 
     var showsChatWorkspace: Bool {

@@ -55,6 +55,29 @@ public struct CodexThreadListSession: Sendable {
         refreshProjects(currentWorkspacePath: currentWorkspacePath)
     }
 
+    public mutating func renameThread(
+        id threadID: String,
+        title: String,
+        currentWorkspacePath: String
+    ) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        recentChats.renameThread(id: threadID, title: trimmed)
+        allChats.renameThread(id: threadID, title: trimmed)
+        searchResults.renameThread(id: threadID, title: trimmed)
+        refreshProjects(currentWorkspacePath: currentWorkspacePath)
+    }
+
+    public mutating func removeThread(
+        id threadID: String,
+        currentWorkspacePath: String
+    ) {
+        recentChats.removeAll { $0.id == threadID }
+        allChats.removeAll { $0.id == threadID }
+        searchResults.removeAll { $0.id == threadID }
+        refreshProjects(currentWorkspacePath: currentWorkspacePath)
+    }
+
     @discardableResult
     public mutating func refreshRecentChats(
         using codex: Codex,
@@ -146,5 +169,27 @@ public struct CodexThreadListSession: Sendable {
             merged.append(summary)
         }
         return merged
+    }
+}
+
+private extension Array where Element == CodexThreadSummary {
+    mutating func renameThread(id threadID: String, title: String) {
+        self = map { summary in
+            guard summary.id == threadID else { return summary }
+            var updated = summary
+            updated.title = title
+            return updated
+        }
+    }
+}
+
+private extension Array where Element == CodexThreadSearchResult {
+    mutating func renameThread(id threadID: String, title: String) {
+        self = map { result in
+            guard result.id == threadID else { return result }
+            var thread = result.thread
+            thread.title = title
+            return CodexThreadSearchResult(thread: thread, snippet: result.snippet)
+        }
     }
 }
