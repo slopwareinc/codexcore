@@ -114,6 +114,10 @@ public final class CodexChatRuntimeSession {
         state.appendMessage(role, text, detail: detail)
     }
 
+    public func append(_ message: CodexChatMessage) {
+        state.append(message)
+    }
+
     @discardableResult
     public func submitMainTurn(
         _ submission: CodexComposerSubmission,

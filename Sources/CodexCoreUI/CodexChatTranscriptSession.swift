@@ -30,6 +30,10 @@ public struct CodexChatTranscriptSession: Sendable, Equatable {
         transcript.appendMessage(role, text, detail: detail)
     }
 
+    public mutating func append(_ message: CodexChatMessage) {
+        transcript.append(message)
+    }
+
     public mutating func finishStreamingMessages() {
         transcript.finishStreamingMessages()
     }

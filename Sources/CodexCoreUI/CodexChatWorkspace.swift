@@ -44,6 +44,7 @@ public struct CodexChatWorkspaceView: View {
     private let onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
     private let onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
+    private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
     private let onToggleSidebar: () -> Void
     private let onDisconnect: () -> Void
     private let onPromptSelected: ((String) -> Void)?
@@ -93,6 +94,7 @@ public struct CodexChatWorkspaceView: View {
         onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
         onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
+        onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void,
         onPromptSelected: ((String) -> Void)? = nil,
@@ -137,6 +139,7 @@ public struct CodexChatWorkspaceView: View {
         self.onComposerAddMenuRoute = onComposerAddMenuRoute
         self.onComposerDictationRoute = onComposerDictationRoute
         self.onComposerChipClear = onComposerChipClear
+        self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onToggleSidebar = onToggleSidebar
         self.onDisconnect = onDisconnect
         self.onPromptSelected = onPromptSelected
@@ -247,6 +250,9 @@ public struct CodexChatWorkspaceView: View {
                     subagents: subagents,
                     workspaceSummary: workspaceSummary,
                     chatTitle: chatTitle,
+                    onEnvironmentHandoffCompletion: { completion in
+                        onEnvironmentHandoffCompletion?(completion)
+                    },
                     onSelectTab: openPanelTab
                 )
                 .padding(.top, 58)

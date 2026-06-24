@@ -187,6 +187,7 @@ struct CodexExampleAppShell: View {
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },
                 onComposerDictationRoute: { model.handleComposerDictationRoute($0) },
                 onComposerChipClear: { model.clearComposerChip($0) },
+                onEnvironmentHandoffCompletion: { model.handleWorktreeHandoffCompletion($0) },
                 onToggleSidebar: {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
                         model.toggleSidebarCollapsed()

@@ -285,6 +285,11 @@ final class CodexChatModel {
         }
     }
 
+    func handleWorktreeHandoffCompletion(_ completion: CodexWorktreeHandoffCompletion) {
+        appendActivity(completion.activity)
+        runtimeSession.append(CodexWorktreeHandoffTranscriptEntry(completion: completion).message)
+    }
+
     func clearComposerChip(_ kind: CodexComposerChipKind) {
         switch kind {
         case .goal:

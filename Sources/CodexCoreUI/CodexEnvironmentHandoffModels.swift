@@ -208,6 +208,50 @@ public struct CodexWorktreeHandoffCompletion: Equatable, Sendable {
     }
 }
 
+public struct CodexWorktreeHandoffTranscriptEntry: Equatable, Sendable {
+    public var activity: CodexActivity
+    public var resultCard: CodexWorktreeHandoffResultCard?
+
+    public init(activity: CodexActivity, resultCard: CodexWorktreeHandoffResultCard?) {
+        self.activity = activity
+        self.resultCard = resultCard
+    }
+
+    public init(completion: CodexWorktreeHandoffCompletion) {
+        self.init(activity: completion.activity, resultCard: completion.resultCard)
+    }
+
+    public var notice: CodexChatMessage.Notice {
+        CodexChatMessage.Notice(
+            itemID: "worktree-handoff-\(activity.id.uuidString)",
+            kind: "worktree_handoff",
+            title: activity.title,
+            detail: activity.detail,
+            metadata: metadata,
+            severity: resultCard == nil ? .warning : .success
+        )
+    }
+
+    public var message: CodexChatMessage {
+        let notice = notice
+        return CodexChatMessage(
+            role: .notice,
+            text: notice.copyText,
+            createdAt: activity.createdAt,
+            parseContent: false,
+            notice: notice
+        )
+    }
+
+    private var metadata: [String] {
+        guard let resultCard else { return [] }
+        return [
+            "Branch: \(resultCard.branchName)",
+            "Path: \(resultCard.worktreePath)"
+        ]
+    }
+}
+
 public struct CodexProjectEnvironmentPanelRow: Equatable, Sendable {
     public var title: String
     public var value: String

@@ -83,6 +83,10 @@ public struct CodexMainChatSession: Sendable {
         transcriptSession.appendMessage(role, text, detail: detail)
     }
 
+    public mutating func append(_ message: CodexChatMessage) {
+        transcriptSession.append(message)
+    }
+
     public mutating func beginTurnSubmission(_ submission: CodexComposerSubmission) -> CodexActivity {
         startPending()
         appendMessage(.user, submission.prompt, detail: submission.skillDetail)

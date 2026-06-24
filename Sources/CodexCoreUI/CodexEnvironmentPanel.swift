@@ -9,6 +9,7 @@ public struct CodexProjectEnvironmentPanel: View {
 
     private let threadTitle: String
     private let performHandoff: @Sendable (CodexWorktreeHandoffModalState, CodexProjectEnvironmentState) async -> CodexWorktreeHandoffCompletion
+    private let onCompletion: @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void
 
     public init(
         environment: CodexProjectEnvironmentState,
@@ -19,11 +20,13 @@ public struct CodexProjectEnvironmentPanel: View {
                 environment: environment,
                 provider: CodexUnsupportedWorktreeHandoffProvider()
             )
-        }
+        },
+        onCompletion: @escaping @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void = { _ in }
     ) {
         self._session = State(initialValue: CodexProjectEnvironmentPanelSession(environment: environment))
         self.threadTitle = threadTitle
         self.performHandoff = performHandoff
+        self.onCompletion = onCompletion
     }
 
     public var body: some View {
@@ -149,6 +152,7 @@ public struct CodexProjectEnvironmentPanel: View {
             let completion = await performHandoff(modal, session.environment)
             await MainActor.run {
                 session.apply(completion)
+                onCompletion(completion)
                 isPerformingHandoff = false
                 isPresentingHandoff = false
             }

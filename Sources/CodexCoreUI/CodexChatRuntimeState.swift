@@ -183,6 +183,10 @@ public struct CodexChatRuntimeState: Sendable {
         mainChatSession.appendMessage(role, text, detail: detail)
     }
 
+    public mutating func append(_ message: CodexChatMessage) {
+        mainChatSession.append(message)
+    }
+
     @discardableResult
     @MainActor
     public mutating func apply(

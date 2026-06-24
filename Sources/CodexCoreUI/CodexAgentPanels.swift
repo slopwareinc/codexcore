@@ -7,6 +7,7 @@ public struct CodexFloatingSummaryPanel: View {
     private let subagents: [CodexSubagentState]
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let chatTitle: String
+    private let onEnvironmentHandoffCompletion: @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void
     private let onSelectTab: (String) -> Void
 
     public init(
@@ -14,12 +15,14 @@ public struct CodexFloatingSummaryPanel: View {
         subagents: [CodexSubagentState],
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         chatTitle: String = "Codex",
+        onEnvironmentHandoffCompletion: @escaping @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void = { _ in },
         onSelectTab: @escaping (String) -> Void
     ) {
         self.sideChat = sideChat
         self.subagents = subagents
         self.workspaceSummary = workspaceSummary
         self.chatTitle = chatTitle
+        self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onSelectTab = onSelectTab
     }
 
@@ -48,7 +51,8 @@ public struct CodexFloatingSummaryPanel: View {
                             workspacePath: workspaceSummary.workspacePath,
                             branchName: workspaceSummary.gitBranch
                         ),
-                        threadTitle: chatTitle
+                        threadTitle: chatTitle,
+                        onCompletion: onEnvironmentHandoffCompletion
                     )
                 }
             }
