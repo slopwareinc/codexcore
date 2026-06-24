@@ -42,6 +42,7 @@ public struct CodexChatWorkspaceView: View {
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
     private let onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
+    private let onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onToggleSidebar: () -> Void
     private let onDisconnect: () -> Void
@@ -90,6 +91,7 @@ public struct CodexChatWorkspaceView: View {
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
+        onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void,
@@ -133,6 +135,7 @@ public struct CodexChatWorkspaceView: View {
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onComposerAddMenuRoute = onComposerAddMenuRoute
+        self.onComposerDictationRoute = onComposerDictationRoute
         self.onComposerChipClear = onComposerChipClear
         self.onToggleSidebar = onToggleSidebar
         self.onDisconnect = onDisconnect
@@ -230,6 +233,7 @@ public struct CodexChatWorkspaceView: View {
                     onInterrupt: onInterrupt,
                     onSlashCommandSelected: onSlashCommandSelected,
                     onAddMenuRoute: onComposerAddMenuRoute,
+                    onDictationRoute: onComposerDictationRoute,
                     onComposerChipClear: onComposerChipClear
                 )
                 .frame(maxWidth: theme.spacing.composerMaxWidth + 32)

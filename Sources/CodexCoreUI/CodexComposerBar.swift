@@ -24,6 +24,7 @@ public struct CodexComposerBar: View {
     private let onInterrupt: () -> Void
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
     private let onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
+    private let onDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     @FocusState private var focused: Bool
 
@@ -48,6 +49,7 @@ public struct CodexComposerBar: View {
         onInterrupt: @escaping () -> Void,
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
         onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
+        onDictationRoute: ((CodexComposerDictationRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil
     ) {
         self._draft = draft
@@ -70,6 +72,7 @@ public struct CodexComposerBar: View {
         self.onInterrupt = onInterrupt
         self.onSlashCommandSelected = onSlashCommandSelected
         self.onAddMenuRoute = onAddMenuRoute
+        self.onDictationRoute = onDictationRoute
         self.onComposerChipClear = onComposerChipClear
     }
 
@@ -122,6 +125,8 @@ public struct CodexComposerBar: View {
                             .transition(.opacity)
                     }
 
+                    ComposerDictationButton(onRoute: handleDictationRoute)
+
                     if isSending {
                         // The composer stays live during a run: send steers or
                         // queues the draft, stop interrupts the turn.
@@ -170,6 +175,10 @@ public struct CodexComposerBar: View {
         }
     }
 
+    private func handleDictationRoute(_ route: CodexComposerDictationRoute) {
+        onDictationRoute?(route)
+    }
+
     private func clearComposerChip(_ kind: CodexComposerChipKind) {
         switch kind {
         case .goal:
@@ -188,6 +197,24 @@ public struct CodexComposerBar: View {
     private func selectMention(_ result: FuzzyFileSearchResult) {
         draft = CodexMentionQuery.applyingSelection(result.fileName, to: draft)
         onMentionSelected?(result)
+    }
+}
+
+private struct ComposerDictationButton: View {
+    let onRoute: (CodexComposerDictationRoute) -> Void
+
+    var body: some View {
+        let state = CodexComposerDictationModel.buttonState
+
+        Button {
+            onRoute(CodexComposerDictationModel.route())
+        } label: {
+            ComposerChipLabel(systemImage: state.systemImage, title: nil)
+        }
+        .buttonStyle(.plain)
+        .disabled(!state.isEnabled)
+        .accessibilityLabel(state.accessibilityLabel)
+        .help(state.help)
     }
 }
 

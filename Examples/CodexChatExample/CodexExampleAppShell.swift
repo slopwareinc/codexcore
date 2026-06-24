@@ -185,6 +185,7 @@ struct CodexExampleAppShell: View {
                 onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },
+                onComposerDictationRoute: { model.handleComposerDictationRoute($0) },
                 onComposerChipClear: { model.clearComposerChip($0) },
                 onToggleSidebar: {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {

@@ -279,6 +279,12 @@ final class CodexChatModel {
         }
     }
 
+    func handleComposerDictationRoute(_ route: CodexComposerDictationRoute) {
+        for activity in route.activities {
+            appendActivity(activity)
+        }
+    }
+
     func clearComposerChip(_ kind: CodexComposerChipKind) {
         switch kind {
         case .goal:
