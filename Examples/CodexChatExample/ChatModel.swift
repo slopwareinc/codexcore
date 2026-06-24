@@ -269,6 +269,40 @@ final class CodexChatModel {
         }
     }
 
+    func handleComposerAddMenuRoute(_ route: CodexComposerAddMenuRoute) {
+        for activity in route.activities {
+            appendActivity(activity)
+        }
+        guard route.isEnabled else { return }
+        for action in route.hostActions {
+            handleComposerAddMenuHostAction(action)
+        }
+    }
+
+    func clearComposerChip(_ kind: CodexComposerChipKind) {
+        switch kind {
+        case .goal:
+            setGoalPursuitEnabled(false)
+        case .plan:
+            configurationSession.setPlanModeEnabled(false)
+        }
+    }
+
+    private func handleComposerAddMenuHostAction(_ action: CodexComposerAddMenuHostAction) {
+        switch action {
+        case .attachFilesAndFolders:
+            appendActivity(.notice, title: "Files unavailable", detail: "File and folder attachment is not wired in the native composer yet.")
+        case .enableGoalPursuit:
+            setGoalPursuitEnabled(true)
+        case .enablePlanMode:
+            configurationSession.setPlanModeEnabled(true)
+        case .openPlugins:
+            selectAppRoute(.plugins)
+        case .openFilesAndChats:
+            selectAppRoute(.search)
+        }
+    }
+
     func clearCurrentGoal() async {
         guard let thread = threadSession.currentThread, runtimeSession.hasActiveGoal else {
             runtimeSession.resetGoal()

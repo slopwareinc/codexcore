@@ -175,6 +175,7 @@ struct CodexExampleAppShell: View {
                 canSend: model.canSend,
                 canSendSideChatMessage: model.canSendSideChatMessage,
                 canUsePlanMode: model.canUsePlanMode,
+                isGoalPursuitEnabled: model.isGoalPursuitEnabled,
                 followUpHint: model.followUpHint,
                 mentionResults: model.mentionResults,
                 onMentionQueryChanged: { model.updateMentionQuery($0) },
@@ -183,6 +184,8 @@ struct CodexExampleAppShell: View {
                 onInterrupt: { Task { await model.interrupt() } },
                 onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
+                onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },
+                onComposerChipClear: { model.clearComposerChip($0) },
                 onToggleSidebar: {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
                         model.toggleSidebarCollapsed()

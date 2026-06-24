@@ -32,6 +32,7 @@ public struct CodexChatWorkspaceView: View {
     private let canSend: Bool
     private let canSendSideChatMessage: Bool
     private let canUsePlanMode: Bool
+    private let isGoalPursuitEnabled: Bool
     private let followUpHint: String?
     private let mentionResults: [FuzzyFileSearchResult]
     private let onMentionQueryChanged: ((String?) -> Void)?
@@ -40,6 +41,8 @@ public struct CodexChatWorkspaceView: View {
     private let onInterrupt: () -> Void
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
+    private let onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
+    private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onToggleSidebar: () -> Void
     private let onDisconnect: () -> Void
     private let onPromptSelected: ((String) -> Void)?
@@ -77,6 +80,7 @@ public struct CodexChatWorkspaceView: View {
         canSend: Bool,
         canSendSideChatMessage: Bool = false,
         canUsePlanMode: Bool = true,
+        isGoalPursuitEnabled: Bool = false,
         followUpHint: String? = nil,
         mentionResults: [FuzzyFileSearchResult] = [],
         onMentionQueryChanged: ((String?) -> Void)? = nil,
@@ -85,6 +89,8 @@ public struct CodexChatWorkspaceView: View {
         onInterrupt: @escaping () -> Void,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
+        onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
+        onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void,
         onPromptSelected: ((String) -> Void)? = nil,
@@ -117,6 +123,7 @@ public struct CodexChatWorkspaceView: View {
         self.canSend = canSend
         self.canSendSideChatMessage = canSendSideChatMessage
         self.canUsePlanMode = canUsePlanMode
+        self.isGoalPursuitEnabled = isGoalPursuitEnabled
         self.followUpHint = followUpHint
         self.mentionResults = mentionResults
         self.onMentionQueryChanged = onMentionQueryChanged
@@ -125,6 +132,8 @@ public struct CodexChatWorkspaceView: View {
         self.onInterrupt = onInterrupt
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onComposerAddMenuRoute = onComposerAddMenuRoute
+        self.onComposerChipClear = onComposerChipClear
         self.onToggleSidebar = onToggleSidebar
         self.onDisconnect = onDisconnect
         self.onPromptSelected = onPromptSelected
@@ -204,6 +213,7 @@ public struct CodexChatWorkspaceView: View {
                     draft: $draft,
                     approvalSelection: $approvalSelection,
                     isPlanModeEnabled: $isPlanModeEnabled,
+                    isGoalPursuitEnabled: isGoalPursuitEnabled,
                     approvalOptions: approvalOptions,
                     modelSelection: $modelSelection,
                     modelOptions: modelOptions,
@@ -218,7 +228,9 @@ public struct CodexChatWorkspaceView: View {
                     onMentionSelected: onMentionSelected,
                     onSend: onSend,
                     onInterrupt: onInterrupt,
-                    onSlashCommandSelected: onSlashCommandSelected
+                    onSlashCommandSelected: onSlashCommandSelected,
+                    onAddMenuRoute: onComposerAddMenuRoute,
+                    onComposerChipClear: onComposerChipClear
                 )
                 .frame(maxWidth: theme.spacing.composerMaxWidth + 32)
                 .padding(.horizontal, 14)

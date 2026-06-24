@@ -7,6 +7,7 @@ public struct CodexComposerBar: View {
     @Binding private var draft: String
     @Binding private var approvalSelection: CodexApprovalSelection
     @Binding private var isPlanModeEnabled: Bool
+    private let isGoalPursuitEnabled: Bool
     private let approvalOptions: [CodexApprovalSelection]
     @Binding private var modelSelection: CodexModelSelection
     private let modelOptions: [CodexModelSelection]
@@ -22,12 +23,15 @@ public struct CodexComposerBar: View {
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
+    private let onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
+    private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     @FocusState private var focused: Bool
 
     public init(
         draft: Binding<String>,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
+        isGoalPursuitEnabled: Bool = false,
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
@@ -42,11 +46,14 @@ public struct CodexComposerBar: View {
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
-        onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil
+        onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
+        onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
+        onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil
     ) {
         self._draft = draft
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
+        self.isGoalPursuitEnabled = isGoalPursuitEnabled
         self.approvalOptions = approvalOptions
         self._modelSelection = modelSelection
         self.modelOptions = modelOptions
@@ -62,6 +69,8 @@ public struct CodexComposerBar: View {
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.onSlashCommandSelected = onSlashCommandSelected
+        self.onAddMenuRoute = onAddMenuRoute
+        self.onComposerChipClear = onComposerChipClear
     }
 
     public var body: some View {
@@ -94,7 +103,12 @@ public struct CodexComposerBar: View {
                     .padding(.vertical, 6)
 
                 HStack(spacing: 8) {
-                    ComposerAddMenu(isPlanModeEnabled: $isPlanModeEnabled, canUsePlanMode: canUsePlanMode)
+                    ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
+                    ForEach(composerChips) { chip in
+                        ComposerModeChip(chip: chip) {
+                            clearComposerChip(chip.kind)
+                        }
+                    }
                     ComposerApprovalMenu(selection: $approvalSelection, options: approvalOptions)
                     ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
 
@@ -139,6 +153,33 @@ public struct CodexComposerBar: View {
         CodexSlashCommand.filteredCommands(from: slashCommands, matching: draft)
     }
 
+    private var composerChips: [CodexComposerChipModel] {
+        CodexComposerAddMenuModel.chips(
+            isGoalPursuitEnabled: isGoalPursuitEnabled,
+            isPlanModeEnabled: isPlanModeEnabled
+        )
+    }
+
+    private func handleAddMenuRoute(_ route: CodexComposerAddMenuRoute) {
+        if let onAddMenuRoute {
+            onAddMenuRoute(route)
+            return
+        }
+        if route.hostActions.contains(.enablePlanMode) {
+            isPlanModeEnabled = true
+        }
+    }
+
+    private func clearComposerChip(_ kind: CodexComposerChipKind) {
+        switch kind {
+        case .goal:
+            onComposerChipClear?(.goal)
+        case .plan:
+            isPlanModeEnabled = false
+            onComposerChipClear?(.plan)
+        }
+    }
+
     private func selectSlashCommand(_ command: CodexSlashCommand) {
         draft = command.draftText ?? ""
         onSlashCommandSelected?(command)
@@ -151,18 +192,49 @@ public struct CodexComposerBar: View {
 }
 
 private struct ComposerAddMenu: View {
-    @Binding var isPlanModeEnabled: Bool
     let canUsePlanMode: Bool
+    let onRoute: (CodexComposerAddMenuRoute) -> Void
 
     var body: some View {
         Menu {
-            Toggle("Plan mode", isOn: $isPlanModeEnabled)
-                .disabled(!canUsePlanMode)
+            ForEach(CodexComposerAddMenuModel.observedItems(canUsePlanMode: canUsePlanMode)) { item in
+                Button {
+                    onRoute(CodexComposerAddMenuModel.route(itemID: item.id, canUsePlanMode: canUsePlanMode))
+                } label: {
+                    Label(item.title, systemImage: item.systemImage)
+                }
+                .disabled(!item.isEnabled)
+            }
         } label: {
             ComposerChipLabel(systemImage: "plus", title: nil)
         }
         .fixedSize()
-        .help("Conversation options")
+        .help("Add files and more")
+    }
+}
+
+private struct ComposerModeChip: View {
+    let chip: CodexComposerChipModel
+    let onClear: () -> Void
+
+    var body: some View {
+        Button(action: onClear) {
+            ComposerChipLabel(systemImage: chip.kind.systemImage, title: chip.title)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(chip.clearAccessibilityLabel)
+        .help(chip.clearAccessibilityLabel)
+    }
+}
+
+private extension CodexComposerChipKind {
+    var systemImage: String {
+        switch self {
+        case .goal:
+            return "target"
+        case .plan:
+            return "list.bullet.clipboard"
+        }
     }
 }
 
