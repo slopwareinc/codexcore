@@ -62,6 +62,11 @@ final class CodexChatApp: NSObject, NSApplicationDelegate {
         NSRunningApplication.current.activate(options: .activateAllWindows)
     }
 
+    @objc private func openCommandPalette(_ sender: Any?) {
+        showMainWindow()
+        model.selectAppRoute(.search)
+    }
+
     private func showMainWindow() {
         if mainWindow == nil {
             let controller = NSHostingController(rootView: CodexChatView(model: model)
@@ -103,6 +108,14 @@ final class CodexChatApp: NSObject, NSApplicationDelegate {
         newWindowItem.target = self
         fileMenu.addItem(newWindowItem)
         fileItem.submenu = fileMenu
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        let searchItem = NSMenuItem(title: "Command Menu", action: #selector(openCommandPalette(_:)), keyEquivalent: "g")
+        searchItem.target = self
+        editMenu.addItem(searchItem)
+        editItem.submenu = editMenu
 
         NSApplication.shared.mainMenu = mainMenu
     }

@@ -546,6 +546,14 @@ final class CodexChatModel {
         threadListSession.clearSearch()
     }
 
+    func appendPaletteNotice(title: String, detail: String) {
+        appendActivity(.notice, title: title, detail: detail)
+    }
+
+    func refreshSlashCommandsFromPalette() {
+        Task { await refreshSlashCommands(forceReload: true) }
+    }
+
     func refreshMCPServers() async {
         guard let codex else {
             runtimeSession.integrationCatalogSession.requireMCPConnection(message: "Connect to Codex before inspecting MCP servers.")

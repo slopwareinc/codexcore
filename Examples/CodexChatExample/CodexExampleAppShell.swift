@@ -75,6 +75,20 @@ struct CodexExampleAppShell: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .overlay {
+            if model.sidebarSnapshot.isSearchOverlayPresented {
+                CommandPaletteOverlay(
+                    model: model,
+                    onClose: { model.dismissSearchRoute() },
+                    onSelectChat: { result in
+                        Task { await model.resumeSearchResult(result) }
+                    },
+                    onSelectCommand: handleCommandPaletteAction
+                )
+                .codexAgentTheme(model.themePreset.theme)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
         .sheet(isPresented: $isRenameSheetPresented) {
             RenameChatSheet(
                 name: $renameDraft,
@@ -82,24 +96,6 @@ struct CodexExampleAppShell: View {
                 onSave: {
                     isRenameSheetPresented = false
                     Task { await model.renameCurrentChat(to: renameDraft) }
-                }
-            )
-            .codexAgentTheme(model.themePreset.theme)
-        }
-        .sheet(isPresented: Binding(
-            get: { model.sidebarSnapshot.isSearchOverlayPresented },
-            set: { isPresented in
-                if !isPresented {
-                    model.dismissSearchRoute()
-                }
-            }
-        )) {
-            SearchChatsSheet(
-                model: model,
-                onClose: { model.dismissSearchRoute() },
-                onSelect: { result in
-                    model.dismissSearchRoute()
-                    Task { await model.resumeSearchResult(result) }
                 }
             )
             .codexAgentTheme(model.themePreset.theme)
@@ -235,6 +231,35 @@ struct CodexExampleAppShell: View {
         panel.directoryURL = URL(fileURLWithPath: model.workspacePath)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await model.switchWorkspace(to: url.path) }
+    }
+
+    private func handleCommandPaletteAction(_ action: CodexCommandPaletteAction) {
+        switch action {
+        case .newChat:
+            Task { await model.startNewChat() }
+        case .openChat:
+            model.selectAppRoute(.chat)
+        case .openPlugins:
+            model.selectAppRoute(.plugins)
+        case .openAutomations:
+            model.selectAppRoute(.automations)
+        case .openMobile:
+            model.selectAppRoute(.codexMobile)
+        case .openSettings:
+            model.selectAppRoute(.settingsAbout)
+        case .openSideChat:
+            model.openSideChat()
+        case .openReviewPanel:
+            model.appendPaletteNotice(title: "Review panel", detail: "Review opens from the Changes panel when a diff is available.")
+        case .openMCPDetails:
+            isMCPStatusSheetPresented = true
+        case .refreshSkills:
+            model.refreshSlashCommandsFromPalette()
+        case .configureModel:
+            model.appendPaletteNotice(title: "Model controls", detail: "Use the model menu in the composer.")
+        case .quitApp:
+            NSApplication.shared.terminate(nil)
+        }
     }
 
     private var currentChatActionHandlers: CodexChatActionHandlers {
