@@ -442,10 +442,36 @@ final class CodexChatModel {
     }
 
     func prepareAutomationChat(prompt: String) async {
-        sidebarNavigationSession.selectRoute(.chat)
-        clearThreadState()
-        composerSession.draft = prompt
-        appendActivity(.notice, title: "Automation draft", detail: "Prepared automation chat")
+        await prepareAutomationDraft(CodexAutomationDraftRequest(
+            prompt: prompt,
+            activityTitle: "Automation draft",
+            activityDetail: "Prepared automation chat",
+            startsNewChat: true
+        ))
+    }
+
+    func performAutomationRouteAction(_ action: CodexAutomationRouteAction) {
+        if let request = action.draftRequest {
+            Task { await prepareAutomationDraft(request) }
+            return
+        }
+        switch action {
+        case .learnMore:
+            appendActivity(.notice, title: "Automations", detail: "Automations are created by chatting with Codex; no settings are changed until you send and confirm the flow.")
+        case .createViaChat, .template, .addForChat:
+            break
+        }
+    }
+
+    func prepareAutomationDraft(_ request: CodexAutomationDraftRequest) async {
+        if request.startsNewChat {
+            sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+            clearThreadState()
+        } else {
+            sidebarNavigationSession.selectRoute(.chat)
+        }
+        composerSession.draft = request.prompt
+        appendActivity(.notice, title: request.activityTitle, detail: request.activityDetail)
         await refreshRecentChats()
     }
 
@@ -644,13 +670,13 @@ final class CodexChatModel {
             appendActivity(.notice, title: "Automation unavailable", detail: "No active chat to automate")
             return
         }
-        composerSession.draft = CodexThreadLifecycleActionModel.addAutomationDraftPrompt(
+        let request = CodexAutomationRouteAction.addForChat(
             threadID: threadID,
             threadTitle: currentChatTitle,
             workspacePath: workspacePath
-        )
-        selectAppRoute(.chat)
-        appendActivity(.notice, title: "Automation draft", detail: "Prepared automation draft for \(currentChatTitle)")
+        ).draftRequest
+        guard let request else { return }
+        Task { await prepareAutomationDraft(request) }
     }
 
     func openCurrentChatInNewWindow() {

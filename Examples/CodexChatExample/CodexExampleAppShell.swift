@@ -124,10 +124,7 @@ struct CodexExampleAppShell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.themePreset.theme)
         case .automations:
-            AutomationsRouteView { action in
-                guard let prompt = action.draftPrompt else { return }
-                Task { await model.prepareAutomationChat(prompt: prompt) }
-            }
+            AutomationsRouteView(onAction: model.performAutomationRouteAction)
                 .codexAgentTheme(model.themePreset.theme)
         case .codexMobile:
             CodexMobileRouteView(
@@ -286,75 +283,139 @@ private struct AutomationsRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let onAction: (CodexAutomationRouteAction) -> Void
+    @State private var session = CodexAutomationRouteSession()
+
+    private var state: CodexAutomationRouteState {
+        session.state
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 10) {
-                Image(systemName: CodexAppRoute.automations.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider().overlay(theme.colors.border)
+            VStack(alignment: .leading, spacing: 24) {
+                segmentedControls
+                if state.showsEmptyState {
+                    emptyTemplates
+                } else {
+                    automationRows
+                }
+            }
+            .padding(24)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.colors.surface)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: CodexAppRoute.automations.systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(theme.colors.textSecondary)
+                .frame(width: 24, height: 28)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(state.headerTitle)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(theme.colors.textPrimary)
+                    Button {
+                        onAction(.learnMore)
+                    } label: {
+                        Text(state.learnMoreTitle)
+                            .font(theme.fonts.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.colors.accent)
+                    .accessibilityLabel(state.learnMoreTitle)
+                }
+                Text(state.description)
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
-                Text("Automations")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                Spacer(minLength: 0)
-                Button {
-                    onAction(.createViaChat)
-                } label: {
-                    Label("Create via chat", systemImage: "plus.bubble")
-                }
-                .buttonStyle(.bordered)
             }
+            Spacer(minLength: 0)
+            Button {} label: {
+                Label(state.newAutomationOptionsTitle, systemImage: "ellipsis.circle")
+            }
+            .buttonStyle(.bordered)
+            .disabled(true)
+            .help(state.newAutomationOptionsTitle)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+    }
 
-            Text("Run chats on a schedule or whenever you need them.")
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textSecondary)
-
-            HStack(spacing: 8) {
-                Text("View templates")
-                    .font(theme.fonts.caption.weight(.semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background(theme.colors.surfaceElevated.opacity(0.8), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
-
+    private var segmentedControls: some View {
+        HStack(spacing: 8) {
+            ForEach(CodexAutomationRouteMode.allCases) { mode in
                 Button {
-                    onAction(.createViaChat)
+                    selectMode(mode)
                 } label: {
-                    Text("Create via chat")
+                    Text(mode.title)
                         .font(theme.fonts.caption.weight(.semibold))
+                        .foregroundStyle(state.mode == mode ? theme.colors.textPrimary : theme.colors.textSecondary)
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .background(
+                            state.mode == mode ? theme.colors.surfaceElevated.opacity(0.9) : theme.colors.surfaceSunken.opacity(0.42),
+                            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                                .stroke(theme.colors.border, lineWidth: 1)
+                        )
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(theme.colors.textSecondary)
-
-                Spacer(minLength: 0)
-
-                Button {} label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.colors.textTertiary)
-                .disabled(true)
-                .help("New automation options")
+                .accessibilityLabel(mode.title)
             }
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Create your first automation")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
+    private var emptyTemplates: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(state.emptyTitle)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(theme.colors.textPrimary)
 
-                HStack(spacing: 10) {
-                    ForEach(CodexAutomationTemplate.allCases) { template in
-                        AutomationTemplateButton(template: template) {
-                            onAction(.template(template))
-                        }
+            HStack(spacing: 10) {
+                ForEach(state.templates) { template in
+                    AutomationTemplateButton(template: template) {
+                        perform(.template(template))
                     }
                 }
             }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.colors.surface)
+    }
+
+    private var automationRows: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(state.automations) { automation in
+                HStack {
+                    Text(automation.title)
+                        .font(theme.fonts.chat.weight(.semibold))
+                    Spacer()
+                    Text(automation.statusLabel)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
+                .padding(12)
+                .background(theme.colors.surfaceElevated.opacity(0.66), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            }
+        }
+    }
+
+    private func selectMode(_ mode: CodexAutomationRouteMode) {
+        switch mode {
+        case .viewTemplates:
+            session.viewTemplates()
+        case .createViaChat:
+            perform(.createViaChat)
+        }
+    }
+
+    private func perform(_ action: CodexAutomationRouteAction) {
+        _ = session.perform(action)
+        onAction(action)
     }
 }
 
