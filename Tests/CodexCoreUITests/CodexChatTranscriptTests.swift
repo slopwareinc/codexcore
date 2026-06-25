@@ -141,6 +141,47 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
     }
 
+    func testLargeTranscriptTimelinePreservesBoundedGroupingAndAggregates() {
+        let fixture = largeTranscriptFixture(turnCount: 80)
+
+        let timeline = CodexTranscriptTimelineBuilder.build(messages: fixture.messages, lifecycleEvents: fixture.lifecycleEvents)
+        let assistantHeaders = timeline.filter {
+            if case .assistantTurnHeader = $0 { return true }
+            return false
+        }
+        let assistantBlocks = timeline.filter {
+            if case .assistantBlock = $0 { return true }
+            return false
+        }
+        let lifecycleGroups = timeline.compactMap {
+            if case .assistantLifecycle(_, let events) = $0 { return events }
+            return nil
+        }
+        let operationAggregates = timeline.filter {
+            if case .operationAggregate = $0 { return true }
+            return false
+        }
+        let fileChangeAggregates = timeline.filter {
+            if case .fileChangeAggregate = $0 { return true }
+            return false
+        }
+        let detailedMessages = timeline.filter {
+            if case .message = $0 { return true }
+            return false
+        }
+
+        XCTAssertEqual(fixture.messages.count, 480)
+        XCTAssertEqual(fixture.lifecycleEvents.count, 240)
+        XCTAssertEqual(assistantHeaders.count, fixture.turnCount)
+        XCTAssertEqual(assistantBlocks.count, fixture.turnCount)
+        XCTAssertEqual(operationAggregates.count, fixture.turnCount)
+        XCTAssertEqual(fileChangeAggregates.count, fixture.turnCount)
+        XCTAssertEqual(detailedMessages.count, fixture.turnCount * 5)
+        XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, fixture.lifecycleEvents.count)
+        XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
+        XCTAssertLessThanOrEqual(timeline.count, fixture.messages.count + fixture.lifecycleEvents.count + fixture.turnCount * 4)
+    }
+
     func testChatTranscriptProjectionMapsRawItemsThroughTimelineMapper() throws {
         let commandValue: CodexJSONValue = .dictionary([
             "id": .string("cmd-1"),
@@ -860,6 +901,33 @@ final class CodexChatTranscriptTests: XCTestCase {
                 isStreaming: false
             )
         )
+    }
+
+    private func largeTranscriptFixture(turnCount: Int) -> (turnCount: Int, messages: [CodexChatMessage], lifecycleEvents: [CodexAgentLifecycleEvent]) {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var messages: [CodexChatMessage] = []
+        var lifecycleEvents: [CodexAgentLifecycleEvent] = []
+
+        for turn in 0..<turnCount {
+            let base = start.addingTimeInterval(Double(turn * 20))
+            messages.append(CodexChatMessage(role: .user, text: "Turn \(turn)", createdAt: base))
+            messages.append(commandMessage("swift test --filter Turn\(turn)", duration: "1s", createdAt: base.addingTimeInterval(1)))
+            messages.append(readMessage("Sources/File\(turn).swift", createdAt: base.addingTimeInterval(2)))
+            messages.append(fileChangeMessage(path: "Sources/File\(turn).swift", added: 2, removed: 1, createdAt: base.addingTimeInterval(3)))
+            messages.append(fileChangeMessage(path: "Tests/File\(turn)Tests.swift", added: 3, removed: 0, createdAt: base.addingTimeInterval(4)))
+            messages.append(CodexChatMessage(role: .assistant, text: "Completed turn \(turn).", createdAt: base.addingTimeInterval(10)))
+
+            for eventOffset in 0..<3 {
+                lifecycleEvents.append(CodexAgentLifecycleEvent(
+                    status: eventOffset == 2 ? .completed : .running,
+                    title: "Turn \(turn) lifecycle \(eventOffset)",
+                    agentNames: ["Agent \(eventOffset)"],
+                    createdAt: base.addingTimeInterval(Double(5 + eventOffset))
+                ))
+            }
+        }
+
+        return (turnCount, messages, lifecycleEvents)
     }
 
     private func diff(path: String, added: Int, removed: Int) -> String {
