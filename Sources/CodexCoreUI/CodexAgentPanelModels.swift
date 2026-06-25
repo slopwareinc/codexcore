@@ -219,10 +219,14 @@ public struct CodexAgentPanelState: Equatable, Sendable {
 
     public var tabs: [CodexAgentPanelTab] {
         var tabs: [CodexAgentPanelTab] = []
-        if let sideChat { tabs.append(.sideChat(sideChat)) }
         if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
+        if let sideChat { tabs.append(.sideChat(sideChat)) }
         tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent))
         return tabs
+    }
+
+    public var selectedTab: CodexAgentPanelTab? {
+        tabs.first { $0.id == selectedTabID } ?? tabs.first
     }
 }
 

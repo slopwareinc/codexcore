@@ -540,6 +540,8 @@ private struct AgentPanelComposer: View {
             .allowsHitTesting(false)
 
             HStack(spacing: 8) {
+                composerToolButton(systemImage: "plus", help: "Add files to side chat")
+
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.fonts.chat)
@@ -557,6 +559,10 @@ private struct AgentPanelComposer: View {
                             .stroke(theme.colors.border, lineWidth: 1)
                     )
 
+                composerChip("Ask", help: "Side chat approval mode")
+                composerChip("5.5", help: "Side chat model")
+                composerToolButton(systemImage: "mic", help: "Dictate side chat")
+
                 Button(action: isSending ? onInterrupt : submit) {
                     Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
                         .font(.title2)
@@ -570,6 +576,34 @@ private struct AgentPanelComposer: View {
             .padding(.bottom, 10)
             .background(theme.colors.surface)
         }
+    }
+
+    private func composerToolButton(systemImage: String, help: String) -> some View {
+        Button {} label: {
+            Image(systemName: systemImage)
+                .font(theme.fonts.caption.weight(.semibold))
+                .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary)
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.plain)
+        .disabled(true)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private func composerChip(_ title: String, help: String) -> some View {
+        Text(title)
+            .font(theme.fonts.micro.weight(.semibold))
+            .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary)
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                    .stroke(theme.colors.border, lineWidth: 1)
+            )
+            .help(help)
+            .accessibilityLabel(help)
     }
 
     private func submit() {

@@ -34,9 +34,32 @@ extension CodexAgentUITests {
             gitReviewSession: review
         )
 
-        XCTAssertEqual(panel.tabs.map(\.title), ["Side chat", "Review", "Chandrasekhar", "Copernicus"])
-        XCTAssertEqual(panel.tabs[1].id, "review")
-        XCTAssertEqual(panel.tabs[1].messages, [])
+        XCTAssertEqual(panel.tabs.map(\.title), ["Review", "Side chat", "Chandrasekhar", "Copernicus"])
+        XCTAssertEqual(panel.tabs[0].id, "review")
+        XCTAssertEqual(panel.tabs[0].messages, [])
+        XCTAssertEqual(panel.tabs[1].id, CodexSideChatState.defaultID)
+    }
+
+    func testAgentPanelStateSelectsSideChatBesideReviewWhenOpened() {
+        let fixture = AgentUIFixture.make()
+        let review = CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(
+            branchName: "codex/review-panel",
+            files: [
+                CodexGitReviewFileChange(path: "Sources/Review.swift", status: .modified, isStaged: false)
+            ]
+        ))
+
+        let panel = CodexAgentPanelState(
+            isOpen: true,
+            selectedTabID: CodexSideChatState.defaultID,
+            sideChat: CodexSideChatState(createdAt: fixture.sideChat.createdAt),
+            subagents: fixture.subagents,
+            gitReviewSession: review
+        )
+
+        XCTAssertEqual(panel.tabs.map(\.title), ["Review", "Side chat", "Chandrasekhar", "Copernicus"])
+        XCTAssertEqual(panel.selectedTab?.id, CodexSideChatState.defaultID)
+        XCTAssertEqual(panel.selectedTab?.messages, [])
     }
 
     func testWorkspaceResponsivePanelStateSwitchesSummaryAndSidePanelModes() {

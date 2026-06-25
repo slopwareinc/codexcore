@@ -322,8 +322,8 @@ public struct CodexChatWorkspaceView: View {
 
     private var panelTabs: [CodexAgentPanelTab] {
         var tabs: [CodexAgentPanelTab] = []
-        if let sideChat { tabs.append(.sideChat(sideChat)) }
         if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
+        if let sideChat { tabs.append(.sideChat(sideChat)) }
         tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent))
         return tabs
     }

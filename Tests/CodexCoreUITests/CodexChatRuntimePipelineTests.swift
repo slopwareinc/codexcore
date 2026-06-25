@@ -677,6 +677,21 @@ final class CodexChatRuntimePipelineTests: XCTestCase {
         XCTAssertFalse(runtimeState.isSideChatSending)
     }
 
+    func testOpeningSideChatCreatesEmptyTabWithoutMutatingMainTranscript() {
+        var runtimeState = CodexChatRuntimeState()
+        runtimeState.appendMessage(.user, "Parent prompt")
+        let beforeMessages = runtimeState.messages
+
+        let activity = runtimeState.openSideChat()
+
+        XCTAssertEqual(activity.title, "Opened side chat")
+        XCTAssertEqual(runtimeState.messages, beforeMessages)
+        XCTAssertEqual(runtimeState.sideChat?.id, CodexSideChatState.defaultID)
+        XCTAssertEqual(runtimeState.sideChat?.title, "Side chat")
+        XCTAssertEqual(runtimeState.sideChat?.messages, [])
+        XCTAssertFalse(runtimeState.isSideChatSending)
+    }
+
     func testNotificationMetadataExtractsThreadAndTurnIDsFromTypedAndRawNotifications() {
         XCTAssertEqual(
             CodexNotificationMetadata.turnID(from: transcriptNotification(.turnCompleted(TurnCompletedNotification(

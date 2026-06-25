@@ -75,7 +75,7 @@ extension CodexAgentUITests {
             score: 0.9
         )
 
-        var session = CodexComposerStateSession(draft: "  Inspect @Store.swift  ")
+        var session = CodexComposerStateSession(draft: "  Inspect @Store.swift  ", sideChatDraft: "  side branch  ")
         session.attachSkill(skill)
         session.attachSkill(skill)
         XCTAssertEqual(session.attachedSkills, [skill])
@@ -95,8 +95,13 @@ extension CodexAgentUITests {
             .text("Inspect @Store.swift")
         ])
         XCTAssertEqual(session.draft, "")
+        XCTAssertEqual(session.sideChatDraft, "  side branch  ")
         XCTAssertEqual(session.attachedSkills, [])
         XCTAssertEqual(session.mentionResults, [])
+
+        XCTAssertEqual(session.trimmedSideChatDraft, "side branch")
+        session.clearSideChatDraft()
+        XCTAssertEqual(session.sideChatDraft, "")
 
         session.restore(submission)
         XCTAssertEqual(session.draft, "Inspect @Store.swift")
