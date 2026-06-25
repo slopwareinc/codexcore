@@ -235,9 +235,9 @@ public struct CodexAgentLifecycleBlock: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(theme.colors.accent)
         case .running:
-            ProgressView()
-                .controlSize(.mini)
-                .tint(theme.colors.running)
+            Circle()
+                .fill(theme.colors.running)
+                .frame(width: 7, height: 7)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(theme.colors.success)
@@ -537,9 +537,9 @@ private struct CodexWorkingSpinnerBadge: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            ProgressView()
-                .controlSize(.mini)
-                .tint(theme.colors.running)
+            Circle()
+                .fill(theme.colors.running)
+                .frame(width: 7, height: 7)
             CodexStreamingDots()
         }
         .padding(.horizontal, 8)
@@ -620,7 +620,6 @@ public struct CodexSystemMessageView: View {
 
 public struct CodexStreamingDots: View {
     @Environment(\.codexAgentTheme) private var theme
-    @State private var phase = 0.0
 
     public init() {}
 
@@ -630,25 +629,14 @@ public struct CodexStreamingDots: View {
                 Circle()
                     .fill(theme.colors.accent)
                     .frame(width: 4, height: 4)
-                    .opacity(opacity(for: index))
+                    .opacity(index == 0 ? 0.85 : 0.45)
             }
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: false)) {
-                phase = 3
-            }
-        }
-    }
-
-    private func opacity(for index: Int) -> Double {
-        let distance = abs(phase.truncatingRemainder(dividingBy: 3) - Double(index))
-        return 0.35 + 0.65 * max(0, 1 - distance)
     }
 }
 
 public struct CodexThinkingShimmer: View {
     @Environment(\.codexAgentTheme) private var theme
-    @State private var animate = false
 
     public init() {}
 
@@ -657,16 +645,11 @@ public struct CodexThinkingShimmer: View {
             .fill(
                 LinearGradient(
                     colors: [theme.colors.textSecondary.opacity(0.18), theme.colors.textSecondary.opacity(0.35), theme.colors.textSecondary.opacity(0.18)],
-                    startPoint: animate ? .leading : .init(x: -1, y: 0.5),
-                    endPoint: animate ? .init(x: 2, y: 0.5) : .trailing
+                    startPoint: .leading,
+                    endPoint: .trailing
                 )
             )
             .frame(width: 180, height: 12)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: false)) {
-                    animate = true
-                }
-            }
     }
 }
 

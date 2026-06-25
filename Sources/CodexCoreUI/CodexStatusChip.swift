@@ -10,13 +10,9 @@ struct CodexStatusChip: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            if isStreaming {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(color)
-            } else {
-                Circle().fill(color).frame(width: 6, height: 6)
-            }
+            Circle()
+                .fill(color)
+                .frame(width: isStreaming ? 7 : 6, height: isStreaming ? 7 : 6)
             Text(label)
                 .font(theme.fonts.micro)
                 .foregroundStyle(color)

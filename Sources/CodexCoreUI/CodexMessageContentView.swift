@@ -246,7 +246,11 @@ public struct CodexCommandCard: View {
             if run.isStreaming { expanded = true }
         }
         .onChange(of: run.isStreaming) { _, isStreaming in
-            if isStreaming { expanded = true }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                expanded = isStreaming
+            }
         }
     }
 
@@ -300,8 +304,9 @@ public struct CodexReasoningCard: View {
                     Spacer(minLength: 8)
 
                     if block.isStreaming {
-                        ProgressView()
-                            .controlSize(.mini)
+                        Circle()
+                            .fill(theme.colors.running)
+                            .frame(width: 7, height: 7)
                     } else if !isExpanded, hasText {
                         Text(previewText)
                             .font(theme.fonts.micro)
@@ -334,7 +339,11 @@ public struct CodexReasoningCard: View {
             if block.isStreaming { expanded = true }
         }
         .onChange(of: block.isStreaming) { _, isStreaming in
-            if isStreaming { expanded = true }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                expanded = isStreaming
+            }
         }
     }
 

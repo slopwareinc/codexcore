@@ -98,6 +98,53 @@ final class CodexChatRuntimePipelineTests: XCTestCase {
         ])
     }
 
+    func testMainChatCompletionClearsStreamingTurnDiffChrome() throws {
+        var session = CodexMainChatSession()
+        session.start(turnID: "turn-visual")
+
+        let diffUpdated = session.apply(
+            transcriptNotification(.turnDiffUpdated(TurnDiffUpdatedNotification(
+                threadId: "thread-1",
+                turnId: "turn-visual",
+                diff: "diff --git a/visual_qa_probe.txt b/visual_qa_probe.txt\n+Visual QA probe."
+            ))),
+            turnSnapshot: CodexTurnSnapshot(
+                id: "turn-visual",
+                status: .running,
+                diff: "diff --git a/visual_qa_probe.txt b/visual_qa_probe.txt\n+Visual QA probe."
+            ),
+            isSubagentItem: { _ in false }
+        )
+
+        XCTAssertEqual(diffUpdated?.actions.first, .activity(kind: .tool, title: "Diff updated", detail: "1 file(s) changed"))
+        XCTAssertTrue(session.isSending)
+        XCTAssertEqual(session.messages.last?.fileChange?.status, "active")
+        XCTAssertTrue(session.messages.last?.isStreaming ?? false)
+        XCTAssertTrue(session.messages.last?.fileChange?.isStreaming ?? false)
+
+        let completed = session.apply(
+            transcriptNotification(.turnCompleted(TurnCompletedNotification(
+                threadId: "thread-1",
+                turn: AppServerTurn(id: "turn-visual", status: .completed)
+            ))),
+            turnSnapshot: CodexTurnSnapshot(
+                id: "turn-visual",
+                status: .completed,
+                diff: "diff --git a/visual_qa_probe.txt b/visual_qa_probe.txt\n+Visual QA probe."
+            ),
+            isSubagentItem: { _ in false }
+        )
+
+        XCTAssertEqual(completed?.actions, [
+            .activity(kind: .turn, title: "Turn complete", detail: "Codex finished"),
+            .refreshRecentChats,
+            .flushQueuedFollowUps
+        ])
+        XCTAssertFalse(session.isSending)
+        XCTAssertFalse(session.messages.contains(where: \.isStreaming))
+        XCTAssertFalse(session.messages.contains { $0.fileChange?.isStreaming == true })
+    }
+
     func testChatNotificationPipelineOwnsGlobalMainAndSubagentRouting() throws {
         let goal = ThreadGoal(
             threadId: "thread-1",
