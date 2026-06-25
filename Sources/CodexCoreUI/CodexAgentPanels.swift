@@ -570,6 +570,7 @@ private struct AgentPanelComposer: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!isSending && !canSend)
+                .accessibilityLabel(isSending ? CodexComposerAccessibility.stopButtonLabel : CodexComposerAccessibility.sendButtonLabel(isEnabled: canSend))
                 .help(isSending ? "Stop side chat" : "Send side chat message")
             }
             .padding(.horizontal, 12)

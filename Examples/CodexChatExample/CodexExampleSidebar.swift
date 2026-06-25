@@ -67,7 +67,8 @@ struct CodexExampleProjectSidebar: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.textSecondary)
-            .help(snapshot.isCollapsed ? "Expand sidebar" : "Collapse sidebar")
+            .accessibilityLabel(CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed))
+            .help(CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed))
         }
         .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
         .padding(.vertical, 10)
@@ -222,6 +223,7 @@ private struct SidebarCommandRow: View {
             isSelected ? theme.colors.surfaceElevated.opacity(0.62) : .clear,
             in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         )
+        .accessibilityLabel(CodexSidebarAccessibility.commandRowLabel(title: title, shortcut: shortcut))
         .help(title)
     }
 }
@@ -272,6 +274,10 @@ private struct ProjectSidebarGroupView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.colors.textTertiary)
+                    .accessibilityLabel(CodexSidebarAccessibility.projectDisclosureLabel(
+                        projectTitle: group.project.displayName,
+                        isExpanded: group.isExpanded
+                    ))
                     .help(group.isExpanded ? "Collapse project" : "Expand project")
                 }
 
@@ -321,6 +327,7 @@ private struct ProjectSidebarGroupView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(theme.colors.textTertiary)
+                        .accessibilityLabel(CodexSidebarAccessibility.projectNewChatLabel(projectTitle: group.project.displayName))
                         .help("New chat in project")
                     }
 
@@ -345,6 +352,7 @@ private struct ProjectSidebarGroupView: View {
                         .menuStyle(.borderlessButton)
                         .buttonStyle(.plain)
                         .foregroundStyle(theme.colors.textTertiary)
+                        .accessibilityLabel(CodexSidebarAccessibility.projectActionsLabel(projectTitle: group.project.displayName))
                         .help("Project actions")
                     }
                 }
@@ -420,6 +428,7 @@ private struct SidebarChatRow: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(row.isPinned ? theme.colors.accent : theme.colors.textTertiary.opacity(0.75))
+                    .accessibilityLabel(CodexSidebarAccessibility.chatPinLabel(isPinned: row.isPinned, title: row.summary.title))
                     .help(row.isPinned ? "Unpin chat" : "Pin chat")
                 }
                 if row.canArchive {
@@ -429,6 +438,7 @@ private struct SidebarChatRow: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.colors.textTertiary.opacity(0.75))
+                    .accessibilityLabel(CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title))
                     .help("Archive chat")
                 }
             }

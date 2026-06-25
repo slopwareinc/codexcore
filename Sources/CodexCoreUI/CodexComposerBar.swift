@@ -443,7 +443,8 @@ private struct ComposerStopButton: View {
         }
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)
-        .help("Stop")
+        .accessibilityLabel(CodexComposerAccessibility.stopButtonLabel)
+        .help(CodexComposerAccessibility.stopButtonHelp)
     }
 }
 
@@ -622,6 +623,8 @@ private struct SendButton: View {
         }
         .keyboardShortcut(.return, modifiers: [.command])
         .disabled(!enabled)
+        .accessibilityLabel(CodexComposerAccessibility.sendButtonLabel(isEnabled: enabled))
+        .help(CodexComposerAccessibility.sendButtonHelp(isEnabled: enabled))
         .animation(.snappy(duration: theme.animations.snappyDuration), value: enabled)
     }
 }
