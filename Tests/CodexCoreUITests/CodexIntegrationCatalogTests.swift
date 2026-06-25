@@ -342,4 +342,274 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(session.pluginErrorMessage, "bad marketplace")
     }
 
+    func testPluginRouteStateBuildsMarketplaceManageCountsAndBrowserDetail() throws {
+        let plugins = [
+            plugin(
+                name: "browser",
+                displayName: "Browser",
+                detail: "Control the in-app browser with Codex",
+                installed: true,
+                enabled: true,
+                category: "Tools",
+                developer: "OpenAI",
+                version: "26.616.81150",
+                prompt: "Open the browser and inspect the current page.",
+                capabilities: ["apps", "skills"],
+                website: "https://openai.com",
+                privacy: "https://openai.com/privacy",
+                terms: "https://openai.com/terms"
+            ),
+            plugin(
+                name: "chrome",
+                displayName: "Chrome",
+                detail: "Control Chrome with Codex",
+                installed: true,
+                enabled: true,
+                category: "Browser",
+                capabilities: ["apps"]
+            ),
+            plugin(
+                name: "github",
+                displayName: "GitHub",
+                detail: "Triage PRs and issues",
+                installed: false,
+                enabled: false,
+                installPolicy: "AVAILABLE",
+                category: "Code",
+                capabilities: ["skills"]
+            )
+        ]
+        let skills = [
+            skill(name: "browser:control", displayName: "Control Browser", enabled: true),
+            skill(name: "disabled-skill", displayName: "Disabled Skill", enabled: false)
+        ]
+        let state = CodexPluginRouteState(
+            plugins: plugins,
+            skills: skills,
+            mcpServers: [CodexMCPServerStatus(name: "filesystem")],
+            searchQuery: "browser",
+            selectedPluginID: plugins[0].id
+        )
+
+        XCTAssertEqual(state.visiblePlugins.map(\.displayName), ["Browser", "Chrome"])
+        XCTAssertEqual(state.manageCounts.map { "\($0.tab.title):\($0.count)" }, [
+            "Plugins:2",
+            "Apps:2",
+            "MCPs:1",
+            "Skills:2"
+        ])
+        XCTAssertEqual(state.categoryCards.first?.title, "Browser")
+
+        let detail = try XCTUnwrap(state.selectedDetail)
+        XCTAssertEqual(detail.title, "Browser")
+        XCTAssertEqual(detail.prompt, "Open the browser and inspect the current page.")
+        XCTAssertTrue(detail.capabilities.contains("apps"))
+        XCTAssertTrue(detail.metadata.contains("Developer: OpenAI"))
+        XCTAssertTrue(detail.metadata.contains("Category: Tools"))
+        XCTAssertTrue(detail.metadata.contains("Version: 26.616.81150"))
+        XCTAssertTrue(detail.legalLinks.contains("Website: https://openai.com"))
+        XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Open the browser and inspect the current page."))
+    }
+
+    func testPluginRouteStateBuildsSkillsDetailAndFilters() throws {
+        let enabled = skill(
+            name: "browser:control",
+            displayName: "Control Browser",
+            detail: "Operate browser tabs",
+            description: "Control the in-app browser.",
+            enabled: true,
+            prompt: "Use the browser to inspect localhost."
+        )
+        let disabled = skill(
+            name: "writer",
+            displayName: "Writer",
+            detail: "Draft content",
+            enabled: false
+        )
+        let state = CodexPluginRouteState(
+            plugins: [],
+            skills: [enabled, disabled],
+            primaryTab: .skills,
+            searchQuery: "browser",
+            selectedSkillID: enabled.id
+        )
+
+        XCTAssertEqual(state.visibleSkills.map(\.displayName), ["Control Browser"])
+        let detail = try XCTUnwrap(state.selectedDetail)
+        XCTAssertEqual(detail.title, "Control Browser")
+        XCTAssertEqual(detail.statusLabel, "Enabled")
+        XCTAssertEqual(detail.prompt, "Use the browser to inspect localhost.")
+        XCTAssertEqual(detail.primaryAction, .setSkillEnabled(CodexSkillActionTarget(skill: enabled), enabled: false))
+        XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Use the browser to inspect localhost."))
+        XCTAssertFalse(detail.canUninstall)
+    }
+
+    func testPluginCatalogActionsAreMockableAndBounded() async {
+        let available = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Triage PRs and issues",
+            installed: false,
+            enabled: false,
+            installPolicy: "AVAILABLE"
+        )
+        let target = CodexPluginActionTarget(plugin: available)
+        let provider = MockPluginCatalogActionProvider()
+
+        let install = await CodexPluginCatalogActionSession.perform(.installPlugin(target), provider: provider)
+        XCTAssertEqual(install.activity.title, "Installed GitHub")
+        XCTAssertTrue(install.shouldRefresh)
+
+        let toggle = await CodexPluginCatalogActionSession.perform(.setPluginEnabled(target, enabled: true), provider: provider)
+        XCTAssertEqual(toggle.activity.detail, "enabled GitHub")
+
+        let tryInChat = await CodexPluginCatalogActionSession.perform(.tryInChat(prompt: "Use GitHub"), provider: provider)
+        XCTAssertEqual(tryInChat.draftPrompt, "Use GitHub")
+        XCTAssertFalse(tryInChat.shouldRefresh)
+
+        let unsupported = await CodexPluginCatalogActionSession.perform(
+            .uninstallPlugin(target),
+            provider: CodexUnsupportedPluginCatalogActionProvider()
+        )
+        XCTAssertEqual(unsupported.activity.title, "Plugin action unavailable")
+        XCTAssertTrue(unsupported.activity.detail.contains("uninstall is not wired"))
+    }
+
+    func testSkillSummariesParseAppServerSkillsForRoute() {
+        let response: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "cwd": .string("/tmp/CodexCore"),
+                    "skills": .array([
+                        .dictionary([
+                            "name": .string("browser:control"),
+                            "description": .string("Control the in-app browser."),
+                            "shortDescription": .string("Browser control"),
+                            "interface": .dictionary([
+                                "displayName": .string("Control Browser"),
+                                "shortDescription": .string("Operate browser tabs"),
+                                "defaultPrompt": .array([.string("Use the browser"), .string("Inspect localhost")])
+                            ]),
+                            "path": .string("/tmp/skills/browser/SKILL.md"),
+                            "scope": .string("user"),
+                            "enabled": .bool(true),
+                            "dependencies": .dictionary([
+                                "playwright": .bool(true),
+                                "unused": .bool(false)
+                            ])
+                        ])
+                    ]),
+                    "errors": .array([])
+                ])
+            ])
+        ])
+
+        let skills = CodexSkillSummary.skills(from: response)
+
+        XCTAssertEqual(skills.count, 1)
+        XCTAssertEqual(skills[0].displayName, "Control Browser")
+        XCTAssertEqual(skills[0].detail, "Operate browser tabs")
+        XCTAssertEqual(skills[0].defaultPrompt, "Use the browser\nInspect localhost")
+        XCTAssertEqual(skills[0].scopeLabel, "Personal")
+        XCTAssertEqual(skills[0].dependencies, ["playwright"])
+
+        var session = CodexIntegrationCatalogSession()
+        let activity = session.applySkillResponse(response)
+        XCTAssertEqual(activity, CodexIntegrationCatalogActivity(title: "Loaded skills", detail: "1 available"))
+        XCTAssertEqual(session.skills, skills)
+    }
+
+}
+
+private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider {
+    func installPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: "Installed \(target.displayName)", detail: target.name),
+            shouldRefresh: true
+        )
+    }
+
+    func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: "Uninstalled \(target.displayName)", detail: target.name),
+            shouldRefresh: true
+        )
+    }
+
+    func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: "Updated \(target.displayName)", detail: "\(enabled ? "enabled" : "disabled") \(target.displayName)"),
+            shouldRefresh: true
+        )
+    }
+
+    func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: "Updated \(target.displayName)", detail: "\(enabled ? "enabled" : "disabled") \(target.displayName)"),
+            shouldRefresh: true
+        )
+    }
+}
+
+private func plugin(
+    name: String,
+    displayName: String,
+    detail: String,
+    installed: Bool,
+    enabled: Bool,
+    installPolicy: String = "INSTALLED_BY_DEFAULT",
+    category: String? = nil,
+    developer: String? = nil,
+    version: String? = nil,
+    prompt: String? = nil,
+    capabilities: [String] = [],
+    website: String? = nil,
+    privacy: String? = nil,
+    terms: String? = nil
+) -> CodexPluginSummary {
+    CodexPluginSummary(
+        id: "local:\(name)",
+        name: name,
+        displayName: displayName,
+        shortDescription: detail,
+        longDescription: "\(detail). Long description.",
+        marketplaceName: "local",
+        marketplaceDisplayName: "Local",
+        marketplacePath: "/tmp/marketplace.json",
+        category: category,
+        developerName: developer,
+        installed: installed,
+        enabled: enabled,
+        installPolicy: installPolicy,
+        sourceType: "local",
+        sourceDetail: "/tmp/plugins/\(name)",
+        localVersion: version,
+        defaultPrompt: prompt,
+        websiteURL: website,
+        privacyPolicyURL: privacy,
+        termsOfServiceURL: terms,
+        capabilities: capabilities,
+        keywords: [name]
+    )
+}
+
+private func skill(
+    name: String,
+    displayName: String,
+    detail: String = "Skill detail",
+    description: String = "Skill description",
+    enabled: Bool,
+    prompt: String? = nil
+) -> CodexSkillSummary {
+    CodexSkillSummary(
+        name: name,
+        displayName: displayName,
+        detail: detail,
+        description: description,
+        path: "/tmp/skills/\(name)/SKILL.md",
+        scope: "user",
+        enabled: enabled,
+        defaultPrompt: prompt,
+        dependencies: ["skill"]
+    )
 }

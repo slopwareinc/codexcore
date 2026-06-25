@@ -95,6 +95,18 @@ extension CodexChatModel {
         runtimeSession.integrationCatalogSession.pluginLoadErrors
     }
 
+    var skills: [CodexSkillSummary] {
+        runtimeSession.integrationCatalogSession.skills
+    }
+
+    var isLoadingSkills: Bool {
+        runtimeSession.integrationCatalogSession.isLoadingSkills
+    }
+
+    var skillErrorMessage: String? {
+        runtimeSession.integrationCatalogSession.skillErrorMessage
+    }
+
     var approvalPrompts: [CodexApprovalPrompt] {
         promptRuntime.approvalPrompts
     }

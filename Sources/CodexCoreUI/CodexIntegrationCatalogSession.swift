@@ -19,6 +19,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public private(set) var isLoadingPlugins: Bool
     public private(set) var pluginErrorMessage: String?
     public private(set) var pluginLoadErrors: [String]
+    public private(set) var skills: [CodexSkillSummary]
+    public private(set) var isLoadingSkills: Bool
+    public private(set) var skillErrorMessage: String?
 
     public init(
         mcpServers: [CodexMCPServerStatus] = [],
@@ -27,7 +30,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         plugins: [CodexPluginSummary] = [],
         isLoadingPlugins: Bool = false,
         pluginErrorMessage: String? = nil,
-        pluginLoadErrors: [String] = []
+        pluginLoadErrors: [String] = [],
+        skills: [CodexSkillSummary] = [],
+        isLoadingSkills: Bool = false,
+        skillErrorMessage: String? = nil
     ) {
         self.mcpServers = mcpServers
         self.isLoadingMCPServers = isLoadingMCPServers
@@ -36,6 +42,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         self.isLoadingPlugins = isLoadingPlugins
         self.pluginErrorMessage = pluginErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
+        self.skills = skills
+        self.isLoadingSkills = isLoadingSkills
+        self.skillErrorMessage = skillErrorMessage
     }
 
     public mutating func reset() {
@@ -46,6 +55,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins = false
         pluginErrorMessage = nil
         pluginLoadErrors = []
+        skills = []
+        isLoadingSkills = false
+        skillErrorMessage = nil
     }
 
     public mutating func requireMCPConnection(message: String) {
@@ -102,11 +114,19 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         pluginLoadErrors = []
         isLoadingPlugins = false
         pluginErrorMessage = message
+        skills = []
+        isLoadingSkills = false
+        skillErrorMessage = message
     }
 
     public mutating func beginPluginRefresh() {
         isLoadingPlugins = true
         pluginErrorMessage = nil
+    }
+
+    public mutating func beginSkillRefresh() {
+        isLoadingSkills = true
+        skillErrorMessage = nil
     }
 
     @discardableResult
@@ -138,5 +158,36 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins = false
         pluginErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "Plugin list unavailable", detail: message)
+    }
+
+    @discardableResult
+    public mutating func applySkillResponse(_ raw: CodexJSONValue) -> CodexIntegrationCatalogActivity {
+        skills = CodexSkillSummary.skills(from: raw)
+        isLoadingSkills = false
+        skillErrorMessage = nil
+        return CodexIntegrationCatalogActivity(title: "Loaded skills", detail: "\(skills.count) available")
+    }
+
+    @discardableResult
+    public mutating func refreshSkills(
+        using codex: Codex,
+        cwds: [String],
+        forceReload: Bool = false,
+        errorMessage: (Error) -> String
+    ) async -> CodexIntegrationCatalogActivity {
+        beginSkillRefresh()
+        do {
+            return applySkillResponse(try CodexJSONValue(encoding: await codex.skillsList(cwds: cwds, forceReload: forceReload)))
+        } catch {
+            return failSkillRefresh(message: errorMessage(error))
+        }
+    }
+
+    @discardableResult
+    public mutating func failSkillRefresh(message: String) -> CodexIntegrationCatalogActivity {
+        skills = []
+        isLoadingSkills = false
+        skillErrorMessage = message
+        return CodexIntegrationCatalogActivity(title: "Skill list unavailable", detail: message)
     }
 }

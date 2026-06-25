@@ -116,10 +116,10 @@ struct CodexExampleAppShell: View {
         case .chat, .search:
             chatWorkspace(proxy: proxy)
         case .plugins:
-            PluginsSheet(
+            PluginsRouteView(
                 model: model,
-                onClose: { model.selectAppRoute(.chat) },
-                onRefresh: { Task { await model.refreshPlugins() } }
+                onRefresh: { Task { await model.refreshPlugins() } },
+                onAction: { model.performPluginCatalogAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.themePreset.theme)

@@ -577,13 +577,37 @@ final class CodexChatModel {
         }
 
         var session = runtimeSession.integrationCatalogSession
-        let activity = await session.refreshPlugins(
+        let pluginActivity = await session.refreshPlugins(
+            using: codex,
+            cwds: [workspacePath],
+            errorMessage: Self.friendlyErrorMessage
+        )
+        let skillActivity = await session.refreshSkills(
             using: codex,
             cwds: [workspacePath],
             errorMessage: Self.friendlyErrorMessage
         )
         runtimeSession.integrationCatalogSession = session
-        appendIntegrationActivity(activity)
+        appendIntegrationActivity(pluginActivity)
+        appendIntegrationActivity(skillActivity)
+    }
+
+    func performPluginCatalogAction(_ action: CodexPluginRouteAction) {
+        Task {
+            let outcome = await CodexPluginCatalogActionSession.perform(
+                action,
+                provider: CodexUnsupportedPluginCatalogActionProvider()
+            )
+            if let draftPrompt = outcome.draftPrompt {
+                sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+                clearThreadState()
+                composerSession.draft = draftPrompt
+            }
+            appendIntegrationActivity(outcome.activity)
+            if outcome.shouldRefresh {
+                await refreshPlugins()
+            }
+        }
     }
 
     func pinCurrentChat() {

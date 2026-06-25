@@ -2,88 +2,287 @@ import SwiftUI
 import CodexCore
 import CodexCoreUI
 
-struct PluginsSheet: View {
+struct PluginsRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     @Bindable var model: CodexChatModel
-    let onClose: () -> Void
     let onRefresh: () -> Void
+    let onAction: (CodexPluginRouteAction) -> Void
+
+    @State private var primaryTab: CodexPluginRoutePrimaryTab = .marketplace
+    @State private var manageTab: CodexPluginManageTab = .plugins
+    @State private var searchQuery = ""
+    @State private var selectedPluginID: String?
+    @State private var selectedSkillID: String?
+
+    private var routeState: CodexPluginRouteState {
+        CodexPluginRouteState(
+            plugins: model.plugins,
+            skills: model.skills,
+            mcpServers: model.mcpServers,
+            primaryTab: primaryTab,
+            manageTab: manageTab,
+            searchQuery: searchQuery,
+            selectedPluginID: selectedPluginID,
+            selectedSkillID: selectedSkillID
+        )
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.colors.textSecondary)
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider().overlay(theme.colors.border)
+            HStack(spacing: 0) {
+                catalogColumn
+                    .frame(minWidth: 360, idealWidth: 430, maxWidth: 500)
+                Divider().overlay(theme.colors.border)
+                detailPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .background(theme.colors.surfaceSunken)
+        .onAppear(perform: seedSelection)
+        .onChange(of: model.plugins.map(\.id)) { _, _ in seedSelection() }
+        .onChange(of: model.skills.map(\.id)) { _, _ in seedSelection() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Plugins")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
-                Spacer()
-                Button(action: onRefresh) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .help("Refresh")
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .help("Close")
-            }
-
-            HStack(spacing: 10) {
-                Text("\(model.plugins.filter(\.installed).count) installed")
+                Text("Manage marketplace plugins, apps, MCPs, and skills.")
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
-                Text("\(model.plugins.count) total")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                if model.isLoadingPlugins {
-                    ProgressView()
-                        .controlSize(.small)
-                }
             }
 
-            if let error = model.pluginErrorMessage {
-                Text(error)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.danger)
-            } else if model.plugins.isEmpty, !model.isLoadingPlugins {
-                Text("No plugins")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
+            Picker("Plugin route", selection: $primaryTab) {
+                ForEach(CodexPluginRoutePrimaryTab.allCases, id: \.self) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 330)
+
+            Spacer()
+
+            if model.isLoadingPlugins || model.isLoadingSkills {
+                ProgressView()
+                    .controlSize(.small)
             }
 
-            if !model.pluginLoadErrors.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(model.pluginLoadErrors, id: \.self) { error in
-                        Text(error)
-                            .font(theme.fonts.caption)
-                            .foregroundStyle(theme.colors.warning)
-                            .lineLimit(2)
-                    }
-                }
+            Button(action: onRefresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .help("Refresh plugins")
+            .accessibilityLabel("Refresh plugins")
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+    }
+
+    private var catalogColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            searchField
+
+            if primaryTab == .manage {
+                manageTabs
+            }
+
+            statusMessages
+
+            if primaryTab == .marketplace, searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                categoryCards
             }
 
             ScrollView {
-                LazyVStack(spacing: 6) {
-                    ForEach(model.plugins) { plugin in
-                        PluginCatalogRow(plugin: plugin)
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if primaryTab == .skills || (primaryTab == .manage && manageTab == .skills) {
+                        skillRows
+                    } else {
+                        pluginRows
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.bottom, 22)
             }
-            .frame(height: 340)
         }
         .padding(18)
-        .frame(width: 580, height: 480)
-        .background(theme.colors.surface)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(theme.colors.surface.opacity(0.45))
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(theme.colors.textTertiary)
+            TextField("Search plugins", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(theme.fonts.chat)
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 38)
+        .background(theme.colors.surfaceElevated.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.border, lineWidth: 1)
+        )
+    }
+
+    private var manageTabs: some View {
+        HStack(spacing: 6) {
+            ForEach(routeState.manageCounts) { count in
+                Button {
+                    manageTab = count.tab
+                    if count.tab == .skills {
+                        primaryTab = .manage
+                    }
+                } label: {
+                    VStack(spacing: 2) {
+                        Text(count.tab.title)
+                            .font(theme.fonts.caption.weight(.semibold))
+                        Text("\(count.count)")
+                            .font(theme.fonts.micro)
+                    }
+                    .foregroundStyle(manageTab == count.tab ? theme.colors.textPrimary : theme.colors.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(manageTab == count.tab ? theme.colors.surfaceElevated.opacity(0.9) : theme.colors.surfaceSunken.opacity(0.35), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(count.tab.title), \(count.count)")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusMessages: some View {
+        if let error = model.pluginErrorMessage {
+            statusText(error, color: theme.colors.danger)
+        }
+        if let error = model.skillErrorMessage {
+            statusText(error, color: theme.colors.danger)
+        }
+        ForEach(model.pluginLoadErrors, id: \.self) { error in
+            statusText(error, color: theme.colors.warning)
+        }
+    }
+
+    private func statusText(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(theme.fonts.caption)
+            .foregroundStyle(color)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var categoryCards: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Categories")
+                .font(theme.fonts.caption.weight(.semibold))
+                .foregroundStyle(theme.colors.textTertiary)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(routeState.categoryCards.prefix(4)) { card in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(card.title)
+                                .font(theme.fonts.caption.weight(.semibold))
+                                .lineLimit(1)
+                            Spacer()
+                            Text("\(card.count)")
+                                .font(theme.fonts.micro)
+                                .foregroundStyle(theme.colors.textTertiary)
+                        }
+                        Text(card.detail)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .lineLimit(1)
+                    }
+                    .padding(10)
+                    .background(theme.colors.surfaceElevated.opacity(0.54), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pluginRows: some View {
+        let plugins = routeState.visiblePlugins
+        if plugins.isEmpty {
+            emptyRow(primaryTab == .manage ? "No managed plugins" : "No plugins")
+        } else {
+            ForEach(plugins) { plugin in
+                PluginCatalogRow(
+                    plugin: plugin,
+                    isSelected: routeState.selectedDetail?.title == plugin.displayName,
+                    onSelect: {
+                        selectedPluginID = plugin.id
+                        selectedSkillID = nil
+                    },
+                    onToggleEnabled: {
+                        onAction(.setPluginEnabled(CodexPluginActionTarget(plugin: plugin), enabled: !plugin.enabled))
+                    }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var skillRows: some View {
+        let skills = routeState.visibleSkills
+        if skills.isEmpty {
+            emptyRow("No skills")
+        } else {
+            ForEach(skills) { skill in
+                SkillCatalogRow(
+                    skill: skill,
+                    isSelected: routeState.selectedDetail?.title == skill.displayName,
+                    onSelect: {
+                        selectedSkillID = skill.id
+                        selectedPluginID = nil
+                    }
+                )
+            }
+        }
+    }
+
+    private func emptyRow(_ title: String) -> some View {
+        Text(title)
+            .font(theme.fonts.caption)
+            .foregroundStyle(theme.colors.textTertiary)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.colors.surfaceElevated.opacity(0.28), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var detailPane: some View {
+        if let detail = routeState.selectedDetail {
+            PluginDetailPane(detail: detail, onAction: onAction)
+                .padding(22)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Select a plugin")
+                    .font(.system(size: 18, weight: .semibold))
+                Text("Marketplace and Skills details appear here.")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            .padding(22)
+        }
+    }
+
+    private func seedSelection() {
+        if selectedPluginID == nil {
+            selectedPluginID = model.plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }?.id ?? model.plugins.first?.id
+        }
+        if selectedSkillID == nil {
+            selectedSkillID = model.skills.first?.id
+        }
     }
 }
 
@@ -91,67 +290,208 @@ private struct PluginCatalogRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let plugin: CodexPluginSummary
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onToggleEnabled: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: plugin.installed ? "checkmark.circle.fill" : "puzzlepiece.extension")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(plugin.installed ? theme.colors.success : theme.colors.textTertiary)
-                    .frame(width: 18)
-                Text(plugin.displayName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .lineLimit(1)
-                if let version = plugin.localVersion?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
-                    Text(version)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: plugin.installed ? "checkmark.circle.fill" : "puzzlepiece.extension")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(plugin.installed ? theme.colors.success : theme.colors.textTertiary)
+                        .frame(width: 18)
+                    Text(plugin.displayName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(1)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { plugin.enabled },
+                        set: { _ in onToggleEnabled() }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(!plugin.installed)
+                    .accessibilityLabel("Plugin enabled")
                 }
-                Spacer()
-                Text(plugin.statusLabel)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(plugin.installed ? theme.colors.success : theme.colors.textSecondary)
-                    .lineLimit(1)
-            }
 
-            Text(plugin.detail)
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textSecondary)
-                .lineLimit(2)
+                Text(plugin.detail)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .lineLimit(2)
 
-            HStack(spacing: 8) {
-                Text(plugin.marketplaceDisplayName)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
-                Text(plugin.sourceLabel)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
-                if let developer = plugin.developerName?.trimmingCharacters(in: .whitespacesAndNewlines), !developer.isEmpty {
-                    Text(developer)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
+                HStack(spacing: 8) {
+                    pill(plugin.statusLabel)
+                    pill(plugin.marketplaceDisplayName)
+                    if let version = plugin.localVersion?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
+                        pill(version)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
             }
-
-            if !plugin.capabilities.isEmpty {
-                Text(plugin.capabilities.prefix(4).joined(separator: " · "))
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
-            }
+            .padding(11)
+            .background(isSelected ? theme.colors.accentSoft.opacity(0.5) : theme.colors.surfaceElevated.opacity(0.64), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(isSelected ? theme.colors.accent : theme.colors.border, lineWidth: 1)
+            )
         }
-        .padding(11)
-        .background(theme.colors.surfaceElevated.opacity(0.78), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
-        )
+        .buttonStyle(.plain)
+    }
+
+    private func pill(_ title: String) -> some View {
+        Text(title)
+            .font(theme.fonts.micro)
+            .foregroundStyle(theme.colors.textTertiary)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(theme.colors.surfaceSunken.opacity(0.5), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
     }
 }
 
+private struct SkillCatalogRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let skill: CodexSkillSummary
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Image(systemName: "hammer")
+                        .foregroundStyle(theme.colors.textTertiary)
+                    Text(skill.displayName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer()
+                    Text(skill.statusLabel)
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(skill.enabled ? theme.colors.success : theme.colors.textTertiary)
+                }
+                Text(skill.detail)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .lineLimit(2)
+                Text(skill.scopeLabel)
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+            .padding(11)
+            .background(isSelected ? theme.colors.accentSoft.opacity(0.5) : theme.colors.surfaceElevated.opacity(0.64), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(isSelected ? theme.colors.accent : theme.colors.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PluginDetailPane: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let detail: CodexPluginRouteDetail
+    let onAction: (CodexPluginRouteAction) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(detail.title)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(theme.colors.textPrimary)
+                    Text(detail.detail)
+                        .font(theme.fonts.chat)
+                        .foregroundStyle(theme.colors.textSecondary)
+                    Text(detail.statusLabel)
+                        .font(theme.fonts.caption.weight(.semibold))
+                        .foregroundStyle(detail.isEnabled ? theme.colors.success : theme.colors.textTertiary)
+                }
+
+                Text(detail.description)
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineSpacing(3)
+
+                actionRow
+
+                if let prompt = detail.prompt {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Prompt")
+                            .font(theme.fonts.caption.weight(.semibold))
+                            .foregroundStyle(theme.colors.textTertiary)
+                        Text(prompt)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .padding(10)
+                            .background(theme.colors.surfaceElevated.opacity(0.58), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+                    }
+                }
+
+                metadataSection("Capabilities", detail.capabilities)
+                metadataSection("Details", detail.metadata)
+                metadataSection("Links", detail.legalLinks)
+            }
+            .frame(maxWidth: 700, alignment: .leading)
+        }
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 10) {
+            if let tryAction = detail.tryInChatAction {
+                Button {
+                    onAction(tryAction)
+                } label: {
+                    Label("Try in chat", systemImage: "paperplane")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let primary = detail.primaryAction {
+                Button(action: { onAction(primary) }) {
+                    Text(primaryTitle)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if detail.canToggleEnabled, case .plugin(let target) = detail.kind {
+                Button(detail.isEnabled ? "Disable" : "Enable") {
+                    onAction(.setPluginEnabled(target, enabled: !detail.isEnabled))
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var primaryTitle: String {
+        if detail.canInstall { return "Install" }
+        if detail.canUninstall { return "Uninstall" }
+        return detail.isEnabled ? "Disable" : "Enable"
+    }
+
+    @ViewBuilder
+    private func metadataSection(_ title: String, _ rows: [String]) -> some View {
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title)
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textTertiary)
+                ForEach(rows, id: \.self) { row in
+                    Text(row)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+}
