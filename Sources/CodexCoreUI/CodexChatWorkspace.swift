@@ -70,6 +70,8 @@ public struct CodexChatWorkspaceView: View {
     private let onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
+    private let onCloseTranscriptMessage: ((UUID) -> Void)?
+    private let onOpenMCPDetails: (() -> Void)?
     private let onToggleSidebar: () -> Void
     private let onDisconnect: () -> Void
     private let onPromptSelected: ((String) -> Void)?
@@ -122,6 +124,8 @@ public struct CodexChatWorkspaceView: View {
         onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
+        onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
+        onOpenMCPDetails: (() -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void,
         onPromptSelected: ((String) -> Void)? = nil,
@@ -168,6 +172,8 @@ public struct CodexChatWorkspaceView: View {
         self.onComposerDictationRoute = onComposerDictationRoute
         self.onComposerChipClear = onComposerChipClear
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
+        self.onCloseTranscriptMessage = onCloseTranscriptMessage
+        self.onOpenMCPDetails = onOpenMCPDetails
         self.onToggleSidebar = onToggleSidebar
         self.onDisconnect = onDisconnect
         self.onPromptSelected = onPromptSelected
@@ -223,7 +229,9 @@ public struct CodexChatWorkspaceView: View {
             CodexTranscriptView(
                 messages: messages,
                 lifecycleEvents: lifecycleEvents,
-                activeTurn: activeTurnState
+                activeTurn: activeTurnState,
+                onCloseMessage: onCloseTranscriptMessage,
+                onOpenMCPDetails: onOpenMCPDetails
             ) {
                 CodexEmptyTranscriptView { prompt in
                     if let onPromptSelected {

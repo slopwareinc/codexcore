@@ -18,7 +18,7 @@ extension CodexChatModel {
     }
 
     var messages: [Message] {
-        runtimeSession.messages
+        runtimeSession.messages.filter { structuredPanelDismissalState.isVisible(messageID: $0.id) }
     }
 
     var lifecycleEvents: [CodexAgentLifecycleEvent] {

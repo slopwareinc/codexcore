@@ -33,6 +33,7 @@ final class CodexChatModel {
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession()
     var activityLog = CodexActivityLogSession()
+    var structuredPanelDismissalState = CodexStructuredPanelDismissalState()
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
@@ -877,14 +878,14 @@ final class CodexChatModel {
         case .showModelStatus:
             appendActivity(.notice, title: "Model", detail: "\(modelSelection.displayName) \(reasoningSelection.displayName)")
         case .showCurrentStatus:
-            appendMessage(.system, CodexChatUtilitySession.statusSummary(statusSummaryContext), detail: "status")
+            appendStatusPanel()
             appendActivity(.notice, title: "Status", detail: connectionState.label)
         case .forkCurrentChat:
             Task { await forkCurrentChat() }
         case .compactCurrentChat:
             Task { await compactCurrentChat() }
         case .presentMCPStatus:
-            presentMCPStatus?()
+            appendMCPStatusPanel()
         case .refreshMCPServers:
             Task { await refreshMCPServers() }
         }
@@ -940,6 +941,27 @@ final class CodexChatModel {
 
     private func appendMessage(_ role: Message.Role, _ text: String, detail: String? = nil) {
         runtimeSession.appendMessage(role, text, detail: detail)
+    }
+
+    private func appendStatusPanel() {
+        let itemID = "slash-status-\(UUID().uuidString)"
+        runtimeSession.append(CodexStatusPanelModel(
+            context: statusSummaryContext,
+            rateLimits: accountRateLimitsSnapshot
+        ).message(itemID: itemID))
+    }
+
+    private func appendMCPStatusPanel() {
+        let itemID = "slash-mcp-\(UUID().uuidString)"
+        runtimeSession.append(CodexMCPStatusPanelModel(
+            servers: mcpServers,
+            isLoading: isLoadingMCPServers,
+            errorMessage: mcpErrorMessage
+        ).message(itemID: itemID))
+    }
+
+    func dismissTranscriptMessage(_ id: UUID) {
+        structuredPanelDismissalState.dismiss(messageID: id)
     }
 
     private func appendActivity(_ kind: Activity.Kind, title: String, detail: String) {
@@ -1105,6 +1127,7 @@ final class CodexChatModel {
         runtimeSession.cancelGlobalNotifications()
         promptRuntime.reset()
         mentionSearchSession.reset()
+        structuredPanelDismissalState = CodexStructuredPanelDismissalState()
         loginTask?.cancel()
         loginTask = nil
         Task { await promptRuntime.cancelAllPrompts() }

@@ -4,6 +4,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let timelineItems: [CodexTranscriptTimelineItem]
     private let activeTurn: CodexActiveTurnState?
     private let emptyContent: EmptyContent
+    private let onCloseMessage: ((UUID) -> Void)?
+    private let onOpenMCPDetails: (() -> Void)?
 
     @Environment(\.codexAgentTheme) private var theme
 
@@ -11,6 +13,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         messages: [CodexChatMessage],
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
         activeTurn: CodexActiveTurnState? = nil,
+        onCloseMessage: ((UUID) -> Void)? = nil,
+        onOpenMCPDetails: (() -> Void)? = nil,
         @ViewBuilder emptyContent: () -> EmptyContent
     ) {
         self.timelineItems = CodexTranscriptTimelineBuilder.build(
@@ -18,6 +22,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             lifecycleEvents: lifecycleEvents
         )
         self.activeTurn = activeTurn
+        self.onCloseMessage = onCloseMessage
+        self.onOpenMCPDetails = onOpenMCPDetails
         self.emptyContent = emptyContent()
     }
 
@@ -32,7 +38,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                     ForEach(timelineItems) { item in
                         switch item {
                         case .message(let message):
-                            CodexMessageRow(message: message)
+                            CodexMessageRow(
+                                message: message,
+                                onCloseMessage: onCloseMessage,
+                                onOpenMCPDetails: onOpenMCPDetails
+                            )
                                 .id(item.id)
                         case .operationAggregate(_, let rows):
                             CodexAgentRow(visibility: .hidden) {
@@ -254,10 +264,19 @@ public struct CodexAgentLifecycleBlock: View {
 public struct CodexMessageRow: View {
     private let message: CodexChatMessage
     private let assistantName: String
+    private let onCloseMessage: ((UUID) -> Void)?
+    private let onOpenMCPDetails: (() -> Void)?
 
-    public init(message: CodexChatMessage, assistantName: String = "Codex") {
+    public init(
+        message: CodexChatMessage,
+        assistantName: String = "Codex",
+        onCloseMessage: ((UUID) -> Void)? = nil,
+        onOpenMCPDetails: (() -> Void)? = nil
+    ) {
         self.message = message
         self.assistantName = assistantName
+        self.onCloseMessage = onCloseMessage
+        self.onOpenMCPDetails = onOpenMCPDetails
     }
 
     public var body: some View {
@@ -292,8 +311,22 @@ public struct CodexMessageRow: View {
             }
         case .notice:
             if let notice = message.notice {
-                CodexAgentRow {
-                    CodexNoticeCard(notice: notice)
+                if let model = CodexStatusPanelModel(notice: notice) {
+                    CodexAgentRow {
+                        CodexStatusPanelCard(model: model, onClose: closeAction)
+                    }
+                } else if let model = CodexMCPStatusPanelModel(notice: notice) {
+                    CodexAgentRow {
+                        CodexMCPStatusPanelCard(
+                            model: model,
+                            onClose: closeAction,
+                            onOpenDetails: onOpenMCPDetails
+                        )
+                    }
+                } else {
+                    CodexAgentRow {
+                        CodexNoticeCard(notice: notice)
+                    }
                 }
             }
         case .reasoning:
@@ -307,6 +340,11 @@ public struct CodexMessageRow: View {
                 CodexAssistantMessageView(message: message, assistantName: assistantName)
             }
         }
+    }
+
+    private var closeAction: (() -> Void)? {
+        guard let onCloseMessage else { return nil }
+        return { onCloseMessage(message.id) }
     }
 }
 
