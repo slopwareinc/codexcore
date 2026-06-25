@@ -24,7 +24,8 @@ struct PluginsRouteView: View {
             manageTab: manageTab,
             searchQuery: searchQuery,
             selectedPluginID: selectedPluginID,
-            selectedSkillID: selectedSkillID
+            selectedSkillID: selectedSkillID,
+            launcherTarget: model.pluginLauncherTarget
         )
     }
 
@@ -41,9 +42,10 @@ struct PluginsRouteView: View {
             }
         }
         .background(theme.colors.surfaceSunken)
-        .onAppear(perform: seedSelection)
-        .onChange(of: model.plugins.map(\.id)) { _, _ in seedSelection() }
-        .onChange(of: model.skills.map(\.id)) { _, _ in seedSelection() }
+        .onAppear(perform: seedOrApplyLauncher)
+        .onChange(of: model.plugins.map(\.id)) { _, _ in seedOrApplyLauncher() }
+        .onChange(of: model.skills.map(\.id)) { _, _ in seedOrApplyLauncher() }
+        .onChange(of: model.pluginLauncherTarget) { _, _ in seedOrApplyLauncher() }
     }
 
     private var header: some View {
@@ -276,6 +278,30 @@ struct PluginsRouteView: View {
         }
     }
 
+    private func seedOrApplyLauncher() {
+        if let target = model.pluginLauncherTarget {
+            applyLauncherTarget(target)
+            return
+        }
+        seedSelection()
+    }
+
+    private func applyLauncherTarget(_ target: CodexComposerPluginLauncher) {
+        primaryTab = target.itemID == .browser ? .manage : .marketplace
+        manageTab = .plugins
+        searchQuery = target.searchQuery
+        selectedSkillID = nil
+        selectedPluginID = model.plugins.first { plugin in
+            let preferred = target.preferredPluginNames.map { $0.lowercased() }
+            let candidates = [plugin.name.lowercased(), plugin.displayName.lowercased(), plugin.id.lowercased()]
+            return preferred.contains { preferredName in
+                candidates.contains { candidate in
+                    candidate == preferredName || candidate.contains(preferredName)
+                }
+            }
+        }?.id
+    }
+
     private func seedSelection() {
         if selectedPluginID == nil {
             selectedPluginID = model.plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }?.id ?? model.plugins.first?.id
@@ -465,6 +491,13 @@ private struct PluginDetailPane: View {
                     onAction(.setPluginEnabled(target, enabled: !detail.isEnabled))
                 }
                 .buttonStyle(.bordered)
+            }
+
+            if let title = detail.boundaryActionTitle {
+                Button(title) {}
+                    .buttonStyle(.bordered)
+                    .disabled(true)
+                    .help("\(title) is bounded until plugin installation and permissions are wired.")
             }
 
             Spacer()

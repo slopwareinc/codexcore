@@ -726,6 +726,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case plugin(CodexPluginActionTarget)
         case skill(CodexSkillActionTarget)
+        case boundary(String)
     }
 
     public var kind: Kind
@@ -741,6 +742,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
     public var canUninstall: Bool
     public var canToggleEnabled: Bool
     public var isEnabled: Bool
+    public var boundaryActionTitle: String?
 
     public var tryInChatAction: CodexPluginRouteAction? {
         prompt.map { .tryInChat(prompt: $0) }
@@ -755,7 +757,41 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         case .skill(let target):
             guard canToggleEnabled else { return nil }
             return .setSkillEnabled(target, enabled: !isEnabled)
+        case .boundary:
+            return nil
         }
+    }
+
+    public init(
+        kind: Kind,
+        title: String,
+        detail: String,
+        description: String,
+        statusLabel: String,
+        prompt: String?,
+        capabilities: [String],
+        metadata: [String],
+        legalLinks: [String],
+        canInstall: Bool,
+        canUninstall: Bool,
+        canToggleEnabled: Bool,
+        isEnabled: Bool,
+        boundaryActionTitle: String? = nil
+    ) {
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.description = description
+        self.statusLabel = statusLabel
+        self.prompt = prompt
+        self.capabilities = capabilities
+        self.metadata = metadata
+        self.legalLinks = legalLinks
+        self.canInstall = canInstall
+        self.canUninstall = canUninstall
+        self.canToggleEnabled = canToggleEnabled
+        self.isEnabled = isEnabled
+        self.boundaryActionTitle = boundaryActionTitle
     }
 
     public init(plugin: CodexPluginSummary) {
@@ -782,6 +818,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         self.canUninstall = plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT"
         self.canToggleEnabled = plugin.installed
         self.isEnabled = plugin.enabled
+        self.boundaryActionTitle = nil
     }
 
     public init(skill: CodexSkillSummary) {
@@ -802,6 +839,37 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         self.canUninstall = false
         self.canToggleEnabled = true
         self.isEnabled = skill.enabled
+        self.boundaryActionTitle = nil
+    }
+
+    public static func boundary(
+        id: String,
+        title: String,
+        detail: String,
+        description: String,
+        statusLabel: String,
+        prompt: String? = nil,
+        capabilities: [String] = [],
+        metadata: [String] = [],
+        legalLinks: [String] = [],
+        boundaryActionTitle: String? = nil
+    ) -> CodexPluginRouteDetail {
+        CodexPluginRouteDetail(
+            kind: .boundary(id),
+            title: title,
+            detail: detail,
+            description: description,
+            statusLabel: statusLabel,
+            prompt: prompt,
+            capabilities: capabilities,
+            metadata: metadata,
+            legalLinks: legalLinks,
+            canInstall: false,
+            canUninstall: false,
+            canToggleEnabled: false,
+            isEnabled: false,
+            boundaryActionTitle: boundaryActionTitle
+        )
     }
 }
 
@@ -814,6 +882,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
     public var searchQuery: String
     public var selectedPluginID: String?
     public var selectedSkillID: String?
+    public var launcherTarget: CodexComposerPluginLauncher?
 
     public init(
         plugins: [CodexPluginSummary],
@@ -823,7 +892,8 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         manageTab: CodexPluginManageTab = .plugins,
         searchQuery: String = "",
         selectedPluginID: String? = nil,
-        selectedSkillID: String? = nil
+        selectedSkillID: String? = nil,
+        launcherTarget: CodexComposerPluginLauncher? = nil
     ) {
         self.plugins = plugins
         self.skills = skills
@@ -833,6 +903,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         self.searchQuery = searchQuery
         self.selectedPluginID = selectedPluginID
         self.selectedSkillID = selectedSkillID
+        self.launcherTarget = launcherTarget
     }
 
     public var manageCounts: [CodexPluginManageCount] {
@@ -879,11 +950,15 @@ public struct CodexPluginRouteState: Equatable, Sendable {
             let skill = skills.first { $0.id == selectedSkillID } ?? visibleSkills.first ?? skills.first
             return skill.map(CodexPluginRouteDetail.init(skill:))
         }
+        if let launcherTarget,
+           let plugin = matchedPlugin(for: launcherTarget) {
+            return CodexPluginRouteDetail(plugin: plugin)
+        }
         let plugin = plugins.first { $0.id == selectedPluginID }
             ?? visiblePlugins.first
             ?? plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }
             ?? plugins.first
-        return plugin.map(CodexPluginRouteDetail.init(plugin:))
+        return plugin.map(CodexPluginRouteDetail.init(plugin:)) ?? launcherTarget?.fallbackDetail
     }
 
     private var marketplacePlugins: [CodexPluginSummary] {
@@ -928,6 +1003,22 @@ public struct CodexPluginRouteState: Equatable, Sendable {
                 plugin.capabilities.joined(separator: " "),
                 plugin.keywords.joined(separator: " ")
             ].contains { $0.localizedCaseInsensitiveContains(needle) }
+        }
+    }
+
+    private func matchedPlugin(for target: CodexComposerPluginLauncher) -> CodexPluginSummary? {
+        let preferred = target.preferredPluginNames.map { $0.lowercased() }
+        return plugins.first { plugin in
+            let candidates = [
+                plugin.name.lowercased(),
+                plugin.displayName.lowercased(),
+                plugin.id.lowercased()
+            ]
+            return preferred.contains { preferredName in
+                candidates.contains { candidate in
+                    candidate == preferredName || candidate.contains(preferredName)
+                }
+            }
         }
     }
 }

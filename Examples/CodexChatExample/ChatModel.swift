@@ -37,6 +37,7 @@ final class CodexChatModel {
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
+    var pluginLauncherTarget: CodexComposerPluginLauncher?
     private var terminalSession: CodexCommandExecSession?
     private var terminalOutputTask: Task<Void, Never>?
     private var terminalCompletionTask: Task<Void, Never>?
@@ -311,6 +312,11 @@ final class CodexChatModel {
             configurationSession.setPlanModeEnabled(true)
         case .openPlugins:
             selectAppRoute(.plugins)
+        case .openPluginLauncher(let target):
+            pluginLauncherTarget = target
+            selectAppRoute(.plugins)
+            appendActivity(.notice, title: "Plugin detail", detail: "Opened \(target.title)")
+            Task { await refreshPlugins() }
         case .openFilesAndChats:
             selectAppRoute(.search)
         }

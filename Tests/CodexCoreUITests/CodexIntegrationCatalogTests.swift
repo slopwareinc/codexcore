@@ -411,6 +411,84 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Open the browser and inspect the current page."))
     }
 
+    func testBrowserLauncherUsesCatalogDetailWithOracleMetadata() throws {
+        let browser = CodexPluginSummary(
+            id: "local:browser",
+            name: "browser",
+            displayName: "Browser",
+            shortDescription: "Control the in-app browser with Codex",
+            longDescription: "Open and control the in-app browser for local development pages and files; navigate, inspect, click, type, and take screenshots.",
+            marketplaceName: "local",
+            marketplaceDisplayName: "Local",
+            category: "Engineering",
+            developerName: "OpenAI",
+            installed: true,
+            enabled: true,
+            installPolicy: "INSTALLED_BY_DEFAULT",
+            sourceType: "local",
+            localVersion: "26.616.81150",
+            defaultPrompt: "Browser\nTest my checkout flow on localhost",
+            websiteURL: "https://openai.com",
+            privacyPolicyURL: "https://openai.com/privacy",
+            termsOfServiceURL: "https://openai.com/terms",
+            capabilities: ["Interactive", "Read", "Write"]
+        )
+        let state = CodexPluginRouteState(
+            plugins: [browser],
+            primaryTab: .manage,
+            manageTab: .plugins,
+            launcherTarget: .browser
+        )
+
+        let detail = try XCTUnwrap(state.selectedDetail)
+
+        XCTAssertEqual(detail.title, "Browser")
+        XCTAssertEqual(detail.detail, "Control the in-app browser with Codex")
+        XCTAssertEqual(detail.prompt, "Browser\nTest my checkout flow on localhost")
+        XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Browser\nTest my checkout flow on localhost"))
+        XCTAssertEqual(detail.capabilities, ["Interactive", "Read", "Write"])
+        XCTAssertTrue(detail.metadata.contains("Developer: OpenAI"))
+        XCTAssertTrue(detail.metadata.contains("Category: Engineering"))
+        XCTAssertTrue(detail.metadata.contains("Version: 26.616.81150"))
+        XCTAssertTrue(detail.legalLinks.contains("Website: https://openai.com"))
+        XCTAssertTrue(detail.legalLinks.contains("Privacy: https://openai.com/privacy"))
+        XCTAssertTrue(detail.legalLinks.contains("Terms: https://openai.com/terms"))
+    }
+
+    func testComputerUseLauncherFallsBackToInstallAndPermissionBoundary() throws {
+        let state = CodexPluginRouteState(
+            plugins: [],
+            launcherTarget: .computerUse
+        )
+
+        let detail = try XCTUnwrap(state.selectedDetail)
+
+        XCTAssertEqual(detail.title, "Computer Use")
+        XCTAssertEqual(detail.detail, "Control Mac apps from Codex")
+        XCTAssertEqual(detail.statusLabel, "Install boundary")
+        XCTAssertEqual(detail.boundaryActionTitle, "Add")
+        XCTAssertNil(detail.primaryAction)
+        XCTAssertTrue(detail.description.contains("does not invoke the permission flow"))
+        XCTAssertTrue(detail.capabilities.contains("Appshot boundary"))
+        XCTAssertTrue(detail.metadata.contains("Package: Computer Use"))
+        XCTAssertTrue(detail.metadata.contains("Package: Appshot"))
+    }
+
+    func testArtifactLauncherFallsBackToNonCodeBoundaryCard() throws {
+        let target = CodexComposerPluginLauncher.artifact(.documents)
+        let state = CodexPluginRouteState(
+            plugins: [],
+            launcherTarget: target
+        )
+
+        let detail = try XCTUnwrap(state.selectedDetail)
+
+        XCTAssertEqual(detail.title, "Documents")
+        XCTAssertEqual(detail.statusLabel, "Artifact boundary")
+        XCTAssertEqual(detail.capabilities, ["Document artifacts"])
+        XCTAssertTrue(detail.description.contains("does not invoke artifact generation"))
+    }
+
     func testPluginRouteStateBuildsSkillsDetailAndFilters() throws {
         let enabled = skill(
             name: "browser:control",

@@ -43,7 +43,30 @@ public enum CodexComposerAddMenuHostAction: Equatable, Sendable {
     case enableGoalPursuit
     case enablePlanMode
     case openPlugins
+    case openPluginLauncher(CodexComposerPluginLauncher)
     case openFilesAndChats
+}
+
+public struct CodexComposerPluginLauncher: Equatable, Sendable {
+    public var itemID: CodexComposerAddMenuItemID
+    public var title: String
+    public var searchQuery: String
+    public var preferredPluginNames: [String]
+    public var fallbackDetail: CodexPluginRouteDetail
+
+    public init(
+        itemID: CodexComposerAddMenuItemID,
+        title: String,
+        searchQuery: String,
+        preferredPluginNames: [String],
+        fallbackDetail: CodexPluginRouteDetail
+    ) {
+        self.itemID = itemID
+        self.title = title
+        self.searchQuery = searchQuery
+        self.preferredPluginNames = preferredPluginNames
+        self.fallbackDetail = fallbackDetail
+    }
 }
 
 public struct CodexComposerAddMenuRoute: Equatable, Sendable {
@@ -126,21 +149,21 @@ public enum CodexComposerAddMenuModel {
         case .attachWarp:
             return boundaryRoute(itemID, title: "Attach Warp unavailable", detail: "Attach Warp is not wired in the native composer yet.")
         case .documents:
-            return boundaryRoute(itemID, title: "Documents unavailable", detail: "Document attachment plugins are not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.artifact(.documents))])
         case .pdf:
-            return boundaryRoute(itemID, title: "PDF unavailable", detail: "PDF attachment plugins are not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.artifact(.pdf))])
         case .spreadsheets:
-            return boundaryRoute(itemID, title: "Spreadsheets unavailable", detail: "Spreadsheet attachment plugins are not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.artifact(.spreadsheets))])
         case .presentations:
-            return boundaryRoute(itemID, title: "Presentations unavailable", detail: "Presentation attachment plugins are not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.artifact(.presentations))])
         case .templateCreator:
-            return boundaryRoute(itemID, title: "Template Creator unavailable", detail: "Template Creator is not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.artifact(.templateCreator))])
         case .browser:
-            return boundaryRoute(itemID, title: "Browser unavailable", detail: "Browser plugin launching is not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.browser)])
         case .computer:
-            return boundaryRoute(itemID, title: "Computer unavailable", detail: "Computer Use permission flow is not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.computerUse)])
         case .github:
-            return boundaryRoute(itemID, title: "GitHub unavailable", detail: "GitHub plugin launching is not wired in the native composer yet.")
+            return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.github)])
         }
     }
 
@@ -165,5 +188,104 @@ public enum CodexComposerAddMenuModel {
 
     private static func boundaryActivity(title: String, detail: String) -> CodexActivity {
         CodexActivity(kind: .notice, title: title, detail: detail)
+    }
+}
+
+public extension CodexComposerPluginLauncher {
+    enum ArtifactKind: Equatable, Sendable {
+        case documents
+        case pdf
+        case spreadsheets
+        case presentations
+        case templateCreator
+    }
+
+    static let browser = CodexComposerPluginLauncher(
+        itemID: .browser,
+        title: "Browser",
+        searchQuery: "Browser",
+        preferredPluginNames: ["browser"],
+        fallbackDetail: CodexPluginRouteDetail.boundary(
+            id: "browser",
+            title: "Browser",
+            detail: "Control the in-app browser with Codex",
+            description: "Open and control the in-app browser for local development pages and files. Navigate, inspect, click, type, and take screenshots from chat.",
+            statusLabel: "Plugin detail",
+            prompt: "Browser\nTest my checkout flow on localhost",
+            capabilities: ["Interactive", "Read", "Write"],
+            metadata: ["Developer: OpenAI", "Category: Engineering"],
+            legalLinks: ["Website", "Privacy Policy", "Terms of Service"]
+        )
+    )
+
+    static let computerUse = CodexComposerPluginLauncher(
+        itemID: .computer,
+        title: "Computer Use",
+        searchQuery: "Computer Use",
+        preferredPluginNames: ["computer-use", "computer use"],
+        fallbackDetail: CodexPluginRouteDetail.boundary(
+            id: "computer-use",
+            title: "Computer Use",
+            detail: "Control Mac apps from Codex",
+            description: "Computer Use can operate local Mac apps after installation and OS permission approval. Appshot is represented as a packaged capture boundary. This native build shows the install/permission boundary and does not invoke the permission flow.",
+            statusLabel: "Install boundary",
+            capabilities: ["Mac app control", "Permission required", "Appshot boundary"],
+            metadata: ["Package: Computer Use", "Package: Appshot", "Runtime: local helper app"],
+            boundaryActionTitle: "Add"
+        )
+    )
+
+    static let github = CodexComposerPluginLauncher(
+        itemID: .github,
+        title: "GitHub",
+        searchQuery: "GitHub",
+        preferredPluginNames: ["github"],
+        fallbackDetail: CodexPluginRouteDetail.boundary(
+            id: "github",
+            title: "GitHub",
+            detail: "Work with pull requests and issues",
+            description: "GitHub opens through the Plugins route when available. Installation and authentication stay bounded by the plugin provider.",
+            statusLabel: "Plugin boundary",
+            capabilities: ["Code review", "Issues", "Pull requests"]
+        )
+    )
+
+    static func artifact(_ kind: ArtifactKind) -> CodexComposerPluginLauncher {
+        switch kind {
+        case .documents:
+            return artifactLauncher(itemID: .documents, title: "Documents", searchQuery: "Documents", detail: "Create and edit document artifacts", capability: "Document artifacts")
+        case .pdf:
+            return artifactLauncher(itemID: .pdf, title: "PDF", searchQuery: "PDF", detail: "Read, create, and inspect PDF artifacts", capability: "PDF artifacts")
+        case .spreadsheets:
+            return artifactLauncher(itemID: .spreadsheets, title: "Spreadsheets", searchQuery: "Spreadsheets", detail: "Create and analyze spreadsheet artifacts", capability: "Spreadsheet artifacts")
+        case .presentations:
+            return artifactLauncher(itemID: .presentations, title: "Presentations", searchQuery: "Presentations", detail: "Create and edit presentation artifacts", capability: "Presentation artifacts")
+        case .templateCreator:
+            return artifactLauncher(itemID: .templateCreator, title: "Template Creator", searchQuery: "Template Creator", detail: "Create reusable artifact templates", capability: "Template artifacts")
+        }
+    }
+
+    private static func artifactLauncher(
+        itemID: CodexComposerAddMenuItemID,
+        title: String,
+        searchQuery: String,
+        detail: String,
+        capability: String
+    ) -> CodexComposerPluginLauncher {
+        CodexComposerPluginLauncher(
+            itemID: itemID,
+            title: title,
+            searchQuery: searchQuery,
+            preferredPluginNames: [searchQuery.lowercased().replacingOccurrences(of: " ", with: "-"), searchQuery.lowercased()],
+            fallbackDetail: CodexPluginRouteDetail.boundary(
+                id: itemID.rawValue,
+                title: title,
+                detail: detail,
+                description: "\(title) support is represented as a plugin boundary. This build does not invoke artifact generation from the add menu until the plugin is installed and selected.",
+                statusLabel: "Artifact boundary",
+                capabilities: [capability],
+                metadata: ["Source: Plugins route"]
+            )
+        )
     }
 }
