@@ -2,6 +2,10 @@ import SwiftUI
 import CodexCore
 import CodexCoreUI
 
+#if canImport(AppKit)
+import AppKit
+#endif
+
 struct CommandPaletteOverlay: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -30,6 +34,9 @@ struct CommandPaletteOverlay: View {
             model.clearSearchResults()
         }
         .onExitCommand(perform: onClose)
+        #if canImport(AppKit)
+        .background(CommandPaletteEscapeMonitor(onEscape: onClose))
+        #endif
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command menu")
     }
@@ -237,3 +244,56 @@ struct CommandPaletteOverlay: View {
         return false
     }
 }
+
+#if canImport(AppKit)
+private struct CommandPaletteEscapeMonitor: NSViewRepresentable {
+    let onEscape: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onEscape: onEscape)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.onEscape = onEscape
+        context.coordinator.install()
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onEscape = onEscape
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator {
+        var onEscape: () -> Void
+        private var monitor: Any?
+
+        init(onEscape: @escaping () -> Void) {
+            self.onEscape = onEscape
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return event }
+                self?.onEscape()
+                return nil
+            }
+        }
+
+        func uninstall() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
+
+        deinit {
+            uninstall()
+        }
+    }
+}
+#endif
