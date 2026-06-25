@@ -7,7 +7,6 @@ struct CodexExampleAppShell: View {
     @Bindable var model: CodexChatModel
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
-    @State private var isMobilePermissionGatePresented = false
     @State private var renameDraft = ""
 
     var body: some View {
@@ -128,12 +127,15 @@ struct CodexExampleAppShell: View {
                 .codexAgentTheme(model.themePreset.theme)
         case .codexMobile:
             CodexMobileRouteView(
-                isPermissionGatePresented: $isMobilePermissionGatePresented,
-                onAllow: { isMobilePermissionGatePresented = false }
+                state: model.mobileRouteSession.state,
+                onRefreshStatus: { Task { await model.refreshMobileRemoteControlStatus() } },
+                onGetStarted: model.openMobilePermissionGate,
+                onCancelPermissionGate: model.cancelMobilePermissionGate,
+                onAllow: model.allowMobileRemoteControlBoundary
             )
                 .codexAgentTheme(model.themePreset.theme)
         case .settingsAbout:
-            SettingsAboutRouteView(serverName: model.serverName)
+            SettingsAboutRouteView(metadata: CodexAboutMetadata(bundle: .main, serverName: model.serverName))
                 .codexAgentTheme(model.themePreset.theme)
         }
     }
@@ -453,37 +455,46 @@ private struct AutomationTemplateButton: View {
 private struct CodexMobileRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    @Binding var isPermissionGatePresented: Bool
+    let state: CodexMobileRouteState
+    let onRefreshStatus: () -> Void
+    let onGetStarted: () -> Void
+    let onCancelPermissionGate: () -> Void
     let onAllow: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Connect your phone to this Mac")
+                Text(state.title)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
-                Text("Keep working with Codex from your phone, or other device")
+                Text(state.subtitle)
                     .font(.system(size: 14))
                     .foregroundStyle(theme.colors.textSecondary)
             }
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 12) {
-                    MobileBenefitRow(systemImage: "arrow.triangle.2.circlepath", title: "Pick up where you left off")
-                    MobileBenefitRow(systemImage: "bell", title: "Stay in the loop")
-                    MobileBenefitRow(systemImage: "sparkles", title: "Start something new")
+                    MobileBenefitRow(systemImage: "arrow.triangle.2.circlepath", title: state.benefits[0])
+                    MobileBenefitRow(systemImage: "bell", title: state.benefits[1])
+                    MobileBenefitRow(systemImage: "sparkles", title: state.benefits[2])
 
-                    Text("Codex will access your desktop (files, apps, and browser) to complete tasks you send from your phone. This may have security risks. Only connect devices that you own and trust.")
+                    Text(state.warning)
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.warning)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Button {
-                        isPermissionGatePresented = true
-                    } label: {
-                        Text("Get started")
+                    mobileStatusCard
+
+                    HStack(spacing: 10) {
+                        Button(action: onGetStarted) {
+                            Text(state.getStartedTitle)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button(action: onRefreshStatus) {
+                            Text("Refresh status")
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: 420, alignment: .leading)
 
@@ -493,10 +504,39 @@ private struct CodexMobileRouteView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.colors.surface)
-        .sheet(isPresented: $isPermissionGatePresented) {
-            MobilePermissionGate(onCancel: { isPermissionGatePresented = false }, onAllow: onAllow)
+        .onAppear(perform: onRefreshStatus)
+        .sheet(isPresented: Binding(
+            get: { state.isPermissionGatePresented },
+            set: { presented in
+                if !presented { onCancelPermissionGate() }
+            }
+        )) {
+            MobilePermissionGate(state: state, onCancel: onCancelPermissionGate, onAllow: onAllow)
                 .codexAgentTheme(theme)
         }
+    }
+
+    private var mobileStatusCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Remote control")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textTertiary)
+                Text(state.status.statusLine)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(state.status.kind == .error ? theme.colors.warning : theme.colors.textSecondary)
+            }
+            Text(state.pairing.statusLabel)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+            ForEach(state.clients) { client in
+                Text("\(client.displayName) · \(client.platformLabel)")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+        }
+        .padding(12)
+        .background(theme.colors.surfaceElevated.opacity(0.58), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
     }
 }
 
@@ -562,18 +602,19 @@ private struct PhoneMockView: View {
 private struct MobilePermissionGate: View {
     @Environment(\.codexAgentTheme) private var theme
 
+    let state: CodexMobileRouteState
     let onCancel: () -> Void
     let onAllow: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Set up Codex Mobile")
+            Text(state.permissionTitle)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(theme.colors.textPrimary)
-            Text("Allow devices to control this computer?")
+            Text(state.permissionQuestion)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(theme.colors.textPrimary)
-            Text("This will allow authorized devices like your phone to discover and control Codex on this computer")
+            Text(state.permissionDetail)
                 .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -593,7 +634,7 @@ private struct MobilePermissionGate: View {
 private struct SettingsAboutRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let serverName: String?
+    let metadata: CodexAboutMetadata
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -610,13 +651,13 @@ private struct SettingsAboutRouteView: View {
                 Text("About Codex")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
-                Text("Codex")
+                Text(metadata.appName)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.colors.textSecondary)
-                Text("Version 26.616.81150 • Released Jun 24, 2026")
+                Text(metadata.versionLine)
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
-                Text("© OpenAI")
+                Text(metadata.copyright)
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
             }
@@ -627,7 +668,11 @@ private struct SettingsAboutRouteView: View {
                     .stroke(theme.colors.border, lineWidth: 1)
             )
 
-            if let serverName {
+            Text("Detailed Settings/Profile tabs were not reachable in current-app evidence, so this route is limited to About and app boundary information.")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+
+            if let serverName = metadata.serverName {
                 Text(serverName)
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)

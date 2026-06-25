@@ -472,6 +472,53 @@ public final class Codex: @unchecked Sendable {
         ))
     }
 
+    public func remoteControlStatusRead() async throws -> CodexSchemaRemoteControlStatusReadResponse {
+        try await client.remoteControlStatusRead()
+    }
+
+    public func remoteControlEnable(ephemeral: Bool? = nil) async throws -> CodexSchemaRemoteControlEnableResponse {
+        try await client.remoteControlEnable(CodexSchemaRemoteControlEnableParams(ephemeral: ephemeral))
+    }
+
+    public func remoteControlDisable(ephemeral: Bool? = nil) async throws -> CodexSchemaRemoteControlDisableResponse {
+        try await client.remoteControlDisable(CodexSchemaRemoteControlDisableParams(ephemeral: ephemeral))
+    }
+
+    public func remoteControlPairingStart(manualCode: Bool? = nil) async throws -> CodexSchemaRemoteControlPairingStartResponse {
+        try await client.remoteControlPairingStart(CodexSchemaRemoteControlPairingStartParams(manualCode: manualCode))
+    }
+
+    public func remoteControlPairingStatus(
+        pairingCode: String? = nil,
+        manualPairingCode: String? = nil
+    ) async throws -> CodexSchemaRemoteControlPairingStatusResponse {
+        try await client.remoteControlPairingStatus(CodexSchemaRemoteControlPairingStatusParams(
+            manualPairingCode: manualPairingCode,
+            pairingCode: pairingCode
+        ))
+    }
+
+    public func remoteControlClientList(
+        environmentID: String,
+        limit: Int? = nil,
+        cursor: String? = nil,
+        order: CodexSchemaRemoteControlClientsListOrder? = .desc
+    ) async throws -> CodexSchemaRemoteControlClientsListResponse {
+        try await client.remoteControlClientList(CodexSchemaRemoteControlClientsListParams(
+            cursor: cursor,
+            environmentID: environmentID,
+            limit: limit,
+            order: order
+        ))
+    }
+
+    public func remoteControlClientRevoke(clientID: String, environmentID: String) async throws {
+        _ = try await client.remoteControlClientRevoke(CodexSchemaRemoteControlClientsRevokeParams(
+            clientID: clientID,
+            environmentID: environmentID
+        ))
+    }
+
     public func execCommand(
         _ command: [String],
         cwd: String? = nil,

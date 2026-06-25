@@ -526,6 +526,59 @@ public actor CodexClient {
         )
     }
 
+    public func remoteControlStatusRead() async throws -> CodexSchemaRemoteControlStatusReadResponse {
+        let value = try await connection.request(method: CodexAppServerClientMethod.remoteControlStatusRead.rawValue, params: [:])
+        return try value.decode(CodexSchemaRemoteControlStatusReadResponse.self)
+    }
+
+    public func remoteControlEnable(_ params: CodexSchemaRemoteControlEnableParams = CodexSchemaRemoteControlEnableParams()) async throws -> CodexSchemaRemoteControlEnableResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.remoteControlEnable.rawValue,
+            params: params,
+            response: CodexSchemaRemoteControlEnableResponse.self
+        )
+    }
+
+    public func remoteControlDisable(_ params: CodexSchemaRemoteControlDisableParams = CodexSchemaRemoteControlDisableParams()) async throws -> CodexSchemaRemoteControlDisableResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.remoteControlDisable.rawValue,
+            params: params,
+            response: CodexSchemaRemoteControlDisableResponse.self
+        )
+    }
+
+    public func remoteControlPairingStart(_ params: CodexSchemaRemoteControlPairingStartParams = CodexSchemaRemoteControlPairingStartParams()) async throws -> CodexSchemaRemoteControlPairingStartResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.remoteControlPairingStart.rawValue,
+            params: params,
+            response: CodexSchemaRemoteControlPairingStartResponse.self
+        )
+    }
+
+    public func remoteControlPairingStatus(_ params: CodexSchemaRemoteControlPairingStatusParams = CodexSchemaRemoteControlPairingStatusParams()) async throws -> CodexSchemaRemoteControlPairingStatusResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.remoteControlPairingStatus.rawValue,
+            params: params,
+            response: CodexSchemaRemoteControlPairingStatusResponse.self
+        )
+    }
+
+    public func remoteControlClientList(_ params: CodexSchemaRemoteControlClientsListParams) async throws -> CodexSchemaRemoteControlClientsListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.remoteControlClientList.rawValue,
+            params: params,
+            response: CodexSchemaRemoteControlClientsListResponse.self
+        )
+    }
+
+    public func remoteControlClientRevoke(_ params: CodexSchemaRemoteControlClientsRevokeParams) async throws -> CodexSchemaRemoteControlClientsRevokeResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.remoteControlClientRevoke.rawValue,
+            params: params,
+            response: CodexSchemaRemoteControlClientsRevokeResponse.self
+        )
+    }
+
     /// Closes the client connection.
     public func disconnect() async {
         cancelPendingServerRequests()

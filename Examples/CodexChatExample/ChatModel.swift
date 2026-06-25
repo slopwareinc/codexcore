@@ -38,6 +38,7 @@ final class CodexChatModel {
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
     var pluginLauncherTarget: CodexComposerPluginLauncher?
+    var mobileRouteSession = CodexMobileRouteSession()
     private var terminalSession: CodexCommandExecSession?
     private var terminalOutputTask: Task<Void, Never>?
     private var terminalCompletionTask: Task<Void, Never>?
@@ -466,6 +467,38 @@ final class CodexChatModel {
             appendActivity(.notice, title: "Automations", detail: "Automations are created by chatting with Codex; no settings are changed until you send and confirm the flow.")
         case .createViaChat, .template, .addForChat:
             break
+        }
+    }
+
+    func refreshMobileRemoteControlStatus() async {
+        let provider: any CodexRemoteControlProvider
+        if let codex {
+            provider = CodexAppServerRemoteControlProvider(codex: codex)
+        } else {
+            provider = CodexUnsupportedRemoteControlProvider()
+        }
+        var session = mobileRouteSession
+        let activity = await session.refreshStatus(provider: provider)
+        mobileRouteSession = session
+        appendActivity(activity)
+    }
+
+    func openMobilePermissionGate() {
+        appendActivity(mobileRouteSession.getStarted())
+    }
+
+    func cancelMobilePermissionGate() {
+        mobileRouteSession.cancelPermissionGate()
+    }
+
+    func allowMobileRemoteControlBoundary() {
+        Task {
+            // The current parity slice exposes the explicit permission boundary
+            // without enabling live remote control from the example host.
+            var session = mobileRouteSession
+            let activity = await session.allow(provider: CodexUnsupportedRemoteControlProvider())
+            mobileRouteSession = session
+            appendActivity(activity)
         }
     }
 
