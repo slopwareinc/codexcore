@@ -455,6 +455,7 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
     public var toolCall: ToolCall?
     public var notice: Notice?
     public var reasoningBlock: ReasoningBlock?
+    public var projectedBlocks: [CodexBlock]?
 
     public init(
         id: UUID = UUID(),
@@ -485,15 +486,27 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
         self.toolCall = toolCall
         self.notice = notice
         self.reasoningBlock = reasoningBlock
+        self.projectedBlocks = parseContent ? CodexBlockProjector.project(text, streaming: isStreaming, cacheNamespace: id.uuidString) : nil
     }
 
     public mutating func setText(_ text: String, parseContent: Bool = true) {
         self.text = text
         renderBlocks = parseContent ? Self.renderBlocks(for: text) : [.markdown(text)]
+        if parseContent {
+            projectedBlocks = CodexBlockProjector.project(text, streaming: false, cacheNamespace: id.uuidString)
+        } else {
+            projectedBlocks = nil
+        }
     }
 
     public mutating func appendStreamingText(_ delta: String) {
         text.append(delta)
+        projectedBlocks = CodexBlockProjector.project(
+            text,
+            previous: projectedBlocks,
+            streaming: true,
+            cacheNamespace: id.uuidString
+        )
     }
 
 }

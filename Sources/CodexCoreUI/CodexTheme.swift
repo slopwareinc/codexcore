@@ -140,14 +140,36 @@ public struct CodexAgentTheme {
         public var label: Font
         public var code: Font
         public var micro: Font
+        /// Optional platform font backing `chat`. When set, the prose
+        /// cache bakes this font into each `AttributedString` run and
+        /// applies `NSInlinePresentationIntent` (bold, italic, code)
+        /// via `NSFontDescriptor.withSymbolicTraits`, resolving to
+        /// the correct weight in the font family. When nil, the
+        /// prose cache falls back to the system font.
+        public var chatNSFont: NSFont?
+        /// Optional platform font backing `code`. When set, inline code
+        /// blocks inside prose will be styled using this font instead of
+        /// the system monospaced font.
+        public var codeNSFont: NSFont?
 
-        public init(body: Font, chat: Font, caption: Font, label: Font, code: Font, micro: Font) {
+        public init(
+            body: Font,
+            chat: Font,
+            caption: Font,
+            label: Font,
+            code: Font,
+            micro: Font,
+            chatNSFont: NSFont? = nil,
+            codeNSFont: NSFont? = nil
+        ) {
             self.body = body
             self.chat = chat
             self.caption = caption
             self.label = label
             self.code = code
             self.micro = micro
+            self.chatNSFont = chatNSFont
+            self.codeNSFont = codeNSFont
         }
 
         public static var official: Fonts {
