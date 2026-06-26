@@ -1,0 +1,399 @@
+<body> 
+  <div id="root"> 
+    <div class="flex h-full min-h-0"> 
+      <div class="app-shell-left-panel relative flex min-h-0 shrink-0 flex-col overflow-hidden w-token-sidebar"> 
+        <div class="draggable h-toolbar w-full shrink-0"> 
+        <nav class="flex min-h-0 flex-1 flex-col select-none px-row-x" aria-label="Settings"> 
+          <div class="flex min-h-0 flex-1 flex-col"> 
+            <div class="group relative mb-2 flex w-full items-center rounded-lg px-row-x py-row-y text-base outline-none gap-2 cursor-interaction text-token-text-secondary hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-1 electron:opacity-75 shrink-0" role="link"> - Back to app 
+            <div class="mb-4 flex h-token-button-composer w-full shrink-0 items-center rounded-lg border border-token-border-heavy bg-token-input-background/50 text-base leading-[18px] shadow-sm backdrop-blur-sm [.electron-dark_&]:border-token-border [.electron-dark_&]:bg-token-bg-fog [.electron-dark_&]:shadow-none [.electron-dark_&]:backdrop-blur-none"> 
+              <input class="ms-1 w-full appearance-none border-none bg-transparent py-0 ps-px pe-1.5 text-token-foreground ring-0 outline-none placeholder:text-token-input-placeholder-foreground focus:border-none focus:ring-0 focus:outline-none" aria-label="Search settings" role="searchbox" placeholder="Search settings…" type="text"> 
+            <div class="min-h-0 flex-1 overflow-y-auto pb-2 flex flex-col gap-4"> 
+              <div class="flex flex-col gap-1 gap-0"> 
+                <div class="group/nav-section-title flex items-center justify-between gap-2 pr-0.5 pl-2"> 
+                  <div class="min-w-0 flex-1 text-base text-token-input-placeholder-foreground opacity-75"> - Personal 
+                <div class="flex flex-col gap-px"> 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full bg-token-list-hover-background font-normal" aria-label="General" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-list-active-selection-foreground"> 
+                      <span class="truncate"> - General 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Profile" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Profile 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Appearance" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Appearance 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Configuration" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Configuration 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Personalization" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Personalization 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Pets" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Pets 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Keyboard shortcuts" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Keyboard shortcuts 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Usage & billing" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Usage & billing 
+              <div class="flex flex-col gap-1 gap-0"> 
+                <div class="group/nav-section-title flex items-center justify-between gap-2 pr-0.5 pl-2"> 
+                  <div class="min-w-0 flex-1 text-base text-token-input-placeholder-foreground opacity-75"> - Integrations 
+                <div class="flex flex-col gap-px"> 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Appshots" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Appshots 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="MCP servers" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - MCP servers 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Browser" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Browser 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Computer use" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Computer use 
+              <div class="flex flex-col gap-1 gap-0"> 
+                <div class="group/nav-section-title flex items-center justify-between gap-2 pr-0.5 pl-2"> 
+                  <div class="min-w-0 flex-1 text-base text-token-input-placeholder-foreground opacity-75"> - Coding 
+                <div class="flex flex-col gap-px"> 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Hooks" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Hooks 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Connections" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Connections 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Git" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Git 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Environments" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Environments 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Worktrees" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Worktrees 
+              <div class="flex flex-col gap-1 gap-0"> 
+                <div class="group/nav-section-title flex items-center justify-between gap-2 pr-0.5 pl-2"> 
+                  <div class="min-w-0 flex-1 text-base text-token-input-placeholder-foreground opacity-75"> - Archived 
+                <div class="flex flex-col gap-px"> 
+                  <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Archived chats" type="button"> 
+                    <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                      <span class="truncate"> - Archived chats 
+              <span class="contents" data-state="closed"> 
+                <button class="focus-visible:outline-token-border relative h-[var(--height-token-row)] px-[var(--padding-row-cell-x,var(--padding-row-x))] py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-[var(--radius-token-row)] text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background font-normal" aria-label="Chat Settings" type="button"> 
+                  <div class="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground"> 
+                    <span class="truncate"> - Chat Settings 
+        <div class="[container-type:inline-size] flex h-token-nav-row shrink-0 items-center justify-end px-row-x empty:hidden"> 
+      <div class="relative isolate min-w-0 flex-1 overflow-visible"> 
+        <div class="main-surface flex h-full min-h-0 flex-col"> 
+          <div class="draggable flex items-center px-panel electron:h-toolbar extension:h-toolbar-sm"> 
+          <div class="scrollbar-stable flex-1 overflow-y-auto p-panel"> 
+            <div class="mx-auto flex w-full flex-col max-w-2xl electron:min-w-[calc(320px*var(--codex-window-zoom))]"> 
+              <div class="flex items-center justify-between gap-3 pb-panel"> 
+                <div class="flex min-w-0 flex-1 flex-col gap-1.5 pb-panel"> 
+                  <div class="electron:heading-lg heading-base truncate"> - General 
+              <div class="flex flex-col gap-[var(--padding-panel)]"> 
+                <section class="flex flex-col gap-4"> 
+                  <div class="flex items-start justify-between gap-2 px-0 pt-[calc((var(--height-toolbar)-1.5rem)/2)]"> 
+                    <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                      <div class="text-base font-medium text-token-text-primary"> - Work mode 
+                      <div class="text-base font-normal text-token-text-tertiary"> - Choose how much technical detail Codex shows 
+                  <div class="grid grid-cols-2 gap-3 max-sm:grid-cols-1" aria-label="Work mode" role="radiogroup"> 
+                    <button class="cursor-interaction flex min-h-[62px] min-w-0 items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-token-focus-border disabled:cursor-not-allowed disabled:opacity-70 border-transparent bg-token-list-hover-background" role="radio" type="button"> 
+                      <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                        <span class="min-w-0 truncate text-sm text-token-text-primary"> - For coding 
+                        <span class="min-w-0 truncate text-sm text-token-text-secondary"> - More technical responses and control 
+                      <span class="flex size-[17px] shrink-0 items-center justify-center rounded-full border-2 border-token-charts-blue bg-token-charts-blue"> 
+                        <span class="size-[7px] rounded-full bg-[color:var(--gray-0)] opacity-100"> 
+                    <button class="cursor-interaction flex min-h-[62px] min-w-0 items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-token-focus-border disabled:cursor-not-allowed disabled:opacity-70 border-token-border bg-token-main-surface-primary hover:bg-token-list-hover-background" role="radio" type="button"> 
+                      <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                        <span class="min-w-0 truncate text-sm text-token-text-primary"> - For everyday work 
+                        <span class="min-w-0 truncate text-sm text-token-text-secondary"> - Same power, less technical detail 
+                      <span class="flex size-[17px] shrink-0 items-center justify-center rounded-full border border-token-description-foreground/40"> 
+                        <span class="size-[7px] rounded-full bg-[color:var(--gray-0)] opacity-0"> 
+                <section class="flex flex-col gap-2"> 
+                  <div class="flex h-toolbar items-center justify-between gap-2 px-0 py-0"> 
+                    <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                      <div class="text-base font-medium text-token-text-primary"> - Permissions 
+                  <div class="flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border"> 
+                    <div class="flex items-center justify-between gap-4 p-3"> 
+                      <div class="flex min-w-0 items-center gap-3"> 
+                        <div class="flex min-w-0 flex-col gap-1"> 
+                          <div class="min-w-0 text-sm text-token-text-primary"> - Default permissions 
+                          <div class="text-token-text-secondary min-w-0 text-sm"> - By default, Codex can read and edit files in its workspace. It can ask for additional access when needed 
+                      <div class="flex shrink-0 items-center gap-2"> 
+                        <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-not-allowed opacity-60" aria-label="Default permissions are always shown" role="switch" type="button" data-state="checked"> 
+                          <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                            <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                    <div class="flex items-center justify-between gap-4 p-3"> 
+                      <div class="flex min-w-0 items-center gap-3"> 
+                        <div class="flex min-w-0 flex-col gap-1"> 
+                          <div class="min-w-0 text-sm text-token-text-primary"> - Auto-review 
+                          <div class="text-token-text-secondary min-w-0 text-sm"> - Codex can read and edit files in its workspace. Codex automatically reviews requests for additional access. Auto-review can make mistakes. about elevated risks. 
+                            <a class="inline-flex text-token-text-link-foreground"> - Learn more 
+                      <div class="flex shrink-0 items-center gap-2"> 
+                        <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Show Auto-review in the composer" role="switch" type="button" data-state="checked"> 
+                          <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                            <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                    <div class="flex items-center justify-between gap-4 p-3"> 
+                      <div class="flex min-w-0 items-center gap-3"> 
+                        <div class="flex min-w-0 flex-col gap-1"> 
+                          <div class="min-w-0 text-sm text-token-text-primary"> - Full access 
+                          <div class="text-token-text-secondary min-w-0 text-sm"> - When Codex runs with full access, it can edit any file on your computer and run commands with network, without your approval. This significantly increases the risk of data loss, leaks, or unexpected behavior. about elevated risks. 
+                            <a class="inline-flex text-token-text-link-foreground"> - Learn more 
+                      <div class="flex shrink-0 items-center gap-2"> 
+                        <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Show Full access in the composer" role="switch" type="button" data-state="checked"> 
+                          <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                            <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                <section class="flex flex-col gap-2"> 
+                  <div class="flex h-toolbar items-center justify-between gap-2 px-0 py-0"> 
+                    <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                      <div class="text-base font-medium text-token-text-primary"> - General 
+                  <div class="flex flex-col gap-1.5"> 
+                    <div class="flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Default file open destination 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Where files and folders open by default 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button id="radix-_r_to_" class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] w-[240px] justify-between outline-hidden cursor-interaction" type="button" data-state="closed"> 
+                            <span class="flex min-w-0 flex-1 items-center gap-1.5"> 
+                              <span class="flex items-center gap-1.5"> 
+                                <img class="icon-sm"> 
+                                <span class="truncate"> - Zed 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Language 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Language for the app UI 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button id="radix-_r_tq_" class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] w-[240px] justify-between outline-hidden cursor-interaction" type="button" data-state="closed"> 
+                            <span class="flex min-w-0 flex-1 items-center gap-1.5"> - Auto detect 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Show in menu bar 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Keep Codex in the macOS menu bar when the main window is closed 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Show Codex in the menu bar" role="switch" type="button" data-state="checked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Bottom panel 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Show the bottom panel control in the app header 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Bottom panel" role="switch" type="button" data-state="checked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Default terminal location 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Choose where the terminal shortcut and environment actions open terminal tabs 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <div class="inline-flex items-center gap-0.5" role="group"> 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent px-2 py-0.5 text-sm leading-[18px]" aria-label="Bottom" type="button"> - Bottom 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent px-2 py-0.5 text-sm leading-[18px]" aria-label="Right" type="button"> - Right 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Prevent sleep while running 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Keep your computer awake while Codex is running a chat 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Prevent sleep while running" role="switch" type="button" data-state="checked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Speed 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Choose how quickly Codex runs across chats, subagents, and compaction 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button id="radix-_r_uc_" class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] w-[240px] justify-between outline-hidden cursor-interaction" type="button" data-state="closed"> 
+                            <span class="flex min-w-0 flex-1 items-center gap-1.5"> - Standard 
+                      <div class="flex items-center justify-between gap-4 p-3 flex gap-6"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Code review 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Start /review in the current chat when possible or launch a separate review chat 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <div class="inline-flex items-center gap-0.5" role="group"> 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent px-2 py-0.5 text-sm leading-[18px]" aria-label="Inline" type="button"> - Inline 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent px-2 py-0.5 text-sm leading-[18px]" aria-label="Detached" type="button"> - Detached 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Suggested prompts 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Suggest what to do next by searching project files and connected apps 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Enable ambient suggestions" role="switch" type="button" data-state="checked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                      <div id="external-agent-config-import-settings" class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Import work from other AI apps 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Bring over your setup, projects, and recent chats 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]" type="button"> - Import 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Open source licenses 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Third-party notices for bundled dependencies 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]" type="button"> - View 
+                <section class="flex flex-col"> 
+                  <div class="flex h-toolbar items-center justify-between gap-2 px-0 py-0"> 
+                    <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                      <div class="text-base font-medium text-token-text-primary"> - Composer 
+                  <div class="flex flex-col gap-1.5"> 
+                    <div class="flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Send shortcut 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Choose when Enter sends a prompt or inserts a new line 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button id="radix-_r_u2_" class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] w-[240px] justify-between outline-hidden cursor-interaction" type="button" data-state="closed"> 
+                            <span class="flex min-w-0 flex-1 items-center gap-1.5"> - Enter 
+                      <div class="flex items-center justify-between gap-4 p-3 gap-6"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Follow-up behavior 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Queue follow-ups while Codex runs or steer the current run. Press ⌘⏎ to do the opposite for one message 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <div class="inline-flex items-center gap-0.5" role="group"> 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent px-2 py-0.5 text-sm leading-[18px]" aria-label="Queue" type="button"> - Queue 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent px-2 py-0.5 text-sm leading-[18px]" aria-label="Steer" type="button"> - Steer 
+                <section class="flex flex-col"> 
+                  <div class="flex h-toolbar items-center justify-between gap-2 px-0 py-0"> 
+                    <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                      <div class="text-base font-medium text-token-text-primary"> - Popout Window 
+                  <div class="flex flex-col gap-1.5"> 
+                    <div class="flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Popout Window hotkey 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> 
+                              <div class="flex flex-col gap-1"> - Set a global shortcut for Popout Window. Leave unset to keep it off. 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <div class="flex items-center gap-2"> 
+                            <span class="min-w-20 text-right text-sm text-token-text-secondary"> - Off 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]" type="button"> - Set 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Default to projectless chat 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Start new chats without a project 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Default Popout Window to projectless chat" role="switch" type="button" data-state="unchecked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-foreground/10 h-5 w-8" data-state="unchecked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="unchecked"> 
+                <section class="flex flex-col"> 
+                  <div class="flex h-toolbar items-center justify-between gap-2 px-0 py-0"> 
+                    <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                      <div class="text-base font-medium text-token-text-primary"> - Dictation 
+                  <div class="flex flex-col gap-1.5"> 
+                    <div class="flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Microphone 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Used for dictation 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button id="radix-_r_u4_" class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] w-[240px] justify-between outline-hidden cursor-interaction" type="button" data-state="closed"> 
+                            <span class="flex min-w-0 flex-1 items-center gap-1.5"> 
+                              <span class="truncate"> - System default 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Hold-to-dictate hotkey 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> 
+                              <div class="flex flex-col gap-1"> - Hold anywhere on desktop to dictate where your cursor is 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <div class="flex items-center gap-2"> 
+                            <span class="min-w-20 text-right text-sm text-token-text-secondary"> - Off 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]" type="button"> - Set 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Toggle dictation hotkey 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> 
+                              <div class="flex flex-col gap-1"> - Press once anywhere on desktop to dictate, then press again to stop 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <div class="flex items-center gap-2"> 
+                            <span class="min-w-20 text-right text-sm text-token-text-secondary"> - Off 
+                            <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]" type="button"> - Set 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Keep dictation bar visible 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Show a small shortcut reminder when dictation isn't recording 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-not-allowed opacity-60" aria-label="Keep the dictation bar visible" role="switch" type="button" data-state="unchecked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-foreground/10 h-5 w-8" data-state="unchecked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="unchecked"> 
+                      <div> 
+                        <button class="flex w-full cursor-interaction items-center justify-between gap-4 p-3 text-left" type="button"> 
+                          <span class="flex min-w-0 flex-col gap-1"> 
+                            <span class="min-w-0 text-sm text-token-text-primary"> - Dictation dictionary 
+                            <span class="min-w-0 text-sm text-token-text-secondary"> - Words or phrases dictation should recognize 
+                      <div class="flex items-center gap-3 p-3"> 
+                        <time class="w-32 shrink-0 text-sm text-token-text-secondary tabular-nums"> - 25 Jun, 4:12 
+                        <div class="line-clamp-3 min-w-0 flex-1 text-sm whitespace-pre-wrap text-token-text-secondary"> - A few problems that I see, I'm telling you so that you can tell the visual QA or whatever to fix them and figure it out. The first is that the corner radius for, you know, like a bunch of trims within the chat bar and the selection and stuff, right? It doesn't really lie. It's kind of mismatched corners. It doesn't really look good. Yeah, that's one major complaint that I have. Second is that the side dialogue, right, on the right side, there is like a persistent dialogue which shows environment changes, the git branch that it's in, and you know, a bunch of things. The problem with that is that, you know, it's really good in the main codex app, but in the current app that we have made, it's not really respecting the responsive layout. So what happens is like, you know, it kind of overlays the chat even if the size of the window is small. It kind of looks odd in that sense. So we need to fix that a little bit. You know, so I'm not sure, like, if the window is really small, how it should behave, but you should figure it out and fix that. So don't send this right away to the QA. Let them come back and figure out and then send those things and, you know, figure out like who to send, how it gets done, but it's in your pipeline now to get it done, you know. Yeah, put it wherever, wherever you need to put it, make it happen. 
+                        <span class="contents" data-state="closed"> 
+                          <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 shrink-0" aria-label="Copy dictation" type="button"> 
+                      <div class="flex items-center gap-3 p-3"> 
+                        <time class="w-32 shrink-0 text-sm text-token-text-secondary tabular-nums"> - 23 Jun, 2:48 
+                        <div class="line-clamp-3 min-w-0 flex-1 text-sm whitespace-pre-wrap text-token-text-secondary"> - The first question I have would be, sir, I don't know, I forgot the name, I don't know, ABC, I know, IBL store, I know about them, I know about them, and I have the contacts after following up on them. I know about the contracts and I have debugged them as well, and it's more than you have interactions. Do you understand Ethereum contracts? No, I don't know what Ethereum contracts is. Something I don't get. I kind of know what contracts are, but it could be nice. Call data, logs, events. Yeah, I kind of know call data, I know logs, but you know the pressure is better. Ethereum, if you push me, I kind of know what to do, but you know the pressure. I know about the six questions. Have you worked in Level 3? Kind of know about them, but never really worked in low level. Rust company, I kind of, I know it's a service straight heavy code-based through the substack UI. I know everything in the off-slay, I'm very comfortable with Rust. That's the model. So, yeah, like, you know, whatever you think is the, I'd say a bit, code base map for contributors, Ethereum DB basics, so whatever it would be good. And then that's the thing that I need to get. I'll be the first. When we first say code path first, I would say code path first is much better, much better in cases for me. 
+                        <span class="contents" data-state="closed"> 
+                          <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 shrink-0" aria-label="Copy dictation" type="button"> 
+                      <div class="flex items-center gap-3 p-3"> 
+                        <time class="w-32 shrink-0 text-sm text-token-text-secondary tabular-nums"> - 23 Jun, 0:27 
+                        <div class="line-clamp-3 min-w-0 flex-1 text-sm whitespace-pre-wrap text-token-text-secondary"> - Like I don't know what is the right way to decompose it, decompose the music, you know, how to separate the stems in the right enough way, how the model can exactly understand what is meant or how you can even, like, I don't know, import a song itself in Ableton or something. But what I want is that, you know, like, if a user wants inspiration or if he wants to figure out how certain sections are happening, and you know, just use easy language, you don't use like a lot of complex language when you discuss, you know, example projects or something. Like, I don't even understand half the words in music and I want to make music, like, how do you make people understand, for example, like, if a user says, you know, something like, you know, I like, like, like, I like this, the production of this, this. I don't know what's really interesting here. I don't know which instruments are used. Can you just help me figure out which instruments are there and then help me make the exact drum sound of that or exact synth sound? Then, you know, a user can have a really interactive music conversation regarding a musical piece and then, you know, you know exactly what elements are there, you know, when the user is talking about it. I don't know how you can make that happen because, you know, the thing is, like, all these agents, all these models are trained in coding itself, but this is not really like a taste. Like, if I just give you like a raw audio file, I'm not sure if you'll be able to really clearly tell. You can even run that experiment on a codex thread or a sub-agent, I don't know. But I want to... clearly divide like a lot of research lanes to figure out how the best understanding of music can, of a certain music can be given to like an agent. For example, there is like, in the home folder, there is a research folder, and in that there is the David Bala's Deadbeat album, right? So I want you to pick, like, let's say, first song, Deadbeat, and then, you know, you being an agent, figure out how you can best decompose it, you know, download any tool you want, you know, whatever decomposition you need, like, figure out. Just download, separate, do whatever, make separate special lanes, and then figure out the deterministic best way to decompose the music, and then, you know, as an agent, you can clearly tell me, okay, this, this, this audio starts like this, and then there is this, and then there's this, and then there's this vocal overlay, there's this, there's that. You know, you can, I want to be able to go to that stage where it's sort of like, you know, let's say, if I'm sitting with like a proper producer and a music expert, you know, who just listens to something and gets it, you know, oh, okay, I know what instrument is played here. Okay, which notes are there, which scale does it operate in, you know, all these very complex terms which is, you know, sort of like a human can understand it. I'm just trying to figure out how model can understand these things as well. And you know, you can find all the research online, other people who are trying to do the same or similar. I don't really know. I just want you to understand my vision and then, you know, help me shape it exactly the way I want it. You know, because the Walkable cannot be a good product unless it understands the art, in this case, music, but, you know, later on, we will adapt it to each and every single art form this exact way. 
+                        <span class="contents" data-state="closed"> 
+                          <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 shrink-0" aria-label="Copy dictation" type="button"> 
+                      <div class="flex items-center gap-3 p-3"> 
+                        <time class="w-32 shrink-0 text-sm text-token-text-secondary tabular-nums"> - 22 Jun, 13:45 
+                        <div class="line-clamp-3 min-w-0 flex-1 text-sm whitespace-pre-wrap text-token-text-secondary"> - You say it has worker threads, but can you actually check where did the threads actually run? Because in this folder, I cannot see those threads. Can you help me understand where the threads are happening and why can't I see them? Can you tell me what all thread IDs happened, what all things happened over the last thing? Because I can see the automation for the Harley contribution scout also runs within the same folder or something within the same thread. So I'm just trying to figure out how the sort of like automation is structured, because I would want a different thread altogether within this folder, first of all, which is for the orchestration, where you set up the automation. And then from that thread, you know, separate threads spin up or something like that. But like, you know, currently the architecture is not very clear to me. Can you just help me make some diagrams and show me what's happening now and what is that I want, and then, you know, we shall make progress towards that. 
+                        <span class="contents" data-state="closed"> 
+                          <button class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 shrink-0" aria-label="Copy dictation" type="button"> 
+                <section class="flex flex-col"> 
+                  <div class="flex h-toolbar items-center justify-between gap-2 px-0 py-0"> 
+                    <div class="flex min-w-0 flex-1 flex-col gap-1"> 
+                      <div class="text-base font-medium text-token-text-primary"> - Notifications 
+                  <div class="flex flex-col gap-1.5"> 
+                    <div class="flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-lg border border-token-border"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Turn completion notifications 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Set when Codex alerts you that it's finished 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button id="radix-_r_ua_" class="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] w-[240px] justify-between outline-hidden cursor-interaction" type="button" data-state="closed"> 
+                            <span class="flex min-w-0 flex-1 items-center gap-1.5"> 
+                              <span class="truncate"> - Only when unfocused 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Enable permission notifications 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Show alerts when notification permissions are required 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Enable permission notifications" role="switch" type="button" data-state="checked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+                      <div class="flex items-center justify-between gap-4 p-3"> 
+                        <div class="flex min-w-0 items-center gap-3"> 
+                          <div class="flex min-w-0 flex-col gap-1"> 
+                            <div class="min-w-0 text-sm text-token-text-primary"> - Enable question notifications 
+                            <div class="text-token-text-secondary min-w-0 text-sm"> - Show alerts when input is needed to continue 
+                        <div class="flex shrink-0 items-center gap-2"> 
+                          <button class="inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction" aria-label="Enable question notifications" role="switch" type="button" data-state="checked"> 
+                            <span class="relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out bg-token-charts-blue h-5 w-8" data-state="checked"> 
+                              <span class="rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-0 h-4 w-4 data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]" data-state="checked"> 
+    <span class="pointer-events-none fixed inset-0 z-[60] mx-auto my-2 flex max-w-[560px] flex-col items-center justify-start md:pb-5"> 
