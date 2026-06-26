@@ -51,12 +51,48 @@ enum CodexTranscriptTimelineBuilder {
         messages: [CodexChatMessage],
         lifecycleEvents: [CodexAgentLifecycleEvent]
     ) -> [CodexTranscriptTimelineItem] {
-        compactAssistantTurns(
-            (messages.map(CodexTranscriptTimelineItem.message) + lifecycleEvents.map(CodexTranscriptTimelineItem.lifecycle))
-                .sorted { lhs, rhs in lhs.createdAt < rhs.createdAt }
-        )
+        compactAssistantTurns(mergedChronologically(messages: messages, lifecycleEvents: lifecycleEvents))
         .insertingOperationAggregateRows()
         .insertingAggregateFileChangeCards()
+    }
+
+    private static func mergedChronologically(
+        messages: [CodexChatMessage],
+        lifecycleEvents: [CodexAgentLifecycleEvent]
+    ) -> [CodexTranscriptTimelineItem] {
+        guard !messages.isEmpty else {
+            return lifecycleEvents.map(CodexTranscriptTimelineItem.lifecycle)
+        }
+        guard !lifecycleEvents.isEmpty else {
+            return messages.map(CodexTranscriptTimelineItem.message)
+        }
+
+        var merged: [CodexTranscriptTimelineItem] = []
+        merged.reserveCapacity(messages.count + lifecycleEvents.count)
+
+        var messageIndex = messages.startIndex
+        var eventIndex = lifecycleEvents.startIndex
+
+        while messageIndex < messages.endIndex, eventIndex < lifecycleEvents.endIndex {
+            let message = messages[messageIndex]
+            let event = lifecycleEvents[eventIndex]
+            if message.createdAt <= event.createdAt {
+                merged.append(.message(message))
+                messageIndex = messages.index(after: messageIndex)
+            } else {
+                merged.append(.lifecycle(event))
+                eventIndex = lifecycleEvents.index(after: eventIndex)
+            }
+        }
+
+        if messageIndex < messages.endIndex {
+            merged.append(contentsOf: messages[messageIndex...].map(CodexTranscriptTimelineItem.message))
+        }
+        if eventIndex < lifecycleEvents.endIndex {
+            merged.append(contentsOf: lifecycleEvents[eventIndex...].map(CodexTranscriptTimelineItem.lifecycle))
+        }
+
+        return merged
     }
 
     private static func compactAssistantTurns(_ items: [CodexTranscriptTimelineItem]) -> [CodexTranscriptTimelineItem] {
@@ -68,7 +104,9 @@ enum CodexTranscriptTimelineBuilder {
             guard !pendingAssistantMessages.isEmpty || !pendingLifecycleEvents.isEmpty else { return }
             
             let primaryMessage = pendingAssistantMessages.last(where: { $0.detail == "final_answer" }) ?? pendingAssistantMessages.last
-            let primaryID = primaryMessage?.id.uuidString ?? UUID().uuidString
+            let primaryID = primaryMessage?.id.uuidString
+                ?? pendingLifecycleEvents.first?.id.uuidString
+                ?? "assistant-turn"
             
             // Header
             compacted.append(.assistantTurnHeader(id: primaryID, assistantName: "Codex"))

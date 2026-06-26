@@ -6,9 +6,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let emptyContent: EmptyContent
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
-    private let messages: [CodexChatMessage]
+    private let scrollTrigger: CodexTranscriptScrollTrigger
 
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isPinnedToBottom = true
+    @State private var pendingScrollRequest: DispatchWorkItem?
 
     public init(
         messages: [CodexChatMessage],
@@ -25,103 +27,99 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         self.activeTurn = activeTurn
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
-        self.messages = messages
+        self.scrollTrigger = CodexTranscriptScrollTrigger(
+            timelineItems: timelineItems,
+            activeTurn: activeTurn
+        )
         self.emptyContent = emptyContent()
     }
 
     public var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                if timelineItems.isEmpty {
-                emptyContent
-                    .frame(maxWidth: .infinity, minHeight: 420)
-                    .padding(.horizontal, 28)
-            } else {
-                LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
-                    ForEach(timelineItems) { item in
-                        switch item {
-                        case .message(let message):
-                            CodexMessageRow(
-                                message: message,
-                                onCloseMessage: onCloseMessage,
-                                onOpenMCPDetails: onOpenMCPDetails
-                            )
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if timelineItems.isEmpty {
+                        emptyContent
+                            .frame(maxWidth: .infinity, minHeight: 420)
+                            .padding(.horizontal, 28)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
+                            ForEach(timelineItems) { item in
+                                CodexTranscriptTimelineRow(
+                                    item: item,
+                                    onCloseMessage: onCloseMessage,
+                                    onOpenMCPDetails: onOpenMCPDetails
+                                )
+                                .equatable()
                                 .id(item.id)
-                        case .operationAggregate(_, let rows):
-                            CodexAgentRow(visibility: .hidden) {
-                                CodexOperationSummaryCard(rows: rows)
                             }
-                            .id(item.id)
-                        case .fileChangeAggregate(_, let changes):
-                            CodexAgentRow {
-                                CodexAggregateFileChangeCard(changes: changes)
-                            }
-                            .id(item.id)
-                        case .assistantTurnHeader(_, let name):
-                            CodexAgentRow(showAvatar: true) {
-                                Text(name)
-                                    .font(theme.fonts.label)
-                                    .foregroundStyle(theme.colors.textSecondary)
-                                    .padding(.bottom, 2)
-                            }
-                            .id(item.id)
-                        case .assistantLifecycle(_, let events):
-                            CodexAgentRow(visibility: .hidden) {
-                                CodexSubagentRunInlineView(events: events)
-                            }
-                            .id(item.id)
-                        case .assistantBlock(_, let block):
-                            CodexAgentRow(visibility: .hidden) {
-                                CodexBlockView(block: block)
+                            if let activeTurn {
+                                CodexActiveTurnRow(state: activeTurn)
                                     .equatable()
+                                    .id("active-turn")
                             }
-                            .id(item.id)
-                        case .assistantStreamingWorking(_, let text, let isEmpty):
-                            CodexAgentRow(visibility: .hidden) {
-                                HStack(alignment: .bottom, spacing: 9) {
-                                    if isEmpty {
-                                        CodexThinkingShimmer()
-                                    } else {
-                                        Text(verbatim: text)
-                                            .font(theme.fonts.chat)
-                                            .foregroundStyle(theme.colors.textPrimary)
-                                            .lineSpacing(3)
-                                            .multilineTextAlignment(.leading)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                    CodexWorkingSpinnerBadge()
-                                        .padding(.bottom, isEmpty ? 1 : 2)
-                                }
-                            }
-                            .id(item.id)
-                        case .lifecycle(let event):
-                            CodexAgentLifecycleBlock(event: event)
-                                .id(item.id)
+                            bottomAnchor
                         }
+                        .padding(.horizontal, 28)
+                        .padding(.top, 24)
+                        .padding(.bottom, 28)
+                        .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
+                        .frame(maxWidth: .infinity)
                     }
-                    if let activeTurn {
-                        CodexTurnWorkingBlock(state: activeTurn)
-                            .id("active-turn")
-                    }
-                    Color.clear.frame(height: 8).id(Self.bottomAnchor)
                 }
-                .padding(.horizontal, 28)
-                .padding(.top, 24)
-                .padding(.bottom, 28)
-                .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
-                .frame(maxWidth: .infinity)
-            } // closes else
-        } // closes ScrollView
-        .scrollContentBackground(.hidden)
-        .onChange(of: timelineItems.count) { _, _ in scroll(proxy, animated: true) }
-        .onChange(of: messages.last?.text) { _, _ in scroll(proxy, animated: false) }
-        .onChange(of: activeTurn != nil) { _, isActive in
-            if isActive { scroll(proxy, animated: true) }
+                .coordinateSpace(name: Self.scrollCoordinateSpace)
+                .scrollContentBackground(.hidden)
+                .onPreferenceChange(CodexTranscriptBottomPreferenceKey.self) { bottomY in
+                    guard bottomY > 0 else { return }
+                    isPinnedToBottom = bottomY <= viewport.size.height + Self.bottomPinTolerance
+                }
+                .onAppear {
+                    requestScroll(proxy, animated: false, force: true)
+                }
+                .onChange(of: scrollTrigger) { oldValue, newValue in
+                    requestScroll(
+                        proxy,
+                        animated: newValue.hasStructureChange(comparedTo: oldValue),
+                        force: oldValue.isEmpty && !newValue.isEmpty
+                    )
+                }
+            }
         }
-        } // closes ScrollViewReader
-    } // closes body
+    }
 
     private static var bottomAnchor: String { "transcript-bottom" }
+    private static var scrollCoordinateSpace: String { "codex-transcript-scroll" }
+    private static var bottomPinTolerance: CGFloat { 80 }
+    private static var scrollDebounceDelay: TimeInterval { 0.08 }
+
+    private var bottomAnchor: some View {
+        Color.clear
+            .frame(height: 8)
+            .id(Self.bottomAnchor)
+            .background(
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: CodexTranscriptBottomPreferenceKey.self,
+                        value: geometry.frame(in: .named(Self.scrollCoordinateSpace)).maxY
+                    )
+                }
+            )
+    }
+
+    private func requestScroll(_ proxy: ScrollViewProxy, animated: Bool, force: Bool = false) {
+        guard force || isPinnedToBottom else { return }
+
+        pendingScrollRequest?.cancel()
+        let request = DispatchWorkItem {
+            guard force || isPinnedToBottom else { return }
+            scroll(proxy, animated: animated)
+        }
+        pendingScrollRequest = request
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.scrollDebounceDelay,
+            execute: request
+        )
+    }
 
     private func scroll(_ proxy: ScrollViewProxy, animated: Bool) {
         if animated {
@@ -131,6 +129,131 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         } else {
             proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
         }
+    }
+}
+
+private struct CodexTranscriptScrollTrigger: Equatable {
+    var itemCount: Int
+    var lastItemID: String?
+    var streamingVersion: Int
+    var activeTurnVersion: Int
+
+    init(timelineItems: [CodexTranscriptTimelineItem], activeTurn: CodexActiveTurnState?) {
+        itemCount = timelineItems.count
+        lastItemID = timelineItems.last?.id
+        streamingVersion = timelineItems.reduce(0) { partialResult, item in
+            partialResult &+ item.streamingContentLength
+        }
+        activeTurnVersion = activeTurn == nil ? 0 : 1
+    }
+
+    var isEmpty: Bool {
+        itemCount == 0 && activeTurnVersion == 0
+    }
+
+    func hasStructureChange(comparedTo oldValue: Self) -> Bool {
+        itemCount != oldValue.itemCount
+            || lastItemID != oldValue.lastItemID
+            || activeTurnVersion != oldValue.activeTurnVersion
+    }
+}
+
+private extension CodexTranscriptTimelineItem {
+    var streamingContentLength: Int {
+        switch self {
+        case .assistantStreamingWorking(_, let text, _):
+            return text.count
+        case .message(let message) where message.isStreaming:
+            return message.text.count
+        default:
+            return 0
+        }
+    }
+}
+
+private struct CodexTranscriptBottomPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct CodexTranscriptTimelineRow: View, Equatable {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let item: CodexTranscriptTimelineItem
+    let onCloseMessage: ((UUID) -> Void)?
+    let onOpenMCPDetails: (() -> Void)?
+
+    nonisolated static func == (lhs: CodexTranscriptTimelineRow, rhs: CodexTranscriptTimelineRow) -> Bool {
+        lhs.item == rhs.item
+    }
+
+    var body: some View {
+        switch item {
+        case .message(let message):
+            CodexMessageRow(
+                message: message,
+                onCloseMessage: onCloseMessage,
+                onOpenMCPDetails: onOpenMCPDetails
+            )
+        case .operationAggregate(_, let rows):
+            CodexAgentRow(visibility: .hidden) {
+                CodexOperationSummaryCard(rows: rows)
+            }
+        case .fileChangeAggregate(_, let changes):
+            CodexAgentRow {
+                CodexAggregateFileChangeCard(changes: changes)
+            }
+        case .assistantTurnHeader(_, let name):
+            CodexAgentRow(showAvatar: true) {
+                Text(name)
+                    .font(theme.fonts.label)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .padding(.bottom, 2)
+            }
+        case .assistantLifecycle(_, let events):
+            CodexAgentRow(visibility: .hidden) {
+                CodexSubagentRunInlineView(events: events)
+            }
+        case .assistantBlock(_, let block):
+            CodexAgentRow(visibility: .hidden) {
+                CodexBlockView(block: block)
+                    .equatable()
+            }
+        case .assistantStreamingWorking(_, let text, let isEmpty):
+            CodexAgentRow(visibility: .hidden) {
+                HStack(alignment: .bottom, spacing: 9) {
+                    if isEmpty {
+                        CodexThinkingShimmer()
+                    } else {
+                        Text(verbatim: text)
+                            .font(theme.fonts.chat)
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .lineSpacing(3)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    CodexWorkingSpinnerBadge()
+                        .padding(.bottom, isEmpty ? 1 : 2)
+                }
+            }
+        case .lifecycle(let event):
+            CodexAgentLifecycleBlock(event: event)
+        }
+    }
+}
+
+private struct CodexActiveTurnRow: View, Equatable {
+    let state: CodexActiveTurnState
+
+    nonisolated static func == (lhs: CodexActiveTurnRow, rhs: CodexActiveTurnRow) -> Bool {
+        lhs.state == rhs.state
+    }
+
+    var body: some View {
+        CodexTurnWorkingBlock(state: state)
     }
 }
 

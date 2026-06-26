@@ -141,6 +141,57 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
     }
 
+    func testTranscriptTimelineUsesStableIDsForLifecycleOnlyGroups() {
+        let start = Date(timeIntervalSince1970: 100)
+        let eventID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let events = [
+            CodexAgentLifecycleEvent(
+                id: eventID,
+                status: .running,
+                title: "Spawning helper",
+                createdAt: start
+            )
+        ]
+
+        let firstBuild = CodexTranscriptTimelineBuilder.build(messages: [], lifecycleEvents: events)
+        let secondBuild = CodexTranscriptTimelineBuilder.build(messages: [], lifecycleEvents: events)
+
+        XCTAssertEqual(firstBuild.map(\.id), secondBuild.map(\.id))
+        XCTAssertTrue(firstBuild.map(\.id).contains("asst-hdr-\(eventID.uuidString)"))
+        XCTAssertTrue(firstBuild.map(\.id).contains("asst-life-\(eventID.uuidString)"))
+    }
+
+    func testTranscriptTimelineKeepsStreamingAssistantIDStableAcrossTextDeltas() throws {
+        let messageID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let start = Date(timeIntervalSince1970: 100)
+        let first = CodexChatMessage(
+            id: messageID,
+            role: .assistant,
+            text: "Hel",
+            isStreaming: true,
+            createdAt: start,
+            parseContent: false
+        )
+        let second = CodexChatMessage(
+            id: messageID,
+            role: .assistant,
+            text: "Hello",
+            isStreaming: true,
+            createdAt: start,
+            parseContent: false
+        )
+
+        let firstBuild = CodexTranscriptTimelineBuilder.build(messages: [first], lifecycleEvents: [])
+        let secondBuild = CodexTranscriptTimelineBuilder.build(messages: [second], lifecycleEvents: [])
+
+        XCTAssertEqual(firstBuild.map(\.id), secondBuild.map(\.id))
+        let streamingItem = try XCTUnwrap(secondBuild.first {
+            if case .assistantStreamingWorking = $0 { return true }
+            return false
+        })
+        XCTAssertEqual(streamingItem.id, "asst-work-\(messageID.uuidString)")
+    }
+
     func testLargeTranscriptTimelinePreservesBoundedGroupingAndAggregates() {
         let fixture = largeTranscriptFixture(turnCount: 80)
 
