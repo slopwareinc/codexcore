@@ -270,12 +270,12 @@ public struct CodexAgentTheme {
 
         public static var official: Radii {
             Radii(
-                small: 4,
-                medium: 8,
-                large: 12,
-                panel: 25,
-                composer: 25,
-                bubble: 12,
+                small: 6,
+                medium: 12,
+                large: 16,
+                panel: 28,
+                composer: 28,
+                bubble: 16,
                 pill: 999
             )
         }
@@ -328,7 +328,14 @@ public struct CodexAgentTheme {
             self.springDamping = springDamping
         }
 
-        public static var official: Animations { Animations() }
+        public static var official: Animations { 
+            Animations(
+                defaultDuration: 0.25,
+                snappyDuration: 0.2,
+                springResponse: 0.4,
+                springDamping: 0.85
+            )
+        }
     }
 }
 
@@ -358,7 +365,7 @@ public extension CodexAgentTheme {
             danger: codexHex(0xFF6B66),
             running: codexHex(0x5C9BFF),
             tool: codexHex(0xA78BFA)
-        ))
+        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.85, glowOpacity: 0.35))
     }
 
     static var nativeLight: CodexAgentTheme {

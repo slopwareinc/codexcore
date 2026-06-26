@@ -6,6 +6,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let emptyContent: EmptyContent
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
+    private let messages: [CodexChatMessage]
 
     @Environment(\.codexAgentTheme) private var theme
 
@@ -24,12 +25,14 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         self.activeTurn = activeTurn
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
+        self.messages = messages
         self.emptyContent = emptyContent()
     }
 
     public var body: some View {
-        ScrollView {
-            if timelineItems.isEmpty {
+        ScrollViewReader { proxy in
+            ScrollView {
+                if timelineItems.isEmpty {
                 emptyContent
                     .frame(maxWidth: .infinity, minHeight: 420)
                     .padding(.horizontal, 28)
@@ -100,17 +103,34 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                         CodexTurnWorkingBlock(state: activeTurn)
                             .id("active-turn")
                     }
-                    Color.clear.frame(height: 8)
+                    Color.clear.frame(height: 8).id(Self.bottomAnchor)
                 }
                 .padding(.horizontal, 28)
                 .padding(.top, 24)
                 .padding(.bottom, 28)
                 .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
                 .frame(maxWidth: .infinity)
-            }
-        }
+            } // closes else
+        } // closes ScrollView
         .scrollContentBackground(.hidden)
-        .defaultScrollAnchor(.bottom)
+        .onChange(of: timelineItems.count) { _, _ in scroll(proxy, animated: true) }
+        .onChange(of: messages.last?.text) { _, _ in scroll(proxy, animated: false) }
+        .onChange(of: activeTurn != nil) { _, isActive in
+            if isActive { scroll(proxy, animated: true) }
+        }
+        } // closes ScrollViewReader
+    } // closes body
+
+    private static var bottomAnchor: String { "transcript-bottom" }
+
+    private func scroll(_ proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+        }
     }
 }
 
