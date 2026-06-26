@@ -34,12 +34,16 @@ struct CodexExampleAppShell: View {
                 onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
                 onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
             )
+            .layoutPriority(0)
             .transition(.move(edge: .leading).combined(with: .opacity))
 
             GeometryReader { proxy in
                 routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
             }
+            .frame(minWidth: 620)
+            .layoutPriority(1)
         }
+        .frame(minWidth: sidebarSnapshot.isCollapsed ? 760 : 980, minHeight: 620)
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
                 VStack(alignment: .trailing, spacing: 10) {

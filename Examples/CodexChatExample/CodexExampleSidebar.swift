@@ -31,16 +31,20 @@ struct CodexExampleProjectSidebar: View {
                     settingsSection
                 }
                 .padding(.horizontal, snapshot.isCollapsed ? 8 : 10)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
+                .padding(.top, 6)
+                .padding(.bottom, 14)
             }
         }
-        .frame(width: snapshot.isCollapsed ? 62 : 303)
+        .frame(
+            minWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth,
+            idealWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth,
+            maxWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth
+        )
         .frame(maxHeight: .infinity)
-        .background(theme.colors.surface.opacity(0.96))
+        .background(.regularMaterial)
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(theme.colors.border)
+                .fill(theme.colors.border.opacity(0.72))
                 .frame(width: 1)
         }
     }
@@ -71,7 +75,7 @@ struct CodexExampleProjectSidebar: View {
             .help(CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed))
         }
         .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
-        .padding(.vertical, 10)
+        .frame(height: 46)
     }
 
     private var routeRows: some View {
@@ -185,6 +189,7 @@ struct CodexExampleProjectSidebar: View {
 
 private struct SidebarCommandRow: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let systemImage: String
     let title: String
@@ -213,18 +218,29 @@ private struct SidebarCommandRow: View {
                     }
                 }
             }
-            .frame(height: 31)
+            .frame(height: 29)
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
             .padding(.horizontal, isCollapsed ? 4 : 8)
             .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         }
         .buttonStyle(.plain)
         .background(
-            isSelected ? theme.colors.surfaceElevated.opacity(0.62) : .clear,
+            rowFill,
             in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         )
+        .onHover { isHovered = $0 }
         .accessibilityLabel(CodexSidebarAccessibility.commandRowLabel(title: title, shortcut: shortcut))
         .help(title)
+    }
+
+    private var rowFill: Color {
+        if isSelected {
+            return theme.colors.surfaceElevated.opacity(0.52)
+        }
+        if isHovered {
+            return theme.colors.surfaceElevated.opacity(0.28)
+        }
+        return .clear
     }
 }
 
@@ -249,6 +265,7 @@ private struct SidebarSectionHeader: View {
 
 private struct ProjectSidebarGroupView: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let group: CodexSidebarProjectGroup
     let isCollapsed: Bool
@@ -274,6 +291,7 @@ private struct ProjectSidebarGroupView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.colors.textTertiary)
+                    .opacity(projectControlsAreVisible ? 1 : 0.68)
                     .accessibilityLabel(CodexSidebarAccessibility.projectDisclosureLabel(
                         projectTitle: group.project.displayName,
                         isExpanded: group.isExpanded
@@ -306,57 +324,24 @@ private struct ProjectSidebarGroupView: View {
                     }
                     .frame(height: isCollapsed ? 31 : 38)
                     .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-                    .padding(.horizontal, isCollapsed ? 4 : 8)
+                    .padding(.horizontal, isCollapsed ? 4 : 6)
                     .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .background(
-                    group.isSelected && !hasSelectedThread ? theme.colors.surfaceElevated.opacity(0.58) : .clear,
-                    in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                )
                 .help(group.project.displayName)
 
                 if !isCollapsed {
-                    if group.canStartNewChat {
-                        Button {
-                            onStartProjectChat(group.project.workspacePath)
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10, weight: .bold))
-                                .frame(width: 20, height: 30)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .accessibilityLabel(CodexSidebarAccessibility.projectNewChatLabel(projectTitle: group.project.displayName))
-                        .help("New chat in project")
-                    }
-
-                    if group.hasProjectActionsEntry {
-                        Menu {
-                            Button {
-                                onStartProjectChat(group.project.workspacePath)
-                            } label: {
-                                Label("New chat", systemImage: "square.and.pencil")
-                            }
-
-                            Button {
-                                onSelectProject(group.project.workspacePath)
-                            } label: {
-                                Label("Select project", systemImage: "folder")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 11, weight: .bold))
-                                .frame(width: 20, height: 30)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .accessibilityLabel(CodexSidebarAccessibility.projectActionsLabel(projectTitle: group.project.displayName))
-                        .help("Project actions")
-                    }
+                    projectActionButtons
+                        .opacity(projectControlsAreVisible ? 1 : 0)
+                        .allowsHitTesting(projectControlsAreVisible)
                 }
             }
+            .padding(.horizontal, isCollapsed ? 0 : 2)
+            .background(
+                projectRowFill,
+                in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+            )
+            .onHover { isHovered = $0 }
 
             if group.isExpanded && !isCollapsed {
                 if group.rows.isEmpty {
@@ -380,6 +365,57 @@ private struct ProjectSidebarGroupView: View {
         }
     }
 
+    @ViewBuilder
+    private var projectActionButtons: some View {
+        HStack(spacing: 2) {
+            if group.hasProjectActionsEntry {
+                Menu {
+                    if group.canStartNewChat {
+                        Button {
+                            onStartProjectChat(group.project.workspacePath)
+                        } label: {
+                            Label("New chat", systemImage: "square.and.pencil")
+                        }
+                    }
+
+                    Button {
+                        onSelectProject(group.project.workspacePath)
+                    } label: {
+                        Label("Select project", systemImage: "folder")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 22, height: 30)
+                }
+                .menuStyle(.borderlessButton)
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textTertiary)
+                .accessibilityLabel(CodexSidebarAccessibility.projectActionsLabel(projectTitle: group.project.displayName))
+                .help("Project actions")
+            } else {
+                Color.clear.frame(width: 22, height: 30)
+            }
+
+            if group.canStartNewChat {
+                Button {
+                    onStartProjectChat(group.project.workspacePath)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 22, height: 30)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textTertiary)
+                .accessibilityLabel(CodexSidebarAccessibility.projectNewChatLabel(projectTitle: group.project.displayName))
+                .help("New chat in project")
+            } else {
+                Color.clear.frame(width: 22, height: 30)
+            }
+        }
+        .frame(width: 48, alignment: .trailing)
+    }
+
     private var projectDetail: String {
         if isThreadReady {
             return "Ready"
@@ -393,10 +429,25 @@ private struct ProjectSidebarGroupView: View {
     private var hasSelectedThread: Bool {
         group.rows.contains { $0.isSelected }
     }
+
+    private var projectControlsAreVisible: Bool {
+        isHovered || group.isSelected
+    }
+
+    private var projectRowFill: Color {
+        if group.isSelected && !hasSelectedThread {
+            return theme.colors.surfaceElevated.opacity(0.48)
+        }
+        if isHovered {
+            return theme.colors.surfaceElevated.opacity(0.24)
+        }
+        return .clear
+    }
 }
 
 private struct SidebarChatRow: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let row: CodexSidebarThreadRow
     let onSelect: () -> Void
@@ -420,38 +471,112 @@ private struct SidebarChatRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            HStack(spacing: 5) {
-                if row.canPin {
-                    Button(action: onTogglePin) {
-                        Image(systemName: row.isPinned ? "pin.fill" : "pin")
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(row.isPinned ? theme.colors.accent : theme.colors.textTertiary.opacity(0.75))
-                    .accessibilityLabel(CodexSidebarAccessibility.chatPinLabel(isPinned: row.isPinned, title: row.summary.title))
-                    .help(row.isPinned ? "Unpin chat" : "Pin chat")
-                }
-                if row.canArchive {
-                    Button(action: onArchive) {
-                        Image(systemName: "archivebox")
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.colors.textTertiary.opacity(0.75))
-                    .accessibilityLabel(CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title))
-                    .help("Archive chat")
-                }
-            }
-            .font(.system(size: 9, weight: .medium))
+            trailingStatusOrActions
         }
         .padding(.horizontal, 8)
         .frame(height: 38)
         .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         .onTapGesture(perform: onSelect)
         .background(
-            row.isSelected ? theme.colors.surfaceElevated.opacity(0.58) : .clear,
+            rowFill,
             in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         )
+        .onHover { isHovered = $0 }
         .help(row.summary.title)
     }
+
+    private var trailingStatusOrActions: some View {
+        ZStack(alignment: .trailing) {
+            Text(recencyLabel)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+                .lineLimit(1)
+                .opacity(chatActionsAreVisible ? 0 : 1)
+
+            HStack(spacing: 4) {
+                if row.canPin {
+                    sidebarActionButton(
+                        systemImage: row.isPinned ? "pin.fill" : "pin",
+                        isAccented: row.isPinned,
+                        accessibilityLabel: CodexSidebarAccessibility.chatPinLabel(isPinned: row.isPinned, title: row.summary.title),
+                        help: row.isPinned ? "Unpin chat" : "Pin chat",
+                        action: onTogglePin
+                    )
+                }
+                if row.canArchive {
+                    sidebarActionButton(
+                        systemImage: "archivebox",
+                        accessibilityLabel: CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title),
+                        help: "Archive chat",
+                        action: onArchive
+                    )
+                }
+            }
+            .opacity(chatActionsAreVisible ? 1 : 0)
+            .allowsHitTesting(chatActionsAreVisible)
+        }
+        .frame(width: 52, alignment: .trailing)
+    }
+
+    private func sidebarActionButton(
+        systemImage: String,
+        isAccented: Bool = false,
+        accessibilityLabel: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 9.5, weight: .semibold))
+                .frame(width: 21, height: 21)
+                .background(.regularMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(theme.colors.border.opacity(0.7), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isAccented ? theme.colors.accent : theme.colors.textTertiary)
+        .accessibilityLabel(accessibilityLabel)
+        .help(help)
+    }
+
+    private var rowFill: Color {
+        if row.isSelected {
+            return theme.colors.surfaceElevated.opacity(0.5)
+        }
+        if isHovered {
+            return theme.colors.surfaceElevated.opacity(0.24)
+        }
+        return .clear
+    }
+
+    private var chatActionsAreVisible: Bool {
+        isHovered || row.isSelected
+    }
+
+    private var recencyLabel: String {
+        guard let timestamp = row.summary.recencyAt ?? row.summary.updatedAt ?? row.summary.createdAt else {
+            return ""
+        }
+
+        let elapsed = max(0, Date().timeIntervalSince1970 - timestamp)
+        switch elapsed {
+        case ..<60:
+            return "now"
+        case ..<3_600:
+            return "\(Int(elapsed / 60))m"
+        case ..<86_400:
+            return "\(Int(elapsed / 3_600))h"
+        case ..<604_800:
+            return "\(Int(elapsed / 86_400))d"
+        default:
+            return "\(Int(elapsed / 604_800))w"
+        }
+    }
+}
+
+private enum SidebarMetrics {
+    static let expandedWidth: CGFloat = 288
+    static let collapsedWidth: CGFloat = 58
 }
