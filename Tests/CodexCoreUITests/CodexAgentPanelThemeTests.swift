@@ -127,10 +127,10 @@ extension CodexAgentUITests {
         XCTAssertEqual(theme.spacing.sidePanelWidth, 320)
         XCTAssertEqual(theme.spacing.summaryPanelWidth, 300)
         XCTAssertEqual(theme.spacing.toolbarHeight, 46)
-        XCTAssertEqual(theme.radii.composer, 25)
-        XCTAssertEqual(theme.radii.panel, 25)
+        XCTAssertEqual(theme.radii.composer, 28)
+        XCTAssertEqual(theme.radii.panel, 28)
         XCTAssertTrue(theme.effects.usesLiquidGlass)
-        XCTAssertEqual(theme.effects.surfaceOpacity, 0.94)
+        XCTAssertEqual(theme.effects.surfaceOpacity, 0.85)
     }
 
 }
