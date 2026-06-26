@@ -161,6 +161,37 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertTrue(firstBuild.map(\.id).contains("asst-life-\(eventID.uuidString)"))
     }
 
+    func testTranscriptTimelineSortsUnsortedMessagesAndLifecycleEvents() throws {
+        let start = Date(timeIntervalSince1970: 100)
+        let firstUser = CodexChatMessage(role: .user, text: "First", createdAt: start)
+        let secondUser = CodexChatMessage(role: .user, text: "Second", createdAt: start.addingTimeInterval(2))
+        let lifecycle = CodexAgentLifecycleEvent(
+            status: .running,
+            title: "Middle lifecycle",
+            createdAt: start.addingTimeInterval(1)
+        )
+
+        let timeline = CodexTranscriptTimelineBuilder.build(
+            messages: [secondUser, firstUser],
+            lifecycleEvents: [lifecycle]
+        )
+
+        guard case .message(let firstMessage) = timeline[0] else {
+            return XCTFail("Expected earliest message first")
+        }
+        XCTAssertEqual(firstMessage.text, "First")
+        XCTAssertTrue(timeline.contains { item in
+            if case .assistantLifecycle(_, let events) = item {
+                return events.map(\.title) == ["Middle lifecycle"]
+            }
+            return false
+        })
+        guard case .message(let secondMessage) = timeline.last else {
+            return XCTFail("Expected latest message last")
+        }
+        XCTAssertEqual(secondMessage.text, "Second")
+    }
+
     func testTranscriptTimelineKeepsStreamingAssistantIDStableAcrossTextDeltas() throws {
         let messageID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let start = Date(timeIntervalSince1970: 100)

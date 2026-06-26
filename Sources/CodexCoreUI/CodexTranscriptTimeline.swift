@@ -60,6 +60,9 @@ enum CodexTranscriptTimelineBuilder {
         messages: [CodexChatMessage],
         lifecycleEvents: [CodexAgentLifecycleEvent]
     ) -> [CodexTranscriptTimelineItem] {
+        let messages = chronologicallySorted(messages, by: \.createdAt)
+        let lifecycleEvents = chronologicallySorted(lifecycleEvents, by: \.createdAt)
+
         guard !messages.isEmpty else {
             return lifecycleEvents.map(CodexTranscriptTimelineItem.lifecycle)
         }
@@ -93,6 +96,33 @@ enum CodexTranscriptTimelineBuilder {
         }
 
         return merged
+    }
+
+    private static func chronologicallySorted<Value>(
+        _ values: [Value],
+        by createdAt: (Value) -> Date
+    ) -> [Value] {
+        guard values.count > 1 else { return values }
+
+        var previousDate = createdAt(values[0])
+        for value in values.dropFirst() {
+            let currentDate = createdAt(value)
+            if previousDate > currentDate {
+                return values.enumerated()
+                    .sorted { lhs, rhs in
+                        let lhsDate = createdAt(lhs.element)
+                        let rhsDate = createdAt(rhs.element)
+                        if lhsDate == rhsDate {
+                            return lhs.offset < rhs.offset
+                        }
+                        return lhsDate < rhsDate
+                    }
+                    .map { $0.element }
+            }
+            previousDate = currentDate
+        }
+
+        return values
     }
 
     private static func compactAssistantTurns(_ items: [CodexTranscriptTimelineItem]) -> [CodexTranscriptTimelineItem] {

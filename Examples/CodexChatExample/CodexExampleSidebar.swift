@@ -487,11 +487,13 @@ private struct SidebarChatRow: View {
 
     private var trailingStatusOrActions: some View {
         ZStack(alignment: .trailing) {
-            Text(recencyLabel)
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textTertiary)
-                .lineLimit(1)
-                .opacity(chatActionsAreVisible ? 0 : 1)
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                Text(recencyLabel)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(1)
+            }
+            .opacity(chatActionsAreVisible ? 0 : 1)
 
             HStack(spacing: 4) {
                 if row.canPin {
