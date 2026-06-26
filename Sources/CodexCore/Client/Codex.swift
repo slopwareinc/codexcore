@@ -92,7 +92,7 @@ public final class Codex: @unchecked Sendable {
     @MainActor public let store: CodexCoreStore
     public let metadata: InitializeResponse
 
-    private let client: CodexClient
+    internal let client: CodexClient
     private let config: CodexConfig
 
     public convenience init(
@@ -696,7 +696,7 @@ public final class Codex: @unchecked Sendable {
 private final class CodexLoginHandleLifecycle: @unchecked Sendable {
     let loginId: String
 
-    private let client: CodexClient
+    internal let client: CodexClient
 
     init(client: CodexClient, loginId: String) {
         self.client = client
@@ -779,7 +779,7 @@ public final class DeviceCodeLoginHandle: Identifiable, @unchecked Sendable {
 public final class CodexThread: Identifiable, @unchecked Sendable {
     public let id: String
 
-    private let client: CodexClient
+    internal let client: CodexClient
     private let store: CodexCoreStore
 
     fileprivate init(client: CodexClient, store: CodexCoreStore, id: String) {
@@ -938,7 +938,7 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
     public let threadId: String
     public let id: String
 
-    private let client: CodexClient
+    internal let client: CodexClient
     private let store: CodexCoreStore
 
     fileprivate init(client: CodexClient, store: CodexCoreStore, threadId: String, id: String) {
