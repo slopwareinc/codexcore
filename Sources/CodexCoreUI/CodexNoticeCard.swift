@@ -66,7 +66,6 @@ public struct CodexNoticeCard: View {
                     Text(line)
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textSecondary)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -130,4 +129,3 @@ private struct CodexNoticeStatusChip: View {
         }
     }
 }
-

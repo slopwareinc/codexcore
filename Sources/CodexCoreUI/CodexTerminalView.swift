@@ -8,7 +8,7 @@ import SwiftUI
 @available(macOS 14.0, iOS 17.0, *)
 public struct CodexTerminalView: View {
     @Environment(\.codexAgentTheme) private var theme
-    
+
     private let session: CodexCommandExecSession
     private let parser = ANSIParser()
 
@@ -26,7 +26,6 @@ public struct CodexTerminalView: View {
                     Text(ANSITerminalStyle.makeAttributedString(from: segments))
                         .font(theme.fonts.code)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
 
                     Spacer()
                         .frame(height: 1)

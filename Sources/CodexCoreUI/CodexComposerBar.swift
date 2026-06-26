@@ -296,12 +296,22 @@ private struct ComposerApprovalMenu: View {
     }
 }
 
-private struct ComposerModelMenu: View {
-    @Binding var model: CodexModelSelection
-    let modelOptions: [CodexModelSelection]
-    @Binding var reasoning: CodexReasoningSelection
+public struct ComposerModelMenu: View {
+    @Binding public var model: CodexModelSelection
+    public let modelOptions: [CodexModelSelection]
+    @Binding public var reasoning: CodexReasoningSelection
 
-    var body: some View {
+    public init(
+        model: Binding<CodexModelSelection>,
+        modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        reasoning: Binding<CodexReasoningSelection>
+    ) {
+        self._model = model
+        self.modelOptions = modelOptions
+        self._reasoning = reasoning
+    }
+
+    public var body: some View {
         let state = menuState
 
         Menu {
@@ -380,13 +390,18 @@ private struct ComposerModelMenu: View {
     }
 }
 
-private struct ComposerChipLabel: View {
+public struct ComposerChipLabel: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let systemImage: String
-    let title: String?
+    public let systemImage: String
+    public let title: String?
 
-    var body: some View {
+    public init(systemImage: String, title: String?) {
+        self.systemImage = systemImage
+        self.title = title
+    }
+
+    public var body: some View {
         let chipShape = RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
 
         HStack(spacing: title == nil ? 0 : 6) {

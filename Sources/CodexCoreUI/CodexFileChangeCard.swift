@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import CodexCore
 
@@ -41,6 +42,7 @@ public struct CodexFileChangeCard: View {
 
     private let change: CodexChatMessage.FileChange
     private let onReview: ((CodexChatMessage.FileChange) -> Void)?
+    private let facts: CodexFileChangeFacts
 
     @State private var expanded = false
     @State private var copied = false
@@ -51,6 +53,7 @@ public struct CodexFileChangeCard: View {
     ) {
         self.change = change
         self.onReview = onReview
+        self.facts = CodexFileChangeFacts(change: change)
     }
 
     private var reviewAction: ((CodexChatMessage.FileChange) -> Void)? {
@@ -86,11 +89,11 @@ public struct CodexFileChangeCard: View {
 
                     Spacer(minLength: 8)
 
-                    if hasDiff {
+                    if facts.hasDiff {
                         HStack(spacing: 4) {
-                            Text("+\(change.addedLineCount)")
+                            Text("+\(facts.addedLineCount)")
                                 .foregroundStyle(theme.colors.success)
-                            Text("−\(change.removedLineCount)")
+                            Text("−\(facts.removedLineCount)")
                                 .foregroundStyle(theme.colors.danger)
                         }
                         .font(theme.fonts.micro)
@@ -125,7 +128,7 @@ public struct CodexFileChangeCard: View {
         } body: {
             ScrollView(.vertical, showsIndicators: true) {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    if hasDiff {
+                    if facts.hasDiff {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(diffLines.enumerated()), id: \.offset) { _, line in
                                 Text(line.isEmpty ? " " : line)
@@ -138,7 +141,6 @@ public struct CodexFileChangeCard: View {
                             }
                         }
                         .padding(.vertical, 8)
-                        .textSelection(.enabled)
                     } else {
                         Text(diffText)
                             .font(theme.fonts.code)
@@ -156,7 +158,7 @@ public struct CodexFileChangeCard: View {
                     .foregroundStyle(theme.colors.codeFaint)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if hasDiff {
+                if facts.hasDiff {
                     CodexCopyButton(copied: $copied) { copyToPasteboard(change.diff) }
                 }
             }
@@ -167,7 +169,7 @@ public struct CodexFileChangeCard: View {
     }
 
     private var hasDiff: Bool {
-        !change.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        facts.hasDiff
     }
 
     private var diffLines: [String] {
@@ -202,12 +204,57 @@ public struct CodexFileChangeCard: View {
 
     private var diffSummary: String {
         let filePart: String
-        if change.changedFileCount > 1 {
-            filePart = "\(change.changedFileCount) files"
+        if facts.changedFileCount > 1 {
+            filePart = "\(facts.changedFileCount) files"
         } else {
             filePart = "1 file"
         }
-        return "\(filePart)  +\(change.addedLineCount) -\(change.removedLineCount)"
+        return "\(filePart)  +\(facts.addedLineCount) -\(facts.removedLineCount)"
+    }
+}
+
+private struct CodexFileChangeFacts: Equatable {
+    var hasDiff: Bool
+    var changedFileCount: Int
+    var addedLineCount: Int
+    var removedLineCount: Int
+
+    init(change: CodexChatMessage.FileChange) {
+        hasDiff = !change.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        guard hasDiff else {
+            changedFileCount = change.path == nil ? 0 : 1
+            addedLineCount = 0
+            removedLineCount = 0
+            return
+        }
+
+        var gitHeaders: Set<String> = []
+        var fileHeaders: Set<String> = []
+        var added = 0
+        var removed = 0
+
+        change.diff.enumerateLines { line, _ in
+            if line.hasPrefix("diff --git ") {
+                gitHeaders.insert(line)
+            } else if line.hasPrefix("+++ ") {
+                let newPath = String(line.dropFirst(4))
+                if newPath != "/dev/null" {
+                    fileHeaders.insert(newPath)
+                }
+            }
+
+            if line.hasPrefix("+") && !line.hasPrefix("+++") {
+                added += 1
+            } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+                removed += 1
+            }
+        }
+
+        let countedFiles = gitHeaders.isEmpty ? fileHeaders.count : gitHeaders.count
+        changedFileCount = max(change.path == nil ? 0 : 1, countedFiles)
+        addedLineCount = added
+        removedLineCount = removed
     }
 }
 

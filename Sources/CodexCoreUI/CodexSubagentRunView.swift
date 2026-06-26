@@ -5,9 +5,11 @@ struct CodexSubagentRunInlineView: View {
     @State private var showsDetails = false
 
     let events: [CodexAgentLifecycleEvent]
+    private let summary: CodexSubagentRunSummary
 
-    private var summary: CodexSubagentRunSummary {
-        CodexSubagentRunSummary(events: events)
+    init(events: [CodexAgentLifecycleEvent]) {
+        self.events = events
+        self.summary = CodexSubagentRunSummary(events: events)
     }
 
     var body: some View {

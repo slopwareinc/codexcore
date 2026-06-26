@@ -103,7 +103,6 @@ public struct CodexToolCallCard: View {
             Text(text)
                 .font(theme.fonts.code)
                 .foregroundStyle(isError ? theme.colors.danger : theme.colors.codeText)
-                .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -25,9 +25,7 @@ let package = Package(
             targets: ["CodexChatExample"]
         )
     ],
-    dependencies: [
-        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", from: "2.4.1")
-    ],
+    dependencies: [],
     targets: [
         .target(
             name: "CodexCore",
@@ -38,8 +36,7 @@ let package = Package(
         .target(
             name: "CodexCoreUI",
             dependencies: [
-                "CodexCore",
-                .product(name: "MarkdownUI", package: "swift-markdown-ui")
+                "CodexCore"
             ],
             path: "Sources/CodexCoreUI",
             swiftSettings: [.swiftLanguageMode(.v6)]
