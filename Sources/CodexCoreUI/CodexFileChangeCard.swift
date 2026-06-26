@@ -46,6 +46,7 @@ public struct CodexFileChangeCard: View {
 
     @State private var expanded = false
     @State private var copied = false
+    @State private var wrapsDiff = false
 
     public init(
         change: CodexChatMessage.FileChange,
@@ -63,27 +64,28 @@ public struct CodexFileChangeCard: View {
     public var body: some View {
         CodexCollapsibleCard(
             isExpanded: $expanded,
-            background: theme.colors.codeBackground,
-            border: theme.colors.border,
+            background: theme.colors.surface.opacity(theme.effects.glassOpacity),
+            border: theme.colors.border.opacity(0.74),
             maxWidth: theme.spacing.cardMaxWidth
         ) { isExpanded, toggle in
             Button {
                 toggle()
             } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "doc.text")
-                        .font(theme.fonts.label)
-                        .foregroundStyle(theme.colors.codeFaint)
+                HStack(spacing: 8) {
+                    Image(systemName: change.isStreaming ? "square.and.pencil" : "doc.text")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(change.isStreaming ? theme.colors.running : theme.colors.textTertiary)
+                        .frame(width: 16, height: 16)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(change.displayPath)
                             .font(theme.fonts.code)
-                            .foregroundStyle(theme.colors.codeText)
+                            .foregroundStyle(theme.colors.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Text(kindLabel)
                             .font(theme.fonts.micro)
-                            .foregroundStyle(theme.colors.codeFaint)
+                            .foregroundStyle(theme.colors.textTertiary)
                             .lineLimit(1)
                     }
 
@@ -99,7 +101,7 @@ public struct CodexFileChangeCard: View {
                         .font(theme.fonts.micro)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(theme.colors.surfaceElevated.opacity(0.45), in: Capsule())
+                        .background(theme.colors.surfaceElevated.opacity(0.32), in: Capsule())
                     }
 
                     CodexFileChangeStatusChip(change: change)
@@ -116,41 +118,19 @@ public struct CodexFileChangeCard: View {
 
                     Image(systemName: "chevron.down")
                         .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.codeFaint)
+                        .foregroundStyle(theme.colors.textTertiary)
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(theme.colors.codeHeader)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(theme.colors.surfaceElevated.opacity(0.28))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         } body: {
-            ScrollView(.vertical, showsIndicators: true) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    if facts.hasDiff {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(diffLines.enumerated()), id: \.offset) { _, line in
-                                Text(line.isEmpty ? " " : line)
-                                    .font(theme.fonts.code)
-                                    .foregroundStyle(diffLineColor(line))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 0.5)
-                                    .background(diffLineBackground(line))
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    } else {
-                        Text(diffText)
-                            .font(theme.fonts.code)
-                            .foregroundStyle(theme.colors.codeFaint)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
+            diffBody
             .frame(maxHeight: 260)
+            .background(theme.colors.codeBackground)
 
             HStack(spacing: 10) {
                 Text(diffSummary)
@@ -158,6 +138,15 @@ public struct CodexFileChangeCard: View {
                     .foregroundStyle(theme.colors.codeFaint)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                Button {
+                    wrapsDiff.toggle()
+                } label: {
+                    Image(systemName: wrapsDiff ? "text.line.first.and.arrowtriangle.forward" : "text.alignleft")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.codeFaint)
+                }
+                .buttonStyle(.plain)
+                .help(wrapsDiff ? "Disable wrapping" : "Wrap diff")
                 if facts.hasDiff {
                     CodexCopyButton(copied: $copied) { copyToPasteboard(change.diff) }
                 }
@@ -174,6 +163,46 @@ public struct CodexFileChangeCard: View {
 
     private var diffLines: [String] {
         change.diff.components(separatedBy: "\n")
+    }
+
+    @ViewBuilder
+    private var diffBody: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            if wrapsDiff {
+                diffContent
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    diffContent
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var diffContent: some View {
+        if facts.hasDiff {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(diffLines.enumerated()), id: \.offset) { _, line in
+                    Text(line.isEmpty ? " " : line)
+                        .font(theme.fonts.code)
+                        .foregroundStyle(diffLineColor(line))
+                        .frame(maxWidth: wrapsDiff ? .infinity : nil, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 0.5)
+                        .background(diffLineBackground(line))
+                }
+            }
+            .padding(.vertical, 8)
+            .frame(maxWidth: wrapsDiff ? .infinity : nil, alignment: .leading)
+        } else {
+            Text(diffText)
+                .font(theme.fonts.code)
+                .foregroundStyle(theme.colors.codeFaint)
+                .padding(12)
+                .frame(maxWidth: wrapsDiff ? .infinity : nil, alignment: .leading)
+                .fixedSize(horizontal: !wrapsDiff, vertical: true)
+        }
     }
 
     private func diffLineColor(_ line: String) -> Color {
@@ -276,8 +305,8 @@ private struct CodexFileChangeActionButton: View {
             .foregroundStyle(theme.colors.textSecondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(theme.colors.surfaceElevated.opacity(0.55), in: Capsule())
-            .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
+            .background(theme.colors.surfaceElevated.opacity(0.34), in: Capsule())
+            .overlay(Capsule().stroke(theme.colors.border.opacity(0.74), lineWidth: 1))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

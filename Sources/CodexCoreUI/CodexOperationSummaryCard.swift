@@ -11,7 +11,7 @@ public struct CodexOperationSummaryCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(rows) { row in
                 HStack(spacing: 8) {
                     Image(systemName: icon(for: row.title))
@@ -33,9 +33,20 @@ public struct CodexOperationSummaryCard: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
-                .background(theme.colors.surfaceElevated.opacity(theme.effects.textFaintOpacity), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+                .background(theme.colors.surfaceElevated.opacity(0.18))
+                if row.id != rows.last?.id {
+                    Rectangle()
+                        .fill(theme.colors.border.opacity(0.58))
+                        .frame(height: 1)
+                        .padding(.leading, 34)
+                }
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.72), lineWidth: 1)
+        )
         .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
         .accessibilityLabel(rows.map(\.title).joined(separator: ", "))
     }

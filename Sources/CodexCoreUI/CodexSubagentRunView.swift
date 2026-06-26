@@ -13,13 +13,13 @@ struct CodexSubagentRunInlineView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
                     showsDetails.toggle()
                 }
             } label: {
-                HStack(alignment: .center, spacing: 9) {
+                HStack(alignment: .center, spacing: 8) {
                     aggregateIcon
                         .frame(width: theme.spacing.iconMedium, height: theme.spacing.iconMedium)
 
@@ -27,14 +27,14 @@ struct CodexSubagentRunInlineView: View {
                         HStack(spacing: 7) {
                             Text(summary.title)
                                 .font(theme.fonts.label)
-                                .foregroundStyle(theme.colors.textSecondary)
+                                .foregroundStyle(theme.colors.textPrimary)
                                 .lineLimit(1)
                             Text(summary.agentCountLabel)
-                                .font(theme.fonts.caption)
+                                .font(theme.fonts.micro)
                                 .foregroundStyle(theme.colors.textTertiary)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
-                                .background(theme.colors.surfaceElevated.opacity(theme.effects.textFaintOpacity), in: Capsule())
+                                .background(theme.colors.surfaceElevated.opacity(0.28), in: Capsule())
                         }
 
                         Text(summary.detail)
@@ -57,13 +57,9 @@ struct CodexSubagentRunInlineView: View {
                         .rotationEffect(.degrees(showsDetails ? 90 : 0))
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background(theme.colors.surface.opacity(theme.effects.glassOpacity), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                        .stroke(theme.colors.border, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+                .padding(.vertical, 8)
+                .background(theme.colors.surfaceElevated.opacity(0.18))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -81,9 +77,17 @@ struct CodexSubagentRunInlineView: View {
                         }
                     }
                 }
-                .padding(.leading, 12)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(theme.colors.surface.opacity(0.32))
             }
         }
+        .background(theme.colors.surface.opacity(theme.effects.glassOpacity * 0.86))
+        .clipShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.72), lineWidth: 1)
+        )
     }
 
     @ViewBuilder

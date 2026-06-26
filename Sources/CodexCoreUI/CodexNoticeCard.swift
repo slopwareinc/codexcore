@@ -17,20 +17,20 @@ public struct CodexNoticeCard: View {
     public var body: some View {
         CodexCollapsibleCard(
             isExpanded: $expanded,
-            background: theme.colors.surface.opacity(theme.effects.glassOpacity),
-            border: color.opacity(0.42),
+            background: theme.colors.surface.opacity(theme.effects.glassOpacity * 0.86),
+            border: theme.colors.border.opacity(0.72),
             maxWidth: theme.spacing.cardMaxWidth
         ) { isExpanded, toggle in
             Button {
                 guard isExpandable else { return }
                 toggle()
             } label: {
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: 8) {
                     Image(systemName: iconName)
-                        .font(theme.fonts.chat)
+                        .font(theme.fonts.caption)
                         .foregroundStyle(color)
-                        .frame(width: 16, height: 18)
-                        .padding(.top, 1)
+                        .frame(width: 16, height: 16)
+                        .padding(.top, 2)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(notice.title)
@@ -46,7 +46,9 @@ public struct CodexNoticeCard: View {
 
                     Spacer(minLength: 8)
 
-                    CodexNoticeStatusChip(notice: notice)
+                    if notice.isStreaming || notice.status != nil {
+                        CodexNoticeStatusChip(notice: notice)
+                    }
 
                     Image(systemName: "chevron.down")
                         .font(theme.fonts.caption)
@@ -55,8 +57,9 @@ public struct CodexNoticeCard: View {
                         .opacity(isExpandable ? 1 : 0.25)
                         .padding(.top, 4)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(theme.colors.surfaceElevated.opacity(0.18))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -65,11 +68,11 @@ public struct CodexNoticeCard: View {
                 ForEach(Array(notice.metadata.enumerated()), id: \.offset) { _, line in
                     Text(line)
                         .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
+                        .foregroundStyle(theme.colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(12)
+            .padding(10)
 
             if !notice.copyText.isEmpty {
                 HStack {
@@ -82,7 +85,7 @@ public struct CodexNoticeCard: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(theme.colors.surfaceElevated.opacity(0.45))
+                .background(theme.colors.surfaceElevated.opacity(0.24))
             }
         }
     }
