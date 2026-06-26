@@ -436,6 +436,11 @@ final class CodexChatModel {
             errorMessage: Self.friendlyErrorMessage
         )
         threadListSession = session
+        
+        for project in session.recentProjects {
+            sidebarNavigationSession.expandProject(project.workspacePath)
+        }
+        
         if let activity {
             appendActivity(.notice, title: activity.title, detail: activity.detail)
         }

@@ -178,6 +178,11 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         }
     }
 
+    public mutating func expandProject(_ workspacePath: String) {
+        let id = CodexProjectSummary.normalizedPath(workspacePath)
+        expandedProjectIDs.insert(id)
+    }
+
     public mutating func selectProject(_ workspacePath: String) {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
         selectedProjectPath = normalized
