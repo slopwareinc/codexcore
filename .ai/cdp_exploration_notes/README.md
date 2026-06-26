@@ -72,8 +72,18 @@ This directory contains the precise UI/UX layout, elements, states, accessibilit
   * `Search workspace...`
   * `Web URL...`
 
-### D. Dictation & Audio Toggles
-* **Dictation Button**: Button labeled with a microphone icon (`aria-label="Dictate"`). Clicking activates transcription. If dictation services are offline, displays inline warning: `"Dictation warning: services unavailable"`.
+### E. Steer Queue Pipeline (`above-composer-queue-portal`)
+* **Placement & Portal**: Renders inside `#above-composer-queue-portal` directly above the composer text entry box, allowing multiple queued inputs during active model generations.
+* **Layout Design**:
+  * Backdrop styling: uses semi-transparent background with blur (`bg-token-input-background/70 backdrop-blur-sm`) and thin borders (`border-token-border/80 border-x border-t`). The first item in the queue has rounded top corners (`first:rounded-t-2xl`).
+  * Scroll limit: scrollable container with max height `max-h-[30dvh]` and hidden scrollbar.
+* **Queued Message Row Elements**:
+  1. **Drag Handle**: Grab/drag handle button on the left (`cursor-grab`, active: `cursor-grabbing`) supporting drag-and-drop reordering.
+  2. **Message Content Snippet**: Displays the typed prompt truncated to a maximum of two lines (`line-clamp-2`) in muted secondary color (`text-token-text-secondary`).
+  3. **Row Action buttons**:
+     * **Steer Button**: Pill button with label `"↳ Steer"` to bypass queue order and inject current item directly as active guide/feedback.
+     * **Delete Button**: Standard trash/close icon button (`aria-label="Delete queued message"`).
+     * **Actions Button**: Triple-dot options dropdown trigger (`aria-label="Queued message actions"`).
 
 ---
 
@@ -135,3 +145,30 @@ Settings is a full-screen panel with a sidebar list (`nav[aria-label="Settings"]
 ### B. Side Panel & Bottom Panel
 * **Side Panel**: Renders workspace analysis, list of active file outputs (e.g., `COMPANY_TRACKER.md`), and markdown outline views.
 * **Bottom Panel**: Renders active terminals, stdout/stderr logs from spawned background processes, and MCP server logs.
+
+---
+
+## 5. Active Chat Timeline & Tool Call Display
+
+### A. Message Turns & Status Indicators
+* **Assistant Message Generation Timing Header**:
+  * Shows a collapsible timing header label indicating active tool duration: `"Worked for [time]s"` or `"Working for [time]s"`.
+  * The label is housed in an inline button with hover style (`hover:bg-token-bg-subtle`).
+  * A thin horizontal hairline separator (`border-token-border-light`) sits right below it.
+* **Active Status / Shimmering Loader**:
+  * The model renders pure text loaders for thinking/tool steps: `"Thinking"` or `"Running [command]"` (e.g. `Running find /Users/betterclever ...`).
+  * Shimmer state utilizes keyframe sweeps (`loading-shimmer-pure-text _cadencedShimmer_18j3y_1 _cadencedShimmerActive_18j3y_46`) with background sweeps and highlights.
+
+### B. Nesting & Collapsible Tool Call Cards
+* **Tool / Commands Summary Header**:
+  * Multiple tool steps are grouped under a single button row: `"Ran [N] commands"` (e.g., `"Ran 2 commands"`).
+* **Collapsible Command Row Structure**:
+  * Rendered as nested, individual buttons (`button.group/activity-header`) within the group.
+  * Header shows the exact command line/description (e.g. `$ git status --short` or `rg --files ...`).
+  * Timing status listed on the right side: `"Ran for [time]s"` or `"Running for [time]s"`.
+* **Standard Terminal Code Block Output**:
+  * Expanding a command row slides down a formatted dark terminal panel (`bg-token-text-code-block-background border-token-input-background`).
+  * Code block top bar displays data type label (e.g., `"text"` or `"shell"`) and copying/wrapping icon toggles.
+  * Command stdin/stdout prefix styling uses a grey prefix (`$ git status --short`) followed by monospace outputs.
+
+
