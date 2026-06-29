@@ -167,9 +167,11 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertEqual(progress.importID, "import-1")
         XCTAssertEqual(progress.itemTypeResults.first?.itemType, .cONFIG)
 
-        let bufferingData = #"{"model":"gpt-5.4","reasons":["safety"],"threadId":"thread-1","turnId":"turn-1","useCases":["chat"]}"#.data(using: .utf8)!
+        let bufferingData = #"{"fasterModel":"gpt-5.4-mini","model":"gpt-5.4","reasons":["safety"],"showBufferingUi":true,"threadId":"thread-1","turnId":"turn-1","useCases":["chat"]}"#.data(using: .utf8)!
         let buffering = try JSONDecoder().decode(CodexSchemaModelSafetyBufferingUpdatedNotification.self, from: bufferingData)
         XCTAssertEqual(buffering.threadID, "thread-1")
+        XCTAssertEqual(buffering.fasterModel, "gpt-5.4-mini")
+        XCTAssertTrue(buffering.showBufferingUi)
         XCTAssertEqual(buffering.reasons, ["safety"])
 
         let permissions = CodexSchemaAdditionalFileSystemPermissions(
