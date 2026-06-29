@@ -282,12 +282,6 @@ final class CodexChatModel {
         }
     }
 
-    func handleComposerDictationRoute(_ route: CodexComposerDictationRoute) {
-        for activity in route.activities {
-            appendActivity(activity)
-        }
-    }
-
     func handleWorktreeHandoffCompletion(_ completion: CodexWorktreeHandoffCompletion) {
         appendActivity(completion.activity)
     }
@@ -709,14 +703,6 @@ final class CodexChatModel {
         ).draftRequest
         guard let request else { return }
         Task { await prepareAutomationDraft(request) }
-    }
-
-    func openCurrentChatInNewWindow() {
-        guard let threadID = currentThreadID else {
-            appendActivity(.notice, title: "Open window unavailable", detail: "No active chat to open")
-            return
-        }
-        appendActivity(CodexThreadLifecycleActionModel.openInNewWindowUnavailableActivity(threadID: threadID))
     }
 
     func resolveApprovalPrompt(id: String, approved: Bool) {

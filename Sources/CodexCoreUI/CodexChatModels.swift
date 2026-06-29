@@ -9,7 +9,6 @@ public struct CodexChatActionHandlers {
     public var copyChat: (() -> Void)?
     public var forkChat: (() -> Void)?
     public var addAutomation: (() -> Void)?
-    public var openInNewWindow: (() -> Void)?
 
     public init(
         pinChat: (() -> Void)? = nil,
@@ -18,8 +17,7 @@ public struct CodexChatActionHandlers {
         openSideChat: (() -> Void)? = nil,
         copyChat: (() -> Void)? = nil,
         forkChat: (() -> Void)? = nil,
-        addAutomation: (() -> Void)? = nil,
-        openInNewWindow: (() -> Void)? = nil
+        addAutomation: (() -> Void)? = nil
     ) {
         self.pinChat = pinChat
         self.renameChat = renameChat
@@ -28,7 +26,6 @@ public struct CodexChatActionHandlers {
         self.copyChat = copyChat
         self.forkChat = forkChat
         self.addAutomation = addAutomation
-        self.openInNewWindow = openInNewWindow
     }
 
     public var menuItems: [CodexChatActionMenuItem] {
@@ -62,8 +59,6 @@ public struct CodexChatActionHandlers {
             return forkChat
         case .addAutomation:
             return addAutomation
-        case .openInNewWindow:
-            return openInNewWindow
         }
     }
 }
@@ -76,7 +71,6 @@ public enum CodexChatActionID: String, CaseIterable, Equatable, Sendable {
     case copy
     case fork
     case addAutomation
-    case openInNewWindow
 
     public var title: String {
         switch self {
@@ -94,8 +88,6 @@ public enum CodexChatActionID: String, CaseIterable, Equatable, Sendable {
             return "Fork"
         case .addAutomation:
             return "Add automation…"
-        case .openInNewWindow:
-            return "Open in new window"
         }
     }
 
@@ -109,7 +101,7 @@ public enum CodexChatActionID: String, CaseIterable, Equatable, Sendable {
             return "⇧⌘A"
         case .openSideChat:
             return "⌥⌘S"
-        case .copy, .fork, .addAutomation, .openInNewWindow:
+        case .copy, .fork, .addAutomation:
             return nil
         }
     }

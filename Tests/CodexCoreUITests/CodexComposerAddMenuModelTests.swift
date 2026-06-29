@@ -7,7 +7,6 @@ final class CodexComposerAddMenuModelTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.title), [
             "Files and folders",
-            "Attach Warp",
             "Goal",
             "Plan mode",
             "Plugins",

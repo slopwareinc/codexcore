@@ -32,7 +32,6 @@ public struct CodexComposerBar: View {
     private let onOpenMCPDetails: (() -> Void)?
     private let onRefreshMCPServers: (() -> Void)?
     private let onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
-    private let onDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     @FocusState private var focused: Bool
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
@@ -67,7 +66,6 @@ public struct CodexComposerBar: View {
         onOpenMCPDetails: (() -> Void)? = nil,
         onRefreshMCPServers: (() -> Void)? = nil,
         onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
-        onDictationRoute: ((CodexComposerDictationRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil
     ) {
         self._draft = draft
@@ -95,7 +93,6 @@ public struct CodexComposerBar: View {
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onRefreshMCPServers = onRefreshMCPServers
         self.onAddMenuRoute = onAddMenuRoute
-        self.onDictationRoute = onDictationRoute
         self.onComposerChipClear = onComposerChipClear
     }
 
@@ -171,8 +168,6 @@ public struct CodexComposerBar: View {
                             .lineLimit(1)
                             .transition(.opacity)
                     }
-
-                    ComposerDictationButton(onRoute: handleDictationRoute)
 
                     if isSending {
                         // The composer stays live during a run: send steers or
@@ -293,10 +288,6 @@ public struct CodexComposerBar: View {
         if route.hostActions.contains(.enablePlanMode) {
             isPlanModeEnabled = true
         }
-    }
-
-    private func handleDictationRoute(_ route: CodexComposerDictationRoute) {
-        onDictationRoute?(route)
     }
 
     private func clearComposerChip(_ kind: CodexComposerChipKind) {
@@ -676,24 +667,6 @@ private struct CodexComposerPaletteKeyMonitor: NSViewRepresentable {
     }
 }
 #endif
-
-private struct ComposerDictationButton: View {
-    let onRoute: (CodexComposerDictationRoute) -> Void
-
-    var body: some View {
-        let state = CodexComposerDictationModel.buttonState
-
-        Button {
-            onRoute(CodexComposerDictationModel.route())
-        } label: {
-            ComposerChipLabel(systemImage: state.systemImage, title: nil)
-        }
-        .buttonStyle(.plain)
-        .disabled(!state.isEnabled)
-        .accessibilityLabel(state.accessibilityLabel)
-        .help(state.help)
-    }
-}
 
 private struct ComposerAddMenu: View {
     let canUsePlanMode: Bool

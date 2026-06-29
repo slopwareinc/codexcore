@@ -2,7 +2,6 @@ import Foundation
 
 public enum CodexComposerAddMenuItemID: String, CaseIterable, Equatable, Sendable, Identifiable {
     case filesAndFolders
-    case attachWarp
     case goal
     case planMode
     case plugins
@@ -111,7 +110,6 @@ public enum CodexComposerAddMenuModel {
     public static func observedItems(canUsePlanMode: Bool) -> [CodexComposerAddMenuItem] {
         [
             CodexComposerAddMenuItem(id: .filesAndFolders, title: "Files and folders", systemImage: "folder"),
-            CodexComposerAddMenuItem(id: .attachWarp, title: "Attach Warp", systemImage: "terminal"),
             CodexComposerAddMenuItem(id: .goal, title: "Goal", systemImage: "target"),
             CodexComposerAddMenuItem(id: .planMode, title: "Plan mode", systemImage: "list.bullet.clipboard", isEnabled: canUsePlanMode),
             CodexComposerAddMenuItem(id: .plugins, title: "Plugins", systemImage: "shippingbox"),
@@ -146,8 +144,6 @@ public enum CodexComposerAddMenuModel {
             return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPlugins])
         case .filesAndChats:
             return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openFilesAndChats])
-        case .attachWarp:
-            return boundaryRoute(itemID, title: "Attach Warp unavailable", detail: "Attach Warp is not wired in the native composer yet.")
         case .documents:
             return CodexComposerAddMenuRoute(itemID: itemID, hostActions: [.openPluginLauncher(.artifact(.documents))])
         case .pdf:
@@ -176,14 +172,6 @@ public enum CodexComposerAddMenuModel {
             chips.append(CodexComposerChipModel(kind: .plan, title: "Plan", clearAccessibilityLabel: "Clear plan"))
         }
         return chips
-    }
-
-    private static func boundaryRoute(
-        _ itemID: CodexComposerAddMenuItemID,
-        title: String,
-        detail: String
-    ) -> CodexComposerAddMenuRoute {
-        CodexComposerAddMenuRoute(itemID: itemID, activities: [boundaryActivity(title: title, detail: detail)])
     }
 
     private static func boundaryActivity(title: String, detail: String) -> CodexActivity {

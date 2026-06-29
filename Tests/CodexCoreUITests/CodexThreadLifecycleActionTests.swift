@@ -15,13 +15,4 @@ final class CodexThreadLifecycleActionTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Ask me what should trigger it"))
         XCTAssertTrue(prompt.contains("before changing any settings"))
     }
-
-    func testOpenInNewWindowBoundaryStaysExplicitlyUnavailable() {
-        let activity = CodexThreadLifecycleActionModel.openInNewWindowUnavailableActivity(threadID: "thread-123")
-
-        XCTAssertEqual(activity.kind, .notice)
-        XCTAssertEqual(activity.title, "Open window unavailable")
-        XCTAssertTrue(activity.detail.contains("thread-123"))
-        XCTAssertTrue(activity.detail.contains("not wired"))
-    }
 }

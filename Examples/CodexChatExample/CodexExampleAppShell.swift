@@ -187,7 +187,6 @@ struct CodexExampleAppShell: View {
                 onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },
-                onComposerDictationRoute: { model.handleComposerDictationRoute($0) },
                 onComposerChipClear: { model.clearComposerChip($0) },
                 onEnvironmentHandoffCompletion: { model.handleWorktreeHandoffCompletion($0) },
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
@@ -282,8 +281,7 @@ struct CodexExampleAppShell: View {
             openSideChat: { model.openSideChat() },
             copyChat: { model.copyChatTranscript() },
             forkChat: { Task { await model.forkCurrentChat() } },
-            addAutomation: { model.addAutomationForCurrentChat() },
-            openInNewWindow: { model.openCurrentChatInNewWindow() }
+            addAutomation: { model.addAutomationForCurrentChat() }
         )
     }
 }

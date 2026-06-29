@@ -591,8 +591,7 @@ final class CodexAgentUITests: XCTestCase {
             .openSideChat,
             .copy,
             .fork,
-            .addAutomation,
-            .openInNewWindow
+            .addAutomation
         ])
         XCTAssertEqual(actions.menuItems.map(\.displayTitle), [
             "Pin chat ⌥⌘P",
@@ -601,8 +600,7 @@ final class CodexAgentUITests: XCTestCase {
             "Open side chat ⌥⌘S",
             "Copy",
             "Fork",
-            "Add automation…",
-            "Open in new window"
+            "Add automation…"
         ])
         XCTAssertEqual(actions.menuItems.map(\.isEnabled), [
             true,
@@ -611,8 +609,7 @@ final class CodexAgentUITests: XCTestCase {
             true,
             true,
             false,
-            true,
-            false
+            true
         ])
 
         actions.perform(.pinChat)

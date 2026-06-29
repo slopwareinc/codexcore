@@ -70,7 +70,6 @@ public struct CodexChatWorkspaceView: View {
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
     private let onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
-    private let onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
     private let onCloseTranscriptMessage: ((UUID) -> Void)?
@@ -128,7 +127,6 @@ public struct CodexChatWorkspaceView: View {
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
-        onComposerDictationRoute: ((CodexComposerDictationRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
         onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
@@ -180,7 +178,6 @@ public struct CodexChatWorkspaceView: View {
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onComposerAddMenuRoute = onComposerAddMenuRoute
-        self.onComposerDictationRoute = onComposerDictationRoute
         self.onComposerChipClear = onComposerChipClear
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onCloseTranscriptMessage = onCloseTranscriptMessage
@@ -307,7 +304,6 @@ public struct CodexChatWorkspaceView: View {
                     onOpenMCPDetails: onOpenMCPDetails,
                     onRefreshMCPServers: onRefreshMCPServers,
                     onAddMenuRoute: onComposerAddMenuRoute,
-                    onDictationRoute: onComposerDictationRoute,
                     onComposerChipClear: onComposerChipClear
                 )
                 .frame(maxWidth: theme.spacing.composerMaxWidth + 32)
@@ -489,17 +485,6 @@ public struct CodexChatHeader: View {
             .frame(maxWidth: 360, alignment: .leading)
 
             Spacer(minLength: 12)
-
-            Button {
-                chatActions.perform(.openInNewWindow)
-            } label: {
-                Text("Open in")
-                    .font(theme.fonts.caption.weight(.semibold))
-                    .foregroundStyle(theme.colors.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .disabled(chatActions.handler(for: .openInNewWindow) == nil)
-            .help("Open in new window")
 
             ChatActionsMenu(actions: chatActions, onDisconnect: onDisconnect)
 
