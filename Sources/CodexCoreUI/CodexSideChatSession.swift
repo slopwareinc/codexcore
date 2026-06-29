@@ -84,7 +84,6 @@ public struct CodexSideChatSession: Sendable {
 
     public mutating func failSubmission(message: String) -> CodexActivity {
         failToStart()
-        appendMessage(.system, "Failed to start side chat: \(message)")
         return activity(.turn, title: "Side chat failed to start", detail: message)
     }
 

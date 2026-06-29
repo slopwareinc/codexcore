@@ -24,11 +24,9 @@ public struct CodexComposerDictationButtonState: Equatable, Sendable {
 
 public struct CodexComposerDictationRoute: Equatable, Sendable {
     public var activities: [CodexActivity]
-    public var noticeMessage: CodexChatMessage
 
-    public init(activities: [CodexActivity], noticeMessage: CodexChatMessage) {
+    public init(activities: [CodexActivity]) {
         self.activities = activities
-        self.noticeMessage = noticeMessage
     }
 }
 
@@ -43,26 +41,14 @@ public enum CodexComposerDictationModel {
 
     public static func route() -> CodexComposerDictationRoute {
         let detail = "Native dictation and microphone permission handling are not wired in this composer yet."
-        let notice = CodexChatMessage.Notice(
-            itemID: "composer-dictation-unavailable",
-            kind: "composer.dictation.unavailable",
-            title: "Dictation unavailable",
-            detail: detail,
-            severity: .warning
-        )
         return CodexComposerDictationRoute(
             activities: [
                 CodexActivity(
                     kind: .notice,
-                    title: notice.title,
-                    detail: notice.detail
+                    title: "Dictation unavailable",
+                    detail: detail
                 )
-            ],
-            noticeMessage: CodexChatMessage(
-                role: .notice,
-                text: notice.copyText,
-                notice: notice
-            )
+            ]
         )
     }
 }

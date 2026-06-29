@@ -177,59 +177,6 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(session.resultCard?.detail, "codex/implement-stats at /repo-worktrees/stats")
     }
 
-    func testWorktreeHandoffTranscriptEntryBuildsSuccessNoticeMessage() async {
-        let completion = await CodexWorktreeHandoffSession.perform(
-            modal: CodexWorktreeHandoffModalState(
-                threadTitle: "Implement stats",
-                sourcePath: "/repo",
-                targetPath: "/repo-worktrees/stats"
-            ),
-            environment: CodexProjectEnvironmentState(workspacePath: "/repo"),
-            provider: MockWorktreeHandoffProvider(result: CodexWorktreeHandoffResult(
-                title: "Implement stats",
-                branchName: "codex/implement-stats",
-                worktreePath: "/repo-worktrees/stats"
-            ))
-        )
-
-        let entry = CodexWorktreeHandoffTranscriptEntry(completion: completion)
-        let message = entry.message
-
-        XCTAssertEqual(message.role, .notice)
-        XCTAssertEqual(message.notice?.title, "Handed-off to worktree")
-        XCTAssertEqual(message.notice?.detail, "codex/implement-stats at /repo-worktrees/stats")
-        XCTAssertEqual(message.notice?.metadata, [
-            "Branch: codex/implement-stats",
-            "Path: /repo-worktrees/stats"
-        ])
-        XCTAssertEqual(message.notice?.severity, .success)
-        XCTAssertEqual(message.text, [
-            "Handed-off to worktree",
-            "codex/implement-stats at /repo-worktrees/stats",
-            "Branch: codex/implement-stats",
-            "Path: /repo-worktrees/stats"
-        ].joined(separator: "\n"))
-    }
-
-    func testWorktreeHandoffTranscriptEntryBuildsUnsupportedNoticeMessage() async {
-        let completion = await CodexWorktreeHandoffSession.perform(
-            modal: CodexWorktreeHandoffModalState(
-                threadTitle: "Implement stats",
-                sourcePath: "/repo",
-                targetPath: "/repo-worktrees/stats"
-            ),
-            environment: CodexProjectEnvironmentState(workspacePath: "/repo"),
-            provider: CodexUnsupportedWorktreeHandoffProvider()
-        )
-
-        let message = CodexWorktreeHandoffTranscriptEntry(completion: completion).message
-
-        XCTAssertEqual(message.role, .notice)
-        XCTAssertEqual(message.notice?.title, "Worktree handoff unavailable")
-        XCTAssertEqual(message.notice?.detail, "Worktree handoff is not available in this build")
-        XCTAssertEqual(message.notice?.metadata, [])
-        XCTAssertEqual(message.notice?.severity, .warning)
-    }
 }
 
 private struct MockWorktreeHandoffProvider: CodexWorktreeHandoffProviding {

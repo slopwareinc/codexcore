@@ -286,12 +286,10 @@ final class CodexChatModel {
         for activity in route.activities {
             appendActivity(activity)
         }
-        runtimeSession.append(route.noticeMessage)
     }
 
     func handleWorktreeHandoffCompletion(_ completion: CodexWorktreeHandoffCompletion) {
         appendActivity(completion.activity)
-        runtimeSession.append(CodexWorktreeHandoffTranscriptEntry(completion: completion).message)
     }
 
     func clearComposerChip(_ kind: CodexComposerChipKind) {
@@ -598,7 +596,6 @@ final class CodexChatModel {
             appendActivity(.notice, title: "Resumed chat", detail: threadID)
             await refreshRecentChats(using: codex)
         } catch {
-            appendMessage(.system, "Failed to resume chat: \(friendlyError(error))")
             appendActivity(.notice, title: "Resume failed", detail: friendlyError(error))
         }
     }
@@ -797,7 +794,6 @@ final class CodexChatModel {
             appendActivity(.notice, title: "Forked chat", detail: fork.sourceID)
             await refreshRecentChats(using: codex)
         } catch {
-            appendMessage(.system, "Failed to fork chat: \(friendlyError(error))")
             appendActivity(.notice, title: "Fork failed", detail: friendlyError(error))
         }
     }
@@ -878,9 +874,6 @@ final class CodexChatModel {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         } catch {
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
-            if messages.isEmpty {
-                appendMessage(.system, "Unable to load prior transcript: \(friendlyError(error))")
-            }
         }
     }
 
@@ -982,7 +975,6 @@ final class CodexChatModel {
         case .openReasoningSelector:
             appendActivity(.notice, title: "Reasoning", detail: "Use the composer reasoning selector")
         case .showCurrentStatus:
-            appendStatusPanel()
             appendActivity(.notice, title: "Status", detail: connectionState.label)
         case .forkCurrentChat:
             Task { await forkCurrentChat() }
@@ -1041,18 +1033,6 @@ final class CodexChatModel {
         promptRuntime.startInteractivePromptEventListener { [weak self] activity in
             self?.appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
-    }
-
-    private func appendMessage(_ role: Message.Role, _ text: String, detail: String? = nil) {
-        runtimeSession.appendMessage(role, text, detail: detail)
-    }
-
-    private func appendStatusPanel() {
-        let itemID = "slash-status-\(UUID().uuidString)"
-        runtimeSession.append(CodexStatusPanelModel(
-            context: statusSummaryContext,
-            rateLimits: accountRateLimitsSnapshot
-        ).message(itemID: itemID))
     }
 
     func dismissTranscriptMessage(_ id: UUID) {

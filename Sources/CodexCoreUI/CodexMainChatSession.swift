@@ -99,7 +99,6 @@ public struct CodexMainChatSession: Sendable {
 
     public mutating func failTurnSubmission(message: String) -> CodexActivity {
         failToStart()
-        appendMessage(.system, "Failed to start turn: \(message)")
         return CodexActivity(kind: .turn, title: "Turn failed to start", detail: message)
     }
 
@@ -121,7 +120,6 @@ public struct CodexMainChatSession: Sendable {
 
     public mutating func failGoalSubmission(message: String) -> CodexActivity {
         failToStart()
-        appendMessage(.system, "Failed to start goal: \(message)")
         return CodexActivity(kind: .turn, title: "Goal failed to start", detail: message)
     }
 

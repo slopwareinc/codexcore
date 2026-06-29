@@ -632,10 +632,12 @@ final class CodexChatRuntimePipelineTests: XCTestCase {
         XCTAssertEqual(beginTurn.title, "You asked Codex")
         XCTAssertTrue(runtimeState.isSending)
         XCTAssertEqual(runtimeState.messages.last?.text, "Inspect state")
+        let messagesAfterBeginTurn = runtimeState.messages
 
         let failedTurn = runtimeState.failTurnSubmission(message: "offline")
         XCTAssertEqual(failedTurn.title, "Turn failed to start")
         XCTAssertFalse(runtimeState.isSending)
+        XCTAssertEqual(runtimeState.messages, messagesAfterBeginTurn)
 
         let followUp = runtimeState.prepareFollowUp(
             prompt: "Next",
@@ -671,10 +673,12 @@ final class CodexChatRuntimePipelineTests: XCTestCase {
         XCTAssertEqual(sideActivities.map(\.title), ["Opened side chat", "Side chat asked"])
         XCTAssertTrue(runtimeState.isSideChatSending)
         XCTAssertEqual(runtimeState.sideChat?.messages.last?.text, "Side quest")
+        let sideMessagesAfterBegin = runtimeState.sideChat?.messages
 
         let failedSide = runtimeState.failSideChatSubmission(message: "side offline")
         XCTAssertEqual(failedSide.title, "Side chat failed to start")
         XCTAssertFalse(runtimeState.isSideChatSending)
+        XCTAssertEqual(runtimeState.sideChat?.messages, sideMessagesAfterBegin)
     }
 
     func testOpeningSideChatCreatesEmptyTabWithoutMutatingMainTranscript() {

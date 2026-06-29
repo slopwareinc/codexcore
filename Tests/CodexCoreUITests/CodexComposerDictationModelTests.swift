@@ -19,9 +19,5 @@ final class CodexComposerDictationModelTests: XCTestCase {
         XCTAssertEqual(route.activities.first?.kind, .notice)
         XCTAssertTrue(route.activities.first?.detail.contains("microphone permission") == true)
         XCTAssertTrue(route.activities.first?.detail.contains("not wired") == true)
-        XCTAssertEqual(route.noticeMessage.role, .notice)
-        XCTAssertEqual(route.noticeMessage.notice?.title, "Dictation unavailable")
-        XCTAssertEqual(route.noticeMessage.notice?.severity, .warning)
-        XCTAssertTrue(route.noticeMessage.notice?.detail.contains("microphone permission") == true)
     }
 }

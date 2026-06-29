@@ -87,11 +87,6 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         )
     }
 
-    public func message(itemID: String = "slash-status-panel") -> CodexChatMessage {
-        let notice = notice(itemID: itemID)
-        return CodexChatMessage(role: .notice, text: notice.copyText, parseContent: false, notice: notice)
-    }
-
     private var encodedMetadata: [String] {
         [
             "session=\(sessionID)",
@@ -258,11 +253,6 @@ public struct CodexMCPStatusPanelModel: Equatable, Sendable {
             metadata: encodedMetadata,
             severity: .info
         )
-    }
-
-    public func message(itemID: String = "slash-mcp-panel") -> CodexChatMessage {
-        let notice = notice(itemID: itemID)
-        return CodexChatMessage(role: .notice, text: notice.copyText, parseContent: false, notice: notice)
     }
 
     private var encodedMetadata: [String] {
