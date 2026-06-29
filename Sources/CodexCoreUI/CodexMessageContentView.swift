@@ -7,42 +7,12 @@ import AppKit
 import UIKit
 #endif
 
-/// Renders parsed assistant content blocks: prose, code blocks, and inline images.
-///
-/// The view is split into a cached `CodexBlock` projection (the new
-/// fast path) and a fallback `AssistantRenderBlock` path for callers
-/// that pre-parsed their content. Both paths render through the same
-/// block views in `CodexBlockView`, so scroll-back is always an O(1)
-/// cache hit.
+/// Renders projected assistant content blocks: prose, code blocks, and inline images.
 public struct CodexAssistantContentView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let blocks: [CodexBlock]
     private let cacheNamespace: String
-
-    public init(blocks: [AssistantRenderBlock], cacheNamespace: String? = nil) {
-        let namespace = cacheNamespace ?? UUID().uuidString
-        self.cacheNamespace = namespace
-        // Map pre-parsed render blocks to the new projector's block
-        // type. Code and image blocks stay as-is; markdown blocks are
-        // re-projected so we get streaming-aware caching, tables, and
-        // headings for free.
-        self.blocks = blocks.enumerated().flatMap { index, block in
-            switch block {
-            case .markdown(let markdown):
-                return CodexBlockProjector.project(
-                    markdown,
-                    previous: nil,
-                    streaming: false,
-                    cacheNamespace: "\(namespace):legacy:\(index)"
-                )
-            case .codeBlock(let language, let code):
-                return [CodexBlock.code(id: "\(namespace):legacy:\(index)", language: language, code: code, complete: true)]
-            case .inlineImage:
-                return [CodexBlock.htmlFallback(id: "\(namespace):legacy:\(index)", text: "[inline image]")]
-            }
-        }
-    }
 
     /// Direct-from-text initializer. Preferred for streaming
     /// assistant messages because it lets the projector reuse the
@@ -75,33 +45,6 @@ public struct CodexAssistantContentView: View {
                     .id(block.id)
             }
         }
-    }
-}
-
-/// Chat-tuned GitHub Flavored Markdown renderer.
-///
-/// Kept for backwards compatibility with callers that hold a raw
-/// markdown string. New callers should prefer
-/// `CodexAssistantContentView(text:isStreaming:cacheNamespace:)` so
-/// the projector can do tail-only streaming updates.
-public struct CodexMarkdownText: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    private let raw: String
-    private let cacheID: String
-
-    public init(_ raw: String, cacheID: String? = nil) {
-        self.raw = raw
-        self.cacheID = cacheID ?? UUID().uuidString
-    }
-
-    public var body: some View {
-        CodexAssistantContentView(
-            text: raw,
-            isStreaming: false,
-            cacheNamespace: cacheID
-        )
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

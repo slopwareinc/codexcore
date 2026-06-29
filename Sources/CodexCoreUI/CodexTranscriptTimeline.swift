@@ -4,7 +4,6 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
     case message(CodexChatMessage)
     case operationAggregate(id: String, rows: [CodexLiveTurnOperationRow])
     case fileChangeAggregate(id: String, changes: [CodexChatMessage.FileChange])
-    case assistantTurnHeader(id: String, assistantName: String)
     case assistantLifecycle(id: String, events: [CodexAgentLifecycleEvent])
     case assistantBlock(id: String, block: CodexBlock)
     case assistantStreamingWorking(id: String, text: String, isEmpty: Bool)
@@ -18,8 +17,6 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
             return "op-agg-\(id)"
         case .fileChangeAggregate(let id, _):
             return "file-agg-\(id)"
-        case .assistantTurnHeader(let id, _):
-            return "asst-hdr-\(id)"
         case .assistantLifecycle(let id, _):
             return "asst-life-\(id)"
         case .assistantBlock(let id, _):
@@ -137,9 +134,6 @@ enum CodexTranscriptTimelineBuilder {
             let primaryID = primaryMessage?.id.uuidString
                 ?? pendingLifecycleEvents.first?.id.uuidString
                 ?? "assistant-turn"
-            
-            // Header
-            compacted.append(.assistantTurnHeader(id: primaryID, assistantName: "Codex"))
             
             // Streamed messages (prior to primary)
             let streamMessages = pendingAssistantMessages.filter { $0.id != primaryMessage?.id }

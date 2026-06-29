@@ -206,8 +206,6 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
             CodexAgentRow {
                 CodexAggregateFileChangeCard(changes: changes)
             }
-        case .assistantTurnHeader:
-            EmptyView()
         case .assistantLifecycle(_, let events):
             CodexAgentRow(visibility: .hidden) {
                 CodexSubagentRunInlineView(events: events)
@@ -484,81 +482,6 @@ public struct CodexMessageRow: View {
         guard let onCloseMessage else { return nil }
         return { onCloseMessage(message.id) }
     }
-}
-
-public struct CodexAssistantTurnGroupView: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    private let messages: [CodexChatMessage]
-    private let lifecycleEvents: [CodexAgentLifecycleEvent]
-
-    public init(messages: [CodexChatMessage], lifecycleEvents: [CodexAgentLifecycleEvent] = []) {
-        self.messages = messages
-        self.lifecycleEvents = lifecycleEvents
-    }
-
-    public var body: some View {
-        CodexAgentRow(visibility: .hidden) {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(textStreamMessages) { message in
-                    assistantContent(message, showsResponseActions: false)
-                }
-
-                if !lifecycleEvents.isEmpty {
-                    CodexSubagentRunInlineView(events: lifecycleEvents)
-                }
-
-                if let primaryMessage {
-                    assistantContent(primaryMessage, showsResponseActions: true)
-                }
-            }
-            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
-        }
-    }
-
-    private var primaryMessage: CodexChatMessage? {
-        messages.last(where: { $0.detail == "final_answer" }) ?? messages.last
-    }
-
-    private var textStreamMessages: [CodexChatMessage] {
-        guard let primaryID = primaryMessage?.id else { return messages }
-        return messages.filter { $0.id != primaryID }
-    }
-
-    @ViewBuilder
-    private func assistantContent(_ message: CodexChatMessage, showsResponseActions: Bool) -> some View {
-        if message.isStreaming {
-            HStack(alignment: .bottom, spacing: 9) {
-                if message.text.isEmpty {
-                    CodexThinkingShimmer()
-                } else {
-                    StreamingAssistantText(text: message.text)
-                }
-                CodexWorkingSpinnerBadge()
-                    .padding(.bottom, message.text.isEmpty ? 1 : 2)
-            }
-        } else {
-            if let projected = message.projectedBlocks {
-                CodexAssistantContentView(
-                    projectedBlocks: projected,
-                    cacheNamespace: message.id.uuidString
-                )
-            } else {
-                CodexAssistantContentView(
-                    text: message.text,
-                    isStreaming: false,
-                    cacheNamespace: message.id.uuidString
-                )
-            }
-            if showsResponseActions {
-                let actionTitles = CodexLiveTurnModel.responseActionTitles(for: message)
-                if !actionTitles.isEmpty {
-                    CodexResponseActionRow(titles: actionTitles, copyText: message.text)
-                }
-            }
-        }
-    }
-
 }
 
 public enum CodexAgentAvatarVisibility {

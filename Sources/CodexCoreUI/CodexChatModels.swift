@@ -440,7 +440,6 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
     public var detail: String?
     public var isStreaming: Bool
     public var createdAt: Date
-    public var renderBlocks: [AssistantRenderBlock]
     public var commandRun: CommandRun?
     public var fileChange: FileChange?
     public var planUpdate: PlanUpdate?
@@ -448,6 +447,14 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
     public var notice: Notice?
     public var reasoningBlock: ReasoningBlock?
     public var projectedBlocks: [CodexBlock]?
+
+    public var renderBlocks: [AssistantRenderBlock] {
+        get { MessageContentBridge.assistantRenderBlocks(text) }
+        set {
+            text = Self.text(fromLegacyRenderBlocks: newValue)
+            projectedBlocks = CodexBlockProjector.project(text, streaming: isStreaming, cacheNamespace: id.uuidString)
+        }
+    }
 
     public init(
         id: UUID = UUID(),
@@ -467,23 +474,21 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.role = role
-        self.text = text
+        self.text = text.isEmpty ? Self.text(fromLegacyRenderBlocks: renderBlocks) : text
         self.detail = detail
         self.isStreaming = isStreaming
         self.createdAt = createdAt
-        self.renderBlocks = renderBlocks ?? (parseContent ? Self.renderBlocks(for: text) : [.markdown(text)])
         self.commandRun = commandRun
         self.fileChange = fileChange
         self.planUpdate = planUpdate
         self.toolCall = toolCall
         self.notice = notice
         self.reasoningBlock = reasoningBlock
-        self.projectedBlocks = parseContent ? CodexBlockProjector.project(text, streaming: isStreaming, cacheNamespace: id.uuidString) : nil
+        self.projectedBlocks = parseContent ? CodexBlockProjector.project(self.text, streaming: isStreaming, cacheNamespace: id.uuidString) : nil
     }
 
     public mutating func setText(_ text: String, parseContent: Bool = true) {
         self.text = text
-        renderBlocks = parseContent ? Self.renderBlocks(for: text) : [.markdown(text)]
         if parseContent {
             projectedBlocks = CodexBlockProjector.project(text, streaming: false, cacheNamespace: id.uuidString)
         } else {
@@ -499,6 +504,25 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
             streaming: true,
             cacheNamespace: id.uuidString
         )
+    }
+
+    private static func text(fromLegacyRenderBlocks blocks: [AssistantRenderBlock]?) -> String {
+        guard let blocks, !blocks.isEmpty else { return "" }
+
+        return blocks.map { block in
+            switch block {
+            case .markdown(let markdown):
+                return markdown
+            case .codeBlock(let language, let code):
+                let trimmedLanguage = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let fence = trimmedLanguage.isEmpty ? "```" : "```\(trimmedLanguage)"
+                return "\(fence)\n\(code)\n```"
+            case .inlineImage:
+                return "[inline image]"
+            }
+        }
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n\n")
     }
 
 }

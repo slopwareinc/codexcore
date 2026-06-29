@@ -121,10 +121,6 @@ final class CodexChatTranscriptTests: XCTestCase {
         }
 
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: events)
-        let assistantHeaders = timeline.filter {
-            if case .assistantTurnHeader = $0 { return true }
-            return false
-        }
         let lifecycleGroups = timeline.compactMap {
             if case .assistantLifecycle(_, let events) = $0 { return events }
             return nil
@@ -135,7 +131,6 @@ final class CodexChatTranscriptTests: XCTestCase {
         }
 
         XCTAssertGreaterThan(lifecycleGroups.count, 1)
-        XCTAssertEqual(assistantHeaders.count, messages.count)
         XCTAssertEqual(assistantBlocks.count, messages.count)
         XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, events.count)
         XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
@@ -157,7 +152,6 @@ final class CodexChatTranscriptTests: XCTestCase {
         let secondBuild = CodexTranscriptTimelineBuilder.build(messages: [], lifecycleEvents: events)
 
         XCTAssertEqual(firstBuild.map(\.id), secondBuild.map(\.id))
-        XCTAssertTrue(firstBuild.map(\.id).contains("asst-hdr-\(eventID.uuidString)"))
         XCTAssertTrue(firstBuild.map(\.id).contains("asst-life-\(eventID.uuidString)"))
     }
 
@@ -227,10 +221,6 @@ final class CodexChatTranscriptTests: XCTestCase {
         let fixture = largeTranscriptFixture(turnCount: 80)
 
         let timeline = CodexTranscriptTimelineBuilder.build(messages: fixture.messages, lifecycleEvents: fixture.lifecycleEvents)
-        let assistantHeaders = timeline.filter {
-            if case .assistantTurnHeader = $0 { return true }
-            return false
-        }
         let assistantBlocks = timeline.filter {
             if case .assistantBlock = $0 { return true }
             return false
@@ -254,7 +244,6 @@ final class CodexChatTranscriptTests: XCTestCase {
 
         XCTAssertEqual(fixture.messages.count, 480)
         XCTAssertEqual(fixture.lifecycleEvents.count, 240)
-        XCTAssertEqual(assistantHeaders.count, fixture.turnCount)
         XCTAssertEqual(assistantBlocks.count, fixture.turnCount)
         XCTAssertEqual(operationAggregates.count, fixture.turnCount)
         XCTAssertEqual(fileChangeAggregates.count, fixture.turnCount)

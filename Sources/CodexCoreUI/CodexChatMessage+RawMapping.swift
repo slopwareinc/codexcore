@@ -2,10 +2,6 @@ import Foundation
 import CodexCore
 
 public extension CodexChatMessage {
-    static func renderBlocks(for text: String) -> [AssistantRenderBlock] {
-        MessageContentBridge.assistantRenderBlocks(text)
-    }
-
     static func reasoningBlock(
         itemID: String,
         text: String = "",
