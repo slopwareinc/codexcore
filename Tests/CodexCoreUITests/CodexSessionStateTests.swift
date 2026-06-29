@@ -137,7 +137,7 @@ extension CodexAgentUITests {
             detail: "Inspect configured MCP servers",
             systemImage: "server.rack"
         ))
-        XCTAssertEqual(mcpRoute.hostActions, [.presentMCPStatus, .refreshMCPServers])
+        XCTAssertEqual(mcpRoute.hostActions, [.refreshMCPServers])
 
         session.draft = "/model"
         let modelRoute = session.routeSlashCommand(CodexSlashCommand(

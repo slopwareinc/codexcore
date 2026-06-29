@@ -197,7 +197,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             return CodexComposerSlashCommandRoute(hostActions: [.compactCurrentChat])
         case "mcp":
             clearDraft()
-            return CodexComposerSlashCommandRoute(hostActions: [.presentMCPStatus, .refreshMCPServers])
+            return CodexComposerSlashCommandRoute(hostActions: [.refreshMCPServers])
         case "pet":
             clearDraft()
             return route(activityTitle: "Pet", detail: "Pet controls are not available in this example yet")

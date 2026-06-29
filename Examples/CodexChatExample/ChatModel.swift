@@ -989,7 +989,7 @@ final class CodexChatModel {
         case .compactCurrentChat:
             Task { await compactCurrentChat() }
         case .presentMCPStatus:
-            appendMCPStatusPanel()
+            presentMCPStatus?()
         case .refreshMCPServers:
             Task { await refreshMCPServers() }
         }
@@ -1052,15 +1052,6 @@ final class CodexChatModel {
         runtimeSession.append(CodexStatusPanelModel(
             context: statusSummaryContext,
             rateLimits: accountRateLimitsSnapshot
-        ).message(itemID: itemID))
-    }
-
-    private func appendMCPStatusPanel() {
-        let itemID = "slash-mcp-\(UUID().uuidString)"
-        runtimeSession.append(CodexMCPStatusPanelModel(
-            servers: mcpServers,
-            isLoading: isLoadingMCPServers,
-            errorMessage: mcpErrorMessage
         ).message(itemID: itemID))
     }
 
