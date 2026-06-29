@@ -206,13 +206,8 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
             CodexAgentRow {
                 CodexAggregateFileChangeCard(changes: changes)
             }
-        case .assistantTurnHeader(_, let name):
-            CodexAgentRow(showAvatar: true) {
-                Text(name)
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .padding(.bottom, 2)
-            }
+        case .assistantTurnHeader:
+            EmptyView()
         case .assistantLifecycle(_, let events):
             CodexAgentRow(visibility: .hidden) {
                 CodexSubagentRunInlineView(events: events)
@@ -479,7 +474,7 @@ public struct CodexMessageRow: View {
                 }
             }
         case .assistant:
-            CodexAgentRow {
+            CodexAgentRow(visibility: .hidden) {
                 CodexAssistantMessageView(message: message, assistantName: assistantName)
             }
         }
@@ -503,14 +498,8 @@ public struct CodexAssistantTurnGroupView: View {
     }
 
     public var body: some View {
-        CodexAgentRow {
+        CodexAgentRow(visibility: .hidden) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Text("Codex")
-                        .font(theme.fonts.label)
-                        .foregroundStyle(theme.colors.textSecondary)
-                }
-
                 ForEach(textStreamMessages) { message in
                     assistantContent(message, showsResponseActions: false)
                 }
@@ -632,12 +621,6 @@ public struct CodexAssistantMessageView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(assistantName)
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textSecondary)
-            }
-
             if message.isStreaming {
                 HStack(alignment: .bottom, spacing: 9) {
                     if message.text.isEmpty {
