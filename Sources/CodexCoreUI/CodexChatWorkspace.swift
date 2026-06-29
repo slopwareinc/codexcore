@@ -46,6 +46,9 @@ public struct CodexChatWorkspaceView: View {
     private let approvalOptions: [CodexApprovalSelection]
     private let modelOptions: [CodexModelSelection]
     private let slashCommands: [CodexSlashCommand]
+    private let mcpServers: [CodexMCPServerStatus]
+    private let isLoadingMCPServers: Bool
+    private let mcpErrorMessage: String?
     @Binding private var approvalSelection: CodexApprovalSelection
     @Binding private var isPlanModeEnabled: Bool
     @Binding private var modelSelection: CodexModelSelection
@@ -72,6 +75,7 @@ public struct CodexChatWorkspaceView: View {
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
     private let onCloseTranscriptMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
+    private let onRefreshMCPServers: (() -> Void)?
     private let onToggleSidebar: () -> Void
     private let onDisconnect: () -> Void
     private let onPromptSelected: ((String) -> Void)?
@@ -100,6 +104,9 @@ public struct CodexChatWorkspaceView: View {
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
+        mcpServers: [CodexMCPServerStatus] = [],
+        isLoadingMCPServers: Bool = false,
+        mcpErrorMessage: String? = nil,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
@@ -126,6 +133,7 @@ public struct CodexChatWorkspaceView: View {
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
         onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
         onOpenMCPDetails: (() -> Void)? = nil,
+        onRefreshMCPServers: (() -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void,
         onPromptSelected: ((String) -> Void)? = nil,
@@ -148,6 +156,9 @@ public struct CodexChatWorkspaceView: View {
         self.approvalOptions = approvalOptions
         self.modelOptions = modelOptions
         self.slashCommands = slashCommands
+        self.mcpServers = mcpServers
+        self.isLoadingMCPServers = isLoadingMCPServers
+        self.mcpErrorMessage = mcpErrorMessage
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
         self._modelSelection = modelSelection
@@ -174,6 +185,7 @@ public struct CodexChatWorkspaceView: View {
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onCloseTranscriptMessage = onCloseTranscriptMessage
         self.onOpenMCPDetails = onOpenMCPDetails
+        self.onRefreshMCPServers = onRefreshMCPServers
         self.onToggleSidebar = onToggleSidebar
         self.onDisconnect = onDisconnect
         self.onPromptSelected = onPromptSelected
@@ -279,6 +291,9 @@ public struct CodexChatWorkspaceView: View {
                     modelOptions: modelOptions,
                     reasoningSelection: $reasoningSelection,
                     slashCommands: slashCommands,
+                    mcpServers: mcpServers,
+                    isLoadingMCPServers: isLoadingMCPServers,
+                    mcpErrorMessage: mcpErrorMessage,
                     isSending: isSending,
                     canSend: canSend,
                     canUsePlanMode: canUsePlanMode,
@@ -289,6 +304,8 @@ public struct CodexChatWorkspaceView: View {
                     onSend: onSend,
                     onInterrupt: onInterrupt,
                     onSlashCommandSelected: onSlashCommandSelected,
+                    onOpenMCPDetails: onOpenMCPDetails,
+                    onRefreshMCPServers: onRefreshMCPServers,
                     onAddMenuRoute: onComposerAddMenuRoute,
                     onDictationRoute: onComposerDictationRoute,
                     onComposerChipClear: onComposerChipClear

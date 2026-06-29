@@ -16,6 +16,9 @@ public struct CodexComposerBar: View {
     private let modelOptions: [CodexModelSelection]
     @Binding private var reasoningSelection: CodexReasoningSelection
     private let slashCommands: [CodexSlashCommand]
+    private let mcpServers: [CodexMCPServerStatus]
+    private let isLoadingMCPServers: Bool
+    private let mcpErrorMessage: String?
     private let isSending: Bool
     private let canSend: Bool
     private let canUsePlanMode: Bool
@@ -26,6 +29,8 @@ public struct CodexComposerBar: View {
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
+    private let onOpenMCPDetails: (() -> Void)?
+    private let onRefreshMCPServers: (() -> Void)?
     private let onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
     private let onDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
@@ -34,6 +39,7 @@ public struct CodexComposerBar: View {
     @State private var activeCommandSelector: CodexComposerCommandSelector?
     @State private var commandSelectorSelection = CodexComposerPaletteSelection()
     @State private var isSlashPaletteDismissed = false
+    @State private var isMCPStatusPalettePresented = false
 
     public init(
         draft: Binding<String>,
@@ -45,6 +51,9 @@ public struct CodexComposerBar: View {
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
+        mcpServers: [CodexMCPServerStatus] = [],
+        isLoadingMCPServers: Bool = false,
+        mcpErrorMessage: String? = nil,
         isSending: Bool,
         canSend: Bool,
         canUsePlanMode: Bool = true,
@@ -55,6 +64,8 @@ public struct CodexComposerBar: View {
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
+        onOpenMCPDetails: (() -> Void)? = nil,
+        onRefreshMCPServers: (() -> Void)? = nil,
         onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
         onDictationRoute: ((CodexComposerDictationRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil
@@ -68,6 +79,9 @@ public struct CodexComposerBar: View {
         self.modelOptions = modelOptions
         self._reasoningSelection = reasoningSelection
         self.slashCommands = slashCommands
+        self.mcpServers = mcpServers
+        self.isLoadingMCPServers = isLoadingMCPServers
+        self.mcpErrorMessage = mcpErrorMessage
         self.isSending = isSending
         self.canSend = canSend
         self.canUsePlanMode = canUsePlanMode
@@ -78,6 +92,8 @@ public struct CodexComposerBar: View {
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.onSlashCommandSelected = onSlashCommandSelected
+        self.onOpenMCPDetails = onOpenMCPDetails
+        self.onRefreshMCPServers = onRefreshMCPServers
         self.onAddMenuRoute = onAddMenuRoute
         self.onDictationRoute = onDictationRoute
         self.onComposerChipClear = onComposerChipClear
@@ -85,7 +101,18 @@ public struct CodexComposerBar: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let activeCommandSelector, !activeSelectorRows.isEmpty {
+            if isMCPStatusPalettePresented {
+                CodexComposerMCPStatusPalette(
+                    model: mcpStatusPaletteModel,
+                    onOpenDetails: onOpenMCPDetails,
+                    onRefresh: onRefreshMCPServers,
+                    onClose: {
+                        isMCPStatusPalettePresented = false
+                    }
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if let activeCommandSelector, !activeSelectorRows.isEmpty {
                 CodexComposerInlineSelectorPalette(
                     title: activeCommandSelector.title,
                     rows: activeSelectorRows,
@@ -168,6 +195,9 @@ public struct CodexComposerBar: View {
             if activeCommandSelector != nil, !draft.isEmpty {
                 activeCommandSelector = nil
             }
+            if isMCPStatusPalettePresented, !draft.isEmpty {
+                isMCPStatusPalettePresented = false
+            }
             isSlashPaletteDismissed = false
             reconcilePaletteSelections()
         }
@@ -237,7 +267,15 @@ public struct CodexComposerBar: View {
     }
 
     private var isAnyPaletteVisible: Bool {
-        isSlashPaletteVisible || (activeCommandSelector != nil && !activeSelectorRows.isEmpty)
+        isMCPStatusPalettePresented || isSlashPaletteVisible || (activeCommandSelector != nil && !activeSelectorRows.isEmpty)
+    }
+
+    private var mcpStatusPaletteModel: CodexMCPStatusPanelModel {
+        CodexMCPStatusPanelModel(
+            servers: mcpServers,
+            isLoading: isLoadingMCPServers,
+            errorMessage: mcpErrorMessage
+        )
     }
 
     private var composerChips: [CodexComposerChipModel] {
@@ -320,6 +358,10 @@ public struct CodexComposerBar: View {
                 return true
             }
         case .select:
+            if isMCPStatusPalettePresented {
+                openMCPDetailsFromPalette()
+                return true
+            }
             return selectHighlightedPaletteRow()
         case .dismiss:
             return dismissActivePalette()
@@ -349,6 +391,11 @@ public struct CodexComposerBar: View {
 
     @discardableResult
     private func dismissActivePalette() -> Bool {
+        if isMCPStatusPalettePresented {
+            isMCPStatusPalettePresented = false
+            return true
+        }
+
         if activeCommandSelector != nil {
             activeCommandSelector = nil
             commandSelectorSelection.clear()
@@ -387,8 +434,11 @@ public struct CodexComposerBar: View {
             openCommandSelector(.model)
         case "reasoning":
             openCommandSelector(.reasoning)
+        case "mcp":
+            openMCPStatusPalette(command)
         default:
             activeCommandSelector = nil
+            isMCPStatusPalettePresented = false
             draft = command.draftText ?? ""
             onSlashCommandSelected?(command)
         }
@@ -396,8 +446,22 @@ public struct CodexComposerBar: View {
 
     private func openCommandSelector(_ selector: CodexComposerCommandSelector) {
         draft = ""
+        isMCPStatusPalettePresented = false
         activeCommandSelector = selector
         commandSelectorSelection.reconcile(availableIDs: selectorRows(for: selector).filter(\.isEnabled).map(\.id))
+    }
+
+    private func openMCPStatusPalette(_ command: CodexSlashCommand) {
+        draft = ""
+        activeCommandSelector = nil
+        isMCPStatusPalettePresented = true
+        onSlashCommandSelected?(command)
+    }
+
+    private func openMCPDetailsFromPalette() {
+        guard let onOpenMCPDetails else { return }
+        isMCPStatusPalettePresented = false
+        onOpenMCPDetails()
     }
 
     private func selectActiveSelectorRow(_ row: CodexComposerSelectorRow) {
@@ -465,6 +529,7 @@ public struct CodexComposerBar: View {
 
     private func selectMention(_ result: FuzzyFileSearchResult) {
         activeCommandSelector = nil
+        isMCPStatusPalettePresented = false
         draft = CodexMentionQuery.applyingSelection(result.fileName, to: draft)
         onMentionSelected?(result)
     }
@@ -1029,6 +1094,120 @@ private struct CodexSlashCommandPalette: View {
             names.append(command.section)
         }
         return names
+    }
+}
+
+private struct CodexComposerMCPStatusPalette: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let model: CodexMCPStatusPanelModel
+    let onOpenDetails: (() -> Void)?
+    let onRefresh: (() -> Void)?
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                Image(systemName: "server.rack")
+                    .font(theme.fonts.label)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .frame(width: 18)
+
+                Text(model.title)
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+
+                Text(model.detail)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                if let onRefresh {
+                    Button(action: onRefresh) {
+                        Image(systemName: "arrow.clockwise")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .help("Refresh MCP servers")
+                }
+
+                if let onOpenDetails {
+                    Button {
+                        onClose()
+                        onOpenDetails()
+                    } label: {
+                        Image(systemName: "arrow.up.right.square")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .help("Open MCP details")
+                }
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textTertiary)
+                .help("Close")
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 9)
+
+            if !model.rows.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(model.rows) { row in
+                            serverRow(row)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+                }
+                .frame(maxHeight: 188, alignment: .top)
+            }
+        }
+        .frame(maxWidth: 736, alignment: .leading)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+    }
+
+    private func serverRow(_ row: CodexMCPStatusPanelServerRow) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: row.enabledLabel == "Enabled" ? "checkmark.circle" : "minus.circle")
+                .font(theme.fonts.label)
+                .foregroundStyle(row.enabledLabel == "Enabled" ? theme.colors.success : theme.colors.textTertiary)
+                .frame(width: 18)
+
+            Text(row.displayName)
+                .font(theme.fonts.caption.weight(.semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+                .lineLimit(1)
+
+            Text(row.authLabel)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+                .lineLimit(1)
+
+            Text(row.startupLabel)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            Text(row.inventorySummary)
+                .font(theme.fonts.micro)
+                .foregroundStyle(theme.colors.textTertiary)
+                .lineLimit(1)
+        }
+        .frame(height: 29)
+        .padding(.horizontal, 10)
+        .background(theme.colors.surfaceElevated.opacity(theme.effects.textFaintOpacity), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+        .help(row.name)
     }
 }
 

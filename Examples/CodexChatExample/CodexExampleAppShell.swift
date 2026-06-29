@@ -164,6 +164,9 @@ struct CodexExampleAppShell: View {
                 approvalOptions: model.approvalOptions,
                 modelOptions: model.modelOptions,
                 slashCommands: model.slashCommands,
+                mcpServers: model.mcpServers,
+                isLoadingMCPServers: model.isLoadingMCPServers,
+                mcpErrorMessage: model.mcpErrorMessage,
                 approvalSelection: $model.approvalSelection,
                 isPlanModeEnabled: $model.isPlanModeEnabled,
                 modelSelection: $model.modelSelection,
@@ -190,6 +193,7 @@ struct CodexExampleAppShell: View {
                 onEnvironmentHandoffCompletion: { model.handleWorktreeHandoffCompletion($0) },
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
+                onRefreshMCPServers: { Task { await model.refreshMCPServers() } },
                 onToggleSidebar: {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
                         model.toggleSidebarCollapsed()
