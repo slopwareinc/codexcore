@@ -13,7 +13,6 @@ struct CodexExampleProjectSidebar: View {
     let onToggleCollapsed: () -> Void
     let onToggleProject: (String) -> Void
     let onStartProjectChat: (String) -> Void
-    let onProjectActions: (String) -> Void
     let onSelectProject: (String) -> Void
     let onOpenFolder: () -> Void
     let onSelectChat: (CodexThreadSummary) -> Void
@@ -151,7 +150,6 @@ struct CodexExampleProjectSidebar: View {
                     isThreadReady: group.isSelected && isThreadReady,
                     onToggleProject: onToggleProject,
                     onStartProjectChat: onStartProjectChat,
-                    onProjectActions: onProjectActions,
                     onSelectProject: onSelectProject,
                     onSelectChat: onSelectChat,
                     onTogglePinChat: onTogglePinChat,
@@ -272,7 +270,6 @@ private struct ProjectSidebarGroupView: View {
     let isThreadReady: Bool
     let onToggleProject: (String) -> Void
     let onStartProjectChat: (String) -> Void
-    let onProjectActions: (String) -> Void
     let onSelectProject: (String) -> Void
     let onSelectChat: (CodexThreadSummary) -> Void
     let onTogglePinChat: (CodexThreadSummary) -> Void

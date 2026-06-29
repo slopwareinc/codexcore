@@ -451,15 +451,6 @@ final class CodexChatModel {
         }
     }
 
-    func prepareAutomationChat(prompt: String) async {
-        await prepareAutomationDraft(CodexAutomationDraftRequest(
-            prompt: prompt,
-            activityTitle: "Automation draft",
-            activityDetail: "Prepared automation chat",
-            startsNewChat: true
-        ))
-    }
-
     func performAutomationRouteAction(_ action: CodexAutomationRouteAction) {
         if let request = action.draftRequest {
             Task { await prepareAutomationDraft(request) }

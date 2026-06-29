@@ -132,26 +132,3 @@ struct SignInFlowView: View {
         }
     }
 }
-
-// MARK: - Preparing
-
-struct PreparingChatView: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let model: CodexChatModel
-
-    var body: some View {
-        CodexGlassPanel {
-            VStack(spacing: 16) {
-                ProgressView().controlSize(.large).tint(theme.colors.accent)
-                Text("Preparing your chat")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                Text(model.serverName.map { "Connected to \($0). Loading chat…" } ?? "Loading chat…")
-                    .font(.system(size: 14))
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-    }
-}

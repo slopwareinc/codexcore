@@ -33,10 +33,6 @@ extension CodexChatModel {
         runtimeSession.subagents
     }
 
-    var recentChats: [CodexThreadSummary] {
-        threadListSession.recentChats
-    }
-
     var allSidebarChats: [CodexThreadSummary] {
         threadListSession.allChats.isEmpty ? threadListSession.recentChats : threadListSession.allChats
     }
@@ -131,10 +127,6 @@ extension CodexChatModel {
         authSession.isAuthenticated
     }
 
-    var authLabel: String {
-        authSession.authLabel
-    }
-
     var deviceCodeURL: String? {
         authSession.deviceCodeURL
     }
@@ -155,10 +147,6 @@ extension CodexChatModel {
     var isPlanModeEnabled: Bool {
         get { configurationSession.isPlanModeEnabled }
         set { configurationSession.setPlanModeEnabled(newValue) }
-    }
-
-    var activeGoal: ThreadGoal? {
-        runtimeSession.activeGoal
     }
 
     var isGoalPursuitEnabled: Bool {
@@ -243,10 +231,6 @@ extension CodexChatModel {
 
     var showsChatWorkspace: Bool {
         isConnected && isAuthenticated
-    }
-
-    var canUseGoalPursuit: Bool {
-        showsChatWorkspace
     }
 
     var canSend: Bool {

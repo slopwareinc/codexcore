@@ -27,7 +27,6 @@ struct CodexExampleAppShell: View {
                 },
                 onToggleProject: { model.toggleSidebarProject($0) },
                 onStartProjectChat: { path in Task { await model.startNewChat(inProject: path) } },
-                onProjectActions: { _ in },
                 onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
                 onOpenFolder: { chooseWorkspaceFolder() },
                 onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },

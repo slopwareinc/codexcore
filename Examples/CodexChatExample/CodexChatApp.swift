@@ -136,12 +136,9 @@ struct CodexChatView: View {
                 } else if !model.isConnected {
                     WelcomeFlowView(model: model)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                } else if !model.isAuthenticated {
+                } else {
                     SignInFlowView(model: model, openURL: openURL)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
-                } else {
-                    PreparingChatView(model: model)
-                        .transition(.opacity)
                 }
             }
             .animation(.spring(response: 0.42, dampingFraction: 0.9), value: flowKey)
@@ -173,8 +170,7 @@ struct CodexChatView: View {
     private var flowKey: String {
         if model.showsChatWorkspace { return "chat" }
         if !model.isConnected { return "connect" }
-        if !model.isAuthenticated { return "sign-in" }
-        return "prepare"
+        return "sign-in"
     }
 }
 
