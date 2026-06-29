@@ -977,8 +977,10 @@ final class CodexChatModel {
             applyFastCommand()
         case .cycleReasoning:
             applyReasoningCommand()
-        case .showModelStatus:
-            appendActivity(.notice, title: "Model", detail: "\(modelSelection.displayName) \(reasoningSelection.displayName)")
+        case .openModelSelector:
+            appendActivity(.notice, title: "Model", detail: "Use the composer model selector")
+        case .openReasoningSelector:
+            appendActivity(.notice, title: "Reasoning", detail: "Use the composer reasoning selector")
         case .showCurrentStatus:
             appendStatusPanel()
             appendActivity(.notice, title: "Status", detail: connectionState.label)

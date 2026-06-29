@@ -139,6 +139,26 @@ extension CodexAgentUITests {
         ))
         XCTAssertEqual(mcpRoute.hostActions, [.presentMCPStatus, .refreshMCPServers])
 
+        session.draft = "/model"
+        let modelRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "model",
+            title: "Model",
+            detail: "Change model",
+            systemImage: "sparkles"
+        ))
+        XCTAssertEqual(modelRoute.hostActions, [.openModelSelector])
+        XCTAssertEqual(session.draft, "")
+
+        session.draft = "/reasoning"
+        let reasoningRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "reasoning",
+            title: "Reasoning",
+            detail: "Change reasoning effort",
+            systemImage: "brain"
+        ))
+        XCTAssertEqual(reasoningRoute.hostActions, [.openReasoningSelector])
+        XCTAssertEqual(session.draft, "")
+
         let draftRoute = session.routeSlashCommand(CodexSlashCommand(
             id: "feedback",
             title: "Feedback",

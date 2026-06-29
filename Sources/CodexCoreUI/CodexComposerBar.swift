@@ -1,5 +1,8 @@
 import SwiftUI
 import CodexCore
+#if canImport(AppKit)
+import AppKit
+#endif
 
 public struct CodexComposerBar: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -27,6 +30,10 @@ public struct CodexComposerBar: View {
     private let onDictationRoute: ((CodexComposerDictationRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     @FocusState private var focused: Bool
+    @State private var slashPaletteSelection = CodexComposerPaletteSelection()
+    @State private var activeCommandSelector: CodexComposerCommandSelector?
+    @State private var commandSelectorSelection = CodexComposerPaletteSelection()
+    @State private var isSlashPaletteDismissed = false
 
     public init(
         draft: Binding<String>,
@@ -78,10 +85,20 @@ public struct CodexComposerBar: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let slashQuery, !filteredSlashCommands.isEmpty {
+            if let activeCommandSelector, !activeSelectorRows.isEmpty {
+                CodexComposerInlineSelectorPalette(
+                    title: activeCommandSelector.title,
+                    rows: activeSelectorRows,
+                    selectedID: commandSelectorSelection.selectedID,
+                    onSelect: selectActiveSelectorRow
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if let slashQuery, isSlashPaletteVisible {
                 CodexSlashCommandPalette(
                     commands: filteredSlashCommands,
                     query: slashQuery,
+                    selectedCommandID: slashPaletteSelection.selectedID,
                     onSelect: selectSlashCommand
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -101,7 +118,10 @@ public struct CodexComposerBar: View {
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1...6)
                     .focused($focused)
-                    .onSubmit(onSend)
+                    .onSubmit(handleSubmit)
+                    .onKeyPress { keyPress in
+                        handleComposerKeyPress(keyPress)
+                    }
                     .padding(.leading, 6)
                     .padding(.vertical, 6)
 
@@ -140,9 +160,38 @@ public struct CodexComposerBar: View {
             .padding(10)
             .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         }
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            reconcilePaletteSelections()
+        }
+        .onChange(of: draft) { _, _ in
+            if activeCommandSelector != nil, !draft.isEmpty {
+                activeCommandSelector = nil
+            }
+            isSlashPaletteDismissed = false
+            reconcilePaletteSelections()
+        }
+        .onChange(of: filteredSlashCommandIDs) { _, _ in
+            reconcilePaletteSelections()
+        }
+        .onChange(of: activeCommandSelector) { _, _ in
+            reconcilePaletteSelections()
+        }
+        .onChange(of: activeSelectorRowIDs) { _, _ in
+            reconcilePaletteSelections()
+        }
         .onChange(of: mentionQuery) { _, query in
             onMentionQueryChanged?(query)
+        }
+        .background {
+            #if canImport(AppKit)
+            CodexComposerPaletteKeyMonitor(
+                isEnabled: isAnyPaletteVisible,
+                onKeyDown: handlePaletteKey
+            )
+            #else
+            EmptyView()
+            #endif
         }
     }
 
@@ -156,6 +205,39 @@ public struct CodexComposerBar: View {
 
     private var filteredSlashCommands: [CodexSlashCommand] {
         CodexSlashCommand.filteredCommands(from: slashCommands, matching: draft)
+    }
+
+    private var filteredSlashCommandIDs: [String] {
+        filteredSlashCommands.map(\.id)
+    }
+
+    private var isSlashPaletteVisible: Bool {
+        slashQuery != nil && activeCommandSelector == nil && !isSlashPaletteDismissed && !filteredSlashCommands.isEmpty
+    }
+
+    private var modelMenuState: CodexComposerModelMenuState {
+        CodexComposerModelMenuModel.state(
+            modelOptions: modelOptions,
+            selectedModel: modelSelection,
+            selectedReasoning: reasoningSelection
+        )
+    }
+
+    private var activeSelectorRows: [CodexComposerSelectorRow] {
+        guard let activeCommandSelector else { return [] }
+        return selectorRows(for: activeCommandSelector)
+    }
+
+    private var activeSelectorRowIDs: [String] {
+        activeSelectorRows.map(\.id)
+    }
+
+    private var activeSelectableRowIDs: [String] {
+        activeSelectorRows.filter(\.isEnabled).map(\.id)
+    }
+
+    private var isAnyPaletteVisible: Bool {
+        isSlashPaletteVisible || (activeCommandSelector != nil && !activeSelectorRows.isEmpty)
     }
 
     private var composerChips: [CodexComposerChipModel] {
@@ -189,16 +271,346 @@ public struct CodexComposerBar: View {
         }
     }
 
+    private func handleSubmit() {
+        if selectHighlightedPaletteRow() {
+            return
+        }
+        onSend()
+    }
+
+    private func handleComposerKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        guard keyPress.modifiers.isEmpty else { return .ignored }
+
+        switch keyPress.key {
+        case .downArrow:
+            return handlePaletteKey(.moveDown) ? .handled : .ignored
+        case .upArrow:
+            return handlePaletteKey(.moveUp) ? .handled : .ignored
+        case .return:
+            return handlePaletteKey(.select) ? .handled : .ignored
+        case .escape:
+            return handlePaletteKey(.dismiss) ? .handled : .ignored
+        default:
+            break
+        }
+
+        return .ignored
+    }
+
+    private func handlePaletteKey(_ key: CodexComposerPaletteKey) -> Bool {
+        guard isAnyPaletteVisible else { return false }
+
+        switch key {
+        case .moveDown:
+            if activeCommandSelector != nil {
+                commandSelectorSelection.moveDown(availableIDs: activeSelectableRowIDs)
+                return true
+            }
+            if isSlashPaletteVisible {
+                slashPaletteSelection.moveDown(availableIDs: filteredSlashCommandIDs)
+                return true
+            }
+        case .moveUp:
+            if activeCommandSelector != nil {
+                commandSelectorSelection.moveUp(availableIDs: activeSelectableRowIDs)
+                return true
+            }
+            if isSlashPaletteVisible {
+                slashPaletteSelection.moveUp(availableIDs: filteredSlashCommandIDs)
+                return true
+            }
+        case .select:
+            return selectHighlightedPaletteRow()
+        case .dismiss:
+            return dismissActivePalette()
+        }
+
+        return false
+    }
+
+    @discardableResult
+    private func selectHighlightedPaletteRow() -> Bool {
+        if activeCommandSelector != nil {
+            let selectedID = commandSelectorSelection.selectedID ?? activeSelectorRows.first?.id
+            guard let selectedID, let row = activeSelectorRows.first(where: { $0.id == selectedID }) else { return false }
+            selectActiveSelectorRow(row)
+            return true
+        }
+
+        if isSlashPaletteVisible {
+            let selectedID = slashPaletteSelection.selectedID ?? filteredSlashCommands.first?.id
+            guard let selectedID, let command = filteredSlashCommands.first(where: { $0.id == selectedID }) else { return false }
+            selectSlashCommand(command)
+            return true
+        }
+
+        return false
+    }
+
+    @discardableResult
+    private func dismissActivePalette() -> Bool {
+        if activeCommandSelector != nil {
+            activeCommandSelector = nil
+            commandSelectorSelection.clear()
+            return true
+        }
+
+        if isSlashPaletteVisible {
+            isSlashPaletteDismissed = true
+            slashPaletteSelection.clear()
+            return true
+        }
+
+        return false
+    }
+
+    private func reconcilePaletteSelections() {
+        if isSlashPaletteVisible {
+            slashPaletteSelection.reconcile(availableIDs: filteredSlashCommandIDs)
+        } else {
+            slashPaletteSelection.clear()
+        }
+
+        if activeCommandSelector != nil {
+            commandSelectorSelection.reconcile(availableIDs: activeSelectableRowIDs)
+        } else {
+            commandSelectorSelection.clear()
+        }
+    }
+
     private func selectSlashCommand(_ command: CodexSlashCommand) {
-        draft = command.draftText ?? ""
-        onSlashCommandSelected?(command)
+        slashPaletteSelection.clear()
+        isSlashPaletteDismissed = false
+
+        switch command.id {
+        case "model":
+            openCommandSelector(.model)
+        case "reasoning":
+            openCommandSelector(.reasoning)
+        default:
+            activeCommandSelector = nil
+            draft = command.draftText ?? ""
+            onSlashCommandSelected?(command)
+        }
+    }
+
+    private func openCommandSelector(_ selector: CodexComposerCommandSelector) {
+        draft = ""
+        activeCommandSelector = selector
+        commandSelectorSelection.reconcile(availableIDs: selectorRows(for: selector).filter(\.isEnabled).map(\.id))
+    }
+
+    private func selectActiveSelectorRow(_ row: CodexComposerSelectorRow) {
+        guard row.isEnabled else { return }
+
+        if let model = row.model {
+            selectModel(model)
+        } else if let reasoning = row.reasoning {
+            reasoningSelection = reasoning
+        }
+
+        activeCommandSelector = nil
+        commandSelectorSelection.clear()
+    }
+
+    private func selectModel(_ selection: CodexModelSelection) {
+        modelSelection = selection
+        reasoningSelection = CodexComposerModelMenuModel.reconciledReasoning(reasoningSelection, for: selection)
+    }
+
+    private func selectorRows(for selector: CodexComposerCommandSelector) -> [CodexComposerSelectorRow] {
+        let state = modelMenuState
+        switch selector {
+        case .model:
+            let modelRows = state.gptFamilyItems.map { item in
+                CodexComposerSelectorRow(
+                    id: "model:\(item.id)",
+                    section: state.gptFamilyTitle,
+                    title: item.title,
+                    detail: item.detail ?? (item.isSelected ? "Current model" : "Model"),
+                    systemImage: item.isSelected ? "checkmark" : "sparkles",
+                    isSelected: item.isSelected,
+                    isEnabled: true,
+                    model: item.selection
+                )
+            }
+            let speedRows = state.speedItems.map { item in
+                CodexComposerSelectorRow(
+                    id: "speed:\(item.kind.rawValue)",
+                    section: state.speedTitle,
+                    title: item.title,
+                    detail: item.detail,
+                    systemImage: item.isSelected ? "checkmark" : "bolt.fill",
+                    isSelected: item.isSelected,
+                    isEnabled: item.isEnabled,
+                    model: item.selection
+                )
+            }
+            return modelRows + speedRows
+        case .reasoning:
+            return state.reasoningItems.map { item in
+                CodexComposerSelectorRow(
+                    id: "reasoning:\(item.selection.id)",
+                    section: state.reasoningTitle,
+                    title: item.title,
+                    detail: item.isSelected ? "Current reasoning" : "Reasoning effort",
+                    systemImage: item.isSelected ? "checkmark" : "brain",
+                    isSelected: item.isSelected,
+                    isEnabled: true,
+                    reasoning: item.selection
+                )
+            }
+        }
     }
 
     private func selectMention(_ result: FuzzyFileSearchResult) {
+        activeCommandSelector = nil
         draft = CodexMentionQuery.applyingSelection(result.fileName, to: draft)
         onMentionSelected?(result)
     }
 }
+
+private enum CodexComposerCommandSelector: Equatable {
+    case model
+    case reasoning
+
+    var title: String {
+        switch self {
+        case .model: return "Model"
+        case .reasoning: return "Reasoning"
+        }
+    }
+}
+
+private struct CodexComposerSelectorRow: Identifiable, Equatable {
+    let id: String
+    let section: String
+    let title: String
+    let detail: String
+    let systemImage: String
+    let isSelected: Bool
+    let isEnabled: Bool
+    let model: CodexModelSelection?
+    let reasoning: CodexReasoningSelection?
+
+    init(
+        id: String,
+        section: String,
+        title: String,
+        detail: String,
+        systemImage: String,
+        isSelected: Bool,
+        isEnabled: Bool,
+        model: CodexModelSelection? = nil,
+        reasoning: CodexReasoningSelection? = nil
+    ) {
+        self.id = id
+        self.section = section
+        self.title = title
+        self.detail = detail
+        self.systemImage = systemImage
+        self.isSelected = isSelected
+        self.isEnabled = isEnabled
+        self.model = model
+        self.reasoning = reasoning
+    }
+}
+
+private enum CodexComposerPaletteKey: Equatable {
+    case moveDown
+    case moveUp
+    case select
+    case dismiss
+}
+
+#if canImport(AppKit)
+private struct CodexComposerPaletteKeyMonitor: NSViewRepresentable {
+    var isEnabled: Bool
+    var onKeyDown: (CodexComposerPaletteKey) -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isEnabled: isEnabled, onKeyDown: onKeyDown)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.onKeyDown = onKeyDown
+        context.coordinator.install()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.onKeyDown = onKeyDown
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator {
+        var isEnabled: Bool
+        var onKeyDown: (CodexComposerPaletteKey) -> Bool
+        private var monitor: Any?
+
+        init(isEnabled: Bool, onKeyDown: @escaping (CodexComposerPaletteKey) -> Bool) {
+            self.isEnabled = isEnabled
+            self.onKeyDown = onKeyDown
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard
+                    let self,
+                    isEnabled,
+                    let key = Self.paletteKey(for: event)
+                else {
+                    return event
+                }
+
+                return onKeyDown(key) ? nil : event
+            }
+        }
+
+        func uninstall() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
+
+        deinit {
+            uninstall()
+        }
+
+        private static func paletteKey(for event: NSEvent) -> CodexComposerPaletteKey? {
+            let ignoredNavigationModifiers: NSEvent.ModifierFlags = [.function, .numericPad]
+            let modifiers = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting(ignoredNavigationModifiers)
+
+            switch event.keyCode {
+            case 125:
+                guard modifiers.isEmpty else { return nil }
+                return .moveDown
+            case 126:
+                guard modifiers.isEmpty else { return nil }
+                return .moveUp
+            case 36, 76:
+                guard modifiers.isEmpty else { return nil }
+                return .select
+            case 53:
+                guard modifiers.isEmpty else { return nil }
+                return .dismiss
+            default:
+                return nil
+            }
+        }
+    }
+}
+#endif
 
 private struct ComposerDictationButton: View {
     let onRoute: (CodexComposerDictationRoute) -> Void
@@ -542,74 +954,167 @@ private struct CodexSlashCommandPalette: View {
 
     let commands: [CodexSlashCommand]
     let query: String
+    let selectedCommandID: String?
     let onSelect: (CodexSlashCommand) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(sectionNames, id: \.self) { section in
-                    if section != sectionNames.first {
-                        Text(section)
-                            .font(theme.fonts.caption)
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .padding(.horizontal, 10)
-                            .padding(.top, 4)
-                    }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(sectionNames, id: \.self) { section in
+                        if section != sectionNames.first {
+                            Text(section)
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .padding(.horizontal, 10)
+                                .padding(.top, 4)
+                        }
 
-                    ForEach(commands.filter { $0.section == section }) { command in
-                        Button {
-                            onSelect(command)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: command.systemImage)
-                                    .font(theme.fonts.label)
-                                    .foregroundStyle(theme.colors.textTertiary)
-                                    .frame(width: 18)
-                                Text(command.title)
-                                    .font(theme.fonts.caption.weight(.semibold))
-                                    .foregroundStyle(theme.colors.textPrimary)
-                                Text(command.detail)
-                                    .font(theme.fonts.caption)
-                                    .foregroundStyle(theme.colors.textTertiary)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                                if let scopeBadge = command.scopeBadge {
-                                    Text(scopeBadge)
+                        ForEach(commands.filter { $0.section == section }) { command in
+                            Button {
+                                onSelect(command)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: command.systemImage)
+                                        .font(theme.fonts.label)
+                                        .foregroundStyle(theme.colors.textTertiary)
+                                        .frame(width: 18)
+                                    Text(command.title)
+                                        .font(theme.fonts.caption.weight(.semibold))
+                                        .foregroundStyle(theme.colors.textPrimary)
+                                    Text(command.detail)
                                         .font(theme.fonts.caption)
                                         .foregroundStyle(theme.colors.textTertiary)
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: Capsule())
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    if let scopeBadge = command.scopeBadge {
+                                        Text(scopeBadge)
+                                            .font(theme.fonts.caption)
+                                            .foregroundStyle(theme.colors.textTertiary)
+                                            .padding(.horizontal, 7)
+                                            .padding(.vertical, 3)
+                                            .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: Capsule())
+                                    }
                                 }
+                                .frame(height: 29)
+                                .padding(.horizontal, 10)
+                                .background(
+                                    command.id == selectedCommandID ? theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity) : .clear,
+                                    in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                                )
                             }
-                            .frame(height: 29)
-                            .padding(.horizontal, 10)
-                            .background(
-                                command.id == highlightedCommandID ? theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity) : .clear,
-                                in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                            )
+                            .id(command.id)
+                            .buttonStyle(.plain)
+                            .help(command.detail)
                         }
-                        .buttonStyle(.plain)
-                        .help(command.detail)
                     }
                 }
+                .padding(theme.spacing.rowGap)
             }
-            .padding(theme.spacing.rowGap)
+            .onChange(of: selectedCommandID) { _, id in
+                guard let id else { return }
+                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
+                    proxy.scrollTo(id, anchor: .center)
+                                }
+                            }
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
     }
 
-    private var highlightedCommandID: String? {
-        if query.isEmpty { return commands.first?.id }
-        return commands.first?.id
-    }
-
     private var sectionNames: [String] {
         var names: [String] = []
         for command in commands where !names.contains(command.section) {
             names.append(command.section)
+        }
+        return names
+    }
+}
+
+private struct CodexComposerInlineSelectorPalette: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let title: String
+    let rows: [CodexComposerSelectorRow]
+    let selectedID: String?
+    let onSelect: (CodexComposerSelectorRow) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 4)
+
+                    ForEach(sectionNames, id: \.self) { section in
+                        if section != sectionNames.first {
+                            Text(section)
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .padding(.horizontal, 10)
+                                .padding(.top, 4)
+                        }
+
+                        ForEach(rows.filter { $0.section == section }) { row in
+                            Button {
+                                onSelect(row)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: row.systemImage)
+                                        .font(theme.fonts.label)
+                                        .foregroundStyle(row.isEnabled ? theme.colors.textTertiary : theme.colors.textTertiary.opacity(0.55))
+                                        .frame(width: 18)
+                                    Text(row.title)
+                                        .font(theme.fonts.caption.weight(.semibold))
+                                        .foregroundStyle(row.isEnabled ? theme.colors.textPrimary : theme.colors.textTertiary)
+                                    Text(row.detail)
+                                        .font(theme.fonts.caption)
+                                        .foregroundStyle(theme.colors.textTertiary)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    if row.isSelected {
+                                        Image(systemName: "checkmark")
+                                            .font(theme.fonts.caption.weight(.semibold))
+                                            .foregroundStyle(theme.colors.accent)
+                                    }
+                                }
+                                .frame(height: 29)
+                                .padding(.horizontal, 10)
+                                .background(
+                                    row.id == selectedID ? theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity) : .clear,
+                                    in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                                )
+                                .opacity(row.isEnabled ? 1 : 0.55)
+                            }
+                            .id(row.id)
+                            .buttonStyle(.plain)
+                            .disabled(!row.isEnabled)
+                            .help(row.detail)
+                        }
+                    }
+                }
+                .padding(theme.spacing.rowGap)
+            }
+            .onChange(of: selectedID) { _, id in
+                guard let id else { return }
+                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
+                    proxy.scrollTo(id, anchor: .center)
+                                }
+                            }
+        }
+        .frame(maxWidth: 736, alignment: .leading)
+        .frame(maxHeight: 320, alignment: .top)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+    }
+
+    private var sectionNames: [String] {
+        var names: [String] = []
+        for row in rows where !names.contains(row.section) {
+            names.append(row.section)
         }
         return names
     }

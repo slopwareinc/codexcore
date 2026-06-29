@@ -32,7 +32,8 @@ public enum CodexComposerSlashCommandHostAction: Equatable, Sendable {
     case openSideChat
     case applyFastMode
     case cycleReasoning
-    case showModelStatus
+    case openModelSelector
+    case openReasoningSelector
     case showCurrentStatus
     case forkCurrentChat
     case compactCurrentChat
@@ -181,10 +182,10 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             return CodexComposerSlashCommandRoute(hostActions: [.applyFastMode])
         case "reasoning":
             clearDraft()
-            return CodexComposerSlashCommandRoute(hostActions: [.cycleReasoning])
+            return CodexComposerSlashCommandRoute(hostActions: [.openReasoningSelector])
         case "model":
             clearDraft()
-            return CodexComposerSlashCommandRoute(hostActions: [.showModelStatus])
+            return CodexComposerSlashCommandRoute(hostActions: [.openModelSelector])
         case "status":
             clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.showCurrentStatus])
