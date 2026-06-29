@@ -2814,23 +2814,29 @@ public struct CodexSchemaModelReroutedNotification: Codable, Sendable, Equatable
     }
 }
 public struct CodexSchemaModelSafetyBufferingUpdatedNotification: Codable, Sendable, Equatable {
+    public var fasterModel: String?
     public var model: String
     public var reasons: [String]
+    public var showBufferingUi: Bool
     public var threadID: String
     public var turnID: String
     public var useCases: [String]
 
     enum CodingKeys: String, CodingKey {
+        case fasterModel
         case model
         case reasons
+        case showBufferingUi
         case threadID = "threadId"
         case turnID = "turnId"
         case useCases
     }
 
-    public init(model: String, reasons: [String], threadID: String, turnID: String, useCases: [String]) {
+    public init(fasterModel: String? = nil, model: String, reasons: [String], showBufferingUi: Bool, threadID: String, turnID: String, useCases: [String]) {
+        self.fasterModel = fasterModel
         self.model = model
         self.reasons = reasons
+        self.showBufferingUi = showBufferingUi
         self.threadID = threadID
         self.turnID = turnID
         self.useCases = useCases
@@ -3123,7 +3129,9 @@ public struct CodexSchemaPluginInterface: Codable, Sendable, Equatable {
     public var developerName: String?
     public var displayName: String?
     public var logo: CodexSchemaAbsolutePathBuf?
+    public var logoDark: CodexSchemaAbsolutePathBuf?
     public var logoUrl: String?
+    public var logoUrlDark: String?
     public var longDescription: String?
     public var privacyPolicyUrl: String?
     public var screenshotUrls: [String]
@@ -3132,7 +3140,7 @@ public struct CodexSchemaPluginInterface: Codable, Sendable, Equatable {
     public var termsOfServiceUrl: String?
     public var websiteUrl: String?
 
-    public init(brandColor: String? = nil, capabilities: [String], category: String? = nil, composerIcon: CodexSchemaAbsolutePathBuf? = nil, composerIconUrl: String? = nil, defaultPrompt: [String]? = nil, developerName: String? = nil, displayName: String? = nil, logo: CodexSchemaAbsolutePathBuf? = nil, logoUrl: String? = nil, longDescription: String? = nil, privacyPolicyUrl: String? = nil, screenshotUrls: [String], screenshots: [CodexSchemaAbsolutePathBuf], shortDescription: String? = nil, termsOfServiceUrl: String? = nil, websiteUrl: String? = nil) {
+    public init(brandColor: String? = nil, capabilities: [String], category: String? = nil, composerIcon: CodexSchemaAbsolutePathBuf? = nil, composerIconUrl: String? = nil, defaultPrompt: [String]? = nil, developerName: String? = nil, displayName: String? = nil, logo: CodexSchemaAbsolutePathBuf? = nil, logoDark: CodexSchemaAbsolutePathBuf? = nil, logoUrl: String? = nil, logoUrlDark: String? = nil, longDescription: String? = nil, privacyPolicyUrl: String? = nil, screenshotUrls: [String], screenshots: [CodexSchemaAbsolutePathBuf], shortDescription: String? = nil, termsOfServiceUrl: String? = nil, websiteUrl: String? = nil) {
         self.brandColor = brandColor
         self.capabilities = capabilities
         self.category = category
@@ -3142,7 +3150,9 @@ public struct CodexSchemaPluginInterface: Codable, Sendable, Equatable {
         self.developerName = developerName
         self.displayName = displayName
         self.logo = logo
+        self.logoDark = logoDark
         self.logoUrl = logoUrl
+        self.logoUrlDark = logoUrlDark
         self.longDescription = longDescription
         self.privacyPolicyUrl = privacyPolicyUrl
         self.screenshotUrls = screenshotUrls
