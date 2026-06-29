@@ -15,7 +15,7 @@ Fusing **the speed of Swift** with the **process orchestration patterns of Rust*
 3. **Resilient Connection Handling:**
    A robust, backoff-driven connection machine with an event buffer that tolerates connection dropouts and reconciles session turns upon reconnection.
 4. **Strongly-Typed Protocol Mappings:**
-   Comprehensive Swift mapping of OpenAI's official `codex-app-server-protocol` notifications, approvals, and user input structures. High-level client API tracks the official **`openai-codex`** Python package (`from openai_codex import Codex`); see [`PYTHON_SDK_PARITY.md`](PYTHON_SDK_PARITY.md).
+   Comprehensive Swift mapping of OpenAI's official `codex-app-server-protocol` notifications, approvals, and user input structures. High-level client API tracks the official **`openai-codex`** Python package (`from openai_codex import Codex`).
 5. **Deterministic State Reducer:**
    A centralized state store (`CodexCoreStore`) that processes actions and projects them into immutable snapshots, separating side-effects from UI rendering.
 6. **Exploration Merging & Hydration:**
@@ -34,7 +34,8 @@ CodexCore/
 └── Sources/
     ├── CodexCore/
     │   ├── Client/                    # Process transport and high-level SDK facade
-    │   ├── Protocol/                  # Strongly-typed JSON-RPC schemas
+    │   ├── Generated/                 # Strongly-typed JSON-RPC schemas
+    │   ├── Protocol/                  # Protocol helpers and client/server method wrappers
     │   ├── Store/                     # Reducer, state, actions, and thread snapshots
     │   └── Projection/                # Timeline hydration and exploration merging
     └── CodexCoreUI/                   # Optional SwiftUI chat UI and Markdown views
