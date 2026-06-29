@@ -4,7 +4,6 @@ import Foundation
 struct AgentUIFixture {
     var sideChat: CodexSideChatState
     var subagents: [CodexSubagentState]
-    var lifecycleEvents: [CodexAgentLifecycleEvent]
 
     static func make() -> AgentUIFixture {
         let now = Date(timeIntervalSince1970: 1_000)
@@ -37,21 +36,6 @@ struct AgentUIFixture {
             )
         ]
 
-        let lifecycleEvents = [
-            CodexAgentLifecycleEvent(
-                status: .spawning,
-                title: "Spawned 2 agents",
-                agentNames: subagents.map(\.name),
-                createdAt: now.addingTimeInterval(1)
-            ),
-            CodexAgentLifecycleEvent(
-                status: .closed,
-                title: "Closed 2 agents",
-                agentNames: subagents.map(\.name),
-                createdAt: now.addingTimeInterval(4)
-            )
-        ]
-
-        return AgentUIFixture(sideChat: sideChat, subagents: subagents, lifecycleEvents: lifecycleEvents)
+        return AgentUIFixture(sideChat: sideChat, subagents: subagents)
     }
 }

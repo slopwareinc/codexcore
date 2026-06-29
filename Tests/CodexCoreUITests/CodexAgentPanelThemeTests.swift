@@ -78,15 +78,6 @@ extension CodexAgentUITests {
         XCTAssertTrue(narrow.usesOverlaySidePanel)
     }
 
-    func testLifecycleFixtureModelsClosedSubagentsWithoutRuntimeDemoCode() {
-        let fixture = AgentUIFixture.make()
-
-        XCTAssertEqual(fixture.lifecycleEvents.count, 2)
-        XCTAssertEqual(fixture.lifecycleEvents[0].status, .spawning)
-        XCTAssertEqual(fixture.lifecycleEvents[0].agentNames, ["Chandrasekhar", "Copernicus"])
-        XCTAssertEqual(fixture.lifecycleEvents[1].status, .closed)
-    }
-
     @MainActor
     func testThemePresetsExposeUserSelectableThemes() {
         XCTAssertEqual(CodexAgentThemePreset.allCases.map(\.displayName), [

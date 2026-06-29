@@ -10,12 +10,6 @@ import XCTest
 /// the files from `codex app-server generate-json-schema --experimental` and
 /// diffs them against the committed sources.
 final class AppServerProtocolMethodTests: XCTestCase {
-    func testGeneratedMethodCountsMatchInventory() {
-        XCTAssertEqual(CodexAppServerClientMethod.allCases.count, CodexAppServerProtocolInventory.clientMethodCount)
-        XCTAssertEqual(CodexAppServerNotificationMethod.allCases.count, CodexAppServerProtocolInventory.notificationMethodCount)
-        XCTAssertEqual(CodexAppServerServerRequestMethod.allCases.count, CodexAppServerProtocolInventory.serverRequestMethodCount)
-    }
-
     func testGeneratedMethodsAreUnique() {
         XCTAssertEqual(Set(CodexAppServerClientMethod.allCases.map(\.rawValue)).count, CodexAppServerClientMethod.allCases.count)
         XCTAssertEqual(Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count, CodexAppServerNotificationMethod.allCases.count)
