@@ -394,17 +394,6 @@ final class AssistantRenderBlockParser {
         return Data(base64Encoded: cleaned)
     }
 
-    public func containsMath(_ text: String) -> Bool {
-        let segments = extractMessageSegments(text)
-        return segments.contains { segment in
-            switch segment {
-            case .inlineMath, .displayMath:
-                return true
-            default:
-                return false
-            }
-        }
-    }
 }
 private func makeRegex(pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
     do {

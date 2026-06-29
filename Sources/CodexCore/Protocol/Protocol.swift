@@ -69,14 +69,6 @@ extension CodexJSONValue: CustomStringConvertible {
 
 // MARK: - Protocol Types
 
-public enum CodexAgentRole: String, Codable, Sendable {
-    case coordinator
-    case coder
-    case researcher
-    case designer
-    case customized
-}
-
 public struct CodexServerItem: Codable, Sendable, Identifiable, Equatable {
     public let id: String
     public let type: String

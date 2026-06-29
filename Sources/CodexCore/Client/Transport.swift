@@ -18,7 +18,6 @@ public enum CodexTransportError: Error, Sendable, LocalizedError {
     case processNotRunning
     case writeFailed
     case connectionClosed
-    case invalidURL
 
     public var errorDescription: String? {
         switch self {
@@ -28,8 +27,6 @@ public enum CodexTransportError: Error, Sendable, LocalizedError {
             return "Failed to encode transport payload as UTF-8."
         case .connectionClosed:
             return "Codex transport connection is closed."
-        case .invalidURL:
-            return "Codex transport URL is invalid."
         }
     }
 }

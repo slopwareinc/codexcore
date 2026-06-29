@@ -23,7 +23,4 @@ public final class MessageParser: Sendable {
         ToolCallMarkdownParser().parse(text: text)
     }
 
-    public func containsMath(_ text: String) -> Bool {
-        AssistantRenderBlockParser().containsMath(text)
-    }
 }
