@@ -30,11 +30,6 @@ enum CodexProseCache {
         return styled
     }
 
-    static func attributedString(for markdown: String, digest: String, baseFont: Font, baseNSFont: NSFont?, theme: CodexAgentTheme) -> AttributedString {
-        let parsed = (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
-        return styledAttributedString(for: parsed, digest: digest, baseFont: baseFont, baseNSFont: baseNSFont, theme: theme)
-    }
-
     static func clear() {
         cache.removeAllObjects()
     }

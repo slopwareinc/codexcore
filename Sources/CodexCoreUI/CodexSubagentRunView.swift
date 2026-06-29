@@ -276,10 +276,6 @@ struct CodexSubagentRunSummary: Equatable {
         event.title == "Finished waiting" || event.title == "Received agent output"
     }
 
-    private static func isCloseEvent(_ event: CodexAgentLifecycleEvent) -> Bool {
-        event.title.hasPrefix("Closing ") || event.title.hasPrefix("Closed ")
-    }
-
     private static func normalizedDetailTitle(_ title: String) -> String {
         if title == "Finished waiting" { return "Received agent output" }
         if title.hasPrefix("Completed 1 agent") { return "Received agent output" }

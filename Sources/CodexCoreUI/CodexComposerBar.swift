@@ -899,26 +899,6 @@ public struct ComposerChipLabel: View {
     }
 }
 
-private struct ComposerIconButton: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let systemImage: String
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(theme.fonts.label)
-                .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                .background(theme.colors.surfaceSunken.opacity(theme.effects.textFaintOpacity), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-}
-
 private struct ComposerStopButton: View {
     @Environment(\.codexAgentTheme) private var theme
 

@@ -1248,15 +1248,6 @@ public actor CodexClient {
         return false
     }
 
-    private func intParam(_ value: CodexJSONValue?) -> Int? {
-        switch value {
-        case .int(let int)?: return int
-        case .double(let double)?: return Int(double)
-        case .string(let string)?: return Int(string)
-        default: return nil
-        }
-    }
-
     private func completeCommandSession(processId: String, result: CodexCommandExecResult) async {
         await activeCommandSessions[processId]?.complete(result)
         activeCommandSessions.removeValue(forKey: processId)

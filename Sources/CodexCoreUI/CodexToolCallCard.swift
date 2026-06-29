@@ -188,25 +188,3 @@ public struct CodexToolCallCard: View {
         return "\(Int(seconds.rounded()))s"
     }
 }
-
-private struct CodexToolCallStatusChip: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let toolCall: CodexChatMessage.ToolCall
-
-    var body: some View {
-        CodexStatusChip(color: color, label: label, isStreaming: toolCall.isStreaming)
-    }
-
-    private var label: String {
-        if toolCall.isStreaming { return "running" }
-        if toolCall.error != nil { return "failed" }
-        return toolCall.status.isEmpty ? "done" : toolCall.status
-    }
-
-    private var color: Color {
-        if toolCall.isStreaming { return theme.colors.running }
-        if toolCall.error != nil || toolCall.status.localizedCaseInsensitiveContains("fail") { return theme.colors.danger }
-        return theme.colors.success
-    }
-}
