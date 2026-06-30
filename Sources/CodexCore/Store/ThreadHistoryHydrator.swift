@@ -41,29 +41,75 @@ public struct CodexThreadHistoryHydrationResult: Sendable, Equatable {
 }
 
 public enum CodexThreadHistoryHydrator {
-    public static func load(threadID: String, using codex: Codex) async throws -> CodexThreadHistoryHydrationResult {
-        let parentRaw = try await readThreadRaw(threadID: threadID, using: codex)
-        return await hydrate(parentRaw: parentRaw) { childThreadID in
+    public static func load(
+        threadID: String,
+        using codex: Codex,
+        trace: CodexPerformanceTrace? = nil
+    ) async throws -> CodexThreadHistoryHydrationResult {
+        let parentReadSpan = trace?.begin("threadHistory.parent.read", metadata: ["threadID": threadID])
+        let parentRaw: CodexJSONValue
+        do {
+            parentRaw = try await readThreadRaw(threadID: threadID, using: codex)
+            parentReadSpan?.end(metadata: ["outcome": "success"])
+        } catch {
+            parentReadSpan?.end(metadata: ["outcome": "failure", "error": errorType(error)])
+            throw error
+        }
+        return await hydrate(parentRaw: parentRaw, trace: trace) { childThreadID in
             try await readThreadRaw(threadID: childThreadID, using: codex)
         }
     }
 
     public static func hydrate(
         parentRaw: CodexJSONValue,
+        trace: CodexPerformanceTrace? = nil,
         loadChildThread: (String) async throws -> CodexJSONValue
     ) async -> CodexThreadHistoryHydrationResult {
+        let parentDecodeSpan = trace?.begin("threadHistory.parent.decode")
         let parent = decode(raw: parentRaw)
+        var parentMetadata = metrics(for: parent.snapshot)
+        let childThreadIDs = uniqueThreadIDs(parent.childThreadIDs)
+        parentMetadata["childThreadCount"] = "\(childThreadIDs.count)"
+        parentDecodeSpan?.end(metadata: parentMetadata)
+
         var childThreads: [CodexHydratedThread] = []
         var failedChildThreadIDs: [String] = []
-        var seenThreadIDs: Set<String> = []
 
-        for childThreadID in parent.childThreadIDs where seenThreadIDs.insert(childThreadID).inserted {
+        let childrenSpan = trace?.begin(
+            "threadHistory.children.total",
+            metadata: ["childThreadCount": "\(childThreadIDs.count)"]
+        )
+        for (index, childThreadID) in childThreadIDs.enumerated() {
+            let childMetadata = [
+                "childIndex": "\(index + 1)",
+                "childThreadCount": "\(childThreadIDs.count)",
+                "threadID": childThreadID
+            ]
+            let childReadSpan = trace?.begin("threadHistory.child.read", metadata: childMetadata)
             do {
-                childThreads.append(decode(raw: try await loadChildThread(childThreadID), fallbackThreadID: childThreadID))
+                let childRaw = try await loadChildThread(childThreadID)
+                childReadSpan?.end(metadata: childMetadata.merging(["outcome": "success"]) { _, new in new })
+
+                let childDecodeSpan = trace?.begin("threadHistory.child.decode", metadata: childMetadata)
+                let child = decode(raw: childRaw, fallbackThreadID: childThreadID)
+                var decodedMetadata = metrics(for: child.snapshot)
+                decodedMetadata.merge(childMetadata) { _, new in new }
+                decodedMetadata["outcome"] = "success"
+                childDecodeSpan?.end(metadata: decodedMetadata)
+                childThreads.append(child)
             } catch {
+                childReadSpan?.end(metadata: childMetadata.merging([
+                    "outcome": "failure",
+                    "error": errorType(error)
+                ]) { _, new in new })
                 failedChildThreadIDs.append(childThreadID)
             }
         }
+        childrenSpan?.end(metadata: [
+            "childThreadCount": "\(childThreadIDs.count)",
+            "failedChildThreadCount": "\(failedChildThreadIDs.count)",
+            "restoredChildThreadCount": "\(childThreads.count)"
+        ])
 
         return CodexThreadHistoryHydrationResult(
             parent: parent,
@@ -140,6 +186,23 @@ public enum CodexThreadHistoryHydrator {
 
     private static func readThreadRaw(threadID: String, using codex: Codex) async throws -> CodexJSONValue {
         try CodexJSONValue(encoding: await codex.threadReadSchema(threadID, includeTurns: true))
+    }
+
+    private static func uniqueThreadIDs(_ threadIDs: [String]) -> [String] {
+        var seenThreadIDs: Set<String> = []
+        return threadIDs.filter { seenThreadIDs.insert($0).inserted }
+    }
+
+    private static func metrics(for snapshot: CodexThreadSnapshot) -> [String: String] {
+        [
+            "threadID": snapshot.id,
+            "turnCount": "\(snapshot.turns.count)",
+            "itemCount": "\(snapshot.turns.reduce(0) { $0 + $1.items.count })"
+        ]
+    }
+
+    private static func errorType(_ error: Error) -> String {
+        String(describing: type(of: error))
     }
 
     private static func turnObjects(from response: CodexJSONValue) -> [[String: CodexJSONValue]] {
