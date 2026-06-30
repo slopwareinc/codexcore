@@ -92,6 +92,20 @@ public struct CodexTurnResult: Sendable, Equatable {
     public let usage: ThreadTokenUsage?
 }
 
+public struct CodexThreadResumeResult: Sendable {
+    public let thread: CodexThread
+    public let response: CodexSchemaThreadResumeResponse
+
+    public init(thread: CodexThread, response: CodexSchemaThreadResumeResponse) {
+        self.thread = thread
+        self.response = response
+    }
+
+    public func rawResponse() throws -> CodexJSONValue {
+        try CodexJSONValue(encoding: response)
+    }
+}
+
 public final class Codex: @unchecked Sendable {
     @MainActor public let store: CodexCoreStore
     public let metadata: InitializeResponse
@@ -248,6 +262,67 @@ public final class Codex: @unchecked Sendable {
         sandbox: Sandbox? = nil,
         serviceTier: String? = nil
     ) async throws -> CodexThread {
+        let params = makeThreadResumeParams(
+            threadId,
+            approvalMode: approvalMode,
+            baseInstructions: baseInstructions,
+            config: threadConfig,
+            cwd: cwd,
+            developerInstructions: developerInstructions,
+            model: model,
+            modelProvider: modelProvider,
+            personality: personality,
+            sandbox: sandbox,
+            serviceTier: serviceTier
+        )
+        let response = try await client.threadResume(threadId: threadId, params: params)
+        return CodexThread(client: client, store: store, id: response.thread.id)
+    }
+
+    public func threadResumeWithHistory(
+        _ threadId: String,
+        approvalMode: ApprovalMode? = nil,
+        baseInstructions: String? = nil,
+        config threadConfig: [String: CodexJSONValue]? = nil,
+        cwd: String? = nil,
+        developerInstructions: String? = nil,
+        model: String? = nil,
+        modelProvider: String? = nil,
+        personality: Personality? = nil,
+        sandbox: Sandbox? = nil,
+        serviceTier: String? = nil
+    ) async throws -> CodexThreadResumeResult {
+        let params = makeThreadResumeParams(
+            threadId,
+            approvalMode: approvalMode,
+            baseInstructions: baseInstructions,
+            config: threadConfig,
+            cwd: cwd,
+            developerInstructions: developerInstructions,
+            model: model,
+            modelProvider: modelProvider,
+            personality: personality,
+            sandbox: sandbox,
+            serviceTier: serviceTier
+        )
+        let response = try await client.threadResumeSchema(threadId: threadId, params: params)
+        let thread = CodexThread(client: client, store: store, id: response.thread.id)
+        return CodexThreadResumeResult(thread: thread, response: response)
+    }
+
+    private func makeThreadResumeParams(
+        _ threadId: String,
+        approvalMode: ApprovalMode?,
+        baseInstructions: String?,
+        config threadConfig: [String: CodexJSONValue]?,
+        cwd: String?,
+        developerInstructions: String?,
+        model: String?,
+        modelProvider: String?,
+        personality: Personality?,
+        sandbox: Sandbox?,
+        serviceTier: String?
+    ) -> ThreadResumeParams {
         let approvals = approvalMode?.settings ?? ApprovalSettings()
         var params = ThreadResumeParams(threadId: threadId)
         params.approvalPolicy = approvals.approvalPolicy
@@ -261,9 +336,7 @@ public final class Codex: @unchecked Sendable {
         params.personality = personality
         params.sandbox = sandbox?.threadMode
         params.serviceTier = serviceTier
-
-        let response = try await client.threadResume(threadId: threadId, params: params)
-        return CodexThread(client: client, store: store, id: response.thread.id)
+        return params
     }
 
     public func threadList(

@@ -586,26 +586,26 @@ final class CodexChatModel {
         clearSpan.end(metadata: ["threadID": threadID])
         do {
             let resumeSpan = trace.begin("chatLoad.threadResume", metadata: ["threadID": threadID])
-            let resumedThread: CodexThread
+            let resumeResult: CodexThreadResumeResult
             do {
-                resumedThread = try await threadSession.resumeThread(
+                resumeResult = try await threadSession.resumeThreadWithHistory(
                     id: threadID,
                     using: codex,
                     configuration: threadLaunchConfiguration
                 )
-                resumeSpan.end(metadata: ["threadID": resumedThread.id, "outcome": "success"])
+                resumeSpan.end(metadata: ["threadID": resumeResult.thread.id, "outcome": "success"])
             } catch {
                 resumeSpan.end(metadata: ["threadID": threadID, "outcome": "failure", "error": errorType(error)])
                 throw error
             }
 
-            await hydrateThreadHistory(for: resumedThread, using: codex, trace: trace)
-            await refreshGoal(for: resumedThread, trace: trace)
+            await hydrateThreadHistory(from: resumeResult, using: codex, trace: trace)
+            await refreshGoal(for: resumeResult.thread, trace: trace)
 
-            let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": threadID])
-            sidebarNavigationSession.selectChat(threadID, workspacePath: workspacePath)
-            sidebarSpan.end(metadata: ["threadID": threadID])
-            appendActivity(.notice, title: "Resumed chat", detail: threadID)
+            let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": resumeResult.thread.id])
+            sidebarNavigationSession.selectChat(resumeResult.thread.id, workspacePath: workspacePath)
+            sidebarSpan.end(metadata: ["threadID": resumeResult.thread.id])
+            appendActivity(.notice, title: "Resumed chat", detail: resumeResult.thread.id)
             await refreshRecentChats(using: codex, trace: trace)
         } catch {
             totalOutcome = "failure"
@@ -881,16 +881,37 @@ final class CodexChatModel {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
         do {
             let result = try await CodexThreadHistorySession.load(threadID: thread.id, using: codex, trace: trace)
-            let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
-            let activity = runtimeSession.applyHistoryRestore(result)
-            appendActivity(activity.kind, title: activity.title, detail: activity.detail)
-            let metadata = historyMetadata(for: result).merging(["outcome": "success"]) { _, new in new }
-            applySpan?.end(metadata: metadata)
+            let metadata = applyThreadHistoryRestore(result, trace: trace)
             span?.end(metadata: metadata)
         } catch {
             span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
         }
+    }
+
+    private func hydrateThreadHistory(from resume: CodexThreadResumeResult, using codex: Codex, trace: CodexPerformanceTrace? = nil) async {
+        let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
+        do {
+            let parentRaw = try resume.rawResponse()
+            let result = await CodexThreadHistorySession.load(parentRaw: parentRaw, using: codex, trace: trace)
+            let metadata = applyThreadHistoryRestore(result, trace: trace)
+            span?.end(metadata: metadata)
+        } catch {
+            span?.end(metadata: ["threadID": resume.thread.id, "outcome": "failure", "error": errorType(error)])
+            appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
+        }
+    }
+
+    private func applyThreadHistoryRestore(
+        _ result: CodexThreadHistoryRestoreResult,
+        trace: CodexPerformanceTrace?
+    ) -> [String: String] {
+        let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
+        let activity = runtimeSession.applyHistoryRestore(result)
+        appendActivity(activity.kind, title: activity.title, detail: activity.detail)
+        let metadata = historyMetadata(for: result).merging(["outcome": "success"]) { _, new in new }
+        applySpan?.end(metadata: metadata)
+        return metadata
     }
 
     @discardableResult

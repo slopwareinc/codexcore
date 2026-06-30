@@ -45,9 +45,25 @@ public enum CodexThreadHistorySession {
             parentReadSpan?.end(metadata: ["outcome": "failure", "error": errorType(error)])
             throw error
         }
+        return await load(parentRaw: parentRaw, using: codex, trace: trace)
+    }
+
+    public static func load(
+        parentRaw: CodexJSONValue,
+        using codex: Codex,
+        trace: CodexPerformanceTrace? = nil
+    ) async -> CodexThreadHistoryRestoreResult {
         let result = await restore(parentRaw: parentRaw, trace: trace) { childThreadID in
             try await readThreadRaw(threadID: childThreadID, using: codex)
         }
+        return await hydrateStore(result, using: codex, trace: trace)
+    }
+
+    private static func hydrateStore(
+        _ result: CodexThreadHistoryRestoreResult,
+        using codex: Codex,
+        trace: CodexPerformanceTrace?
+    ) async -> CodexThreadHistoryRestoreResult {
         let storeHydrateSpan = trace?.begin("threadHistory.store.hydrate", metadata: metadata(for: result))
         await MainActor.run {
             codex.store.hydrate(result.hydration)

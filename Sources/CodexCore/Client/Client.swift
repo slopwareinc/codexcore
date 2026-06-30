@@ -236,6 +236,21 @@ public actor CodexClient {
         return response
     }
 
+    public func threadResumeSchema(threadId: String, params: ThreadResumeParams = ThreadResumeParams()) async throws -> CodexSchemaThreadResumeResponse {
+        var payload = params
+        payload.threadId = threadId
+        let response: CodexSchemaThreadResumeResponse = try await connection.request(
+            method: CodexAppServerClientMethod.threadResume.rawValue,
+            params: payload,
+            response: CodexSchemaThreadResumeResponse.self
+        )
+        await MainActor.run {
+            store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+            store.activateThread(id: response.thread.id)
+        }
+        return response
+    }
+
     public func threadList(_ params: ThreadListParams = ThreadListParams()) async throws -> ThreadListResponse {
         try await connection.request(
             method: CodexAppServerClientMethod.threadList.rawValue,

@@ -382,6 +382,36 @@ final class CodexCoreTests: XCTestCase {
         }
     }
 
+    func testThreadResumeWithHistoryCanHydrateWithoutThreadRead() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let codex = try await Codex(transport: transport, store: store)
+
+        let resume = try await codex.threadResumeWithHistory(
+            "thread-resumed",
+            approvalMode: .autoReview,
+            cwd: "/tmp",
+            sandbox: .workspaceWrite
+        )
+        let parentRaw = try resume.rawResponse()
+        let hydration = await CodexThreadHistoryHydrator.hydrate(parentRaw: parentRaw) { childThreadID in
+            XCTFail("Resume response should hydrate this fixture without reading child thread \(childThreadID)")
+            return .dictionary(["thread": .dictionary(["id": .string(childThreadID), "turns": .array([])])])
+        }
+
+        XCTAssertEqual(resume.thread.id, "thread-resumed")
+        XCTAssertEqual(hydration.parent.snapshot.id, "thread-resumed")
+        XCTAssertEqual(hydration.parent.snapshot.turns.first?.items.map { $0.id }, ["user-resumed", "agent-resumed"])
+
+        let sentMethods = await transport.sentPayloadsSnapshot().compactMap { payload -> String? in
+            guard case .string(let method)? = payload["method"] else { return nil }
+            return method
+        }
+        XCTAssertEqual(sentMethods.filter { $0 == "thread/resume" }.count, 1)
+        XCTAssertFalse(sentMethods.contains("thread/read"), "Successful resume hydration must not refetch the parent transcript")
+        await codex.close()
+    }
+
     // MARK: - Exploration Merging & Retention Tests
 
     func testExplorationMerging() throws {

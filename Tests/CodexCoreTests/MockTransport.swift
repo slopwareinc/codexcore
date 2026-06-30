@@ -84,7 +84,50 @@ actor MockTransport: CodexTransport {
             case "thread/start":
                 result = #"{"thread":{"id":"thread-mock"}}"#
             case "thread/resume":
-                result = #"{"thread":{"id":"thread-resumed"}}"#
+                result = #"""
+                {
+                    "thread": {
+                        "id": "thread-resumed",
+                        "cliVersion": "1.0.0",
+                        "createdAt": 1781075531,
+                        "cwd": "/tmp",
+                        "ephemeral": false,
+                        "modelProvider": "openai",
+                        "preview": "Resumed thread",
+                        "sessionId": "session-resumed",
+                        "source": "cli",
+                        "status": {"type": "idle"},
+                        "turns": [
+                            {
+                                "id": "turn-resumed",
+                                "status": "completed",
+                                "startedAt": 1781075531,
+                                "completedAt": 1781075532,
+                                "items": [
+                                    {
+                                        "id": "user-resumed",
+                                        "type": "userMessage",
+                                        "content": [{"type": "text", "text": "Resume question"}]
+                                    },
+                                    {
+                                        "id": "agent-resumed",
+                                        "type": "agentMessage",
+                                        "text": "Resume answer"
+                                    }
+                                ]
+                            }
+                        ],
+                        "updatedAt": 1781075532
+                    },
+                    "model": "gpt-5.5",
+                    "modelProvider": "openai",
+                    "cwd": "/tmp",
+                    "approvalPolicy": "on-request",
+                    "approvalsReviewer": "auto_review",
+                    "sandbox": {"type": "workspaceWrite"},
+                    "serviceTier": null
+                }
+                """#
             case "thread/fork":
                 result = #"{"thread":{"id":"thread-fork"}}"#
             case "thread/unarchive":
