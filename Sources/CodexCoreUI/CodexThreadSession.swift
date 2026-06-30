@@ -103,6 +103,23 @@ public final class CodexThreadSession {
         return thread
     }
 
+    public func resumeThreadWithHistory(
+        id threadID: String,
+        using codex: Codex,
+        configuration: CodexThreadLaunchConfiguration
+    ) async throws -> CodexThreadResumeResult {
+        reset()
+        let result = try await codex.threadResumeWithHistory(
+            threadID,
+            approvalMode: configuration.approvalMode,
+            cwd: configuration.cwd,
+            model: configuration.modelIdentifier,
+            sandbox: configuration.sandbox
+        )
+        currentThread = result.thread
+        return result
+    }
+
     public func forkCurrentThread(
         using codex: Codex,
         configuration: CodexThreadLaunchConfiguration
