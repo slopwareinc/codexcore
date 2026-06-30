@@ -159,6 +159,7 @@ struct CodexExampleAppShell: View {
                 gitReviewSession: model.gitReviewSession,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
+                isThreadLoading: model.isThreadLoading,
                 chatActions: currentChatActionHandlers,
                 approvalOptions: model.approvalOptions,
                 modelOptions: model.modelOptions,

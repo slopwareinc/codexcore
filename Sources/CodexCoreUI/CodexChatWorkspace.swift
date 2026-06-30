@@ -42,6 +42,7 @@ public struct CodexChatWorkspaceView: View {
     private let gitReviewSession: CodexGitReviewSession?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
+    private let isThreadLoading: Bool
     private let chatActions: CodexChatActionHandlers
     private let approvalOptions: [CodexApprovalSelection]
     private let modelOptions: [CodexModelSelection]
@@ -99,6 +100,7 @@ public struct CodexChatWorkspaceView: View {
         gitReviewSession: CodexGitReviewSession? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = false,
+        isThreadLoading: Bool = false,
         chatActions: CodexChatActionHandlers = CodexChatActionHandlers(),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
@@ -150,6 +152,7 @@ public struct CodexChatWorkspaceView: View {
         self.gitReviewSession = gitReviewSession
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
+        self.isThreadLoading = isThreadLoading
         self.chatActions = chatActions
         self.approvalOptions = approvalOptions
         self.modelOptions = modelOptions
@@ -242,11 +245,15 @@ public struct CodexChatWorkspaceView: View {
                 onCloseMessage: onCloseTranscriptMessage,
                 onOpenMCPDetails: onOpenMCPDetails
             ) {
-                CodexEmptyTranscriptView { prompt in
-                    if let onPromptSelected {
-                        onPromptSelected(prompt)
-                    } else {
-                        draft = prompt
+                if isThreadLoading {
+                    CodexThreadLoadingView()
+                } else {
+                    CodexEmptyTranscriptView { prompt in
+                        if let onPromptSelected {
+                            onPromptSelected(prompt)
+                        } else {
+                            draft = prompt
+                        }
                     }
                 }
             }
@@ -409,6 +416,25 @@ public struct CodexChatWorkspaceView: View {
                 isCompactSummaryPanelPresented.toggle()
             }
         }
+    }
+}
+
+public struct CodexThreadLoadingView: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    public init() {}
+
+    public var body: some View {
+        HStack(spacing: 9) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Loading chat...")
+                .font(theme.fonts.label)
+                .foregroundStyle(theme.colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading chat")
     }
 }
 

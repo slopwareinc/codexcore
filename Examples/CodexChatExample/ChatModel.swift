@@ -39,6 +39,7 @@ final class CodexChatModel {
     private let mentionSearchSession = CodexMentionSearchSession()
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
     private var chatSelectionGeneration = 0
+    var isThreadLoading = false
     var pluginLauncherTarget: CodexComposerPluginLauncher?
     var mobileRouteSession = CodexMobileRouteSession()
     private var terminalSession: CodexCommandExecSession?
@@ -589,10 +590,14 @@ final class CodexChatModel {
         guard !threadSession.isCurrentThread(id: threadID) else { return }
         chatSelectionGeneration += 1
         let selectionGeneration = chatSelectionGeneration
+        isThreadLoading = true
         let trace = CodexPerformanceTrace(label: "chatLoad")
         let totalSpan = trace.begin("chatLoad.total", metadata: ["threadID": threadID])
         var totalOutcome = "success"
         defer {
+            if chatSelectionGeneration == selectionGeneration {
+                isThreadLoading = false
+            }
             totalSpan.end(metadata: ["threadID": threadID, "outcome": totalOutcome])
         }
 
@@ -1471,6 +1476,7 @@ final class CodexChatModel {
 
     private func invalidatePendingChatSelection() {
         chatSelectionGeneration += 1
+        isThreadLoading = false
     }
 
     private func setThreadPinned(_ threadID: String, pinned: Bool, announces: Bool = true) {
