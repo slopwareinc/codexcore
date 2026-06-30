@@ -309,7 +309,7 @@ public enum CodexLiveTurnModel {
 
     private static func normalizedLiveStatusTitle(_ title: String) -> String {
         switch title {
-        case "", "Codex is working":
+        case "", "Codex is working", "You asked Codex", "Pursuing goal", "Sending queued follow-up", "Steering turn":
             return "Thinking"
         case "Ran a command":
             return "Running command"
@@ -328,6 +328,7 @@ public enum CodexLiveTurnModel {
         guard !detail.isEmpty else { return nil }
         let hiddenDetails: Set<String> = ["Turn started", "Completed", "Reasoning"]
         guard !hiddenDetails.contains(detail) else { return nil }
+        guard title != "Thinking" else { return nil }
         guard detail != title else { return nil }
         return detail
     }

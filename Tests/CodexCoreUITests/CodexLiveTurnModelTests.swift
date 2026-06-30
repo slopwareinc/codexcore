@@ -49,6 +49,23 @@ final class CodexLiveTurnModelTests: XCTestCase {
         XCTAssertEqual(phase.stopShortcut, "Esc")
     }
 
+    func testPreItemTurnActivitiesFallbackToThinkingWithoutPromptDetail() {
+        let start = Date(timeIntervalSince1970: 300)
+        let activeTurn = CodexActiveTurnState(
+            activity: CodexActivity(kind: .turn, title: "You asked Codex", detail: "can you fix this?", createdAt: start),
+            startedAt: start
+        )
+
+        let phase = CodexLiveTurnModel.phaseState(
+            for: activeTurn,
+            now: start.addingTimeInterval(2)
+        )
+
+        XCTAssertEqual(phase.title, "Thinking")
+        XCTAssertNil(phase.detail)
+        XCTAssertEqual(phase.elapsedLabel, "2s")
+    }
+
     func testFirstOracleLiveTurnOperationRowsAndFinalResponseActions() {
         let messages = firstImplementationTurnMessages()
 
