@@ -419,13 +419,15 @@ final class CodexChatModel {
         await refreshRecentChats(using: codex)
     }
 
-    private func refreshRecentChats(using codex: Codex) async {
+    private func refreshRecentChats(using codex: Codex, trace: CodexPerformanceTrace? = nil) async {
         var session = threadListSession
         let activity = await session.refreshRecentChats(
             using: codex,
             currentWorkspacePath: workspacePath,
+            trace: trace,
             errorMessage: CodexErrorFormat.localizedDescription
         )
+        let applySpan = trace?.begin("threadList.model.apply")
         threadListSession = session
         
         for project in session.recentProjects {
@@ -435,6 +437,11 @@ final class CodexChatModel {
         if let activity {
             appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
+        applySpan?.end(metadata: [
+            "currentWorkspaceChatCount": "\(session.recentChats.count)",
+            "allChatCount": "\(session.allChats.count)",
+            "projectCount": "\(session.recentProjects.count)"
+        ])
     }
 
     func selectAppRoute(_ route: CodexAppRoute) {
@@ -567,19 +574,42 @@ final class CodexChatModel {
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
         guard !threadSession.isCurrentThread(id: threadID) else { return }
+        let trace = CodexPerformanceTrace(label: "chatLoad")
+        let totalSpan = trace.begin("chatLoad.total", metadata: ["threadID": threadID])
+        var totalOutcome = "success"
+        defer {
+            totalSpan.end(metadata: ["threadID": threadID, "outcome": totalOutcome])
+        }
+
+        let clearSpan = trace.begin("chatLoad.clearThreadState", metadata: ["threadID": threadID])
         clearThreadState()
+        clearSpan.end(metadata: ["threadID": threadID])
         do {
-            let resumedThread = try await threadSession.resumeThread(
-                id: threadID,
-                using: codex,
-                configuration: threadLaunchConfiguration
-            )
-            await hydrateThreadHistory(for: resumedThread, using: codex)
-            await refreshGoal(for: resumedThread)
+            let resumeSpan = trace.begin("chatLoad.threadResume", metadata: ["threadID": threadID])
+            let resumedThread: CodexThread
+            do {
+                resumedThread = try await threadSession.resumeThread(
+                    id: threadID,
+                    using: codex,
+                    configuration: threadLaunchConfiguration
+                )
+                resumeSpan.end(metadata: ["threadID": resumedThread.id, "outcome": "success"])
+            } catch {
+                resumeSpan.end(metadata: ["threadID": threadID, "outcome": "failure", "error": errorType(error)])
+                throw error
+            }
+
+            await hydrateThreadHistory(for: resumedThread, using: codex, trace: trace)
+            await refreshGoal(for: resumedThread, trace: trace)
+
+            let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": threadID])
             sidebarNavigationSession.selectChat(threadID, workspacePath: workspacePath)
+            sidebarSpan.end(metadata: ["threadID": threadID])
             appendActivity(.notice, title: "Resumed chat", detail: threadID)
-            await refreshRecentChats(using: codex)
+            await refreshRecentChats(using: codex, trace: trace)
         } catch {
+            totalOutcome = "failure"
+            trace.event("chatLoad.error", metadata: ["threadID": threadID, "error": errorType(error)])
             appendActivity(.notice, title: "Resume failed", detail: friendlyError(error))
         }
     }
@@ -830,25 +860,35 @@ final class CodexChatModel {
         return result.thread
     }
 
-    private func refreshGoal(for thread: CodexThread) async {
+    private func refreshGoal(for thread: CodexThread, trace: CodexPerformanceTrace? = nil) async {
+        let span = trace?.begin("chatLoad.goal.refresh", metadata: ["threadID": thread.id])
         do {
             let response = try await thread.goal()
             if let goal = response.goal {
                 applyGoal(goal, turnID: nil, shouldAnnounce: false)
+                span?.end(metadata: ["threadID": thread.id, "outcome": "success", "goal": "present"])
             } else {
                 clearGoalState()
+                span?.end(metadata: ["threadID": thread.id, "outcome": "success", "goal": "none"])
             }
         } catch {
+            span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Goal unavailable", detail: friendlyError(error))
         }
     }
 
-    private func hydrateThreadHistory(for thread: CodexThread, using codex: Codex) async {
+    private func hydrateThreadHistory(for thread: CodexThread, using codex: Codex, trace: CodexPerformanceTrace? = nil) async {
+        let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
         do {
-            let result = try await CodexThreadHistorySession.load(threadID: thread.id, using: codex)
+            let result = try await CodexThreadHistorySession.load(threadID: thread.id, using: codex, trace: trace)
+            let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
             let activity = runtimeSession.applyHistoryRestore(result)
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
+            let metadata = historyMetadata(for: result).merging(["outcome": "success"]) { _, new in new }
+            applySpan?.end(metadata: metadata)
+            span?.end(metadata: metadata)
         } catch {
+            span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
         }
     }
@@ -1039,6 +1079,21 @@ final class CodexChatModel {
 
     private func friendlyError(_ error: Error) -> String {
         CodexErrorFormat.localizedDescription(error)
+    }
+
+    private func errorType(_ error: Error) -> String {
+        String(describing: type(of: error))
+    }
+
+    private func historyMetadata(for result: CodexThreadHistoryRestoreResult) -> [String: String] {
+        [
+            "threadID": result.hydration.parent.snapshot.id,
+            "turnCount": "\(result.hydration.parent.snapshot.turns.count)",
+            "itemCount": "\(result.hydration.parent.snapshot.turns.reduce(0) { $0 + $1.items.count })",
+            "messageCount": "\(result.messageCount)",
+            "restoredChildThreadCount": "\(result.restoredChildThreadCount)",
+            "failedChildThreadCount": "\(result.hydration.failedChildThreadIDs.count)"
+        ]
     }
 
     private func applyFastCommand() {
