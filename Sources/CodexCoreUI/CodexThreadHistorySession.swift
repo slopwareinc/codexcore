@@ -30,11 +30,95 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
     }
 }
 
+public struct CodexThreadHistoryCache: Sendable {
+    private let capacity: Int
+    private var entries: [String: CodexThreadHistoryRestoreResult] = [:]
+    private var order: [String] = []
+    private var protectedThreadIDs: Set<String> = []
+
+    public init(capacity: Int = 20) {
+        self.capacity = max(0, capacity)
+    }
+
+    public var count: Int {
+        entries.count
+    }
+
+    public func isProtected(threadID: String) -> Bool {
+        protectedThreadIDs.contains(threadID)
+    }
+
+    public mutating func result(for threadID: String) -> CodexThreadHistoryRestoreResult? {
+        guard let result = entries[threadID] else { return nil }
+        touch(threadID)
+        return result
+    }
+
+    public mutating func store(_ result: CodexThreadHistoryRestoreResult, protected: Bool = false) {
+        let threadID = result.hydration.parent.snapshot.id
+        let isProtected = protected || protectedThreadIDs.contains(threadID)
+        guard capacity > 0 || isProtected else {
+            evictUnprotectedEntries()
+            return
+        }
+        if protected {
+            protectedThreadIDs.insert(threadID)
+        }
+        entries[threadID] = result
+        touch(threadID)
+        evictOverflow()
+    }
+
+    public mutating func protect(threadID: String) {
+        protectedThreadIDs.insert(threadID)
+        evictOverflow()
+    }
+
+    public mutating func remove(threadID: String) {
+        entries.removeValue(forKey: threadID)
+        order.removeAll { $0 == threadID }
+        protectedThreadIDs.remove(threadID)
+    }
+
+    public mutating func removeAll() {
+        entries.removeAll()
+        order.removeAll()
+        protectedThreadIDs.removeAll()
+    }
+
+    private mutating func touch(_ threadID: String) {
+        order.removeAll { $0 == threadID }
+        order.append(threadID)
+    }
+
+    private mutating func evictOverflow() {
+        while unprotectedEntryCount > capacity,
+              let evicted = order.first(where: { !protectedThreadIDs.contains($0) }) {
+            order.removeAll { $0 == evicted }
+            entries.removeValue(forKey: evicted)
+        }
+    }
+
+    private var unprotectedEntryCount: Int {
+        entries.keys.reduce(0) { count, threadID in
+            count + (protectedThreadIDs.contains(threadID) ? 0 : 1)
+        }
+    }
+
+    private mutating func evictUnprotectedEntries() {
+        for threadID in Array(entries.keys) where !protectedThreadIDs.contains(threadID) {
+            entries.removeValue(forKey: threadID)
+        }
+        order.removeAll { !protectedThreadIDs.contains($0) }
+    }
+}
+
 public enum CodexThreadHistorySession {
     public static func load(
         threadID: String,
         using codex: Codex,
-        trace: CodexPerformanceTrace? = nil
+        trace: CodexPerformanceTrace? = nil,
+        activateParent: Bool = true
     ) async throws -> CodexThreadHistoryRestoreResult {
         let parentReadSpan = trace?.begin("threadHistory.parent.read", metadata: ["threadID": threadID])
         let parentRaw: CodexJSONValue
@@ -45,28 +129,30 @@ public enum CodexThreadHistorySession {
             parentReadSpan?.end(metadata: ["outcome": "failure", "error": errorType(error)])
             throw error
         }
-        return await load(parentRaw: parentRaw, using: codex, trace: trace)
+        return await load(parentRaw: parentRaw, using: codex, trace: trace, activateParent: activateParent)
     }
 
     public static func load(
         parentRaw: CodexJSONValue,
         using codex: Codex,
-        trace: CodexPerformanceTrace? = nil
+        trace: CodexPerformanceTrace? = nil,
+        activateParent: Bool = true
     ) async -> CodexThreadHistoryRestoreResult {
         let result = await restore(parentRaw: parentRaw, trace: trace) { childThreadID in
             try await readThreadRaw(threadID: childThreadID, using: codex)
         }
-        return await hydrateStore(result, using: codex, trace: trace)
+        return await hydrateStore(result, using: codex, trace: trace, activateParent: activateParent)
     }
 
     private static func hydrateStore(
         _ result: CodexThreadHistoryRestoreResult,
         using codex: Codex,
-        trace: CodexPerformanceTrace?
+        trace: CodexPerformanceTrace?,
+        activateParent: Bool
     ) async -> CodexThreadHistoryRestoreResult {
         let storeHydrateSpan = trace?.begin("threadHistory.store.hydrate", metadata: metadata(for: result))
         await MainActor.run {
-            codex.store.hydrate(result.hydration)
+            codex.store.hydrate(result.hydration, activateParent: activateParent)
         }
         storeHydrateSpan?.end(metadata: metadata(for: result).merging(["outcome": "success"]) { _, new in new })
         return result
