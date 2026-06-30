@@ -309,7 +309,7 @@ public enum CodexLiveTurnModel {
 
     private static func normalizedLiveStatusTitle(_ title: String) -> String {
         switch title {
-        case "", "Codex is working", "You asked Codex", "Pursuing goal", "Sending queued follow-up", "Steering turn":
+        case "", "Codex is working", "You asked Codex", "Pursuing goal", "Follow-up queued", "Sending queued follow-up", "Steering turn":
             return "Thinking"
         case "Ran a command":
             return "Running command"

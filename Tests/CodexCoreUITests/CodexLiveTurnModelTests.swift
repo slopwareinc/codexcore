@@ -51,19 +51,21 @@ final class CodexLiveTurnModelTests: XCTestCase {
 
     func testPreItemTurnActivitiesFallbackToThinkingWithoutPromptDetail() {
         let start = Date(timeIntervalSince1970: 300)
-        let activeTurn = CodexActiveTurnState(
-            activity: CodexActivity(kind: .turn, title: "You asked Codex", detail: "can you fix this?", createdAt: start),
-            startedAt: start
-        )
+        for title in ["You asked Codex", "Pursuing goal", "Follow-up queued", "Sending queued follow-up", "Steering turn"] {
+            let activeTurn = CodexActiveTurnState(
+                activity: CodexActivity(kind: .turn, title: title, detail: "can you fix this?", createdAt: start),
+                startedAt: start
+            )
 
-        let phase = CodexLiveTurnModel.phaseState(
-            for: activeTurn,
-            now: start.addingTimeInterval(2)
-        )
+            let phase = CodexLiveTurnModel.phaseState(
+                for: activeTurn,
+                now: start.addingTimeInterval(2)
+            )
 
-        XCTAssertEqual(phase.title, "Thinking")
-        XCTAssertNil(phase.detail)
-        XCTAssertEqual(phase.elapsedLabel, "2s")
+            XCTAssertEqual(phase.title, "Thinking", title)
+            XCTAssertNil(phase.detail, title)
+            XCTAssertEqual(phase.elapsedLabel, "2s", title)
+        }
     }
 
     func testFirstOracleLiveTurnOperationRowsAndFinalResponseActions() {
