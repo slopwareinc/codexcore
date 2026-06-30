@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import Dispatch
 
 public struct CodexPerformanceTrace: Sendable, Equatable {
     public let id: String
@@ -48,12 +49,42 @@ public struct CodexPerformanceTrace: Sendable, Equatable {
             parts.append("\(sanitize(key))=\(sanitize(value))")
         }
         let line = parts.joined(separator: " ")
-        print("[CodexTrace] \(line)")
+        let traceLine = "[CodexTrace] \(line)"
+        print(traceLine)
         logger.notice("\(line, privacy: .public)")
+        appendToTraceFile(traceLine)
+    }
+
+    public static var traceFilePath: String {
+        traceFileURL.path
     }
 
     private static func makeID() -> String {
         String(UUID().uuidString.prefix(8))
+    }
+
+    private static func appendToTraceFile(_ line: String) {
+        traceFileQueue.sync {
+            do {
+                let url = traceFileURL
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let timestamp = ISO8601DateFormatter().string(from: Date())
+                let data = "\(timestamp) \(line)\n".data(using: .utf8) ?? Data()
+                if FileManager.default.fileExists(atPath: url.path) {
+                    let handle = try FileHandle(forWritingTo: url)
+                    defer { try? handle.close() }
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: data)
+                } else {
+                    try data.write(to: url, options: .atomic)
+                }
+            } catch {
+                print("[CodexTrace] file_write_failed=\(sanitize(String(describing: error)))")
+            }
+        }
     }
 
     private static func sanitize(_ value: String) -> String {
@@ -68,6 +99,13 @@ public struct CodexPerformanceTrace: Sendable, Equatable {
     }
 
     private static let logger = Logger(subsystem: "com.slopware.codexcore", category: "performance")
+    private static let traceFileQueue = DispatchQueue(label: "com.slopware.codexcore.performance-trace")
+    private static var traceFileURL: URL {
+        let logsDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appending(path: "Logs", directoryHint: .isDirectory)
+            .appending(path: "CodexCore", directoryHint: .isDirectory)
+        return logsDirectory.appending(path: "performance-trace.log")
+    }
 }
 
 public struct CodexPerformanceTraceSpan: Sendable {
