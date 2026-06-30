@@ -194,6 +194,7 @@ public struct CodexAgentTheme {
         public var cardMaxWidth: CGFloat
         public var transcriptOuterMaxWidth: CGFloat
         public var userBubbleMaxWidth: CGFloat
+        public var chipPadding: EdgeInsets
         public var iconSmall: CGFloat
         public var iconMedium: CGFloat
         public var iconLarge: CGFloat
@@ -208,6 +209,7 @@ public struct CodexAgentTheme {
             cardMaxWidth: CGFloat,
             transcriptOuterMaxWidth: CGFloat,
             userBubbleMaxWidth: CGFloat,
+            chipPadding: EdgeInsets = EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8),
             iconSmall: CGFloat = 13,
             iconMedium: CGFloat = 16,
             iconLarge: CGFloat = 28
@@ -221,6 +223,7 @@ public struct CodexAgentTheme {
             self.cardMaxWidth = cardMaxWidth
             self.transcriptOuterMaxWidth = transcriptOuterMaxWidth
             self.userBubbleMaxWidth = userBubbleMaxWidth
+            self.chipPadding = chipPadding
             self.iconSmall = iconSmall
             self.iconMedium = iconMedium
             self.iconLarge = iconLarge
@@ -236,7 +239,8 @@ public struct CodexAgentTheme {
                 rowGap: 12,
                 cardMaxWidth: 640,
                 transcriptOuterMaxWidth: 860,
-                userBubbleMaxWidth: 560
+                userBubbleMaxWidth: 560,
+                chipPadding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
             )
         }
     }

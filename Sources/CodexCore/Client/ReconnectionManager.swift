@@ -4,6 +4,7 @@ import Foundation
 
 public actor CodexReconnectionManager {
     private let transport: any CodexTransport
+    private let sleep: @Sendable (TimeInterval) async -> Void
     private var isReconnecting = false
     private var backoffDelay: TimeInterval = 1.0
     private let maxBackoffDelay: TimeInterval = 30.0
@@ -16,8 +17,14 @@ public actor CodexReconnectionManager {
     private var onMessage: (@Sendable (String) -> Void)?
     private var onError: (@Sendable (Error) -> Void)?
 
-    public init(transport: any CodexTransport) {
+    public init(
+        transport: any CodexTransport,
+        sleep: @escaping @Sendable (TimeInterval) async -> Void = { delay in
+            try? await Task.sleep(for: .seconds(delay))
+        }
+    ) {
         self.transport = transport
+        self.sleep = sleep
     }
 
     public func configure(
@@ -57,7 +64,7 @@ public actor CodexReconnectionManager {
     private func triggerReconnectionLoop() async {
         while isReconnecting {
             print("[CodexCore] Reconnection attempt in \(backoffDelay) seconds...")
-            try? await Task.sleep(for: .seconds(backoffDelay))
+            await sleep(backoffDelay)
 
             do {
                 try await tryConnect()

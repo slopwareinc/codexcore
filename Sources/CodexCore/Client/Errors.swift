@@ -2,6 +2,31 @@ import Foundation
 
 public protocol CodexError: Error {}
 
+public extension CodexError {
+    var localizedDescription: String {
+        if let localized = self as? any LocalizedError,
+           let description = localized.errorDescription {
+            return description
+        }
+        return String(describing: self)
+    }
+}
+
+public enum CodexErrorFormat {
+    public static func localizedDescription(_ error: Error) -> String {
+        let description: String
+        if let codexError = error as? any CodexError {
+            description = codexError.localizedDescription
+        } else if let localized = error as? any LocalizedError,
+                  let errorDescription = localized.errorDescription {
+            description = errorDescription
+        } else {
+            description = String(describing: error)
+        }
+        return description.count > 200 ? String(description.prefix(200)) + "…" : description
+    }
+}
+
 public enum CodexRPCErrorKind: String, Codable, Sendable, Equatable {
     case jsonRpc
     case codexRpc
@@ -161,5 +186,4 @@ extension JSONRPCError {
     }
 }
 
-extension CodexSDKError: CodexError {}
 extension CodexConnectionError: CodexError {}

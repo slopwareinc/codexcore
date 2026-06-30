@@ -10,15 +10,20 @@ struct CodexStatusChip: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: isStreaming ? 7 : 6, height: isStreaming ? 7 : 6)
+            if isStreaming {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(color)
+            } else {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+            }
             Text(label)
                 .font(theme.fonts.micro)
                 .foregroundStyle(color)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(theme.spacing.chipPadding)
         .background(color.opacity(0.16), in: Capsule())
     }
 }
