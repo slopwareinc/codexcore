@@ -77,10 +77,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                     requestScroll(proxy, animated: false, force: true)
                 }
                 .onChange(of: scrollTrigger) { oldValue, newValue in
+                    let isInitialLoad = oldValue.isEmpty && !newValue.isEmpty
                     requestScroll(
                         proxy,
-                        animated: newValue.hasStructureChange(comparedTo: oldValue),
-                        force: oldValue.isEmpty && !newValue.isEmpty
+                        animated: !isInitialLoad && newValue.hasStructureChange(comparedTo: oldValue),
+                        force: isInitialLoad
                     )
                 }
             }
@@ -115,6 +116,10 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             scroll(proxy, animated: animated)
         }
         pendingScrollRequest = request
+        guard !force else {
+            DispatchQueue.main.async(execute: request)
+            return
+        }
         DispatchQueue.main.asyncAfter(
             deadline: .now() + Self.scrollDebounceDelay,
             execute: request
