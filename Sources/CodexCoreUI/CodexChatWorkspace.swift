@@ -37,6 +37,7 @@ public struct CodexChatWorkspaceView: View {
     private let connectionState: CodexConnectionState
     private let workspacePath: String
     private let chatTitle: String
+    private let currentThreadID: String?
     private let rateLimitBannerMessage: String?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
@@ -95,6 +96,7 @@ public struct CodexChatWorkspaceView: View {
         connectionState: CodexConnectionState,
         workspacePath: String,
         chatTitle: String = "Codex",
+        currentThreadID: String? = nil,
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
@@ -147,6 +149,7 @@ public struct CodexChatWorkspaceView: View {
         self.connectionState = connectionState
         self.workspacePath = workspacePath
         self.chatTitle = chatTitle
+        self.currentThreadID = currentThreadID
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
@@ -240,6 +243,7 @@ public struct CodexChatWorkspaceView: View {
         ZStack(alignment: .topTrailing) {
             CodexTranscriptView(
                 messages: messages,
+                transcriptID: currentThreadID,
                 lifecycleEvents: lifecycleEvents,
                 activeTurn: activeTurnState,
                 onCloseMessage: onCloseTranscriptMessage,

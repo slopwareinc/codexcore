@@ -154,6 +154,7 @@ struct CodexExampleAppShell: View {
                 connectionState: model.connectionState,
                 workspacePath: model.workspacePath,
                 chatTitle: model.currentChatTitle,
+                currentThreadID: model.currentThreadID,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
                 gitReviewSession: model.gitReviewSession,
