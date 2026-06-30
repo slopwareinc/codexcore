@@ -165,6 +165,8 @@ private extension CodexTranscriptTimelineItem {
             return text.count
         case .message(let message) where message.isStreaming:
             return message.text.count
+        case .completedWorkTrace:
+            return 0
         default:
             return 0
         }
@@ -198,6 +200,10 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
                 onCloseMessage: onCloseMessage,
                 onOpenMCPDetails: onOpenMCPDetails
             )
+        case .completedWorkTrace(_, let trace):
+            CodexAgentRow(visibility: .hidden) {
+                CodexCompletedWorkTraceView(trace: trace)
+            }
         case .operationAggregate(_, let rows):
             CodexAgentRow(visibility: .hidden) {
                 CodexOperationSummaryCard(rows: rows)

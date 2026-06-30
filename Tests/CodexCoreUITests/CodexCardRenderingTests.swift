@@ -12,6 +12,7 @@ final class CodexCardRenderingTests: XCTestCase {
             try assertRenders(CodexNoticeCard(notice: Self.notice).codexAgentTheme(preset.theme), name: "notice-\(preset.rawValue)")
             try assertRenders(CodexReasoningCard(block: Self.reasoning).codexAgentTheme(preset.theme), name: "reasoning-\(preset.rawValue)")
             try assertRenders(CodexPlanCard(plan: Self.plan).codexAgentTheme(preset.theme), name: "plan-\(preset.rawValue)")
+            try assertRenders(CodexCompletedWorkTraceView(trace: Self.completedWorkTrace).codexAgentTheme(preset.theme), name: "work-trace-\(preset.rawValue)")
         }
     }
 
@@ -86,5 +87,27 @@ final class CodexCardRenderingTests: XCTestCase {
             .init(step: "Add rendering tests", status: "in_progress")
         ],
         isStreaming: false
+    )
+
+    private static let completedWorkTrace = CodexCompletedWorkTrace(
+        id: "trace-render",
+        title: "Worked for 1m 08s",
+        groups: [
+            .init(
+                kind: .command,
+                title: "Ran commands",
+                operations: [
+                    .init(
+                        id: "command-render",
+                        title: "swift test --filter CodexCardRenderingTests",
+                        detail: "Build complete\nExecuted 1 test",
+                        status: "exit 0",
+                        isFailure: false,
+                        message: CodexChatMessage(role: .terminal, text: "Build complete")
+                    )
+                ]
+            )
+        ],
+        createdAt: Date(timeIntervalSince1970: 100)
     )
 }

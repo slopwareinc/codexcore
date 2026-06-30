@@ -3,6 +3,74 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexChatTranscriptTests: XCTestCase {
+    func testCompletedWorkTraceGroupsOperationsWithCollapsedDefaults() throws {
+        let start = Date(timeIntervalSince1970: 100)
+        let messages = [
+            CodexChatMessage(role: .user, text: "Inspect and test", createdAt: start),
+            commandMessage("ls", createdAt: start.addingTimeInterval(1)),
+            readMessage("README.md", createdAt: start.addingTimeInterval(2)),
+            fileChangeMessage(path: "README.md", added: 2, removed: 1, createdAt: start.addingTimeInterval(3)),
+            commandMessage("npm test", duration: "1s", createdAt: start.addingTimeInterval(4)),
+            CodexChatMessage(role: .assistant, text: "Done.", detail: "final_answer", createdAt: start.addingTimeInterval(5))
+        ]
+
+        let trace = try XCTUnwrap(CodexCompletedWorkTrace.project(from: messages))
+
+        XCTAssertEqual(trace.title, "Worked for 4s")
+        XCTAssertTrue(trace.isCollapsedByDefault)
+        XCTAssertEqual(trace.groups.map(\.title), [
+            "Ran commands",
+            "Read files",
+            "Edited files"
+        ])
+        XCTAssertTrue(trace.groups.allSatisfy(\.isCollapsedByDefault))
+        XCTAssertEqual(trace.groups.flatMap(\.operations).map(\.title), [
+            "ls",
+            "npm test",
+            "README.md",
+            "README.md"
+        ])
+        XCTAssertTrue(trace.groups.flatMap(\.operations).allSatisfy(\.isCollapsedByDefault))
+        XCTAssertTrue(trace.groups.flatMap(\.operations).allSatisfy(\.isDetailCollapsedByDefault))
+    }
+
+    func testCompletedTranscriptTimelineReplacesVisibleOperationCardsWithTraceBeforeFinalAnswer() throws {
+        let start = Date(timeIntervalSince1970: 100)
+        let messages = [
+            CodexChatMessage(role: .user, text: "Inspect and test", createdAt: start),
+            commandMessage("ls", createdAt: start.addingTimeInterval(1)),
+            readMessage("README.md", createdAt: start.addingTimeInterval(2)),
+            fileChangeMessage(path: "README.md", added: 2, removed: 1, createdAt: start.addingTimeInterval(3)),
+            commandMessage("npm test", duration: "1s", createdAt: start.addingTimeInterval(4)),
+            CodexChatMessage(role: .assistant, text: "Done.", detail: "final_answer", createdAt: start.addingTimeInterval(5))
+        ]
+
+        let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
+
+        let traceIndex = try XCTUnwrap(timeline.firstIndex { item in
+            if case .completedWorkTrace = item { return true }
+            return false
+        })
+        guard case .completedWorkTrace(_, let trace) = timeline[traceIndex] else {
+            return XCTFail("Expected completed work trace item")
+        }
+        let visibleOperationMessages = timeline.filter { item in
+            if case .message(let message) = item, [.terminal, .tool, .fileChange].contains(message.role) {
+                return true
+            }
+            return false
+        }
+        let assistantBlockIndex = try XCTUnwrap(timeline.firstIndex { item in
+            if case .assistantBlock = item { return true }
+            return false
+        })
+
+        XCTAssertEqual(trace.title, "Worked for 4s")
+        XCTAssertTrue(trace.isCollapsedByDefault)
+        XCTAssertTrue(visibleOperationMessages.isEmpty)
+        XCTAssertLessThan(traceIndex, assistantBlockIndex)
+    }
+
     func testTranscriptTimelineInsertsOperationAggregateBeforeConsecutiveOperationMessages() throws {
         let start = Date(timeIntervalSince1970: 100)
         let messages = [
@@ -11,7 +79,7 @@ final class CodexChatTranscriptTests: XCTestCase {
             readMessage("README.md", createdAt: start.addingTimeInterval(2)),
             fileChangeMessage(path: "README.md", added: 2, removed: 1, createdAt: start.addingTimeInterval(3)),
             commandMessage("npm test", duration: "1s", createdAt: start.addingTimeInterval(4)),
-            CodexChatMessage(role: .assistant, text: "Done.", createdAt: start.addingTimeInterval(5))
+            CodexChatMessage(role: .assistant, text: "Working...", isStreaming: true, createdAt: start.addingTimeInterval(5))
         ]
 
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
@@ -61,7 +129,7 @@ final class CodexChatTranscriptTests: XCTestCase {
             CodexChatMessage(role: .user, text: "Update files", createdAt: start),
             fileChangeMessage(path: "README.md", added: 2, removed: 1, createdAt: start.addingTimeInterval(1)),
             fileChangeMessage(path: "Sources/App.swift", added: 4, removed: 0, createdAt: start.addingTimeInterval(2)),
-            CodexChatMessage(role: .assistant, text: "Done.", createdAt: start.addingTimeInterval(3))
+            CodexChatMessage(role: .assistant, text: "Working...", isStreaming: true, createdAt: start.addingTimeInterval(3))
         ]
 
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
@@ -237,6 +305,10 @@ final class CodexChatTranscriptTests: XCTestCase {
             if case .fileChangeAggregate = $0 { return true }
             return false
         }
+        let completedWorkTraces = timeline.filter {
+            if case .completedWorkTrace = $0 { return true }
+            return false
+        }
         let detailedMessages = timeline.filter {
             if case .message = $0 { return true }
             return false
@@ -245,12 +317,13 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertEqual(fixture.messages.count, 480)
         XCTAssertEqual(fixture.lifecycleEvents.count, 240)
         XCTAssertEqual(assistantBlocks.count, fixture.turnCount)
-        XCTAssertEqual(operationAggregates.count, fixture.turnCount)
-        XCTAssertEqual(fileChangeAggregates.count, fixture.turnCount)
-        XCTAssertEqual(detailedMessages.count, fixture.turnCount * 5)
+        XCTAssertEqual(operationAggregates.count, 0)
+        XCTAssertEqual(fileChangeAggregates.count, 0)
+        XCTAssertEqual(completedWorkTraces.count, fixture.turnCount)
+        XCTAssertEqual(detailedMessages.count, fixture.turnCount)
         XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, fixture.lifecycleEvents.count)
         XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
-        XCTAssertLessThanOrEqual(timeline.count, fixture.messages.count + fixture.lifecycleEvents.count + fixture.turnCount * 4)
+        XCTAssertLessThanOrEqual(timeline.count, fixture.messages.count + fixture.lifecycleEvents.count)
     }
 
     func testChatTranscriptProjectionMapsRawItemsThroughTimelineMapper() throws {

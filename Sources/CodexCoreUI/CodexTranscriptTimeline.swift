@@ -2,6 +2,7 @@ import Foundation
 
 enum CodexTranscriptTimelineItem: Identifiable, Equatable {
     case message(CodexChatMessage)
+    case completedWorkTrace(id: String, trace: CodexCompletedWorkTrace)
     case operationAggregate(id: String, rows: [CodexLiveTurnOperationRow])
     case fileChangeAggregate(id: String, changes: [CodexChatMessage.FileChange])
     case assistantLifecycle(id: String, events: [CodexAgentLifecycleEvent])
@@ -13,6 +14,8 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
         switch self {
         case .message(let message):
             return "message-\(message.id.uuidString)"
+        case .completedWorkTrace(let id, _):
+            return "work-trace-\(id)"
         case .operationAggregate(let id, _):
             return "op-agg-\(id)"
         case .fileChangeAggregate(let id, _):
@@ -32,6 +35,8 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
         switch self {
         case .message(let message):
             return message.createdAt
+        case .completedWorkTrace(_, let trace):
+            return trace.createdAt
         case .lifecycle(let event):
             return event.createdAt
         default:
@@ -48,7 +53,10 @@ enum CodexTranscriptTimelineBuilder {
         messages: [CodexChatMessage],
         lifecycleEvents: [CodexAgentLifecycleEvent]
     ) -> [CodexTranscriptTimelineItem] {
-        compactAssistantTurns(mergedChronologically(messages: messages, lifecycleEvents: lifecycleEvents))
+        compactAssistantTurns(
+            mergedChronologically(messages: messages, lifecycleEvents: lifecycleEvents)
+                .insertingCompletedWorkTraces()
+        )
         .insertingOperationAggregateRows()
         .insertingAggregateFileChangeCards()
     }
@@ -195,6 +203,48 @@ enum CodexTranscriptTimelineBuilder {
 }
 
 private extension Array where Element == CodexTranscriptTimelineItem {
+    func insertingCompletedWorkTraces() -> [CodexTranscriptTimelineItem] {
+        var result: [CodexTranscriptTimelineItem] = []
+        var pendingWorkMessages: [CodexChatMessage] = []
+
+        func flushPendingWork() {
+            guard !pendingWorkMessages.isEmpty else { return }
+            result.append(contentsOf: pendingWorkMessages.map(CodexTranscriptTimelineItem.message))
+            pendingWorkMessages = []
+        }
+
+        func appendTrace(before assistantMessage: CodexChatMessage) -> Bool {
+            guard !pendingWorkMessages.isEmpty,
+                  let trace = CodexCompletedWorkTrace.project(from: pendingWorkMessages + [assistantMessage]) else {
+                return false
+            }
+            result.append(.completedWorkTrace(id: trace.id, trace: trace))
+            pendingWorkMessages = []
+            return true
+        }
+
+        for item in self {
+            switch item {
+            case .message(let message) where message.isCompletedWorkTraceInput:
+                pendingWorkMessages.append(message)
+
+            case .message(let message) where message.role == .assistant && !message.isStreaming:
+                _ = appendTrace(before: message)
+                result.append(item)
+
+            case .lifecycle:
+                result.append(item)
+
+            default:
+                flushPendingWork()
+                result.append(item)
+            }
+        }
+
+        flushPendingWork()
+        return result
+    }
+
     func insertingOperationAggregateRows() -> [CodexTranscriptTimelineItem] {
         var result: [CodexTranscriptTimelineItem] = []
         var pendingOperationMessages: [CodexChatMessage] = []
@@ -255,6 +305,25 @@ private extension Array where Element == CodexTranscriptTimelineItem {
 }
 
 private extension CodexChatMessage {
+    var isCompletedWorkTraceInput: Bool {
+        switch role {
+        case .terminal:
+            return commandRun != nil && !isStreaming
+        case .tool:
+            return toolCall != nil && !isStreaming
+        case .fileChange:
+            return fileChange != nil && !isStreaming
+        case .plan:
+            return planUpdate != nil && !isStreaming
+        case .notice:
+            return notice != nil && !isStreaming
+        case .reasoning:
+            return reasoningBlock != nil && !isStreaming
+        case .assistant, .user, .system:
+            return false
+        }
+    }
+
     var isOperationSummaryInput: Bool {
         switch role {
         case .terminal:
