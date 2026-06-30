@@ -78,6 +78,10 @@ public struct CodexChatRuntimeState: Sendable {
         goalSession.activeTurnID
     }
 
+    public var threadHistorySnapshot: CodexThreadHistorySnapshot {
+        CodexThreadHistorySnapshot(messages: messages, agentStateMapper: agentStateMapper)
+    }
+
     public func canSendFollowUp(hasActiveTurnHandle: Bool) -> Bool {
         isSending && goalSession.canSendFollowUp(hasActiveTurnHandle: hasActiveTurnHandle)
     }

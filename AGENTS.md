@@ -5,4 +5,4 @@
 - When reporting work, summarize the outcome, key files touched, and verification only.
 - When making code or durable project changes, periodically stop and judge whether the current work forms a logical commit. Commit coherent, verified chunks instead of letting unrelated changes pile up.
 - For major durable changes, create or confirm a GitHub issue first, implement on a dedicated branch, and open a linked PR. Include the issue link in the PR body with `Fixes #<issue-number>` or equivalent closing syntax.
-- After committing a completed implementation slice, immediately hand the exact commit and verification checklist to Gatekeeper for independent review. Do not wait for the orchestrator heartbeat to relay it.
+- Run Gatekeeper only for major or risky durable changes, or when explicitly requested. When using Gatekeeper, prefer `gpt-5.5` with medium reasoning unless the user asks otherwise, and include the exact commit plus verification checklist.

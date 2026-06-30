@@ -290,7 +290,8 @@ public final class Codex: @unchecked Sendable {
         modelProvider: String? = nil,
         personality: Personality? = nil,
         sandbox: Sandbox? = nil,
-        serviceTier: String? = nil
+        serviceTier: String? = nil,
+        activateInStore: Bool = true
     ) async throws -> CodexThreadResumeResult {
         let params = makeThreadResumeParams(
             threadId,
@@ -305,9 +306,17 @@ public final class Codex: @unchecked Sendable {
             sandbox: sandbox,
             serviceTier: serviceTier
         )
-        let response = try await client.threadResumeSchema(threadId: threadId, params: params)
+        let response = try await client.threadResumeSchema(
+            threadId: threadId,
+            params: params,
+            activateThread: activateInStore
+        )
         let thread = CodexThread(client: client, store: store, id: response.thread.id)
         return CodexThreadResumeResult(thread: thread, response: response)
+    }
+
+    public func threadHandle(id threadId: String) -> CodexThread {
+        CodexThread(client: client, store: store, id: threadId)
     }
 
     private func makeThreadResumeParams(
@@ -405,7 +414,8 @@ public final class Codex: @unchecked Sendable {
         modelProvider: String? = nil,
         sandbox: Sandbox? = nil,
         serviceTier: String? = nil,
-        threadSource: ThreadSource? = nil
+        threadSource: ThreadSource? = nil,
+        activateInStore: Bool = true
     ) async throws -> CodexThread {
         let approvals = approvalMode?.settings ?? ApprovalSettings()
         var params = ThreadForkParams(threadId: threadId)
@@ -422,7 +432,11 @@ public final class Codex: @unchecked Sendable {
         params.serviceTier = serviceTier
         params.threadSource = threadSource
 
-        let response = try await client.threadFork(threadId: threadId, params: params)
+        let response = try await client.threadFork(
+            threadId: threadId,
+            params: params,
+            activateThread: activateInStore
+        )
         return CodexThread(client: client, store: store, id: response.thread.id)
     }
 

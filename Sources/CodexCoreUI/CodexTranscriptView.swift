@@ -11,9 +11,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var isPinnedToBottom = true
     @State private var pendingScrollRequest: DispatchWorkItem?
+    @State private var scrollPositionID: String? = Self.bottomAnchor
 
     public init(
         messages: [CodexChatMessage],
+        transcriptID: String? = nil,
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
         activeTurn: CodexActiveTurnState? = nil,
         onCloseMessage: ((UUID) -> Void)? = nil,
@@ -28,6 +30,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
         self.scrollTrigger = CodexTranscriptScrollTrigger(
+            transcriptID: transcriptID,
             timelineItems: timelineItems,
             activeTurn: activeTurn
         )
@@ -60,6 +63,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                             }
                             bottomAnchor
                         }
+                        .scrollTargetLayout()
                         .padding(.horizontal, 28)
                         .padding(.top, 24)
                         .padding(.bottom, 28)
@@ -67,8 +71,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                         .frame(maxWidth: .infinity)
                     }
                 }
+                .id(scrollTrigger.transcriptIdentity)
                 .coordinateSpace(name: Self.scrollCoordinateSpace)
                 .scrollContentBackground(.hidden)
+                .defaultScrollAnchor(.bottom)
+                .scrollPosition(id: $scrollPositionID, anchor: .bottom)
                 .onPreferenceChange(CodexTranscriptBottomPreferenceKey.self) { bottomY in
                     guard bottomY > 0 else { return }
                     isPinnedToBottom = bottomY <= viewport.size.height + Self.bottomPinTolerance
@@ -77,10 +84,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                     requestScroll(proxy, animated: false, force: true)
                 }
                 .onChange(of: scrollTrigger) { oldValue, newValue in
+                    let isInitialLoad = oldValue.isEmpty && !newValue.isEmpty
                     requestScroll(
                         proxy,
-                        animated: newValue.hasStructureChange(comparedTo: oldValue),
-                        force: oldValue.isEmpty && !newValue.isEmpty
+                        animated: !isInitialLoad && newValue.hasStructureChange(comparedTo: oldValue),
+                        force: isInitialLoad
                     )
                 }
             }
@@ -110,11 +118,22 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         guard force || isPinnedToBottom else { return }
 
         pendingScrollRequest?.cancel()
+        if force {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                scrollPositionID = Self.bottomAnchor
+            }
+        }
         let request = DispatchWorkItem {
             guard force || isPinnedToBottom else { return }
             scroll(proxy, animated: animated)
         }
         pendingScrollRequest = request
+        guard !force else {
+            DispatchQueue.main.async(execute: request)
+            return
+        }
         DispatchQueue.main.asyncAfter(
             deadline: .now() + Self.scrollDebounceDelay,
             execute: request
@@ -133,13 +152,21 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
 }
 
 private struct CodexTranscriptScrollTrigger: Equatable {
+    var transcriptID: String?
     var itemCount: Int
+    var firstItemID: String?
     var lastItemID: String?
     var streamingVersion: Int
     var activeTurnVersion: Int
 
-    init(timelineItems: [CodexTranscriptTimelineItem], activeTurn: CodexActiveTurnState?) {
+    init(
+        transcriptID: String?,
+        timelineItems: [CodexTranscriptTimelineItem],
+        activeTurn: CodexActiveTurnState?
+    ) {
+        self.transcriptID = transcriptID
         itemCount = timelineItems.count
+        firstItemID = timelineItems.first?.id
         lastItemID = timelineItems.last?.id
         streamingVersion = timelineItems.reduce(0) { partialResult, item in
             partialResult &+ item.streamingContentLength
@@ -149,6 +176,10 @@ private struct CodexTranscriptScrollTrigger: Equatable {
 
     var isEmpty: Bool {
         itemCount == 0 && activeTurnVersion == 0
+    }
+
+    var transcriptIdentity: String {
+        transcriptID ?? firstItemID ?? "empty-transcript"
     }
 
     func hasStructureChange(comparedTo oldValue: Self) -> Bool {

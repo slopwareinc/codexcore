@@ -37,6 +37,9 @@ final class CodexChatModel {
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
+    private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
+    private var chatSelectionGeneration = 0
+    var isThreadLoading = false
     var pluginLauncherTarget: CodexComposerPluginLauncher?
     var mobileRouteSession = CodexMobileRouteSession()
     private var terminalSession: CodexCommandExecSession?
@@ -112,6 +115,7 @@ final class CodexChatModel {
         await promptRuntime.cancelAllPrompts()
         loginTask = nil
         threadSession.reset()
+        threadHistoryCache.removeAll()
         accountRateLimitsSnapshot = nil
         gitBranch = nil
         let codex = self.codex
@@ -175,6 +179,7 @@ final class CodexChatModel {
                 submission,
                 start: {
                     let thread = try await self.ensureThread()
+                    self.protectThreadHistoryCache(threadID: thread.id)
                     return try await thread.turn(submission.turnInput, configuration: self.turnLaunchConfiguration)
                 },
                 onActivity: { [weak self] activity in self?.appendActivity(activity) },
@@ -198,8 +203,10 @@ final class CodexChatModel {
         ) {
         case .queued(_, let activity):
             appendActivity(activity)
+            protectCurrentThreadHistoryCache()
         case .steer(let prompt, let activity):
             appendActivity(activity)
+            protectCurrentThreadHistoryCache()
             guard let activeTurn else { return }
             do {
                 _ = try await activeTurn.steer(prompt)
@@ -222,12 +229,14 @@ final class CodexChatModel {
         ) else {
             return
         }
+        protectCurrentThreadHistoryCache()
         appendActivity(submission.activity)
 
         Task { [weak self] in
             guard let self else { return }
             do {
                 let thread = try await ensureThread()
+                protectThreadHistoryCache(threadID: thread.id)
                 let handle = try await thread.turn(submission.input, configuration: turnLaunchConfiguration)
                 await CodexMainActorProjection.run {
                     self.runtimeSession.startMainTurn(handle)
@@ -250,6 +259,7 @@ final class CodexChatModel {
             submission,
             start: {
                 let thread = try await self.ensureThread()
+                self.protectThreadHistoryCache(threadID: thread.id)
                 let response = try await thread.setGoal(objective: submission.prompt, status: .active)
                 return response.goal
             },
@@ -320,6 +330,7 @@ final class CodexChatModel {
             return
         }
         do {
+            threadHistoryCache.remove(threadID: thread.id)
             let response = try await thread.clearGoal()
             if response.cleared {
                 clearGoalState()
@@ -499,6 +510,7 @@ final class CodexChatModel {
     func prepareAutomationDraft(_ request: CodexAutomationDraftRequest) async {
         if request.startsNewChat {
             sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+            invalidatePendingChatSelection()
             clearThreadState()
         } else {
             sidebarNavigationSession.selectRoute(.chat)
@@ -552,6 +564,7 @@ final class CodexChatModel {
 
         workspacePath = normalized
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+        invalidatePendingChatSelection()
         clearThreadState()
         appendActivity(.notice, title: "Switched project", detail: normalized)
 
@@ -565,6 +578,7 @@ final class CodexChatModel {
     }
 
     func startNewChat() async {
+        invalidatePendingChatSelection()
         sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
         clearThreadState()
         guard codex != nil else { return }
@@ -574,11 +588,26 @@ final class CodexChatModel {
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
         guard !threadSession.isCurrentThread(id: threadID) else { return }
+        chatSelectionGeneration += 1
+        let selectionGeneration = chatSelectionGeneration
+        isThreadLoading = true
         let trace = CodexPerformanceTrace(label: "chatLoad")
         let totalSpan = trace.begin("chatLoad.total", metadata: ["threadID": threadID])
         var totalOutcome = "success"
         defer {
+            if chatSelectionGeneration == selectionGeneration {
+                isThreadLoading = false
+            }
             totalSpan.end(metadata: ["threadID": threadID, "outcome": totalOutcome])
+        }
+
+        if await restoreCachedThreadHistory(
+            threadID: threadID,
+            using: codex,
+            trace: trace,
+            selectionGeneration: selectionGeneration
+        ) {
+            return
         }
 
         let clearSpan = trace.begin("chatLoad.clearThreadState", metadata: ["threadID": threadID])
@@ -591,22 +620,49 @@ final class CodexChatModel {
                 resumeResult = try await threadSession.resumeThreadWithHistory(
                     id: threadID,
                     using: codex,
-                    configuration: threadLaunchConfiguration
+                    configuration: threadLaunchConfiguration,
+                    activate: false
                 )
                 resumeSpan.end(metadata: ["threadID": resumeResult.thread.id, "outcome": "success"])
             } catch {
                 resumeSpan.end(metadata: ["threadID": threadID, "outcome": "failure", "error": errorType(error)])
                 throw error
             }
+            guard chatSelectionGeneration == selectionGeneration else {
+                totalOutcome = "superseded"
+                trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
+                return
+            }
 
-            await hydrateThreadHistory(from: resumeResult, using: codex, trace: trace)
-            await refreshGoal(for: resumeResult.thread, trace: trace)
+            if let result = await hydrateThreadHistory(
+                from: resumeResult,
+                using: codex,
+                trace: trace,
+                shouldApply: { self.chatSelectionGeneration == selectionGeneration }
+            ) {
+                threadHistoryCache.store(result)
+            }
+            guard chatSelectionGeneration == selectionGeneration else {
+                totalOutcome = "superseded"
+                trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
+                return
+            }
+            threadSession.activateResumedThread(resumeResult.thread, using: codex)
+            await refreshGoal(
+                for: resumeResult.thread,
+                trace: trace,
+                shouldApply: { self.chatSelectionGeneration == selectionGeneration }
+            )
+            guard chatSelectionGeneration == selectionGeneration else {
+                totalOutcome = "superseded"
+                trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
+                return
+            }
 
             let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": resumeResult.thread.id])
             sidebarNavigationSession.selectChat(resumeResult.thread.id, workspacePath: workspacePath)
             sidebarSpan.end(metadata: ["threadID": resumeResult.thread.id])
             appendActivity(.notice, title: "Resumed chat", detail: resumeResult.thread.id)
-            await refreshRecentChats(using: codex, trace: trace)
         } catch {
             totalOutcome = "failure"
             trace.event("chatLoad.error", metadata: ["threadID": threadID, "error": errorType(error)])
@@ -681,6 +737,7 @@ final class CodexChatModel {
             )
             if let draftPrompt = outcome.draftPrompt {
                 sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+                invalidatePendingChatSelection()
                 clearThreadState()
                 composerSession.draft = draftPrompt
             }
@@ -705,11 +762,20 @@ final class CodexChatModel {
 
     func archiveSidebarChat(_ chat: CodexThreadSummary) async {
         guard let codex else { return }
+        let shouldClearSelection = chat.id == currentThreadID || sidebarNavigationSession.selectedThreadID == chat.id
+        let archiveGeneration: Int?
+        if shouldClearSelection {
+            invalidatePendingChatSelection()
+            archiveGeneration = chatSelectionGeneration
+        } else {
+            archiveGeneration = nil
+        }
         do {
             _ = try await codex.threadArchive(chat.id)
+            threadHistoryCache.remove(threadID: chat.id)
             setThreadPinned(chat.id, pinned: false, announces: false)
             removeChatFromSidebar(chat.id)
-            if chat.id == currentThreadID {
+            if shouldClearSelection, chatSelectionGeneration == archiveGeneration {
                 clearThreadState()
                 sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
             }
@@ -778,6 +844,7 @@ final class CodexChatModel {
             if normalized != CodexProjectSummary.normalizedPath(workspacePath) {
                 workspacePath = normalized
                 sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+                invalidatePendingChatSelection()
                 clearThreadState()
                 appendActivity(.notice, title: "Switched project", detail: normalized)
             }
@@ -787,15 +854,29 @@ final class CodexChatModel {
 
     func forkCurrentChat() async {
         guard let codex else { return }
+        let sourceSelectionGeneration = chatSelectionGeneration
         do {
             guard let fork = try await threadSession.forkCurrentThread(
                 using: codex,
-                configuration: threadLaunchConfiguration
+                configuration: threadLaunchConfiguration,
+                activate: false
             ) else {
                 return
             }
+            guard chatSelectionGeneration == sourceSelectionGeneration else { return }
+            invalidatePendingChatSelection()
+            let forkSelectionGeneration = chatSelectionGeneration
+            threadSession.activateResumedThread(fork.thread, using: codex)
             clearThreadState(keepCurrentThread: true)
-            await hydrateThreadHistory(for: fork.thread, using: codex)
+            if let result = await hydrateThreadHistory(
+                for: fork.thread,
+                using: codex,
+                activateParent: false,
+                shouldApply: { self.chatSelectionGeneration == forkSelectionGeneration }
+            ) {
+                threadHistoryCache.store(result)
+            }
+            guard chatSelectionGeneration == forkSelectionGeneration else { return }
             sidebarNavigationSession.selectChat(fork.thread.id, workspacePath: workspacePath)
             appendActivity(.notice, title: "Forked chat", detail: fork.sourceID)
             await refreshRecentChats(using: codex)
@@ -805,13 +886,19 @@ final class CodexChatModel {
     }
 
     func archiveCurrentChat() async {
-        guard let codex else { return }
+        guard let codex, let thread = threadSession.currentThread else { return }
+        let archivedID = thread.id
+        invalidatePendingChatSelection()
+        let archiveGeneration = chatSelectionGeneration
         do {
-            guard let archivedID = try await threadSession.archiveCurrentThread(using: codex) else { return }
+            _ = try await codex.threadArchive(archivedID)
+            threadHistoryCache.remove(threadID: archivedID)
             setThreadPinned(archivedID, pinned: false, announces: false)
             removeChatFromSidebar(archivedID)
-            clearThreadState()
-            sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+            if chatSelectionGeneration == archiveGeneration {
+                clearThreadState()
+                sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+            }
             appendActivity(.notice, title: "Archived chat", detail: archivedID)
             await refreshRecentChats(using: codex)
         } catch {
@@ -839,6 +926,7 @@ final class CodexChatModel {
             return
         }
         do {
+            threadHistoryCache.remove(threadID: thread.id)
             _ = try await thread.compact()
             appendActivity(.notice, title: "Compact started", detail: "App-server is compacting this chat")
         } catch {
@@ -860,10 +948,18 @@ final class CodexChatModel {
         return result.thread
     }
 
-    private func refreshGoal(for thread: CodexThread, trace: CodexPerformanceTrace? = nil) async {
+    private func refreshGoal(
+        for thread: CodexThread,
+        trace: CodexPerformanceTrace? = nil,
+        shouldApply: () -> Bool = { true }
+    ) async {
         let span = trace?.begin("chatLoad.goal.refresh", metadata: ["threadID": thread.id])
         do {
             let response = try await thread.goal()
+            guard shouldApply() else {
+                span?.end(metadata: ["threadID": thread.id, "outcome": "superseded"])
+                return
+            }
             if let goal = response.goal {
                 applyGoal(goal, turnID: nil, shouldAnnounce: false)
                 span?.end(metadata: ["threadID": thread.id, "outcome": "success", "goal": "present"])
@@ -872,34 +968,145 @@ final class CodexChatModel {
                 span?.end(metadata: ["threadID": thread.id, "outcome": "success", "goal": "none"])
             }
         } catch {
+            guard shouldApply() else {
+                span?.end(metadata: ["threadID": thread.id, "outcome": "superseded"])
+                return
+            }
             span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Goal unavailable", detail: friendlyError(error))
         }
     }
 
-    private func hydrateThreadHistory(for thread: CodexThread, using codex: Codex, trace: CodexPerformanceTrace? = nil) async {
+    @discardableResult
+    private func hydrateThreadHistory(
+        for thread: CodexThread,
+        using codex: Codex,
+        trace: CodexPerformanceTrace? = nil,
+        activateParent: Bool = true,
+        shouldApply: () -> Bool = { true }
+    ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
         do {
-            let result = try await CodexThreadHistorySession.load(threadID: thread.id, using: codex, trace: trace)
+            let result = try await CodexThreadHistorySession.load(
+                threadID: thread.id,
+                using: codex,
+                trace: trace,
+                activateParent: activateParent
+            )
+            guard shouldApply() else {
+                span?.end(metadata: ["threadID": thread.id, "outcome": "superseded"])
+                return nil
+            }
             let metadata = applyThreadHistoryRestore(result, trace: trace)
             span?.end(metadata: metadata)
+            return result
         } catch {
             span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
+            return nil
         }
     }
 
-    private func hydrateThreadHistory(from resume: CodexThreadResumeResult, using codex: Codex, trace: CodexPerformanceTrace? = nil) async {
+    @discardableResult
+    private func hydrateThreadHistory(
+        from resume: CodexThreadResumeResult,
+        using codex: Codex,
+        trace: CodexPerformanceTrace? = nil,
+        shouldApply: () -> Bool = { true }
+    ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
         do {
             let parentRaw = try resume.rawResponse()
-            let result = await CodexThreadHistorySession.load(parentRaw: parentRaw, using: codex, trace: trace)
+            let result = await CodexThreadHistorySession.load(
+                parentRaw: parentRaw,
+                using: codex,
+                trace: trace,
+                activateParent: false
+            )
+            guard shouldApply() else {
+                span?.end(metadata: ["threadID": resume.thread.id, "outcome": "superseded"])
+                return nil
+            }
             let metadata = applyThreadHistoryRestore(result, trace: trace)
             span?.end(metadata: metadata)
+            return result
         } catch {
             span?.end(metadata: ["threadID": resume.thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
+            return nil
         }
+    }
+
+    private func restoreCachedThreadHistory(
+        threadID: String,
+        using codex: Codex,
+        trace: CodexPerformanceTrace,
+        selectionGeneration: Int
+    ) async -> Bool {
+        guard let result = threadHistoryCache.result(for: threadID) else {
+            trace.event("chatLoad.cache.miss", metadata: ["threadID": threadID])
+            return false
+        }
+        let cacheSpan = trace.begin("chatLoad.cache.restore", metadata: ["threadID": threadID])
+        clearThreadState()
+        codex.store.hydrate(result.hydration)
+        let thread = threadSession.activateCachedThread(id: threadID, using: codex)
+        let metadata = applyThreadHistoryRestore(result, trace: trace)
+        cacheSpan.end(metadata: metadata.merging(["threadID": thread.id, "outcome": "success"]) { _, new in new })
+        sidebarNavigationSession.selectChat(thread.id, workspacePath: workspacePath)
+        appendActivity(.notice, title: "Restored chat", detail: thread.id)
+        await refreshGoal(
+            for: thread,
+            trace: trace,
+            shouldApply: { self.chatSelectionGeneration == selectionGeneration }
+        )
+        return true
+    }
+
+    private func protectCurrentThreadHistoryCache() {
+        guard let currentThreadID else { return }
+        protectThreadHistoryCache(threadID: currentThreadID)
+    }
+
+    private func protectThreadHistoryCache(threadID: String) {
+        threadHistoryCache.protect(threadID: threadID)
+        refreshThreadHistoryCache(threadID: threadID, protected: true)
+    }
+
+    private func syncCurrentThreadHistoryCacheAfterMutation() {
+        guard let currentThreadID else { return }
+        if threadHistoryCache.isProtected(threadID: currentThreadID) {
+            refreshThreadHistoryCache(threadID: currentThreadID)
+        } else {
+            threadHistoryCache.remove(threadID: currentThreadID)
+        }
+    }
+
+    private func refreshThreadHistoryCache(threadID: String, protected: Bool = false) {
+        guard let codex else { return }
+        let parentSnapshot = codex.store.threadSnapshot(id: threadID)
+            ?? CodexThreadSnapshot(id: threadID, updatedAt: Date())
+        let childThreads = parentSnapshot.childThreads.compactMap { reference in
+            codex.store.threadSnapshot(id: reference.threadID).map {
+                CodexHydratedThread(snapshot: $0)
+            }
+        }
+        let snapshot = runtimeSession.threadHistorySnapshot
+        let hydration = CodexThreadHistoryHydrationResult(
+            parent: CodexHydratedThread(snapshot: parentSnapshot),
+            childThreads: childThreads
+        )
+        let result = CodexThreadHistoryRestoreResult(
+            snapshot: snapshot,
+            hydration: hydration,
+            restoredChildThreadCount: snapshot.subagentThreadIDs.count
+        )
+        threadHistoryCache.store(result, protected: protected)
+    }
+
+    private func invalidateCurrentThreadHistoryCache() {
+        guard let currentThreadID else { return }
+        threadHistoryCache.remove(threadID: currentThreadID)
     }
 
     private func applyThreadHistoryRestore(
@@ -960,6 +1167,7 @@ final class CodexChatModel {
             prompt: prompt,
             start: {
                 let thread = try await self.ensureSideChatThread()
+                self.protectCurrentThreadHistoryCache()
                 return try await thread.turn([.text(prompt)], configuration: self.turnLaunchConfiguration)
             },
             onActivity: { [weak self] activity in self?.appendActivity(activity) },
@@ -1026,6 +1234,9 @@ final class CodexChatModel {
 
     private func apply(_ result: CodexChatNotificationPipelineResult) {
         syncAccountMetadata()
+        if result.syncMainTranscript || result.syncAgentState {
+            syncCurrentThreadHistoryCacheAfterMutation()
+        }
         for activity in result.activities {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         }
@@ -1259,7 +1470,13 @@ final class CodexChatModel {
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         runtimeSession.integrationCatalogSession.reset()
         configurationSession.reset()
+        invalidatePendingChatSelection()
         clearThreadState()
+    }
+
+    private func invalidatePendingChatSelection() {
+        chatSelectionGeneration += 1
+        isThreadLoading = false
     }
 
     private func setThreadPinned(_ threadID: String, pinned: Bool, announces: Bool = true) {

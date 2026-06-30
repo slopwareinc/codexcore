@@ -106,23 +106,51 @@ public final class CodexThreadSession {
     public func resumeThreadWithHistory(
         id threadID: String,
         using codex: Codex,
-        configuration: CodexThreadLaunchConfiguration
+        configuration: CodexThreadLaunchConfiguration,
+        activate: Bool = true
     ) async throws -> CodexThreadResumeResult {
-        reset()
+        if activate {
+            reset()
+        }
         let result = try await codex.threadResumeWithHistory(
             threadID,
             approvalMode: configuration.approvalMode,
             cwd: configuration.cwd,
             model: configuration.modelIdentifier,
-            sandbox: configuration.sandbox
+            sandbox: configuration.sandbox,
+            activateInStore: activate
         )
-        currentThread = result.thread
+        if activate {
+            currentThread = result.thread
+        }
         return result
+    }
+
+    public func activateResumedThread(
+        _ thread: CodexThread,
+        using codex: Codex
+    ) {
+        reset()
+        codex.store.dispatch(.threadStarted(threadId: thread.id, name: nil, status: "idle"))
+        codex.store.activateThread(id: thread.id)
+        currentThread = thread
+    }
+
+    public func activateCachedThread(
+        id threadID: String,
+        using codex: Codex
+    ) -> CodexThread {
+        reset()
+        codex.store.activateThread(id: threadID)
+        let thread = codex.threadHandle(id: threadID)
+        currentThread = thread
+        return thread
     }
 
     public func forkCurrentThread(
         using codex: Codex,
-        configuration: CodexThreadLaunchConfiguration
+        configuration: CodexThreadLaunchConfiguration,
+        activate: Bool = true
     ) async throws -> (sourceID: String, thread: CodexThread)? {
         guard let currentThread else { return nil }
         let sourceID = currentThread.id
@@ -132,10 +160,13 @@ public final class CodexThreadSession {
             cwd: configuration.cwd,
             ephemeral: false,
             model: configuration.modelIdentifier,
-            sandbox: configuration.sandbox
+            sandbox: configuration.sandbox,
+            activateInStore: activate
         )
-        reset()
-        self.currentThread = thread
+        if activate {
+            reset()
+            self.currentThread = thread
+        }
         return (sourceID, thread)
     }
 

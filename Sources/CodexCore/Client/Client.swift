@@ -236,7 +236,11 @@ public actor CodexClient {
         return response
     }
 
-    public func threadResumeSchema(threadId: String, params: ThreadResumeParams = ThreadResumeParams()) async throws -> CodexSchemaThreadResumeResponse {
+    public func threadResumeSchema(
+        threadId: String,
+        params: ThreadResumeParams = ThreadResumeParams(),
+        activateThread: Bool = true
+    ) async throws -> CodexSchemaThreadResumeResponse {
         var payload = params
         payload.threadId = threadId
         let response: CodexSchemaThreadResumeResponse = try await connection.request(
@@ -244,9 +248,11 @@ public actor CodexClient {
             params: payload,
             response: CodexSchemaThreadResumeResponse.self
         )
-        await MainActor.run {
-            store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
-            store.activateThread(id: response.thread.id)
+        if activateThread {
+            await MainActor.run {
+                store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+                store.activateThread(id: response.thread.id)
+            }
         }
         return response
     }
@@ -291,7 +297,11 @@ public actor CodexClient {
         )
     }
 
-    public func threadFork(threadId: String, params: ThreadForkParams = ThreadForkParams()) async throws -> ThreadForkResponse {
+    public func threadFork(
+        threadId: String,
+        params: ThreadForkParams = ThreadForkParams(),
+        activateThread: Bool = true
+    ) async throws -> ThreadForkResponse {
         var payload = params
         payload.threadId = threadId
         let response: ThreadForkResponse = try await connection.request(
@@ -299,9 +309,11 @@ public actor CodexClient {
             params: payload,
             response: ThreadForkResponse.self
         )
-        await MainActor.run {
-            store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
-            store.activateThread(id: response.thread.id)
+        if activateThread {
+            await MainActor.run {
+                store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
+                store.activateThread(id: response.thread.id)
+            }
         }
         return response
     }

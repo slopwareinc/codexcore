@@ -42,6 +42,7 @@ public final class CodexChatRuntimeSession {
     public var isGoalPursuitEnabled: Bool { state.isGoalPursuitEnabled }
     public var activeGoalTurnID: String? { state.activeGoalTurnID }
     public var hasActiveGoal: Bool { state.hasActiveGoal }
+    public var threadHistorySnapshot: CodexThreadHistorySnapshot { state.threadHistorySnapshot }
 
     public func bindHost(
         currentThreadID: @escaping @MainActor () -> String?,
