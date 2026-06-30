@@ -2,7 +2,7 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexLiveTurnModelTests: XCTestCase {
-    func testLiveTurnPhaseStateMatchesCapturedWorkingAndWorkedLabels() {
+    func testLiveTurnPhaseStateUsesSingleStatusAndCompactElapsedTime() {
         let start = Date(timeIntervalSince1970: 100)
 
         let active = CodexLiveTurnModel.phaseState(
@@ -11,9 +11,9 @@ final class CodexLiveTurnModelTests: XCTestCase {
             now: start.addingTimeInterval(37)
         )
 
-        XCTAssertEqual(active.statusTitle, "Working")
-        XCTAssertEqual(active.thinkingTitle, "Thinking")
-        XCTAssertEqual(active.elapsedLabel, "Working for 37s")
+        XCTAssertEqual(active.title, "Thinking")
+        XCTAssertNil(active.detail)
+        XCTAssertEqual(active.elapsedLabel, "37s")
         XCTAssertEqual(active.stopTitle, "Stop")
         XCTAssertEqual(active.stopShortcut, "Esc")
 
@@ -24,16 +24,16 @@ final class CodexLiveTurnModelTests: XCTestCase {
             now: start.addingTimeInterval(90)
         )
 
-        XCTAssertEqual(finished.statusTitle, "Worked")
-        XCTAssertEqual(finished.elapsedLabel, "Worked for 1m 8s")
+        XCTAssertEqual(finished.title, "Worked")
+        XCTAssertEqual(finished.elapsedLabel, "1m 08s")
         XCTAssertNil(finished.stopTitle)
         XCTAssertNil(finished.stopShortcut)
     }
 
-    func testActiveTurnPhaseAdapterUsesWorkingState() {
+    func testActiveTurnPhaseAdapterUsesLatestActivityDetail() {
         let start = Date(timeIntervalSince1970: 250)
         let activeTurn = CodexActiveTurnState(
-            activity: CodexActivity(kind: .turn, title: "Queued", detail: "", createdAt: start),
+            activity: CodexActivity(kind: .tool, title: "Ran a command", detail: "swift test", createdAt: start),
             startedAt: start
         )
 
@@ -42,11 +42,30 @@ final class CodexLiveTurnModelTests: XCTestCase {
             now: start.addingTimeInterval(15)
         )
 
-        XCTAssertEqual(phase.statusTitle, "Working")
-        XCTAssertEqual(phase.thinkingTitle, "Thinking")
-        XCTAssertEqual(phase.elapsedLabel, "Working for 15s")
+        XCTAssertEqual(phase.title, "Running command")
+        XCTAssertEqual(phase.detail, "swift test")
+        XCTAssertEqual(phase.elapsedLabel, "15s")
         XCTAssertEqual(phase.stopTitle, "Stop")
         XCTAssertEqual(phase.stopShortcut, "Esc")
+    }
+
+    func testPreItemTurnActivitiesFallbackToThinkingWithoutPromptDetail() {
+        let start = Date(timeIntervalSince1970: 300)
+        for title in ["You asked Codex", "Pursuing goal", "Follow-up queued", "Sending queued follow-up", "Steering turn"] {
+            let activeTurn = CodexActiveTurnState(
+                activity: CodexActivity(kind: .turn, title: title, detail: "can you fix this?", createdAt: start),
+                startedAt: start
+            )
+
+            let phase = CodexLiveTurnModel.phaseState(
+                for: activeTurn,
+                now: start.addingTimeInterval(2)
+            )
+
+            XCTAssertEqual(phase.title, "Thinking", title)
+            XCTAssertNil(phase.detail, title)
+            XCTAssertEqual(phase.elapsedLabel, "2s", title)
+        }
     }
 
     func testFirstOracleLiveTurnOperationRowsAndFinalResponseActions() {

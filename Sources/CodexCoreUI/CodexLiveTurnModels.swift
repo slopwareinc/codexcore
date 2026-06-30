@@ -1,21 +1,21 @@
 import Foundation
 
 public struct CodexLiveTurnPhaseState: Equatable, Sendable {
-    public var statusTitle: String
-    public var thinkingTitle: String
+    public var title: String
+    public var detail: String?
     public var elapsedLabel: String
     public var stopTitle: String?
     public var stopShortcut: String?
 
     public init(
-        statusTitle: String,
-        thinkingTitle: String,
+        title: String,
+        detail: String?,
         elapsedLabel: String,
         stopTitle: String?,
         stopShortcut: String?
     ) {
-        self.statusTitle = statusTitle
-        self.thinkingTitle = thinkingTitle
+        self.title = title
+        self.detail = detail
         self.elapsedLabel = elapsedLabel
         self.stopTitle = stopTitle
         self.stopShortcut = stopShortcut
@@ -86,15 +86,16 @@ public enum CodexLiveTurnModel {
         isActive: Bool,
         startedAt: Date,
         endedAt: Date? = nil,
+        activity: CodexActivity? = nil,
         now: Date = Date()
     ) -> CodexLiveTurnPhaseState {
         let end = isActive ? now : (endedAt ?? now)
         let elapsed = max(0, Int(end.timeIntervalSince(startedAt).rounded()))
-        let verb = isActive ? "Working" : "Worked"
+        let presentation = liveStatusPresentation(activity: activity, isActive: isActive)
         return CodexLiveTurnPhaseState(
-            statusTitle: verb,
-            thinkingTitle: "Thinking",
-            elapsedLabel: "\(verb) for \(durationLabel(seconds: elapsed))",
+            title: presentation.title,
+            detail: presentation.detail,
+            elapsedLabel: durationLabel(seconds: elapsed),
             stopTitle: isActive ? "Stop" : nil,
             stopShortcut: isActive ? "Esc" : nil
         )
@@ -104,7 +105,7 @@ public enum CodexLiveTurnModel {
         for activeTurn: CodexActiveTurnState,
         now: Date = Date()
     ) -> CodexLiveTurnPhaseState {
-        phaseState(isActive: true, startedAt: activeTurn.startedAt, now: now)
+        phaseState(isActive: true, startedAt: activeTurn.startedAt, activity: activeTurn.activity, now: now)
     }
 
     public static func responseActionTitles(for message: CodexChatMessage) -> [String] {
@@ -288,8 +289,48 @@ public enum CodexLiveTurnModel {
         if seconds < 60 { return "\(seconds)s" }
         let minutes = seconds / 60
         let remainder = seconds % 60
-        if remainder == 0 { return "\(minutes)m" }
-        return "\(minutes)m \(remainder)s"
+        if minutes < 60 {
+            return "\(minutes)m " + String(format: "%02ds", remainder)
+        }
+        let hours = minutes / 60
+        return "\(hours)h " + String(format: "%02dm %02ds", minutes % 60, remainder)
+    }
+
+    private static func liveStatusPresentation(activity: CodexActivity?, isActive: Bool) -> (title: String, detail: String?) {
+        guard isActive else { return ("Worked", nil) }
+        guard let activity else { return ("Thinking", nil) }
+
+        let rawTitle = activity.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawDetail = activity.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = normalizedLiveStatusTitle(rawTitle)
+        let detail = liveStatusDetail(rawDetail, title: title)
+        return (title, detail)
+    }
+
+    private static func normalizedLiveStatusTitle(_ title: String) -> String {
+        switch title {
+        case "", "Codex is working", "You asked Codex", "Pursuing goal", "Follow-up queued", "Sending queued follow-up", "Steering turn":
+            return "Thinking"
+        case "Ran a command":
+            return "Running command"
+        case "Plan started":
+            return "Planning"
+        case "Calling tool":
+            return "Using tool"
+        case "Working":
+            return "Working"
+        default:
+            return title
+        }
+    }
+
+    private static func liveStatusDetail(_ detail: String, title: String) -> String? {
+        guard !detail.isEmpty else { return nil }
+        let hiddenDetails: Set<String> = ["Turn started", "Completed", "Reasoning"]
+        guard !hiddenDetails.contains(detail) else { return nil }
+        guard title != "Thinking" else { return nil }
+        guard detail != title else { return nil }
+        return detail
     }
 }
 
