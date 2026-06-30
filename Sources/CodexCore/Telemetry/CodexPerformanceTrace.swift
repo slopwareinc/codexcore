@@ -49,7 +49,7 @@ public struct CodexPerformanceTrace: Sendable, Equatable {
         }
         let line = parts.joined(separator: " ")
         print("[CodexTrace] \(line)")
-        logger.info("\(line, privacy: .public)")
+        logger.notice("\(line, privacy: .public)")
     }
 
     private static func makeID() -> String {
