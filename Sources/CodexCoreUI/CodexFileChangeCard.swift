@@ -161,64 +161,16 @@ public struct CodexFileChangeCard: View {
         facts.hasDiff
     }
 
-    private var diffLines: [String] {
-        change.diff.components(separatedBy: "\n")
-    }
-
     @ViewBuilder
     private var diffBody: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            if wrapsDiff {
-                diffContent
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    diffContent
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var diffContent: some View {
-        if facts.hasDiff {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(diffLines.enumerated()), id: \.offset) { _, line in
-                    Text(line.isEmpty ? " " : line)
-                        .font(theme.fonts.code)
-                        .foregroundStyle(diffLineColor(line))
-                        .frame(maxWidth: wrapsDiff ? .infinity : nil, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 0.5)
-                        .background(diffLineBackground(line))
-                }
-            }
-            .padding(.vertical, 8)
-            .frame(maxWidth: wrapsDiff ? .infinity : nil, alignment: .leading)
-        } else {
-            Text(diffText)
+        ScrollView(wrapsDiff ? .vertical : .horizontal, showsIndicators: wrapsDiff) {
+            Text(CodexFileChangeDiffCache.attributedString(for: change.diff, theme: theme))
                 .font(theme.fonts.code)
-                .foregroundStyle(theme.colors.codeFaint)
-                .padding(12)
+                .textSelection(.enabled)
                 .frame(maxWidth: wrapsDiff ? .infinity : nil, alignment: .leading)
-                .fixedSize(horizontal: !wrapsDiff, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
         }
-    }
-
-    private func diffLineColor(_ line: String) -> Color {
-        if line.hasPrefix("+") && !line.hasPrefix("+++") { return theme.colors.success }
-        if line.hasPrefix("-") && !line.hasPrefix("---") { return theme.colors.danger }
-        if line.hasPrefix("@@") { return theme.colors.accent }
-        if line.hasPrefix("diff --git") || line.hasPrefix("+++") || line.hasPrefix("---") {
-            return theme.colors.codeFaint
-        }
-        return theme.colors.codeText
-    }
-
-    private func diffLineBackground(_ line: String) -> Color {
-        if line.hasPrefix("+") && !line.hasPrefix("+++") { return theme.colors.success.opacity(0.10) }
-        if line.hasPrefix("-") && !line.hasPrefix("---") { return theme.colors.danger.opacity(0.10) }
-        return .clear
     }
 
     private var diffText: String {
@@ -332,6 +284,63 @@ private struct CodexFileChangeStatusChip: View {
         if change.isStreaming { return theme.colors.running }
         if change.status.localizedCaseInsensitiveContains("fail") { return theme.colors.danger }
         return theme.colors.success
+    }
+}
+
+@MainActor
+private enum CodexFileChangeDiffCache {
+    final class Box: NSObject {
+        let value: AttributedString
+        init(_ value: AttributedString) { self.value = value }
+    }
+
+    nonisolated(unsafe) private static let cache: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.countLimit = 128
+        cache.totalCostLimit = 8 * 1024 * 1024
+        return cache
+    }()
+
+    static func attributedString(for diff: String, theme: CodexAgentTheme) -> AttributedString {
+        let trimmed = diff.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            var fallback = AttributedString("No diff available")
+            fallback.foregroundColor = theme.colors.codeFaint
+            return fallback
+        }
+
+        let key = diff as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached.value
+        }
+
+        var result = AttributedString()
+        for line in diff.components(separatedBy: "\n") {
+            var lineText = AttributedString(line.isEmpty ? " \n" : "\(line)\n")
+            lineText.foregroundColor = lineColor(line, theme: theme)
+            if let background = lineBackground(line, theme: theme) {
+                lineText.backgroundColor = background
+            }
+            result.append(lineText)
+        }
+        cache.setObject(Box(result), forKey: key, cost: diff.utf8.count)
+        return result
+    }
+
+    private static func lineColor(_ line: String, theme: CodexAgentTheme) -> Color {
+        if line.hasPrefix("+") && !line.hasPrefix("+++") { return theme.colors.success }
+        if line.hasPrefix("-") && !line.hasPrefix("---") { return theme.colors.danger }
+        if line.hasPrefix("@@") { return theme.colors.accent }
+        if line.hasPrefix("diff --git") || line.hasPrefix("+++") || line.hasPrefix("---") {
+            return theme.colors.codeFaint
+        }
+        return theme.colors.codeText
+    }
+
+    private static func lineBackground(_ line: String, theme: CodexAgentTheme) -> Color? {
+        if line.hasPrefix("+") && !line.hasPrefix("+++") { return theme.colors.success.opacity(0.08) }
+        if line.hasPrefix("-") && !line.hasPrefix("---") { return theme.colors.danger.opacity(0.08) }
+        return nil
     }
 }
 

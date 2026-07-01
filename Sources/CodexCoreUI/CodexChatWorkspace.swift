@@ -247,7 +247,8 @@ public struct CodexChatWorkspaceView: View {
                 lifecycleEvents: lifecycleEvents,
                 activeTurn: activeTurnState,
                 onCloseMessage: onCloseTranscriptMessage,
-                onOpenMCPDetails: onOpenMCPDetails
+                onOpenMCPDetails: onOpenMCPDetails,
+                onEditUserMessage: { draft = $0 }
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()

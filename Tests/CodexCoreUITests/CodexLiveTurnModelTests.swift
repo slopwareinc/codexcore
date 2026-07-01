@@ -83,22 +83,22 @@ final class CodexLiveTurnModelTests: XCTestCase {
             CodexLiveTurnModel.finalAssistantSummary(in: messages),
             "Implemented the habit tracker CLI and verified it with npm test."
         )
-        XCTAssertEqual(CodexLiveTurnModel.responseActionTitles, [
-            "Copy",
-            "Good response",
-            "Bad response",
-            "Fork from this point"
-        ])
-        XCTAssertEqual(
-            CodexLiveTurnModel.responseActionTitles(for: assistant("Done.")),
-            CodexLiveTurnModel.responseActionTitles
+        let finalAnswer = CodexChatMessage(
+            role: .assistant,
+            text: "Done.",
+            detail: "final_answer"
         )
+        XCTAssertEqual(CodexLiveTurnModel.turnEndActions(for: finalAnswer), [.copy, .fork])
         XCTAssertEqual(
-            CodexLiveTurnModel.responseActionTitles(for: CodexChatMessage(role: .assistant, text: "Streaming", isStreaming: true)),
+            CodexLiveTurnModel.turnEndActions(for: CodexChatMessage(role: .assistant, text: "Done.")),
             []
         )
         XCTAssertEqual(
-            CodexLiveTurnModel.responseActionTitles(for: CodexChatMessage(role: .assistant, text: "   ")),
+            CodexLiveTurnModel.turnEndActions(for: CodexChatMessage(role: .assistant, text: "Streaming", isStreaming: true)),
+            []
+        )
+        XCTAssertEqual(
+            CodexLiveTurnModel.turnEndActions(for: CodexChatMessage(role: .assistant, text: "   ")),
             []
         )
     }

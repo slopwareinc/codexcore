@@ -238,7 +238,7 @@ struct CodexProseBlock: View, Equatable {
             theme: theme
         ))
         .foregroundStyle(theme.colors.textPrimary)
-        .lineSpacing(3)
+        .lineSpacing(theme.spacing.chatLineSpacing)
     }
 
     nonisolated static func == (lhs: CodexProseBlock, rhs: CodexProseBlock) -> Bool {

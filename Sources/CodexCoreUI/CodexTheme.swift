@@ -198,6 +198,7 @@ public struct CodexAgentTheme {
         public var iconSmall: CGFloat
         public var iconMedium: CGFloat
         public var iconLarge: CGFloat
+        public var chatLineSpacing: CGFloat
 
         public init(
             transcriptMaxWidth: CGFloat,
@@ -212,7 +213,8 @@ public struct CodexAgentTheme {
             chipPadding: EdgeInsets = EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8),
             iconSmall: CGFloat = 13,
             iconMedium: CGFloat = 16,
-            iconLarge: CGFloat = 28
+            iconLarge: CGFloat = 28,
+            chatLineSpacing: CGFloat = 4
         ) {
             self.transcriptMaxWidth = transcriptMaxWidth
             self.composerMaxWidth = composerMaxWidth
@@ -227,6 +229,7 @@ public struct CodexAgentTheme {
             self.iconSmall = iconSmall
             self.iconMedium = iconMedium
             self.iconLarge = iconLarge
+            self.chatLineSpacing = chatLineSpacing
         }
 
         public static var official: Spacing {
