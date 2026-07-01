@@ -3,6 +3,22 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexChatTranscriptTests: XCTestCase {
+    private func message(
+        for item: CodexTranscriptTimelineItem,
+        in messages: [CodexChatMessage]
+    ) -> CodexChatMessage? {
+        guard case .messageRef(let messageID) = item else { return nil }
+        return messages.first { $0.id == messageID }
+    }
+
+    private func isMessageRef(
+        _ item: CodexTranscriptTimelineItem,
+        role: CodexChatMessage.Role,
+        in messages: [CodexChatMessage]
+    ) -> Bool {
+        message(for: item, in: messages)?.role == role
+    }
+
     func testCompletedWorkTraceGroupsOperationsWithCollapsedDefaults() throws {
         let start = Date(timeIntervalSince1970: 100)
         let messages = [
@@ -55,20 +71,17 @@ final class CodexChatTranscriptTests: XCTestCase {
             return XCTFail("Expected completed work trace item")
         }
         let visibleOperationMessages = timeline.filter { item in
-            if case .message(let message) = item, [.terminal, .tool, .fileChange].contains(message.role) {
-                return true
-            }
-            return false
+            guard let message = message(for: item, in: messages) else { return false }
+            return [.terminal, .tool, .fileChange].contains(message.role)
         }
-        let assistantBlockIndex = try XCTUnwrap(timeline.firstIndex { item in
-            if case .assistantBlock = item { return true }
-            return false
+        let assistantMessageIndex = try XCTUnwrap(timeline.firstIndex { item in
+            isMessageRef(item, role: .assistant, in: messages)
         })
 
         XCTAssertEqual(trace.title, "Worked for 4s")
         XCTAssertTrue(trace.isCollapsedByDefault)
         XCTAssertTrue(visibleOperationMessages.isEmpty)
-        XCTAssertLessThan(traceIndex, assistantBlockIndex)
+        XCTAssertLessThan(traceIndex, assistantMessageIndex)
     }
 
     func testTranscriptTimelineInsertsOperationAggregateBeforeConsecutiveOperationMessages() throws {
@@ -92,10 +105,8 @@ final class CodexChatTranscriptTests: XCTestCase {
             return XCTFail("Expected operation aggregate item")
         }
         let operationMessageIndices = timeline.indices.filter { index in
-            if case .message(let message) = timeline[index], [.terminal, .tool, .fileChange].contains(message.role) {
-                return true
-            }
-            return false
+            guard let message = message(for: timeline[index], in: messages) else { return false }
+            return [.terminal, .tool, .fileChange].contains(message.role)
         }
 
         XCTAssertEqual(rows.map(\.title), [
@@ -139,8 +150,7 @@ final class CodexChatTranscriptTests: XCTestCase {
             return false
         })
         let fileMessageIndices = timeline.indices.filter { index in
-            if case .message(let message) = timeline[index], message.role == .fileChange { return true }
-            return false
+            isMessageRef(timeline[index], role: .fileChange, in: messages)
         }
         guard case .fileChangeAggregate(_, let changes) = timeline[aggregateIndex] else {
             return XCTFail("Expected aggregate file-change item")
@@ -165,8 +175,7 @@ final class CodexChatTranscriptTests: XCTestCase {
             return false
         })
         XCTAssertEqual(timeline.filter {
-            if case .message(let message) = $0, message.role == .fileChange { return true }
-            return false
+            isMessageRef($0, role: .fileChange, in: messages)
         }.count, 1)
     }
 
@@ -193,13 +202,13 @@ final class CodexChatTranscriptTests: XCTestCase {
             if case .assistantLifecycle(_, let events) = $0 { return events }
             return nil
         }
-        let assistantBlocks = timeline.filter {
-            if case .assistantBlock = $0 { return true }
-            return false
+        let assistantMessages = timeline.compactMap { item -> CodexChatMessage? in
+            guard let message = message(for: item, in: messages), message.role == .assistant else { return nil }
+            return message
         }
 
         XCTAssertGreaterThan(lifecycleGroups.count, 1)
-        XCTAssertEqual(assistantBlocks.count, messages.count)
+        XCTAssertEqual(assistantMessages.count, messages.count)
         XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, events.count)
         XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
     }
@@ -238,7 +247,7 @@ final class CodexChatTranscriptTests: XCTestCase {
             lifecycleEvents: [lifecycle]
         )
 
-        guard case .message(let firstMessage) = timeline[0] else {
+        guard let firstMessage = message(for: timeline[0], in: [secondUser, firstUser]) else {
             return XCTFail("Expected earliest message first")
         }
         XCTAssertEqual(firstMessage.text, "First")
@@ -248,7 +257,7 @@ final class CodexChatTranscriptTests: XCTestCase {
             }
             return false
         })
-        guard case .message(let secondMessage) = timeline.last else {
+        guard let secondMessage = message(for: try XCTUnwrap(timeline.last), in: [secondUser, firstUser]) else {
             return XCTFail("Expected latest message last")
         }
         XCTAssertEqual(secondMessage.text, "Second")
@@ -289,9 +298,9 @@ final class CodexChatTranscriptTests: XCTestCase {
         let fixture = largeTranscriptFixture(turnCount: 80)
 
         let timeline = CodexTranscriptTimelineBuilder.build(messages: fixture.messages, lifecycleEvents: fixture.lifecycleEvents)
-        let assistantBlocks = timeline.filter {
-            if case .assistantBlock = $0 { return true }
-            return false
+        let assistantMessages = timeline.compactMap { item -> CodexChatMessage? in
+            guard let message = message(for: item, in: fixture.messages), message.role == .assistant else { return nil }
+            return message
         }
         let lifecycleGroups = timeline.compactMap {
             if case .assistantLifecycle(_, let events) = $0 { return events }
@@ -310,17 +319,18 @@ final class CodexChatTranscriptTests: XCTestCase {
             return false
         }
         let detailedMessages = timeline.filter {
-            if case .message = $0 { return true }
+            if case .messageRef = $0 { return true }
             return false
         }
 
         XCTAssertEqual(fixture.messages.count, 480)
         XCTAssertEqual(fixture.lifecycleEvents.count, 240)
-        XCTAssertEqual(assistantBlocks.count, fixture.turnCount)
+        XCTAssertEqual(Set(assistantMessages.map(\.id)).count, fixture.turnCount)
+        XCTAssertEqual(assistantMessages.count, fixture.turnCount)
         XCTAssertEqual(operationAggregates.count, 0)
         XCTAssertEqual(fileChangeAggregates.count, 0)
         XCTAssertEqual(completedWorkTraces.count, fixture.turnCount)
-        XCTAssertEqual(detailedMessages.count, fixture.turnCount)
+        XCTAssertEqual(detailedMessages.count, fixture.turnCount * 2)
         XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, fixture.lifecycleEvents.count)
         XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
         XCTAssertLessThanOrEqual(timeline.count, fixture.messages.count + fixture.lifecycleEvents.count)

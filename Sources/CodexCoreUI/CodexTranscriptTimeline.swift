@@ -1,7 +1,7 @@
 import Foundation
 
 enum CodexTranscriptTimelineItem: Identifiable, Equatable {
-    case message(CodexChatMessage)
+    case messageRef(UUID)
     case completedWorkTrace(id: String, trace: CodexCompletedWorkTrace)
     case operationAggregate(id: String, rows: [CodexLiveTurnOperationRow])
     case fileChangeAggregate(id: String, changes: [CodexChatMessage.FileChange])
@@ -12,8 +12,8 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
 
     var id: String {
         switch self {
-        case .message(let message):
-            return "message-\(message.id.uuidString)"
+        case .messageRef(let messageID):
+            return "message-\(messageID.uuidString)"
         case .completedWorkTrace(let id, _):
             return "work-trace-\(id)"
         case .operationAggregate(let id, _):
@@ -31,16 +31,52 @@ enum CodexTranscriptTimelineItem: Identifiable, Equatable {
         }
     }
 
-    var createdAt: Date {
+    var messageID: UUID? {
+        guard case .messageRef(let messageID) = self else { return nil }
+        return messageID
+    }
+
+    func streamingContentLength(in lookup: [UUID: CodexChatMessage]) -> Int {
+        switch self {
+        case .messageRef(let messageID):
+            guard let message = lookup[messageID], message.isStreaming else { return 0 }
+            return message.text.count
+        case .assistantStreamingWorking(_, let text, _):
+            return text.count
+        default:
+            return 0
+        }
+    }
+}
+
+private enum CodexTranscriptTimelineBuildItem: Equatable {
+    case message(CodexChatMessage)
+    case completedWorkTrace(id: String, trace: CodexCompletedWorkTrace)
+    case operationAggregate(id: String, rows: [CodexLiveTurnOperationRow])
+    case fileChangeAggregate(id: String, changes: [CodexChatMessage.FileChange])
+    case assistantLifecycle(id: String, events: [CodexAgentLifecycleEvent])
+    case assistantBlock(id: String, block: CodexBlock)
+    case assistantStreamingWorking(id: String, text: String, isEmpty: Bool)
+    case lifecycle(CodexAgentLifecycleEvent)
+
+    var materialized: CodexTranscriptTimelineItem {
         switch self {
         case .message(let message):
-            return message.createdAt
-        case .completedWorkTrace(_, let trace):
-            return trace.createdAt
+            return .messageRef(message.id)
+        case .completedWorkTrace(let id, let trace):
+            return .completedWorkTrace(id: id, trace: trace)
+        case .operationAggregate(let id, let rows):
+            return .operationAggregate(id: id, rows: rows)
+        case .fileChangeAggregate(let id, let changes):
+            return .fileChangeAggregate(id: id, changes: changes)
+        case .assistantLifecycle(let id, let events):
+            return .assistantLifecycle(id: id, events: events)
+        case .assistantBlock(let id, let block):
+            return .assistantBlock(id: id, block: block)
+        case .assistantStreamingWorking(let id, let text, let isEmpty):
+            return .assistantStreamingWorking(id: id, text: text, isEmpty: isEmpty)
         case .lifecycle(let event):
-            return event.createdAt
-        default:
-            return Date()
+            return .lifecycle(event)
         }
     }
 }
@@ -59,23 +95,24 @@ enum CodexTranscriptTimelineBuilder {
         )
         .insertingOperationAggregateRows()
         .insertingAggregateFileChangeCards()
+        .map(\.materialized)
     }
 
     private static func mergedChronologically(
         messages: [CodexChatMessage],
         lifecycleEvents: [CodexAgentLifecycleEvent]
-    ) -> [CodexTranscriptTimelineItem] {
+    ) -> [CodexTranscriptTimelineBuildItem] {
         let messages = chronologicallySorted(messages, by: \.createdAt)
         let lifecycleEvents = chronologicallySorted(lifecycleEvents, by: \.createdAt)
 
         guard !messages.isEmpty else {
-            return lifecycleEvents.map(CodexTranscriptTimelineItem.lifecycle)
+            return lifecycleEvents.map(CodexTranscriptTimelineBuildItem.lifecycle)
         }
         guard !lifecycleEvents.isEmpty else {
-            return messages.map(CodexTranscriptTimelineItem.message)
+            return messages.map(CodexTranscriptTimelineBuildItem.message)
         }
 
-        var merged: [CodexTranscriptTimelineItem] = []
+        var merged: [CodexTranscriptTimelineBuildItem] = []
         merged.reserveCapacity(messages.count + lifecycleEvents.count)
 
         var messageIndex = messages.startIndex
@@ -94,10 +131,10 @@ enum CodexTranscriptTimelineBuilder {
         }
 
         if messageIndex < messages.endIndex {
-            merged.append(contentsOf: messages[messageIndex...].map(CodexTranscriptTimelineItem.message))
+            merged.append(contentsOf: messages[messageIndex...].map(CodexTranscriptTimelineBuildItem.message))
         }
         if eventIndex < lifecycleEvents.endIndex {
-            merged.append(contentsOf: lifecycleEvents[eventIndex...].map(CodexTranscriptTimelineItem.lifecycle))
+            merged.append(contentsOf: lifecycleEvents[eventIndex...].map(CodexTranscriptTimelineBuildItem.lifecycle))
         }
 
         return merged
@@ -130,49 +167,40 @@ enum CodexTranscriptTimelineBuilder {
         return values
     }
 
-    private static func compactAssistantTurns(_ items: [CodexTranscriptTimelineItem]) -> [CodexTranscriptTimelineItem] {
-        var compacted: [CodexTranscriptTimelineItem] = []
+    private static func compactAssistantTurns(_ items: [CodexTranscriptTimelineBuildItem]) -> [CodexTranscriptTimelineBuildItem] {
+        var compacted: [CodexTranscriptTimelineBuildItem] = []
         var pendingAssistantMessages: [CodexChatMessage] = []
         var pendingLifecycleEvents: [CodexAgentLifecycleEvent] = []
 
         func flushPending() {
             guard !pendingAssistantMessages.isEmpty || !pendingLifecycleEvents.isEmpty else { return }
-            
+
             let primaryMessage = pendingAssistantMessages.last(where: { $0.detail == "final_answer" }) ?? pendingAssistantMessages.last
             let primaryID = primaryMessage?.id.uuidString
                 ?? pendingLifecycleEvents.first?.id.uuidString
                 ?? "assistant-turn"
-            
-            // Streamed messages (prior to primary)
+
             let streamMessages = pendingAssistantMessages.filter { $0.id != primaryMessage?.id }
             for msg in streamMessages {
                 if msg.isStreaming {
                     compacted.append(.assistantStreamingWorking(id: msg.id.uuidString, text: msg.text, isEmpty: msg.text.isEmpty))
                 } else {
-                    let blocks = msg.projectedBlocks ?? CodexBlockProjector.project(msg.text, streaming: false, cacheNamespace: msg.id.uuidString)
-                    for block in blocks {
-                        compacted.append(.assistantBlock(id: block.id, block: block))
-                    }
+                    compacted.append(.message(msg))
                 }
             }
-            
-            // Lifecycle events
+
             if !pendingLifecycleEvents.isEmpty {
                 compacted.append(.assistantLifecycle(id: primaryID, events: pendingLifecycleEvents))
             }
-            
-            // Primary message
+
             if let msg = primaryMessage {
                 if msg.isStreaming {
                     compacted.append(.assistantStreamingWorking(id: msg.id.uuidString, text: msg.text, isEmpty: msg.text.isEmpty))
                 } else {
-                    let blocks = msg.projectedBlocks ?? CodexBlockProjector.project(msg.text, streaming: false, cacheNamespace: msg.id.uuidString)
-                    for block in blocks {
-                        compacted.append(.assistantBlock(id: block.id, block: block))
-                    }
+                    compacted.append(.message(msg))
                 }
             }
-            
+
             pendingAssistantMessages = []
             pendingLifecycleEvents = []
         }
@@ -202,14 +230,14 @@ enum CodexTranscriptTimelineBuilder {
     }
 }
 
-private extension Array where Element == CodexTranscriptTimelineItem {
-    func insertingCompletedWorkTraces() -> [CodexTranscriptTimelineItem] {
-        var result: [CodexTranscriptTimelineItem] = []
+private extension Array where Element == CodexTranscriptTimelineBuildItem {
+    func insertingCompletedWorkTraces() -> [CodexTranscriptTimelineBuildItem] {
+        var result: [CodexTranscriptTimelineBuildItem] = []
         var pendingWorkMessages: [CodexChatMessage] = []
 
         func flushPendingWork() {
             guard !pendingWorkMessages.isEmpty else { return }
-            result.append(contentsOf: pendingWorkMessages.map(CodexTranscriptTimelineItem.message))
+            result.append(contentsOf: pendingWorkMessages.map(CodexTranscriptTimelineBuildItem.message))
             pendingWorkMessages = []
         }
 
@@ -245,8 +273,8 @@ private extension Array where Element == CodexTranscriptTimelineItem {
         return result
     }
 
-    func insertingOperationAggregateRows() -> [CodexTranscriptTimelineItem] {
-        var result: [CodexTranscriptTimelineItem] = []
+    func insertingOperationAggregateRows() -> [CodexTranscriptTimelineBuildItem] {
+        var result: [CodexTranscriptTimelineBuildItem] = []
         var pendingOperationMessages: [CodexChatMessage] = []
 
         func flushPendingOperations() {
@@ -256,7 +284,7 @@ private extension Array where Element == CodexTranscriptTimelineItem {
                 let firstID = pendingOperationMessages.first?.id.uuidString ?? UUID().uuidString
                 result.append(.operationAggregate(id: "\(firstID)-\(pendingOperationMessages.count)", rows: rows))
             }
-            result.append(contentsOf: pendingOperationMessages.map(CodexTranscriptTimelineItem.message))
+            result.append(contentsOf: pendingOperationMessages.map(CodexTranscriptTimelineBuildItem.message))
             pendingOperationMessages = []
         }
 
@@ -274,8 +302,8 @@ private extension Array where Element == CodexTranscriptTimelineItem {
         return result
     }
 
-    func insertingAggregateFileChangeCards() -> [CodexTranscriptTimelineItem] {
-        var result: [CodexTranscriptTimelineItem] = []
+    func insertingAggregateFileChangeCards() -> [CodexTranscriptTimelineBuildItem] {
+        var result: [CodexTranscriptTimelineBuildItem] = []
         var pendingFileChangeMessages: [CodexChatMessage] = []
 
         func flushPendingFileChanges() {
@@ -285,7 +313,7 @@ private extension Array where Element == CodexTranscriptTimelineItem {
                 let firstID = pendingFileChangeMessages.first?.id.uuidString ?? UUID().uuidString
                 result.append(.fileChangeAggregate(id: "\(firstID)-\(changes.count)", changes: changes))
             }
-            result.append(contentsOf: pendingFileChangeMessages.map(CodexTranscriptTimelineItem.message))
+            result.append(contentsOf: pendingFileChangeMessages.map(CodexTranscriptTimelineBuildItem.message))
             pendingFileChangeMessages = []
         }
 

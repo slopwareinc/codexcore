@@ -80,7 +80,33 @@ public struct CodexLiveTurnChangeCardSummary: Equatable, Sendable {
 }
 
 public enum CodexLiveTurnModel {
+    public enum TurnEndAction: String, CaseIterable, Sendable {
+        case copy
+        case fork
+    }
+
+    public static func turnEndActions(for message: CodexChatMessage) -> [TurnEndAction] {
+        guard message.role == .assistant,
+              !message.isStreaming,
+              message.detail == "final_answer",
+              !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return []
+        }
+        return TurnEndAction.allCases
+    }
+
+    @available(*, deprecated, message: "Use turnEndActions(for:) instead.")
     public static let responseActionTitles = ["Copy", "Good response", "Bad response", "Fork from this point"]
+
+    @available(*, deprecated, message: "Use turnEndActions(for:) instead.")
+    public static func responseActionTitles(for message: CodexChatMessage) -> [String] {
+        turnEndActions(for: message).map { action in
+            switch action {
+            case .copy: "Copy"
+            case .fork: "Fork from this point"
+            }
+        }
+    }
 
     public static func phaseState(
         isActive: Bool,
@@ -106,12 +132,6 @@ public enum CodexLiveTurnModel {
         now: Date = Date()
     ) -> CodexLiveTurnPhaseState {
         phaseState(isActive: true, startedAt: activeTurn.startedAt, activity: activeTurn.activity, now: now)
-    }
-
-    public static func responseActionTitles(for message: CodexChatMessage) -> [String] {
-        guard message.role == .assistant, !message.isStreaming else { return [] }
-        guard !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-        return responseActionTitles
     }
 
     public static func operationRows(for messages: [CodexChatMessage]) -> [CodexLiveTurnOperationRow] {

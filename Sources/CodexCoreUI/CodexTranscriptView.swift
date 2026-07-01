@@ -1,17 +1,66 @@
 import SwiftUI
 
+@MainActor
+private enum CodexMessageHoverReveal {
+    static let hideDelay: Duration = .milliseconds(150)
+
+    static func reveal(
+        _ isHovered: Binding<Bool>,
+        hideTask: Binding<Task<Void, Never>?>,
+        hovering: Bool,
+        scrollActive: Bool
+    ) {
+        if scrollActive {
+            hideTask.wrappedValue?.cancel()
+            if isHovered.wrappedValue {
+                isHovered.wrappedValue = false
+            }
+            return
+        }
+        hideTask.wrappedValue?.cancel()
+        if hovering {
+            isHovered.wrappedValue = true
+            return
+        }
+        hideTask.wrappedValue = Task {
+            try? await Task.sleep(for: hideDelay)
+            guard !Task.isCancelled else { return }
+            isHovered.wrappedValue = false
+        }
+    }
+}
+
+private struct CodexTranscriptScrollActiveKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var codexTranscriptScrollActive: Bool {
+        get { self[CodexTranscriptScrollActiveKey.self] }
+        set { self[CodexTranscriptScrollActiveKey.self] = newValue }
+    }
+}
+
 public struct CodexTranscriptView<EmptyContent: View>: View {
-    private let timelineItems: [CodexTranscriptTimelineItem]
+    private let messages: [CodexChatMessage]
+    private let transcriptID: String?
+    private let lifecycleEvents: [CodexAgentLifecycleEvent]
     private let activeTurn: CodexActiveTurnState?
     private let emptyContent: EmptyContent
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
-    private let scrollTrigger: CodexTranscriptScrollTrigger
+    private let onEditUserMessage: ((String) -> Void)?
 
     @Environment(\.codexAgentTheme) private var theme
+    @State private var timelineItems: [CodexTranscriptTimelineItem] = []
+    @State private var messageLookup: [UUID: CodexChatMessage] = [:]
+    @State private var scrollTrigger: CodexTranscriptScrollTrigger = .empty
     @State private var isPinnedToBottom = true
     @State private var pendingScrollRequest: DispatchWorkItem?
-    @State private var scrollPositionID: String? = Self.bottomAnchor
+    @State private var viewportHeight: CGFloat = 720
+    @State private var lastScrollBottomY: CGFloat = 0
+    @State private var isTranscriptScrolling = false
+    @State private var scrollEndTask: Task<Void, Never>?
 
     public init(
         messages: [CodexChatMessage],
@@ -20,79 +69,127 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         activeTurn: CodexActiveTurnState? = nil,
         onCloseMessage: ((UUID) -> Void)? = nil,
         onOpenMCPDetails: (() -> Void)? = nil,
+        onEditUserMessage: ((String) -> Void)? = nil,
         @ViewBuilder emptyContent: () -> EmptyContent
     ) {
-        self.timelineItems = CodexTranscriptTimelineBuilder.build(
-            messages: messages,
-            lifecycleEvents: lifecycleEvents
-        )
+        self.messages = messages
+        self.transcriptID = transcriptID
+        self.lifecycleEvents = lifecycleEvents
         self.activeTurn = activeTurn
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
-        self.scrollTrigger = CodexTranscriptScrollTrigger(
-            transcriptID: transcriptID,
-            timelineItems: timelineItems,
-            activeTurn: activeTurn
-        )
+        self.onEditUserMessage = onEditUserMessage
         self.emptyContent = emptyContent()
     }
 
+    private var transcriptInput: CodexTranscriptInput {
+        CodexTranscriptInput(
+            transcriptID: transcriptID,
+            messages: messages,
+            lifecycleEvents: lifecycleEvents,
+            activeTurn: activeTurn
+        )
+    }
+
     public var body: some View {
-        GeometryReader { viewport in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if timelineItems.isEmpty {
-                        emptyContent
-                            .frame(maxWidth: .infinity, minHeight: 420)
-                            .padding(.horizontal, 28)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
-                            ForEach(timelineItems) { item in
-                                CodexTranscriptTimelineRow(
-                                    item: item,
-                                    onCloseMessage: onCloseMessage,
-                                    onOpenMCPDetails: onOpenMCPDetails
-                                )
-                                .equatable()
-                                .id(item.id)
-                            }
-                            if let activeTurn {
-                                CodexActiveTurnRow(state: activeTurn)
-                                    .equatable()
-                                    .id("active-turn")
-                            }
-                            bottomAnchor
-                        }
-                        .scrollTargetLayout()
+        ScrollViewReader { proxy in
+            ScrollView {
+                if timelineItems.isEmpty {
+                    emptyContent
+                        .frame(maxWidth: .infinity, minHeight: 420)
                         .padding(.horizontal, 28)
-                        .padding(.top, 24)
-                        .padding(.bottom, 28)
-                        .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
-                        .frame(maxWidth: .infinity)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
+                        ForEach(timelineItems) { item in
+                            CodexTranscriptTimelineRow(
+                                item: item,
+                                message: item.messageID.flatMap { messageLookup[$0] },
+                                onCloseMessage: onCloseMessage,
+                                onOpenMCPDetails: onOpenMCPDetails,
+                                onEditUserMessage: onEditUserMessage
+                            )
+                            .equatable()
+                        }
+                        if let activeTurn {
+                            CodexActiveTurnRow(state: activeTurn)
+                                .equatable()
+                                .id("active-turn")
+                        }
+                        bottomAnchor
                     }
-                }
-                .id(scrollTrigger.transcriptIdentity)
-                .coordinateSpace(name: Self.scrollCoordinateSpace)
-                .scrollContentBackground(.hidden)
-                .defaultScrollAnchor(.bottom)
-                .scrollPosition(id: $scrollPositionID, anchor: .bottom)
-                .onPreferenceChange(CodexTranscriptBottomPreferenceKey.self) { bottomY in
-                    guard bottomY > 0 else { return }
-                    isPinnedToBottom = bottomY <= viewport.size.height + Self.bottomPinTolerance
-                }
-                .onAppear {
-                    requestScroll(proxy, animated: false, force: true)
-                }
-                .onChange(of: scrollTrigger) { oldValue, newValue in
-                    let isInitialLoad = oldValue.isEmpty && !newValue.isEmpty
-                    requestScroll(
-                        proxy,
-                        animated: !isInitialLoad && newValue.hasStructureChange(comparedTo: oldValue),
-                        force: isInitialLoad
-                    )
+                    .padding(.horizontal, 28)
+                    .padding(.top, 24)
+                    .padding(.bottom, 28)
+                    .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
             }
+            .environment(\.codexTranscriptScrollActive, isTranscriptScrolling)
+            .id(scrollTrigger.transcriptIdentity)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear
+                        .preference(key: CodexTranscriptViewportHeightPreferenceKey.self, value: geometry.size.height)
+                }
+            }
+            .coordinateSpace(name: Self.scrollCoordinateSpace)
+            .scrollContentBackground(.hidden)
+            .onPreferenceChange(CodexTranscriptViewportHeightPreferenceKey.self) { height in
+                guard height > 0 else { return }
+                viewportHeight = height
+            }
+            .onPreferenceChange(CodexTranscriptBottomPreferenceKey.self) { bottomY in
+                guard bottomY > 0 else { return }
+                if abs(bottomY - lastScrollBottomY) > 0.5 {
+                    lastScrollBottomY = bottomY
+                    isTranscriptScrolling = true
+                    scrollEndTask?.cancel()
+                    scrollEndTask = Task {
+                        try? await Task.sleep(for: .milliseconds(180))
+                        guard !Task.isCancelled else { return }
+                        isTranscriptScrolling = false
+                    }
+                }
+                let pinned = bottomY <= viewportHeight + Self.bottomPinTolerance
+                guard pinned != isPinnedToBottom else { return }
+                isPinnedToBottom = pinned
+            }
+            .onAppear {
+                requestScroll(proxy, animated: false, force: true)
+            }
+            .onChange(of: scrollTrigger) { oldValue, newValue in
+                let isInitialLoad = oldValue.isEmpty && !newValue.isEmpty
+                requestScroll(
+                    proxy,
+                    animated: !isInitialLoad && newValue.hasStructureChange(comparedTo: oldValue),
+                    force: isInitialLoad
+                )
+            }
         }
+        .task(id: transcriptInput) {
+            refreshTimeline(for: transcriptInput)
+        }
+    }
+
+    private func refreshTimeline(for input: CodexTranscriptInput) {
+        let cacheKey = input.cacheKey(lifecycleEvents: lifecycleEvents)
+        if let cachedItems = CodexTranscriptTimelineCache.cachedItems(for: cacheKey) {
+            timelineItems = cachedItems
+        } else {
+            let built = CodexTranscriptTimelineBuilder.build(
+                messages: messages,
+                lifecycleEvents: lifecycleEvents
+            )
+            CodexTranscriptTimelineCache.store(key: cacheKey, items: built)
+            timelineItems = built
+        }
+        messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        scrollTrigger = CodexTranscriptScrollTrigger(
+            transcriptID: transcriptID,
+            timelineItems: timelineItems,
+            messageLookup: messageLookup,
+            activeTurn: activeTurn
+        )
     }
 
     private static var bottomAnchor: String { "transcript-bottom" }
@@ -118,13 +215,6 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         guard force || isPinnedToBottom else { return }
 
         pendingScrollRequest?.cancel()
-        if force {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                scrollPositionID = Self.bottomAnchor
-            }
-        }
         let request = DispatchWorkItem {
             guard force || isPinnedToBottom else { return }
             scroll(proxy, animated: animated)
@@ -152,6 +242,15 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
 }
 
 private struct CodexTranscriptScrollTrigger: Equatable {
+    static let empty = CodexTranscriptScrollTrigger(
+        transcriptID: nil,
+        itemCount: 0,
+        firstItemID: nil,
+        lastItemID: nil,
+        streamingVersion: 0,
+        activeTurnVersion: 0
+    )
+
     var transcriptID: String?
     var itemCount: Int
     var firstItemID: String?
@@ -162,16 +261,35 @@ private struct CodexTranscriptScrollTrigger: Equatable {
     init(
         transcriptID: String?,
         timelineItems: [CodexTranscriptTimelineItem],
+        messageLookup: [UUID: CodexChatMessage],
         activeTurn: CodexActiveTurnState?
     ) {
+        self.init(
+            transcriptID: transcriptID,
+            itemCount: timelineItems.count,
+            firstItemID: timelineItems.first?.id,
+            lastItemID: timelineItems.last?.id,
+            streamingVersion: timelineItems.reduce(0) { partialResult, item in
+                partialResult &+ item.streamingContentLength(in: messageLookup)
+            },
+            activeTurnVersion: activeTurn == nil ? 0 : 1
+        )
+    }
+
+    private init(
+        transcriptID: String?,
+        itemCount: Int,
+        firstItemID: String?,
+        lastItemID: String?,
+        streamingVersion: Int,
+        activeTurnVersion: Int
+    ) {
         self.transcriptID = transcriptID
-        itemCount = timelineItems.count
-        firstItemID = timelineItems.first?.id
-        lastItemID = timelineItems.last?.id
-        streamingVersion = timelineItems.reduce(0) { partialResult, item in
-            partialResult &+ item.streamingContentLength
-        }
-        activeTurnVersion = activeTurn == nil ? 0 : 1
+        self.itemCount = itemCount
+        self.firstItemID = firstItemID
+        self.lastItemID = lastItemID
+        self.streamingVersion = streamingVersion
+        self.activeTurnVersion = activeTurnVersion
     }
 
     var isEmpty: Bool {
@@ -189,18 +307,11 @@ private struct CodexTranscriptScrollTrigger: Equatable {
     }
 }
 
-private extension CodexTranscriptTimelineItem {
-    var streamingContentLength: Int {
-        switch self {
-        case .assistantStreamingWorking(_, let text, _):
-            return text.count
-        case .message(let message) where message.isStreaming:
-            return message.text.count
-        case .completedWorkTrace:
-            return 0
-        default:
-            return 0
-        }
+private struct CodexTranscriptViewportHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -216,21 +327,26 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
     @Environment(\.codexAgentTheme) private var theme
 
     let item: CodexTranscriptTimelineItem
+    let message: CodexChatMessage?
     let onCloseMessage: ((UUID) -> Void)?
     let onOpenMCPDetails: (() -> Void)?
+    let onEditUserMessage: ((String) -> Void)?
 
     nonisolated static func == (lhs: CodexTranscriptTimelineRow, rhs: CodexTranscriptTimelineRow) -> Bool {
-        lhs.item == rhs.item
+        lhs.item == rhs.item && lhs.message == rhs.message
     }
 
     var body: some View {
         switch item {
-        case .message(let message):
-            CodexMessageRow(
-                message: message,
-                onCloseMessage: onCloseMessage,
-                onOpenMCPDetails: onOpenMCPDetails
-            )
+        case .messageRef:
+            if let message {
+                CodexMessageRow(
+                    message: message,
+                    onCloseMessage: onCloseMessage,
+                    onOpenMCPDetails: onOpenMCPDetails,
+                    onEditUserMessage: onEditUserMessage
+                )
+            }
         case .completedWorkTrace(_, let trace):
             CodexAgentRow(visibility: .hidden) {
                 CodexCompletedWorkTraceView(trace: trace)
@@ -261,7 +377,7 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
                         Text(verbatim: text)
                             .font(theme.fonts.chat)
                             .foregroundStyle(theme.colors.textPrimary)
-                            .lineSpacing(3)
+                            .lineSpacing(theme.spacing.chatLineSpacing)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -439,17 +555,20 @@ public struct CodexMessageRow: View {
     private let assistantName: String
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
+    private let onEditUserMessage: ((String) -> Void)?
 
     public init(
         message: CodexChatMessage,
         assistantName: String = "Codex",
         onCloseMessage: ((UUID) -> Void)? = nil,
-        onOpenMCPDetails: (() -> Void)? = nil
+        onOpenMCPDetails: (() -> Void)? = nil,
+        onEditUserMessage: ((String) -> Void)? = nil
     ) {
         self.message = message
         self.assistantName = assistantName
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
+        self.onEditUserMessage = onEditUserMessage
     }
 
     public var body: some View {
@@ -457,7 +576,7 @@ public struct CodexMessageRow: View {
         case .system:
             CodexSystemMessageView(text: message.text)
         case .user:
-            CodexUserMessageView(message: message)
+            CodexUserMessageView(message: message, onEdit: onEditUserMessage)
         case .terminal:
             if let run = message.commandRun {
                 CodexAgentRow {
@@ -570,9 +689,13 @@ public struct CodexAgentRow<Content: View>: View {
 
 public struct CodexAssistantMessageView: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.codexTranscriptScrollActive) private var isTranscriptScrolling
 
     private let message: CodexChatMessage
     private let assistantName: String
+    @State private var isHovered = false
+    @State private var copied = false
+    @State private var hideHoverTask: Task<Void, Never>?
 
     public init(message: CodexChatMessage, assistantName: String = "Codex") {
         self.message = message
@@ -604,55 +727,173 @@ public struct CodexAssistantMessageView: View {
                         cacheNamespace: message.id.uuidString
                     )
                 }
-                let actionTitles = CodexLiveTurnModel.responseActionTitles(for: message)
-                if !actionTitles.isEmpty {
-                    CodexResponseActionRow(titles: actionTitles, copyText: message.text)
+                if !turnEndActions.isEmpty {
+                    CodexMessageMetaFooter(
+                        timestamp: message.createdAt,
+                        alignment: .leading,
+                        actions: turnEndFooterActions,
+                        isHovered: isHovered,
+                        copied: $copied,
+                        copyText: message.text,
+                        onEdit: nil,
+                        onHoverChanged: { updateHover($0) }
+                    )
                 }
             }
         }
         .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { updateHover($0) }
+    }
+
+    private func updateHover(_ hovering: Bool) {
+        CodexMessageHoverReveal.reveal(
+            $isHovered,
+            hideTask: $hideHoverTask,
+            hovering: hovering,
+            scrollActive: isTranscriptScrolling
+        )
+    }
+
+    private var turnEndActions: [CodexLiveTurnModel.TurnEndAction] {
+        CodexLiveTurnModel.turnEndActions(for: message)
+    }
+
+    private var turnEndFooterActions: [CodexMessageMetaFooter.Action] {
+        turnEndActions.map {
+            switch $0 {
+            case .copy: .copy
+            case .fork: .fork
+            }
+        }
     }
 }
 
-private struct CodexResponseActionRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-    @State private var copied = false
-
-    let titles: [String]
-    let copyText: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ForEach(titles, id: \.self) { title in
-                if title == "Copy" {
-                    CodexCopyButton(copied: $copied) {
-                        copyToPasteboard(copyText)
-                    }
-                    .help(title)
-                } else {
-                    Label(title, systemImage: icon(for: title))
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .help("\(title) unavailable in this build")
-                }
-            }
-        }
-        .padding(.top, 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(titles.joined(separator: ", "))
+private struct CodexMessageMetaFooter: View {
+    enum Action: Hashable {
+        case copy
+        case fork
+        case edit
     }
 
-    private func icon(for title: String) -> String {
-        switch title {
-        case "Good response":
-            return "hand.thumbsup"
-        case "Bad response":
-            return "hand.thumbsdown"
-        case "Fork from this point":
-            return "arrow.triangle.branch"
-        default:
-            return "circle"
+    @Environment(\.codexAgentTheme) private var theme
+
+    static let reservedHeight: CGFloat = 20
+
+    let timestamp: Date
+    let alignment: HorizontalAlignment
+    let actions: [Action]
+    let isHovered: Bool
+    @Binding var copied: Bool
+    let copyText: String
+    let onEdit: (() -> Void)?
+    let onHoverChanged: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if alignment == .trailing {
+                Spacer(minLength: 0)
+            }
+
+            if alignment == .leading {
+                timestampLabel
+                actionButtons
+            } else {
+                actionButtons
+                timestampLabel
+            }
+
+            if alignment == .leading {
+                Spacer(minLength: 0)
+            }
         }
+        .frame(height: Self.reservedHeight)
+        .frame(
+            maxWidth: alignment == .trailing ? theme.spacing.userBubbleMaxWidth : theme.spacing.cardMaxWidth,
+            alignment: frameAlignment
+        )
+        .contentShape(Rectangle())
+        .onHover { onHoverChanged($0) }
+    }
+
+    private var frameAlignment: Alignment {
+        alignment == .trailing ? .trailing : .leading
+    }
+
+    private var timestampLabel: some View {
+        Text(timestamp, format: .dateTime.hour().minute())
+            .font(theme.fonts.caption)
+            .foregroundStyle(theme.colors.textTertiary.opacity(isHovered ? 0.95 : 0.55))
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 2) {
+            ForEach(actions, id: \.self) { action in
+                actionButton(for: action)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+            }
+        }
+        .frame(width: actionBarWidth, alignment: frameAlignment)
+        .contentShape(Rectangle())
+        .onHover { onHoverChanged($0) }
+    }
+
+    private var actionBarWidth: CGFloat {
+        guard !actions.isEmpty else { return 0 }
+        return CGFloat(actions.count) * 22 + CGFloat(max(actions.count - 1, 0)) * 2
+    }
+
+    @ViewBuilder
+    private func actionButton(for action: Action) -> some View {
+        switch action {
+        case .copy:
+            CodexIconActionButton(
+                systemImage: copied ? "checkmark" : "doc.on.doc",
+                tint: copied ? theme.colors.success : theme.colors.textTertiary,
+                help: "Copy"
+            ) {
+                copyToPasteboard(copyText)
+                withAnimation(.snappy) { copied = true }
+                Task {
+                    try? await Task.sleep(for: .seconds(1.4))
+                    withAnimation(.snappy) { copied = false }
+                }
+            }
+        case .fork:
+            CodexIconActionButton(
+                systemImage: "arrow.triangle.branch",
+                tint: theme.colors.textTertiary,
+                help: "Fork from this point unavailable in this build"
+            ) {}
+        case .edit:
+            CodexIconActionButton(
+                systemImage: "square.and.pencil",
+                tint: theme.colors.textTertiary,
+                help: "Edit prompt"
+            ) {
+                onEdit?()
+            }
+        }
+    }
+}
+
+private struct CodexIconActionButton: View {
+    let systemImage: String
+    let tint: Color
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.caption2)
+                .foregroundStyle(tint)
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
@@ -683,7 +924,7 @@ private struct StreamingAssistantText: View {
         Text(verbatim: text)
             .font(theme.fonts.chat)
             .foregroundStyle(theme.colors.textPrimary)
-            .lineSpacing(3)
+            .lineSpacing(theme.spacing.chatLineSpacing)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -691,31 +932,61 @@ private struct StreamingAssistantText: View {
 
 public struct CodexUserMessageView: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.codexTranscriptScrollActive) private var isTranscriptScrolling
 
     private let message: CodexChatMessage
+    private let onEdit: ((String) -> Void)?
+    @State private var isHovered = false
+    @State private var copied = false
+    @State private var hideHoverTask: Task<Void, Never>?
 
-    public init(message: CodexChatMessage) {
+    public init(message: CodexChatMessage, onEdit: ((String) -> Void)? = nil) {
         self.message = message
+        self.onEdit = onEdit
     }
 
     public var body: some View {
         HStack(alignment: .top, spacing: 0) {
             Spacer(minLength: 60)
-            Text(message.text)
-                .font(theme.fonts.chat)
-                .foregroundStyle(theme.colors.textPrimary)
-                .lineSpacing(3)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .background(theme.colors.userBubble, in: RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
-                        .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(message.text)
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineSpacing(theme.spacing.chatLineSpacing)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .background(theme.colors.userBubble, in: RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
+                            .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
+                    )
+
+                CodexMessageMetaFooter(
+                    timestamp: message.createdAt,
+                    alignment: .trailing,
+                    actions: [.copy, .edit],
+                    isHovered: isHovered,
+                    copied: $copied,
+                    copyText: message.text,
+                    onEdit: onEdit.map { handler in { handler(message.text) } },
+                    onHoverChanged: { updateHover($0) }
                 )
-                .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
+            }
+            .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
+            .contentShape(Rectangle())
+            .onHover { updateHover($0) }
         }
+    }
+
+    private func updateHover(_ hovering: Bool) {
+        CodexMessageHoverReveal.reveal(
+            $isHovered,
+            hideTask: $hideHoverTask,
+            hovering: hovering,
+            scrollActive: isTranscriptScrolling
+        )
     }
 }
 
