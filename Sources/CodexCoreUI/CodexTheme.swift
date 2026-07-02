@@ -214,7 +214,7 @@ public struct CodexAgentTheme {
             iconSmall: CGFloat = 13,
             iconMedium: CGFloat = 16,
             iconLarge: CGFloat = 28,
-            chatLineSpacing: CGFloat = 4
+            chatLineSpacing: CGFloat = 4.8
         ) {
             self.transcriptMaxWidth = transcriptMaxWidth
             self.composerMaxWidth = composerMaxWidth
