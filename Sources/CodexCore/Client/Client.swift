@@ -241,18 +241,28 @@ public actor CodexClient {
         params: ThreadResumeParams = ThreadResumeParams(),
         activateThread: Bool = true
     ) async throws -> CodexSchemaThreadResumeResponse {
+        let trace = CodexPerformanceTrace(label: "threadResumeRPC")
         var payload = params
         payload.threadId = threadId
+        let requestSpan = trace.begin("threadResume.request", metadata: ["threadID": threadId])
         let response: CodexSchemaThreadResumeResponse = try await connection.request(
             method: CodexAppServerClientMethod.threadResume.rawValue,
             params: payload,
             response: CodexSchemaThreadResumeResponse.self
         )
+        let turnCount = response.initialTurnsPage?.data.count ?? 0
+        requestSpan.end(metadata: [
+            "threadID": threadId,
+            "turnCount": "\(turnCount)",
+            "outcome": "success",
+        ])
         if activateThread {
+            let activateSpan = trace.begin("threadResume.mainActorActivate", metadata: ["threadID": threadId])
             await MainActor.run {
                 store.dispatch(.threadStarted(threadId: response.thread.id, name: nil, status: "idle"))
                 store.activateThread(id: response.thread.id)
             }
+            activateSpan.end(metadata: ["threadID": threadId, "outcome": "success"])
         }
         return response
     }

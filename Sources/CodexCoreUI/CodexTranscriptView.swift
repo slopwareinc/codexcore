@@ -1,4 +1,16 @@
 import SwiftUI
+import CodexCore
+
+@MainActor
+private enum CodexTranscriptViewTrace {
+    static func trace(transcriptID: String?) -> CodexPerformanceTrace {
+        CodexPerformanceTrace(label: "transcriptUI", id: transcriptID)
+    }
+
+    static func scrollTrace() -> CodexPerformanceTrace {
+        CodexPerformanceTrace(label: "transcriptScroll")
+    }
+}
 
 @MainActor
 private enum CodexMessageHoverReveal {
@@ -50,6 +62,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
     private let onEditUserMessage: ((String) -> Void)?
+    private let topContentMargin: CGFloat
+    private let bottomContentMargin: CGFloat
 
     @Environment(\.codexAgentTheme) private var theme
     @State private var timelineItems: [CodexTranscriptTimelineItem] = []
@@ -61,6 +75,9 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     @State private var lastScrollBottomY: CGFloat = 0
     @State private var isTranscriptScrolling = false
     @State private var scrollEndTask: Task<Void, Never>?
+    @State private var bottomPreferenceUpdates = 0
+    @State private var bottomPreferenceBurstStart: Date?
+    @State private var viewportPreferenceUpdates = 0
 
     public init(
         messages: [CodexChatMessage],
@@ -70,6 +87,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         onCloseMessage: ((UUID) -> Void)? = nil,
         onOpenMCPDetails: (() -> Void)? = nil,
         onEditUserMessage: ((String) -> Void)? = nil,
+        topContentMargin: CGFloat = 0,
+        bottomContentMargin: CGFloat = 0,
         @ViewBuilder emptyContent: () -> EmptyContent
     ) {
         self.messages = messages
@@ -79,6 +98,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
+        self.topContentMargin = topContentMargin
+        self.bottomContentMargin = bottomContentMargin
         self.emptyContent = emptyContent()
     }
 
@@ -98,6 +119,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                     emptyContent
                         .frame(maxWidth: .infinity, minHeight: 420)
                         .padding(.horizontal, 28)
+                        .padding(.top, topContentMargin)
+                        .padding(.bottom, bottomContentMargin)
                 } else {
                     LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
                         ForEach(timelineItems) { item in
@@ -118,10 +141,19 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                         bottomAnchor
                     }
                     .padding(.horizontal, 28)
-                    .padding(.top, 24)
-                    .padding(.bottom, 28)
+                    .padding(.top, 24 + topContentMargin)
+                    .padding(.bottom, 28 + bottomContentMargin)
                     .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity)
+                    .onAppear {
+                        CodexTranscriptViewTrace.trace(transcriptID: transcriptID).event(
+                            "transcript.lazyVStack.appear",
+                            metadata: [
+                                "itemCount": "\(timelineItems.count)",
+                                "messageCount": "\(messages.count)",
+                            ]
+                        )
+                    }
                 }
             }
             .environment(\.codexTranscriptScrollActive, isTranscriptScrolling)
@@ -136,10 +168,21 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             .scrollContentBackground(.hidden)
             .onPreferenceChange(CodexTranscriptViewportHeightPreferenceKey.self) { height in
                 guard height > 0 else { return }
+                viewportPreferenceUpdates += 1
+                if viewportPreferenceUpdates == 1 || viewportPreferenceUpdates.isMultiple(of: 25) {
+                    CodexTranscriptViewTrace.scrollTrace().event(
+                        "transcript.scroll.viewportPreference",
+                        metadata: [
+                            "count": "\(viewportPreferenceUpdates)",
+                            "height": String(format: "%.1f", height),
+                        ]
+                    )
+                }
                 viewportHeight = height
             }
             .onPreferenceChange(CodexTranscriptBottomPreferenceKey.self) { bottomY in
                 guard bottomY > 0 else { return }
+                recordBottomPreferenceUpdate(bottomY: bottomY)
                 if abs(bottomY - lastScrollBottomY) > 0.5 {
                     lastScrollBottomY = bottomY
                     isTranscriptScrolling = true
@@ -159,6 +202,15 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             }
             .onChange(of: scrollTrigger) { oldValue, newValue in
                 let isInitialLoad = oldValue.isEmpty && !newValue.isEmpty
+                CodexTranscriptViewTrace.scrollTrace().event(
+                    "transcript.scroll.triggerChanged",
+                    metadata: [
+                        "initialLoad": isInitialLoad ? "true" : "false",
+                        "oldItemCount": "\(oldValue.itemCount)",
+                        "newItemCount": "\(newValue.itemCount)",
+                        "structureChanged": newValue.hasStructureChange(comparedTo: oldValue) ? "true" : "false",
+                    ]
+                )
                 requestScroll(
                     proxy,
                     animated: !isInitialLoad && newValue.hasStructureChange(comparedTo: oldValue),
@@ -167,29 +219,82 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             }
         }
         .task(id: transcriptInput) {
-            refreshTimeline(for: transcriptInput)
+            let trace = CodexTranscriptViewTrace.trace(transcriptID: transcriptID)
+            let taskSpan = trace.begin(
+                "transcript.ui.task",
+                metadata: [
+                    "messageCount": "\(messages.count)",
+                    "lifecycleCount": "\(lifecycleEvents.count)",
+                ]
+            )
+            refreshTimeline(for: transcriptInput, trace: trace)
+            taskSpan.end(metadata: ["itemCount": "\(timelineItems.count)"])
         }
     }
 
-    private func refreshTimeline(for input: CodexTranscriptInput) {
+    private func recordBottomPreferenceUpdate(bottomY: CGFloat) {
+        bottomPreferenceUpdates += 1
+        if bottomPreferenceBurstStart == nil {
+            bottomPreferenceBurstStart = Date()
+        }
+        let elapsedMS: Double
+        if let bottomPreferenceBurstStart {
+            elapsedMS = Date().timeIntervalSince(bottomPreferenceBurstStart) * 1000
+        } else {
+            elapsedMS = 0
+        }
+        let shouldEmitBurst = bottomPreferenceUpdates == 1
+            || bottomPreferenceUpdates.isMultiple(of: 50)
+            || elapsedMS >= 500
+        guard shouldEmitBurst else { return }
+        CodexTranscriptViewTrace.scrollTrace().event(
+            "transcript.scroll.bottomPreference",
+            metadata: [
+                "count": "\(bottomPreferenceUpdates)",
+                "elapsed_ms": String(format: "%.1f", elapsedMS),
+                "bottomY": String(format: "%.1f", bottomY),
+                "viewportHeight": String(format: "%.1f", viewportHeight),
+            ]
+        )
+        if elapsedMS >= 500 {
+            bottomPreferenceUpdates = 0
+            bottomPreferenceBurstStart = Date()
+        }
+    }
+
+    private func refreshTimeline(for input: CodexTranscriptInput, trace: CodexPerformanceTrace) {
+        let refreshSpan = trace.begin(
+            "transcript.timeline.refresh",
+            metadata: ["messageCount": "\(messages.count)"]
+        )
         let cacheKey = input.cacheKey(lifecycleEvents: lifecycleEvents)
         if let cachedItems = CodexTranscriptTimelineCache.cachedItems(for: cacheKey) {
+            trace.event("transcript.timeline.cacheHit", metadata: ["itemCount": "\(cachedItems.count)"])
             timelineItems = cachedItems
         } else {
+            trace.event("transcript.timeline.cacheMiss", metadata: ["messageCount": "\(messages.count)"])
+            let buildSpan = trace.begin("transcript.timeline.build", metadata: ["messageCount": "\(messages.count)"])
             let built = CodexTranscriptTimelineBuilder.build(
                 messages: messages,
                 lifecycleEvents: lifecycleEvents
             )
+            buildSpan.end(metadata: ["itemCount": "\(built.count)"])
             CodexTranscriptTimelineCache.store(key: cacheKey, items: built)
             timelineItems = built
         }
+        let lookupSpan = trace.begin("transcript.timeline.lookup")
         messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        lookupSpan.end(metadata: ["lookupCount": "\(messageLookup.count)"])
         scrollTrigger = CodexTranscriptScrollTrigger(
             transcriptID: transcriptID,
             timelineItems: timelineItems,
             messageLookup: messageLookup,
             activeTurn: activeTurn
         )
+        refreshSpan.end(metadata: [
+            "itemCount": "\(timelineItems.count)",
+            "streamingVersion": "\(scrollTrigger.streamingVersion)",
+        ])
     }
 
     private static var bottomAnchor: String { "transcript-bottom" }
@@ -214,6 +319,16 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private func requestScroll(_ proxy: ScrollViewProxy, animated: Bool, force: Bool = false) {
         guard force || isPinnedToBottom else { return }
 
+        CodexTranscriptViewTrace.scrollTrace().event(
+            "transcript.scroll.request",
+            metadata: [
+                "animated": animated ? "true" : "false",
+                "force": force ? "true" : "false",
+                "itemCount": "\(timelineItems.count)",
+                "pinned": isPinnedToBottom ? "true" : "false",
+            ]
+        )
+
         pendingScrollRequest?.cancel()
         let request = DispatchWorkItem {
             guard force || isPinnedToBottom else { return }
@@ -231,6 +346,13 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     private func scroll(_ proxy: ScrollViewProxy, animated: Bool) {
+        let span = CodexTranscriptViewTrace.scrollTrace().begin(
+            "transcript.scroll.execute",
+            metadata: [
+                "animated": animated ? "true" : "false",
+                "itemCount": "\(timelineItems.count)",
+            ]
+        )
         if animated {
             withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
@@ -238,6 +360,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         } else {
             proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
         }
+        span.end()
     }
 }
 
