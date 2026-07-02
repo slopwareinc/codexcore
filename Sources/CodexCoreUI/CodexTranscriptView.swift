@@ -194,6 +194,16 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private static var topExpansionThreshold: CGFloat { 600 }
 }
 
+private struct CodexTranscriptRowRenderKey: Equatable {
+    let item: CodexTranscriptTimelineItem
+    let message: CodexChatMessageRenderKey?
+
+    init(item: CodexTranscriptTimelineItem, message: CodexChatMessage?) {
+        self.item = item
+        self.message = message.map(CodexChatMessageRenderKey.init)
+    }
+}
+
 private struct CodexTranscriptTimelineRow: View, Equatable {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -202,9 +212,25 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
     let onCloseMessage: ((UUID) -> Void)?
     let onOpenMCPDetails: (() -> Void)?
     let onEditUserMessage: ((String) -> Void)?
+    private let renderKey: CodexTranscriptRowRenderKey
+
+    init(
+        item: CodexTranscriptTimelineItem,
+        message: CodexChatMessage?,
+        onCloseMessage: ((UUID) -> Void)?,
+        onOpenMCPDetails: (() -> Void)?,
+        onEditUserMessage: ((String) -> Void)?
+    ) {
+        self.item = item
+        self.message = message
+        self.onCloseMessage = onCloseMessage
+        self.onOpenMCPDetails = onOpenMCPDetails
+        self.onEditUserMessage = onEditUserMessage
+        self.renderKey = CodexTranscriptRowRenderKey(item: item, message: message)
+    }
 
     nonisolated static func == (lhs: CodexTranscriptTimelineRow, rhs: CodexTranscriptTimelineRow) -> Bool {
-        lhs.item == rhs.item && lhs.message == rhs.message
+        lhs.renderKey == rhs.renderKey
     }
 
     var body: some View {
