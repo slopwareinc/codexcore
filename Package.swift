@@ -4,8 +4,7 @@ import PackageDescription
 let package = Package(
     name: "CodexCore",
     platforms: [
-        .macOS(.v26),
-        .iOS(.v17)
+        .macOS(.v26)
     ],
     products: [
         .library(

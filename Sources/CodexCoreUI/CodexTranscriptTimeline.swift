@@ -1,47 +1,31 @@
 import Foundation
 
-enum CodexTranscriptTimelineItem: Identifiable, Equatable {
-    case messageRef(UUID)
-    case completedWorkTrace(id: String, trace: CodexCompletedWorkTrace)
-    case operationAggregate(id: String, rows: [CodexLiveTurnOperationRow])
-    case fileChangeAggregate(id: String, changes: [CodexChatMessage.FileChange])
-    case assistantLifecycle(id: String, events: [CodexAgentLifecycleEvent])
-    case assistantBlock(id: String, block: CodexBlock)
-    case assistantStreamingWorking(id: String, text: String, isEmpty: Bool)
-    case lifecycle(CodexAgentLifecycleEvent)
-
-    var id: String {
-        switch self {
-        case .messageRef(let messageID):
-            return "message-\(messageID.uuidString)"
-        case .completedWorkTrace(let id, _):
-            return "work-trace-\(id)"
-        case .operationAggregate(let id, _):
-            return "op-agg-\(id)"
-        case .fileChangeAggregate(let id, _):
-            return "file-agg-\(id)"
-        case .assistantLifecycle(let id, _):
-            return "asst-life-\(id)"
-        case .assistantBlock(let id, _):
-            return "asst-blk-\(id)"
-        case .assistantStreamingWorking(let id, _, _):
-            return "asst-work-\(id)"
-        case .lifecycle(let event):
-            return "lifecycle-\(event.id.uuidString)"
-        }
+struct CodexTranscriptTimelineItem: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case messageRef(UUID)
+        case completedWorkTrace(CodexCompletedWorkTrace)
+        case operationAggregate([CodexLiveTurnOperationRow])
+        case fileChangeAggregate([CodexChatMessage.FileChange])
+        case assistantLifecycle([CodexAgentLifecycleEvent])
+        case assistantBlock(CodexBlock)
+        case assistantStreamingWorking(text: String, isEmpty: Bool)
+        case lifecycle(CodexAgentLifecycleEvent)
     }
 
+    let id: String
+    let kind: Kind
+
     var messageID: UUID? {
-        guard case .messageRef(let messageID) = self else { return nil }
+        guard case .messageRef(let messageID) = kind else { return nil }
         return messageID
     }
 
     func streamingContentLength(in lookup: [UUID: CodexChatMessage]) -> Int {
-        switch self {
+        switch kind {
         case .messageRef(let messageID):
             guard let message = lookup[messageID], message.isStreaming else { return 0 }
             return message.text.count
-        case .assistantStreamingWorking(_, let text, _):
+        case .assistantStreamingWorking(let text, _):
             return text.count
         default:
             return 0
@@ -62,21 +46,45 @@ private enum CodexTranscriptTimelineBuildItem: Equatable {
     var materialized: CodexTranscriptTimelineItem {
         switch self {
         case .message(let message):
-            return .messageRef(message.id)
+            return CodexTranscriptTimelineItem(
+                id: "message-\(message.id.uuidString)",
+                kind: .messageRef(message.id)
+            )
         case .completedWorkTrace(let id, let trace):
-            return .completedWorkTrace(id: id, trace: trace)
+            return CodexTranscriptTimelineItem(
+                id: "work-trace-\(id)",
+                kind: .completedWorkTrace(trace)
+            )
         case .operationAggregate(let id, let rows):
-            return .operationAggregate(id: id, rows: rows)
+            return CodexTranscriptTimelineItem(
+                id: "op-agg-\(id)",
+                kind: .operationAggregate(rows)
+            )
         case .fileChangeAggregate(let id, let changes):
-            return .fileChangeAggregate(id: id, changes: changes)
+            return CodexTranscriptTimelineItem(
+                id: "file-agg-\(id)",
+                kind: .fileChangeAggregate(changes)
+            )
         case .assistantLifecycle(let id, let events):
-            return .assistantLifecycle(id: id, events: events)
+            return CodexTranscriptTimelineItem(
+                id: "asst-life-\(id)",
+                kind: .assistantLifecycle(events)
+            )
         case .assistantBlock(let id, let block):
-            return .assistantBlock(id: id, block: block)
+            return CodexTranscriptTimelineItem(
+                id: "asst-blk-\(id)",
+                kind: .assistantBlock(block)
+            )
         case .assistantStreamingWorking(let id, let text, let isEmpty):
-            return .assistantStreamingWorking(id: id, text: text, isEmpty: isEmpty)
+            return CodexTranscriptTimelineItem(
+                id: "asst-work-\(id)",
+                kind: .assistantStreamingWorking(text: text, isEmpty: isEmpty)
+            )
         case .lifecycle(let event):
-            return .lifecycle(event)
+            return CodexTranscriptTimelineItem(
+                id: "lifecycle-\(event.id.uuidString)",
+                kind: .lifecycle(event)
+            )
         }
     }
 }

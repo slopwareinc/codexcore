@@ -248,7 +248,9 @@ public struct CodexChatWorkspaceView: View {
                 activeTurn: activeTurnState,
                 onCloseMessage: onCloseTranscriptMessage,
                 onOpenMCPDetails: onOpenMCPDetails,
-                onEditUserMessage: { draft = $0 }
+                onEditUserMessage: { draft = $0 },
+                topContentMargin: 58,
+                bottomContentMargin: 122
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
@@ -262,8 +264,6 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
             }
-            .safeAreaPadding(.top, 58)
-            .safeAreaPadding(.bottom, 122)
 
             VStack(spacing: 0) {
                 CodexChatHeader(
@@ -538,12 +538,6 @@ public struct CodexChatHeader: View {
         }
         .frame(height: theme.spacing.toolbarHeight)
         .padding(.horizontal, 10)
-        .background(theme.colors.surface.opacity(theme.effects.surfaceOpacity))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.colors.border)
-                .frame(height: 1)
-        }
     }
 }
 
