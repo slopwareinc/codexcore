@@ -631,8 +631,7 @@ public struct CodexAssistantMessageView: View {
                         isHovered: isHovered,
                         copied: $copied,
                         copyText: message.text,
-                        onEdit: nil,
-                        onHoverChanged: { updateHover($0) }
+                        onEdit: nil
                     )
                 }
             }
@@ -654,7 +653,7 @@ public struct CodexAssistantMessageView: View {
         CodexLiveTurnModel.turnEndActions(for: message)
     }
 
-    private var turnEndFooterActions: [CodexMessageMetaFooter.Action] {
+    private var turnEndFooterActions: [CodexMessageFooterAction] {
         turnEndActions.map {
             switch $0 {
             case .copy: .copy
@@ -664,25 +663,42 @@ public struct CodexAssistantMessageView: View {
     }
 }
 
-private struct CodexMessageMetaFooter: View {
-    enum Action: Hashable {
-        case copy
-        case fork
-        case edit
+enum CodexMessageFooterAction: Hashable, Sendable {
+    case copy
+    case fork
+    case edit
+}
+
+struct CodexMessageFooterChromeState: Equatable, Sendable {
+    let actions: [CodexMessageFooterAction]
+    let isHovered: Bool
+
+    var visibleActions: [CodexMessageFooterAction] {
+        isHovered ? actions : []
     }
 
+    var actionBarWidth: CGFloat {
+        guard !actions.isEmpty else { return 0 }
+        return CGFloat(actions.count) * 22 + CGFloat(max(actions.count - 1, 0)) * 2
+    }
+
+    var timestampOpacity: Double {
+        isHovered ? 0.95 : 0.55
+    }
+}
+
+private struct CodexMessageMetaFooter: View {
     @Environment(\.codexAgentTheme) private var theme
 
     static let reservedHeight: CGFloat = 20
 
     let timestamp: Date
     let alignment: HorizontalAlignment
-    let actions: [Action]
+    let actions: [CodexMessageFooterAction]
     let isHovered: Bool
     @Binding var copied: Bool
     let copyText: String
     let onEdit: (() -> Void)?
-    let onHoverChanged: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -707,8 +723,10 @@ private struct CodexMessageMetaFooter: View {
             maxWidth: alignment == .trailing ? theme.spacing.userBubbleMaxWidth : theme.spacing.cardMaxWidth,
             alignment: frameAlignment
         )
-        .contentShape(Rectangle())
-        .onHover { onHoverChanged($0) }
+    }
+
+    private var chrome: CodexMessageFooterChromeState {
+        CodexMessageFooterChromeState(actions: actions, isHovered: isHovered)
     }
 
     private var frameAlignment: Alignment {
@@ -718,29 +736,20 @@ private struct CodexMessageMetaFooter: View {
     private var timestampLabel: some View {
         Text(timestamp, format: .dateTime.hour().minute())
             .font(theme.fonts.caption)
-            .foregroundStyle(theme.colors.textTertiary.opacity(isHovered ? 0.95 : 0.55))
+            .foregroundStyle(theme.colors.textTertiary.opacity(chrome.timestampOpacity))
     }
 
     private var actionButtons: some View {
         HStack(spacing: 2) {
-            ForEach(actions, id: \.self) { action in
+            ForEach(chrome.visibleActions, id: \.self) { action in
                 actionButton(for: action)
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
             }
         }
-        .frame(width: actionBarWidth, alignment: frameAlignment)
-        .contentShape(Rectangle())
-        .onHover { onHoverChanged($0) }
-    }
-
-    private var actionBarWidth: CGFloat {
-        guard !actions.isEmpty else { return 0 }
-        return CGFloat(actions.count) * 22 + CGFloat(max(actions.count - 1, 0)) * 2
+        .frame(width: chrome.actionBarWidth, alignment: frameAlignment)
     }
 
     @ViewBuilder
-    private func actionButton(for action: Action) -> some View {
+    private func actionButton(for action: CodexMessageFooterAction) -> some View {
         switch action {
         case .copy:
             CodexIconActionButton(
@@ -864,8 +873,7 @@ public struct CodexUserMessageView: View {
                     isHovered: isHovered,
                     copied: $copied,
                     copyText: message.text,
-                    onEdit: onEdit.map { handler in { handler(message.text) } },
-                    onHoverChanged: { updateHover($0) }
+                    onEdit: onEdit.map { handler in { handler(message.text) } }
                 )
             }
             .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
