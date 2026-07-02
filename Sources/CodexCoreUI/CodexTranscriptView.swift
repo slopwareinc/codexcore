@@ -2,33 +2,14 @@ import SwiftUI
 import CodexCore
 
 @MainActor
-private enum CodexTranscriptViewTrace {
-    static func trace(transcriptID: String?) -> CodexPerformanceTrace {
-        CodexPerformanceTrace(label: "transcriptUI", id: transcriptID)
-    }
-
-    static func scrollTrace() -> CodexPerformanceTrace {
-        CodexPerformanceTrace(label: "transcriptScroll")
-    }
-}
-
-@MainActor
 private enum CodexMessageHoverReveal {
     static let hideDelay: Duration = .milliseconds(150)
 
     static func reveal(
         _ isHovered: Binding<Bool>,
         hideTask: Binding<Task<Void, Never>?>,
-        hovering: Bool,
-        scrollActive: Bool
+        hovering: Bool
     ) {
-        if scrollActive {
-            hideTask.wrappedValue?.cancel()
-            if isHovered.wrappedValue {
-                isHovered.wrappedValue = false
-            }
-            return
-        }
         hideTask.wrappedValue?.cancel()
         if hovering {
             isHovered.wrappedValue = true
@@ -39,17 +20,6 @@ private enum CodexMessageHoverReveal {
             guard !Task.isCancelled else { return }
             isHovered.wrappedValue = false
         }
-    }
-}
-
-private struct CodexTranscriptScrollActiveKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var codexTranscriptScrollActive: Bool {
-        get { self[CodexTranscriptScrollActiveKey.self] }
-        set { self[CodexTranscriptScrollActiveKey.self] = newValue }
     }
 }
 
@@ -68,16 +38,9 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var timelineItems: [CodexTranscriptTimelineItem] = []
     @State private var messageLookup: [UUID: CodexChatMessage] = [:]
-    @State private var scrollTrigger: CodexTranscriptScrollTrigger = .empty
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isPinnedToBottom = true
-    @State private var pendingScrollRequest: DispatchWorkItem?
-    @State private var viewportHeight: CGFloat = 720
-    @State private var lastScrollBottomY: CGFloat = 0
-    @State private var isTranscriptScrolling = false
-    @State private var scrollEndTask: Task<Void, Never>?
-    @State private var bottomPreferenceUpdates = 0
-    @State private var bottomPreferenceBurstStart: Date?
-    @State private var viewportPreferenceUpdates = 0
+    @State private var visibleItemLimit = 150
 
     public init(
         messages: [CodexChatMessage],
@@ -113,337 +76,122 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     public var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                if timelineItems.isEmpty {
-                    emptyContent
-                        .frame(maxWidth: .infinity, minHeight: 420)
-                        .padding(.horizontal, 28)
-                        .padding(.top, topContentMargin)
-                        .padding(.bottom, bottomContentMargin)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
-                        ForEach(timelineItems) { item in
-                            CodexTranscriptTimelineRow(
-                                item: item,
-                                message: item.messageID.flatMap { messageLookup[$0] },
-                                onCloseMessage: onCloseMessage,
-                                onOpenMCPDetails: onOpenMCPDetails,
-                                onEditUserMessage: onEditUserMessage
-                            )
-                            .equatable()
-                        }
-                        if let activeTurn {
-                            CodexActiveTurnRow(state: activeTurn)
-                                .equatable()
-                                .id("active-turn")
-                        }
-                        bottomAnchor
-                    }
+        ScrollView {
+            if timelineItems.isEmpty {
+                emptyContent
+                    .frame(maxWidth: .infinity, minHeight: 420)
                     .padding(.horizontal, 28)
-                    .padding(.top, 24 + topContentMargin)
-                    .padding(.bottom, 28 + bottomContentMargin)
-                    .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-                    .onAppear {
-                        CodexTranscriptViewTrace.trace(transcriptID: transcriptID).event(
-                            "transcript.lazyVStack.appear",
-                            metadata: [
-                                "itemCount": "\(timelineItems.count)",
-                                "messageCount": "\(messages.count)",
-                            ]
+                    .padding(.top, topContentMargin)
+                    .padding(.bottom, bottomContentMargin)
+            } else {
+                LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
+                    ForEach(visibleTimelineItems) { item in
+                        CodexTranscriptTimelineRow(
+                            item: item,
+                            message: item.messageID.flatMap { messageLookup[$0] },
+                            onCloseMessage: onCloseMessage,
+                            onOpenMCPDetails: onOpenMCPDetails,
+                            onEditUserMessage: onEditUserMessage
                         )
+                        .equatable()
+                    }
+                    if let activeTurn {
+                        CodexActiveTurnRow(state: activeTurn)
+                            .equatable()
+                            .id("active-turn")
                     }
                 }
+                .padding(.horizontal, 28)
+                .padding(.top, 24 + topContentMargin)
+                .padding(.bottom, 28 + bottomContentMargin)
+                .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .environment(\.codexTranscriptScrollActive, isTranscriptScrolling)
-            .id(scrollTrigger.transcriptIdentity)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear
-                        .preference(key: CodexTranscriptViewportHeightPreferenceKey.self, value: geometry.size.height)
-                }
-            }
-            .coordinateSpace(name: Self.scrollCoordinateSpace)
-            .scrollContentBackground(.hidden)
-            .onPreferenceChange(CodexTranscriptViewportHeightPreferenceKey.self) { height in
-                guard height > 0 else { return }
-                viewportPreferenceUpdates += 1
-                if viewportPreferenceUpdates == 1 || viewportPreferenceUpdates.isMultiple(of: 25) {
-                    CodexTranscriptViewTrace.scrollTrace().event(
-                        "transcript.scroll.viewportPreference",
-                        metadata: [
-                            "count": "\(viewportPreferenceUpdates)",
-                            "height": String(format: "%.1f", height),
-                        ]
-                    )
-                }
-                viewportHeight = height
-            }
-            .onPreferenceChange(CodexTranscriptBottomPreferenceKey.self) { bottomY in
-                guard bottomY > 0 else { return }
-                recordBottomPreferenceUpdate(bottomY: bottomY)
-                if abs(bottomY - lastScrollBottomY) > 0.5 {
-                    lastScrollBottomY = bottomY
-                    isTranscriptScrolling = true
-                    scrollEndTask?.cancel()
-                    scrollEndTask = Task {
-                        try? await Task.sleep(for: .milliseconds(180))
-                        guard !Task.isCancelled else { return }
-                        isTranscriptScrolling = false
-                    }
-                }
-                let pinned = bottomY <= viewportHeight + Self.bottomPinTolerance
-                guard pinned != isPinnedToBottom else { return }
-                isPinnedToBottom = pinned
-            }
-            .onAppear {
-                requestScroll(proxy, animated: false, force: true)
-            }
-            .onChange(of: scrollTrigger) { oldValue, newValue in
-                let isInitialLoad = oldValue.isEmpty && !newValue.isEmpty
-                CodexTranscriptViewTrace.scrollTrace().event(
-                    "transcript.scroll.triggerChanged",
-                    metadata: [
-                        "initialLoad": isInitialLoad ? "true" : "false",
-                        "oldItemCount": "\(oldValue.itemCount)",
-                        "newItemCount": "\(newValue.itemCount)",
-                        "structureChanged": newValue.hasStructureChange(comparedTo: oldValue) ? "true" : "false",
-                    ]
-                )
-                requestScroll(
-                    proxy,
-                    animated: !isInitialLoad && newValue.hasStructureChange(comparedTo: oldValue),
-                    force: isInitialLoad
-                )
-            }
+        }
+        .id(transcriptID ?? "empty")
+        .scrollPosition($scrollPosition)
+        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        .scrollContentBackground(.hidden)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - Self.bottomPinTolerance
+        } action: { _, pinned in
+            isPinnedToBottom = pinned
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y < Self.topExpansionThreshold
+        } action: { _, isNearTop in
+            guard isNearTop else { return }
+            expandVisibleWindow()
+        }
+        .overlay(alignment: .bottomTrailing) {
+            jumpToBottomButton
+        }
+        .onChange(of: transcriptID) { _, _ in
+            resetVisibleWindow()
         }
         .task(id: transcriptInput) {
-            let trace = CodexTranscriptViewTrace.trace(transcriptID: transcriptID)
-            let taskSpan = trace.begin(
-                "transcript.ui.task",
-                metadata: [
-                    "messageCount": "\(messages.count)",
-                    "lifecycleCount": "\(lifecycleEvents.count)",
-                ]
-            )
-            refreshTimeline(for: transcriptInput, trace: trace)
-            taskSpan.end(metadata: ["itemCount": "\(timelineItems.count)"])
+            refreshTimeline(for: transcriptInput)
         }
     }
 
-    private func recordBottomPreferenceUpdate(bottomY: CGFloat) {
-        bottomPreferenceUpdates += 1
-        if bottomPreferenceBurstStart == nil {
-            bottomPreferenceBurstStart = Date()
-        }
-        let elapsedMS: Double
-        if let bottomPreferenceBurstStart {
-            elapsedMS = Date().timeIntervalSince(bottomPreferenceBurstStart) * 1000
-        } else {
-            elapsedMS = 0
-        }
-        let shouldEmitBurst = bottomPreferenceUpdates == 1
-            || bottomPreferenceUpdates.isMultiple(of: 50)
-            || elapsedMS >= 500
-        guard shouldEmitBurst else { return }
-        CodexTranscriptViewTrace.scrollTrace().event(
-            "transcript.scroll.bottomPreference",
-            metadata: [
-                "count": "\(bottomPreferenceUpdates)",
-                "elapsed_ms": String(format: "%.1f", elapsedMS),
-                "bottomY": String(format: "%.1f", bottomY),
-                "viewportHeight": String(format: "%.1f", viewportHeight),
-            ]
-        )
-        if elapsedMS >= 500 {
-            bottomPreferenceUpdates = 0
-            bottomPreferenceBurstStart = Date()
+    private var visibleTimelineItems: ArraySlice<CodexTranscriptTimelineItem> {
+        timelineItems.suffix(visibleItemLimit)
+    }
+
+    @ViewBuilder
+    private var jumpToBottomButton: some View {
+        if !isPinnedToBottom && !timelineItems.isEmpty {
+            Button {
+                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
+                    scrollPosition.scrollTo(edge: .bottom)
+                }
+            } label: {
+                Image(systemName: "arrow.down")
+                    .font(theme.fonts.label)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity), in: Circle())
+                    .overlay(Circle().stroke(theme.colors.border, lineWidth: 1))
+                    .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
+            }
+            .buttonStyle(.plain)
+            .help("Jump to latest")
+            .padding(.trailing, 26)
+            .padding(.bottom, 18 + bottomContentMargin)
         }
     }
 
-    private func refreshTimeline(for input: CodexTranscriptInput, trace: CodexPerformanceTrace) {
-        let refreshSpan = trace.begin(
-            "transcript.timeline.refresh",
-            metadata: ["messageCount": "\(messages.count)"]
-        )
+    private func refreshTimeline(for input: CodexTranscriptInput) {
         let cacheKey = input.cacheKey(lifecycleEvents: lifecycleEvents)
         if let cachedItems = CodexTranscriptTimelineCache.cachedItems(for: cacheKey) {
-            trace.event("transcript.timeline.cacheHit", metadata: ["itemCount": "\(cachedItems.count)"])
             timelineItems = cachedItems
         } else {
-            trace.event("transcript.timeline.cacheMiss", metadata: ["messageCount": "\(messages.count)"])
-            let buildSpan = trace.begin("transcript.timeline.build", metadata: ["messageCount": "\(messages.count)"])
             let built = CodexTranscriptTimelineBuilder.build(
                 messages: messages,
                 lifecycleEvents: lifecycleEvents
             )
-            buildSpan.end(metadata: ["itemCount": "\(built.count)"])
             CodexTranscriptTimelineCache.store(key: cacheKey, items: built)
             timelineItems = built
         }
-        let lookupSpan = trace.begin("transcript.timeline.lookup")
         messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
-        lookupSpan.end(metadata: ["lookupCount": "\(messageLookup.count)"])
-        scrollTrigger = CodexTranscriptScrollTrigger(
-            transcriptID: transcriptID,
-            timelineItems: timelineItems,
-            messageLookup: messageLookup,
-            activeTurn: activeTurn
-        )
-        refreshSpan.end(metadata: [
-            "itemCount": "\(timelineItems.count)",
-            "streamingVersion": "\(scrollTrigger.streamingVersion)",
-        ])
     }
 
-    private static var bottomAnchor: String { "transcript-bottom" }
-    private static var scrollCoordinateSpace: String { "codex-transcript-scroll" }
+    private func expandVisibleWindow() {
+        let nextLimit = min(timelineItems.count, visibleItemLimit + Self.windowChunk)
+        guard nextLimit > visibleItemLimit else { return }
+        visibleItemLimit = nextLimit
+    }
+
+    private func resetVisibleWindow() {
+        visibleItemLimit = Self.windowChunk
+        isPinnedToBottom = true
+        scrollPosition = ScrollPosition(edge: .bottom)
+    }
+
+    private static var windowChunk: Int { 150 }
     private static var bottomPinTolerance: CGFloat { 80 }
-    private static var scrollDebounceDelay: TimeInterval { 0.08 }
-
-    private var bottomAnchor: some View {
-        Color.clear
-            .frame(height: 8)
-            .id(Self.bottomAnchor)
-            .background(
-                GeometryReader { geometry in
-                    Color.clear.preference(
-                        key: CodexTranscriptBottomPreferenceKey.self,
-                        value: geometry.frame(in: .named(Self.scrollCoordinateSpace)).maxY
-                    )
-                }
-            )
-    }
-
-    private func requestScroll(_ proxy: ScrollViewProxy, animated: Bool, force: Bool = false) {
-        guard force || isPinnedToBottom else { return }
-
-        CodexTranscriptViewTrace.scrollTrace().event(
-            "transcript.scroll.request",
-            metadata: [
-                "animated": animated ? "true" : "false",
-                "force": force ? "true" : "false",
-                "itemCount": "\(timelineItems.count)",
-                "pinned": isPinnedToBottom ? "true" : "false",
-            ]
-        )
-
-        pendingScrollRequest?.cancel()
-        let request = DispatchWorkItem {
-            guard force || isPinnedToBottom else { return }
-            scroll(proxy, animated: animated)
-        }
-        pendingScrollRequest = request
-        guard !force else {
-            DispatchQueue.main.async(execute: request)
-            return
-        }
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.scrollDebounceDelay,
-            execute: request
-        )
-    }
-
-    private func scroll(_ proxy: ScrollViewProxy, animated: Bool) {
-        let span = CodexTranscriptViewTrace.scrollTrace().begin(
-            "transcript.scroll.execute",
-            metadata: [
-                "animated": animated ? "true" : "false",
-                "itemCount": "\(timelineItems.count)",
-            ]
-        )
-        if animated {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-        }
-        span.end()
-    }
-}
-
-private struct CodexTranscriptScrollTrigger: Equatable {
-    static let empty = CodexTranscriptScrollTrigger(
-        transcriptID: nil,
-        itemCount: 0,
-        firstItemID: nil,
-        lastItemID: nil,
-        streamingVersion: 0,
-        activeTurnVersion: 0
-    )
-
-    var transcriptID: String?
-    var itemCount: Int
-    var firstItemID: String?
-    var lastItemID: String?
-    var streamingVersion: Int
-    var activeTurnVersion: Int
-
-    init(
-        transcriptID: String?,
-        timelineItems: [CodexTranscriptTimelineItem],
-        messageLookup: [UUID: CodexChatMessage],
-        activeTurn: CodexActiveTurnState?
-    ) {
-        self.init(
-            transcriptID: transcriptID,
-            itemCount: timelineItems.count,
-            firstItemID: timelineItems.first?.id,
-            lastItemID: timelineItems.last?.id,
-            streamingVersion: timelineItems.reduce(0) { partialResult, item in
-                partialResult &+ item.streamingContentLength(in: messageLookup)
-            },
-            activeTurnVersion: activeTurn == nil ? 0 : 1
-        )
-    }
-
-    private init(
-        transcriptID: String?,
-        itemCount: Int,
-        firstItemID: String?,
-        lastItemID: String?,
-        streamingVersion: Int,
-        activeTurnVersion: Int
-    ) {
-        self.transcriptID = transcriptID
-        self.itemCount = itemCount
-        self.firstItemID = firstItemID
-        self.lastItemID = lastItemID
-        self.streamingVersion = streamingVersion
-        self.activeTurnVersion = activeTurnVersion
-    }
-
-    var isEmpty: Bool {
-        itemCount == 0 && activeTurnVersion == 0
-    }
-
-    var transcriptIdentity: String {
-        transcriptID ?? firstItemID ?? "empty-transcript"
-    }
-
-    func hasStructureChange(comparedTo oldValue: Self) -> Bool {
-        itemCount != oldValue.itemCount
-            || lastItemID != oldValue.lastItemID
-            || activeTurnVersion != oldValue.activeTurnVersion
-    }
-}
-
-private struct CodexTranscriptViewportHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct CodexTranscriptBottomPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
+    private static var topExpansionThreshold: CGFloat { 600 }
 }
 
 private struct CodexTranscriptTimelineRow: View, Equatable {
@@ -460,7 +208,7 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
     }
 
     var body: some View {
-        switch item {
+        switch item.kind {
         case .messageRef:
             if let message {
                 CodexMessageRow(
@@ -470,28 +218,28 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
                     onEditUserMessage: onEditUserMessage
                 )
             }
-        case .completedWorkTrace(_, let trace):
+        case .completedWorkTrace(let trace):
             CodexAgentRow(visibility: .hidden) {
                 CodexCompletedWorkTraceView(trace: trace)
             }
-        case .operationAggregate(_, let rows):
+        case .operationAggregate(let rows):
             CodexAgentRow(visibility: .hidden) {
                 CodexOperationSummaryCard(rows: rows)
             }
-        case .fileChangeAggregate(_, let changes):
+        case .fileChangeAggregate(let changes):
             CodexAgentRow {
                 CodexAggregateFileChangeCard(changes: changes)
             }
-        case .assistantLifecycle(_, let events):
+        case .assistantLifecycle(let events):
             CodexAgentRow(visibility: .hidden) {
                 CodexSubagentRunInlineView(events: events)
             }
-        case .assistantBlock(_, let block):
+        case .assistantBlock(let block):
             CodexAgentRow(visibility: .hidden) {
                 CodexBlockView(block: block)
                     .equatable()
             }
-        case .assistantStreamingWorking(_, let text, let isEmpty):
+        case .assistantStreamingWorking(let text, let isEmpty):
             CodexAgentRow(visibility: .hidden) {
                 HStack(alignment: .bottom, spacing: 9) {
                     if isEmpty {
@@ -812,7 +560,6 @@ public struct CodexAgentRow<Content: View>: View {
 
 public struct CodexAssistantMessageView: View {
     @Environment(\.codexAgentTheme) private var theme
-    @Environment(\.codexTranscriptScrollActive) private var isTranscriptScrolling
 
     private let message: CodexChatMessage
     private let assistantName: String
@@ -873,8 +620,7 @@ public struct CodexAssistantMessageView: View {
         CodexMessageHoverReveal.reveal(
             $isHovered,
             hideTask: $hideHoverTask,
-            hovering: hovering,
-            scrollActive: isTranscriptScrolling
+            hovering: hovering
         )
     }
 
@@ -1055,7 +801,6 @@ private struct StreamingAssistantText: View {
 
 public struct CodexUserMessageView: View {
     @Environment(\.codexAgentTheme) private var theme
-    @Environment(\.codexTranscriptScrollActive) private var isTranscriptScrolling
 
     private let message: CodexChatMessage
     private let onEdit: ((String) -> Void)?
@@ -1107,8 +852,7 @@ public struct CodexUserMessageView: View {
         CodexMessageHoverReveal.reveal(
             $isHovered,
             hideTask: $hideHoverTask,
-            hovering: hovering,
-            scrollActive: isTranscriptScrolling
+            hovering: hovering
         )
     }
 }

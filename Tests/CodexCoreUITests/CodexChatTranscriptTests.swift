@@ -7,7 +7,7 @@ final class CodexChatTranscriptTests: XCTestCase {
         for item: CodexTranscriptTimelineItem,
         in messages: [CodexChatMessage]
     ) -> CodexChatMessage? {
-        guard case .messageRef(let messageID) = item else { return nil }
+        guard case .messageRef(let messageID) = item.kind else { return nil }
         return messages.first { $0.id == messageID }
     }
 
@@ -64,10 +64,10 @@ final class CodexChatTranscriptTests: XCTestCase {
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
 
         let traceIndex = try XCTUnwrap(timeline.firstIndex { item in
-            if case .completedWorkTrace = item { return true }
+            if case .completedWorkTrace = item.kind { return true }
             return false
         })
-        guard case .completedWorkTrace(_, let trace) = timeline[traceIndex] else {
+        guard case .completedWorkTrace(let trace) = timeline[traceIndex].kind else {
             return XCTFail("Expected completed work trace item")
         }
         let visibleOperationMessages = timeline.filter { item in
@@ -98,10 +98,10 @@ final class CodexChatTranscriptTests: XCTestCase {
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
 
         let aggregateIndex = try XCTUnwrap(timeline.firstIndex { item in
-            if case .operationAggregate = item { return true }
+            if case .operationAggregate = item.kind { return true }
             return false
         })
-        guard case .operationAggregate(_, let rows) = timeline[aggregateIndex] else {
+        guard case .operationAggregate(let rows) = timeline[aggregateIndex].kind else {
             return XCTFail("Expected operation aggregate item")
         }
         let operationMessageIndices = timeline.indices.filter { index in
@@ -129,7 +129,7 @@ final class CodexChatTranscriptTests: XCTestCase {
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
 
         XCTAssertFalse(timeline.contains { item in
-            if case .operationAggregate = item { return true }
+            if case .operationAggregate = item.kind { return true }
             return false
         })
     }
@@ -146,13 +146,13 @@ final class CodexChatTranscriptTests: XCTestCase {
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
 
         let aggregateIndex = try XCTUnwrap(timeline.firstIndex { item in
-            if case .fileChangeAggregate = item { return true }
+            if case .fileChangeAggregate = item.kind { return true }
             return false
         })
         let fileMessageIndices = timeline.indices.filter { index in
             isMessageRef(timeline[index], role: .fileChange, in: messages)
         }
-        guard case .fileChangeAggregate(_, let changes) = timeline[aggregateIndex] else {
+        guard case .fileChangeAggregate(let changes) = timeline[aggregateIndex].kind else {
             return XCTFail("Expected aggregate file-change item")
         }
 
@@ -171,7 +171,7 @@ final class CodexChatTranscriptTests: XCTestCase {
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: [])
 
         XCTAssertFalse(timeline.contains { item in
-            if case .fileChangeAggregate = item { return true }
+            if case .fileChangeAggregate = item.kind { return true }
             return false
         })
         XCTAssertEqual(timeline.filter {
@@ -199,7 +199,7 @@ final class CodexChatTranscriptTests: XCTestCase {
 
         let timeline = CodexTranscriptTimelineBuilder.build(messages: messages, lifecycleEvents: events)
         let lifecycleGroups = timeline.compactMap {
-            if case .assistantLifecycle(_, let events) = $0 { return events }
+            if case .assistantLifecycle(let events) = $0.kind { return events }
             return nil
         }
         let assistantMessages = timeline.compactMap { item -> CodexChatMessage? in
@@ -252,7 +252,7 @@ final class CodexChatTranscriptTests: XCTestCase {
         }
         XCTAssertEqual(firstMessage.text, "First")
         XCTAssertTrue(timeline.contains { item in
-            if case .assistantLifecycle(_, let events) = item {
+            if case .assistantLifecycle(let events) = item.kind {
                 return events.map(\.title) == ["Middle lifecycle"]
             }
             return false
@@ -288,10 +288,28 @@ final class CodexChatTranscriptTests: XCTestCase {
 
         XCTAssertEqual(firstBuild.map(\.id), secondBuild.map(\.id))
         let streamingItem = try XCTUnwrap(secondBuild.first {
-            if case .assistantStreamingWorking = $0 { return true }
+            if case .assistantStreamingWorking = $0.kind { return true }
             return false
         })
         XCTAssertEqual(streamingItem.id, "asst-work-\(messageID.uuidString)")
+    }
+
+    func testTranscriptTimelineItemsExposeStoredIDField() throws {
+        let messageID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let message = CodexChatMessage(
+            id: messageID,
+            role: .assistant,
+            text: "Working",
+            isStreaming: true,
+            createdAt: Date(timeIntervalSince1970: 100),
+            parseContent: false
+        )
+
+        let item = try XCTUnwrap(CodexTranscriptTimelineBuilder.build(messages: [message], lifecycleEvents: []).first)
+        let storedPropertyNames = Set(Mirror(reflecting: item).children.compactMap(\.label))
+
+        XCTAssertEqual(item.id, "asst-work-\(messageID.uuidString)")
+        XCTAssertTrue(storedPropertyNames.contains("id"))
     }
 
     func testLargeTranscriptTimelinePreservesBoundedGroupingAndAggregates() {
@@ -303,23 +321,23 @@ final class CodexChatTranscriptTests: XCTestCase {
             return message
         }
         let lifecycleGroups = timeline.compactMap {
-            if case .assistantLifecycle(_, let events) = $0 { return events }
+            if case .assistantLifecycle(let events) = $0.kind { return events }
             return nil
         }
         let operationAggregates = timeline.filter {
-            if case .operationAggregate = $0 { return true }
+            if case .operationAggregate = $0.kind { return true }
             return false
         }
         let fileChangeAggregates = timeline.filter {
-            if case .fileChangeAggregate = $0 { return true }
+            if case .fileChangeAggregate = $0.kind { return true }
             return false
         }
         let completedWorkTraces = timeline.filter {
-            if case .completedWorkTrace = $0 { return true }
+            if case .completedWorkTrace = $0.kind { return true }
             return false
         }
         let detailedMessages = timeline.filter {
-            if case .messageRef = $0 { return true }
+            if case .messageRef = $0.kind { return true }
             return false
         }
 
