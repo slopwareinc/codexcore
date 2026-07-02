@@ -232,6 +232,26 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertTrue(firstBuild.map(\.id).contains("asst-life-\(eventID.uuidString)"))
     }
 
+    func testTranscriptWindowPrefetchesOlderItemsBeforeTemporaryTop() {
+        var state = CodexTranscriptWindowState()
+
+        XCTAssertEqual(state.visibleItemLimit, 150)
+        XCTAssertFalse(state.prefetchOlderItemsIfNeeded(contentOffsetY: 2_401, totalItemCount: 1_085))
+        XCTAssertEqual(state.visibleItemLimit, 150)
+
+        XCTAssertTrue(state.prefetchOlderItemsIfNeeded(contentOffsetY: 2_399, totalItemCount: 1_085))
+        XCTAssertEqual(state.visibleItemLimit, 214)
+    }
+
+    func testTranscriptWindowExpandsInSmallBurstsAndCapsAtTotal() {
+        var state = CodexTranscriptWindowState()
+
+        while state.prefetchOlderItemsIfNeeded(contentOffsetY: 0, totalItemCount: 287) {}
+
+        XCTAssertEqual(state.visibleItemLimit, 287)
+        XCTAssertFalse(state.prefetchOlderItemsIfNeeded(contentOffsetY: 0, totalItemCount: 287))
+    }
+
     func testTranscriptTimelineSortsUnsortedMessagesAndLifecycleEvents() throws {
         let start = Date(timeIntervalSince1970: 100)
         let firstUser = CodexChatMessage(role: .user, text: "First", createdAt: start)

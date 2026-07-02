@@ -31,6 +31,60 @@ public enum CodexTransportError: Error, Sendable, LocalizedError {
     }
 }
 
+final class CodexLineBuffer: @unchecked Sendable {
+    private var data = Data()
+    private var lineStart: Data.Index = 0
+    private var scanIndex: Data.Index = 0
+
+    var bufferedByteCount: Int {
+        data.distance(from: lineStart, to: data.endIndex)
+    }
+
+    func append(_ chunk: Data) -> [String] {
+        guard !chunk.isEmpty else { return [] }
+
+        data.append(chunk)
+        var lines: [String] = []
+
+        while scanIndex < data.endIndex {
+            if data[scanIndex] == 0x0A {
+                let lineData = data.subdata(in: lineStart..<scanIndex)
+                if let line = String(data: lineData, encoding: .utf8) {
+                    lines.append(line)
+                }
+                scanIndex = data.index(after: scanIndex)
+                lineStart = scanIndex
+            } else {
+                scanIndex = data.index(after: scanIndex)
+            }
+        }
+
+        compactIfNeeded()
+        return lines
+    }
+
+    private func compactIfNeeded() {
+        guard lineStart > data.startIndex else { return }
+
+        if lineStart == data.endIndex {
+            data.removeAll(keepingCapacity: true)
+            lineStart = data.startIndex
+            scanIndex = data.startIndex
+            return
+        }
+
+        let consumedByteCount = data.distance(from: data.startIndex, to: lineStart)
+        guard consumedByteCount >= 64 * 1_024 || consumedByteCount > data.count / 2 else {
+            return
+        }
+
+        let scanOffset = data.distance(from: lineStart, to: scanIndex)
+        data.removeSubrange(data.startIndex..<lineStart)
+        lineStart = data.startIndex
+        scanIndex = data.index(lineStart, offsetBy: scanOffset)
+    }
+}
+
 // MARK: - Subprocess Stdio Transport
 
 public actor CodexStdioTransport: CodexTransport {
@@ -56,11 +110,6 @@ public actor CodexStdioTransport: CodexTransport {
         self.arguments = arguments
         self.environment = environment
         self.currentDirectoryURL = currentDirectoryURL
-    }
-
-    // Buffer shared between readabilityHandler invocations (serialized by GCD per handle)
-    private final class LineBuffer: @unchecked Sendable {
-        var data = Data()
     }
 
     public func start(
@@ -102,7 +151,7 @@ public actor CodexStdioTransport: CodexTransport {
 
         // --- stdout: FileHandle.readabilityHandler runs on a GCD serial queue,
         //     NOT on Swift's cooperative pool. No blocking read() on the pool.
-        let stdoutBuf = LineBuffer()
+        let stdoutBuffer = CodexLineBuffer()
         stdoutHandle.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else {
@@ -115,13 +164,8 @@ public actor CodexStdioTransport: CodexTransport {
                 }
                 return
             }
-            stdoutBuf.data.append(chunk)
-            while let nl = stdoutBuf.data.firstIndex(of: 0x0A) {
-                let lineData = stdoutBuf.data.subdata(in: 0..<nl)
-                stdoutBuf.data.removeSubrange(0...nl)
-                if let line = String(data: lineData, encoding: .utf8) {
-                    onMessage(line)
-                }
+            for line in stdoutBuffer.append(chunk) {
+                onMessage(line)
             }
         }
 

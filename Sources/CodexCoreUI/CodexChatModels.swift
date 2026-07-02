@@ -526,3 +526,163 @@ public struct CodexChatMessage: Identifiable, Equatable, Sendable {
     }
 
 }
+
+struct CodexTextRenderFingerprint: Equatable, Sendable {
+    let byteCount: Int
+    let digest: String
+
+    init(_ text: String) {
+        self.byteCount = text.utf8.count
+        self.digest = CodexBlockDigest.digest(text)
+    }
+}
+
+struct CodexChatMessageRenderKey: Equatable, Sendable {
+    struct CommandRunKey: Equatable, Sendable {
+        let itemID: String
+        let command: CodexTextRenderFingerprint
+        let cwd: String?
+        let output: CodexTextRenderFingerprint
+        let status: String
+        let exitCode: Int?
+        let isStreaming: Bool
+
+        init(_ run: CodexChatMessage.CommandRun) {
+            self.itemID = run.itemID
+            self.command = CodexTextRenderFingerprint(run.command)
+            self.cwd = run.cwd
+            self.output = CodexTextRenderFingerprint(run.output)
+            self.status = run.status
+            self.exitCode = run.exitCode
+            self.isStreaming = run.isStreaming
+        }
+    }
+
+    struct FileChangeKey: Equatable, Sendable {
+        let itemID: String
+        let path: String?
+        let kind: String
+        let diff: CodexTextRenderFingerprint
+        let output: CodexTextRenderFingerprint
+        let status: String
+        let isStreaming: Bool
+
+        init(_ change: CodexChatMessage.FileChange) {
+            self.itemID = change.itemID
+            self.path = change.path
+            self.kind = change.kind
+            self.diff = CodexTextRenderFingerprint(change.diff)
+            self.output = CodexTextRenderFingerprint(change.output)
+            self.status = change.status
+            self.isStreaming = change.isStreaming
+        }
+    }
+
+    struct PlanUpdateKey: Equatable, Sendable {
+        let itemID: String
+        let explanation: CodexTextRenderFingerprint?
+        let steps: CodexTextRenderFingerprint
+        let text: CodexTextRenderFingerprint
+        let isStreaming: Bool
+
+        init(_ plan: CodexChatMessage.PlanUpdate) {
+            self.itemID = plan.itemID
+            self.explanation = plan.explanation.map(CodexTextRenderFingerprint.init)
+            self.steps = CodexTextRenderFingerprint(
+                plan.steps.map { "\($0.status)\u{0}\($0.step)" }.joined(separator: "\u{1}")
+            )
+            self.text = CodexTextRenderFingerprint(plan.text)
+            self.isStreaming = plan.isStreaming
+        }
+    }
+
+    struct ToolCallKey: Equatable, Sendable {
+        let itemID: String
+        let server: String?
+        let tool: String
+        let arguments: CodexTextRenderFingerprint
+        let status: String
+        let progress: CodexTextRenderFingerprint
+        let result: CodexTextRenderFingerprint
+        let error: CodexTextRenderFingerprint?
+        let durationMilliseconds: Int?
+        let isStreaming: Bool
+
+        init(_ toolCall: CodexChatMessage.ToolCall) {
+            self.itemID = toolCall.itemID
+            self.server = toolCall.server
+            self.tool = toolCall.tool
+            self.arguments = CodexTextRenderFingerprint(toolCall.arguments)
+            self.status = toolCall.status
+            self.progress = CodexTextRenderFingerprint(toolCall.progress.joined(separator: "\u{0}"))
+            self.result = CodexTextRenderFingerprint(toolCall.result)
+            self.error = toolCall.error.map(CodexTextRenderFingerprint.init)
+            self.durationMilliseconds = toolCall.durationMilliseconds
+            self.isStreaming = toolCall.isStreaming
+        }
+    }
+
+    struct NoticeKey: Equatable, Sendable {
+        let itemID: String
+        let kind: String
+        let title: CodexTextRenderFingerprint
+        let detail: CodexTextRenderFingerprint
+        let status: String?
+        let metadata: CodexTextRenderFingerprint
+        let severity: CodexChatMessage.Notice.Severity
+        let isStreaming: Bool
+
+        init(_ notice: CodexChatMessage.Notice) {
+            self.itemID = notice.itemID
+            self.kind = notice.kind
+            self.title = CodexTextRenderFingerprint(notice.title)
+            self.detail = CodexTextRenderFingerprint(notice.detail)
+            self.status = notice.status
+            self.metadata = CodexTextRenderFingerprint(notice.metadata.joined(separator: "\u{0}"))
+            self.severity = notice.severity
+            self.isStreaming = notice.isStreaming
+        }
+    }
+
+    struct ReasoningBlockKey: Equatable, Sendable {
+        let itemID: String
+        let text: CodexTextRenderFingerprint
+        let isSummary: Bool
+        let isStreaming: Bool
+
+        init(_ block: CodexChatMessage.ReasoningBlock) {
+            self.itemID = block.itemID
+            self.text = CodexTextRenderFingerprint(block.text)
+            self.isSummary = block.isSummary
+            self.isStreaming = block.isStreaming
+        }
+    }
+
+    let id: UUID
+    let role: CodexChatMessage.Role
+    let text: CodexTextRenderFingerprint
+    let detail: String?
+    let isStreaming: Bool
+    let createdAt: Date
+    let commandRun: CommandRunKey?
+    let fileChange: FileChangeKey?
+    let planUpdate: PlanUpdateKey?
+    let toolCall: ToolCallKey?
+    let notice: NoticeKey?
+    let reasoningBlock: ReasoningBlockKey?
+
+    init(message: CodexChatMessage) {
+        self.id = message.id
+        self.role = message.role
+        self.text = CodexTextRenderFingerprint(message.text)
+        self.detail = message.detail
+        self.isStreaming = message.isStreaming
+        self.createdAt = message.createdAt
+        self.commandRun = message.commandRun.map(CommandRunKey.init)
+        self.fileChange = message.fileChange.map(FileChangeKey.init)
+        self.planUpdate = message.planUpdate.map(PlanUpdateKey.init)
+        self.toolCall = message.toolCall.map(ToolCallKey.init)
+        self.notice = message.notice.map(NoticeKey.init)
+        self.reasoningBlock = message.reasoningBlock.map(ReasoningBlockKey.init)
+    }
+}

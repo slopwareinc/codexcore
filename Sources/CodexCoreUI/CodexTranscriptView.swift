@@ -2,23 +2,20 @@ import SwiftUI
 import CodexCore
 
 @MainActor
-private enum CodexMessageHoverReveal {
+enum CodexMessageHoverReveal {
+    static let showDelay: Duration = .milliseconds(90)
     static let hideDelay: Duration = .milliseconds(150)
 
     static func reveal(
         _ isHovered: Binding<Bool>,
-        hideTask: Binding<Task<Void, Never>?>,
+        hoverTask: Binding<Task<Void, Never>?>,
         hovering: Bool
     ) {
-        hideTask.wrappedValue?.cancel()
-        if hovering {
-            isHovered.wrappedValue = true
-            return
-        }
-        hideTask.wrappedValue = Task {
-            try? await Task.sleep(for: hideDelay)
+        hoverTask.wrappedValue?.cancel()
+        hoverTask.wrappedValue = Task {
+            try? await Task.sleep(for: hovering ? showDelay : hideDelay)
             guard !Task.isCancelled else { return }
-            isHovered.wrappedValue = false
+            isHovered.wrappedValue = hovering
         }
     }
 }
@@ -40,7 +37,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     @State private var messageLookup: [UUID: CodexChatMessage] = [:]
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isPinnedToBottom = true
-    @State private var visibleItemLimit = 150
+    @State private var windowState = CodexTranscriptWindowState()
 
     public init(
         messages: [CodexChatMessage],
@@ -119,10 +116,10 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             isPinnedToBottom = pinned
         }
         .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y < Self.topExpansionThreshold
+            CodexTranscriptWindowState.shouldPrefetchOlderItems(contentOffsetY: geometry.contentOffset.y)
         } action: { _, isNearTop in
             guard isNearTop else { return }
-            expandVisibleWindow()
+            prefetchOlderItems()
         }
         .overlay(alignment: .bottomTrailing) {
             jumpToBottomButton
@@ -136,7 +133,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     private var visibleTimelineItems: ArraySlice<CodexTranscriptTimelineItem> {
-        timelineItems.suffix(visibleItemLimit)
+        timelineItems.suffix(windowState.visibleItemLimit)
     }
 
     @ViewBuilder
@@ -177,21 +174,55 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
     }
 
-    private func expandVisibleWindow() {
-        let nextLimit = min(timelineItems.count, visibleItemLimit + Self.windowChunk)
-        guard nextLimit > visibleItemLimit else { return }
-        visibleItemLimit = nextLimit
+    private func prefetchOlderItems() {
+        _ = windowState.prefetchOlderItems(totalItemCount: timelineItems.count)
     }
 
     private func resetVisibleWindow() {
-        visibleItemLimit = Self.windowChunk
+        windowState.reset()
         isPinnedToBottom = true
         scrollPosition = ScrollPosition(edge: .bottom)
     }
 
-    private static var windowChunk: Int { 150 }
     private static var bottomPinTolerance: CGFloat { 80 }
-    private static var topExpansionThreshold: CGFloat { 600 }
+}
+
+struct CodexTranscriptWindowState: Equatable, Sendable {
+    static let initialVisibleItemLimit = 150
+    static let upwardExpansionChunk = 64
+    static let topPrefetchThreshold: CGFloat = 2_400
+
+    private(set) var visibleItemLimit: Int = Self.initialVisibleItemLimit
+
+    static func shouldPrefetchOlderItems(contentOffsetY: CGFloat) -> Bool {
+        contentOffsetY < Self.topPrefetchThreshold
+    }
+
+    mutating func prefetchOlderItemsIfNeeded(contentOffsetY: CGFloat, totalItemCount: Int) -> Bool {
+        guard Self.shouldPrefetchOlderItems(contentOffsetY: contentOffsetY) else { return false }
+        return prefetchOlderItems(totalItemCount: totalItemCount)
+    }
+
+    mutating func prefetchOlderItems(totalItemCount: Int) -> Bool {
+        let nextLimit = min(totalItemCount, visibleItemLimit + Self.upwardExpansionChunk)
+        guard nextLimit > visibleItemLimit else { return false }
+        visibleItemLimit = nextLimit
+        return true
+    }
+
+    mutating func reset() {
+        visibleItemLimit = Self.initialVisibleItemLimit
+    }
+}
+
+private struct CodexTranscriptRowRenderKey: Equatable {
+    let item: CodexTranscriptTimelineItem
+    let message: CodexChatMessageRenderKey?
+
+    init(item: CodexTranscriptTimelineItem, message: CodexChatMessage?) {
+        self.item = item
+        self.message = message.map(CodexChatMessageRenderKey.init)
+    }
 }
 
 private struct CodexTranscriptTimelineRow: View, Equatable {
@@ -202,9 +233,25 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
     let onCloseMessage: ((UUID) -> Void)?
     let onOpenMCPDetails: (() -> Void)?
     let onEditUserMessage: ((String) -> Void)?
+    private let renderKey: CodexTranscriptRowRenderKey
+
+    init(
+        item: CodexTranscriptTimelineItem,
+        message: CodexChatMessage?,
+        onCloseMessage: ((UUID) -> Void)?,
+        onOpenMCPDetails: (() -> Void)?,
+        onEditUserMessage: ((String) -> Void)?
+    ) {
+        self.item = item
+        self.message = message
+        self.onCloseMessage = onCloseMessage
+        self.onOpenMCPDetails = onOpenMCPDetails
+        self.onEditUserMessage = onEditUserMessage
+        self.renderKey = CodexTranscriptRowRenderKey(item: item, message: message)
+    }
 
     nonisolated static func == (lhs: CodexTranscriptTimelineRow, rhs: CodexTranscriptTimelineRow) -> Bool {
-        lhs.item == rhs.item && lhs.message == rhs.message
+        lhs.renderKey == rhs.renderKey
     }
 
     var body: some View {
@@ -565,7 +612,7 @@ public struct CodexAssistantMessageView: View {
     private let assistantName: String
     @State private var isHovered = false
     @State private var copied = false
-    @State private var hideHoverTask: Task<Void, Never>?
+    @State private var hoverTask: Task<Void, Never>?
 
     public init(message: CodexChatMessage, assistantName: String = "Codex") {
         self.message = message
@@ -605,8 +652,7 @@ public struct CodexAssistantMessageView: View {
                         isHovered: isHovered,
                         copied: $copied,
                         copyText: message.text,
-                        onEdit: nil,
-                        onHoverChanged: { updateHover($0) }
+                        onEdit: nil
                     )
                 }
             }
@@ -619,7 +665,7 @@ public struct CodexAssistantMessageView: View {
     private func updateHover(_ hovering: Bool) {
         CodexMessageHoverReveal.reveal(
             $isHovered,
-            hideTask: $hideHoverTask,
+            hoverTask: $hoverTask,
             hovering: hovering
         )
     }
@@ -628,7 +674,7 @@ public struct CodexAssistantMessageView: View {
         CodexLiveTurnModel.turnEndActions(for: message)
     }
 
-    private var turnEndFooterActions: [CodexMessageMetaFooter.Action] {
+    private var turnEndFooterActions: [CodexMessageFooterAction] {
         turnEndActions.map {
             switch $0 {
             case .copy: .copy
@@ -638,25 +684,42 @@ public struct CodexAssistantMessageView: View {
     }
 }
 
-private struct CodexMessageMetaFooter: View {
-    enum Action: Hashable {
-        case copy
-        case fork
-        case edit
+enum CodexMessageFooterAction: Hashable, Sendable {
+    case copy
+    case fork
+    case edit
+}
+
+struct CodexMessageFooterChromeState: Equatable, Sendable {
+    let actions: [CodexMessageFooterAction]
+    let isHovered: Bool
+
+    var visibleActions: [CodexMessageFooterAction] {
+        isHovered ? actions : []
     }
 
+    var actionBarWidth: CGFloat {
+        guard !actions.isEmpty else { return 0 }
+        return CGFloat(actions.count) * 22 + CGFloat(max(actions.count - 1, 0)) * 2
+    }
+
+    var timestampOpacity: Double {
+        isHovered ? 0.95 : 0.55
+    }
+}
+
+private struct CodexMessageMetaFooter: View {
     @Environment(\.codexAgentTheme) private var theme
 
     static let reservedHeight: CGFloat = 20
 
     let timestamp: Date
     let alignment: HorizontalAlignment
-    let actions: [Action]
+    let actions: [CodexMessageFooterAction]
     let isHovered: Bool
     @Binding var copied: Bool
     let copyText: String
     let onEdit: (() -> Void)?
-    let onHoverChanged: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -681,8 +744,10 @@ private struct CodexMessageMetaFooter: View {
             maxWidth: alignment == .trailing ? theme.spacing.userBubbleMaxWidth : theme.spacing.cardMaxWidth,
             alignment: frameAlignment
         )
-        .contentShape(Rectangle())
-        .onHover { onHoverChanged($0) }
+    }
+
+    private var chrome: CodexMessageFooterChromeState {
+        CodexMessageFooterChromeState(actions: actions, isHovered: isHovered)
     }
 
     private var frameAlignment: Alignment {
@@ -692,29 +757,20 @@ private struct CodexMessageMetaFooter: View {
     private var timestampLabel: some View {
         Text(timestamp, format: .dateTime.hour().minute())
             .font(theme.fonts.caption)
-            .foregroundStyle(theme.colors.textTertiary.opacity(isHovered ? 0.95 : 0.55))
+            .foregroundStyle(theme.colors.textTertiary.opacity(chrome.timestampOpacity))
     }
 
     private var actionButtons: some View {
         HStack(spacing: 2) {
-            ForEach(actions, id: \.self) { action in
+            ForEach(chrome.visibleActions, id: \.self) { action in
                 actionButton(for: action)
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
             }
         }
-        .frame(width: actionBarWidth, alignment: frameAlignment)
-        .contentShape(Rectangle())
-        .onHover { onHoverChanged($0) }
-    }
-
-    private var actionBarWidth: CGFloat {
-        guard !actions.isEmpty else { return 0 }
-        return CGFloat(actions.count) * 22 + CGFloat(max(actions.count - 1, 0)) * 2
+        .frame(width: chrome.actionBarWidth, alignment: frameAlignment)
     }
 
     @ViewBuilder
-    private func actionButton(for action: Action) -> some View {
+    private func actionButton(for action: CodexMessageFooterAction) -> some View {
         switch action {
         case .copy:
             CodexIconActionButton(
@@ -806,7 +862,7 @@ public struct CodexUserMessageView: View {
     private let onEdit: ((String) -> Void)?
     @State private var isHovered = false
     @State private var copied = false
-    @State private var hideHoverTask: Task<Void, Never>?
+    @State private var hoverTask: Task<Void, Never>?
 
     public init(message: CodexChatMessage, onEdit: ((String) -> Void)? = nil) {
         self.message = message
@@ -838,8 +894,7 @@ public struct CodexUserMessageView: View {
                     isHovered: isHovered,
                     copied: $copied,
                     copyText: message.text,
-                    onEdit: onEdit.map { handler in { handler(message.text) } },
-                    onHoverChanged: { updateHover($0) }
+                    onEdit: onEdit.map { handler in { handler(message.text) } }
                 )
             }
             .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
@@ -851,7 +906,7 @@ public struct CodexUserMessageView: View {
     private func updateHover(_ hovering: Bool) {
         CodexMessageHoverReveal.reveal(
             $isHovered,
-            hideTask: $hideHoverTask,
+            hoverTask: $hoverTask,
             hovering: hovering
         )
     }
