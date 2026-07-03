@@ -3,7 +3,7 @@
 Status after PR #50 / issue #49 fix: **beachball/hang is resolved**. Scrolling long threads (~1085 items) no longer blocks the main thread. User-reported gap: scroll still does not feel like **120fps** on ProMotion.
 
 Evidence sources:
-- macOS `sample codex-chat-example` during active scrolling: `/tmp/codex-scrollfps-1.sample.txt`, `/tmp/codex-scrollfps-2.sample.txt`
+- macOS `sample codex-core-app` during active scrolling: `/tmp/codex-scrollfps-1.sample.txt`, `/tmp/codex-scrollfps-2.sample.txt`
 - Codex CLI analysis (GPT-5.5, read-only) of samples + row-view code audit
 
 ## What changed in #49 (confirmed working)
