@@ -3,7 +3,7 @@ import SwiftUI
 @testable import CodexCore
 @testable import CodexCoreUI
 
-extension CodexAgentUITests {
+final class CodexAgentPanelThemeTests: XCTestCase {
     func testAgentPanelStateBuildsSideChatAndSubagentTabs() {
         let fixture = AgentUIFixture.make()
         let panel = CodexAgentPanelState(

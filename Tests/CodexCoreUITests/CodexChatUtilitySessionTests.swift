@@ -2,7 +2,7 @@ import XCTest
 @testable import CodexCore
 @testable import CodexCoreUI
 
-extension CodexAgentUITests {
+final class CodexChatUtilitySessionTests: XCTestCase {
     func testChatUtilitySessionFormatsTranscriptWithCommandFallback() {
         let messages = [
             CodexChatMessage(role: .user, text: "  Build it  "),
