@@ -3,7 +3,7 @@ import CodexCoreUI
 
 struct CodexBottomTerminalPanel: View {
     @Environment(\.codexAgentTheme) private var theme
-    @Bindable var model: CodexChatModel
+    @Bindable var model: CodexCoreAppModel
     let maxHeight: CGFloat
 
     @State private var dragStartHeight: CGFloat?

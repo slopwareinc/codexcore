@@ -2,7 +2,7 @@ import CodexCore
 import CodexCoreUI
 
 @MainActor
-extension CodexChatModel {
+extension CodexCoreAppModel {
     var connectionState: ConnectionState {
         authSession.connectionState
     }

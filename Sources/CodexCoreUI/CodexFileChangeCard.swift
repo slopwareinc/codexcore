@@ -148,7 +148,7 @@ public struct CodexFileChangeCard: View {
                 .buttonStyle(.plain)
                 .help(wrapsDiff ? "Disable wrapping" : "Wrap diff")
                 if facts.hasDiff {
-                    CodexCopyButton(copied: $copied) { copyToPasteboard(change.diff) }
+                    CodexCopyButton(copied: $copied, copyText: change.diff)
                 }
             }
             .padding(.horizontal, 12)

@@ -1,15 +1,29 @@
 import SwiftUI
-import CodexCore
-import CodexCoreUI
 
-struct MCPStatusSheet: View {
+public struct CodexMCPStatusSheet: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    @Bindable var model: CodexChatModel
-    let onClose: () -> Void
-    let onRefresh: () -> Void
+    public let servers: [CodexMCPServerStatus]
+    public let isLoading: Bool
+    public let errorMessage: String?
+    public let onClose: () -> Void
+    public let onRefresh: () -> Void
 
-    var body: some View {
+    public init(
+        servers: [CodexMCPServerStatus],
+        isLoading: Bool,
+        errorMessage: String?,
+        onClose: @escaping () -> Void,
+        onRefresh: @escaping () -> Void
+    ) {
+        self.servers = servers
+        self.isLoading = isLoading
+        self.errorMessage = errorMessage
+        self.onClose = onClose
+        self.onRefresh = onRefresh
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image(systemName: "server.rack")
@@ -37,7 +51,7 @@ struct MCPStatusSheet: View {
                 .help("Close")
             }
 
-            if model.isLoadingMCPServers {
+            if isLoading {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
@@ -45,11 +59,11 @@ struct MCPStatusSheet: View {
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textSecondary)
                 }
-            } else if let error = model.mcpErrorMessage {
+            } else if let error = errorMessage {
                 Text(error)
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.danger)
-            } else if model.mcpServers.isEmpty {
+            } else if servers.isEmpty {
                 Text("No MCP servers")
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
@@ -57,7 +71,7 @@ struct MCPStatusSheet: View {
 
             ScrollView {
                 LazyVStack(spacing: 6) {
-                    ForEach(model.mcpServers) { server in
+                    ForEach(servers) { server in
                         MCPServerStatusRow(server: server)
                     }
                 }
@@ -167,4 +181,3 @@ private struct MCPServerStatusRow: View {
         Array((server.tools + server.resources + server.resourceTemplates).prefix(4).map(\.displayName))
     }
 }
-

@@ -1,7 +1,6 @@
 import SwiftUI
-import CodexCoreUI
 
-struct CodexExampleProjectSidebar: View {
+public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let serverName: String?
@@ -19,7 +18,39 @@ struct CodexExampleProjectSidebar: View {
     let onTogglePinChat: (CodexThreadSummary) -> Void
     let onArchiveChat: (CodexThreadSummary) -> Void
 
-    var body: some View {
+    public init(
+        serverName: String?,
+        isThreadReady: Bool,
+        snapshot: CodexSidebarSnapshot,
+        onNewChat: @escaping () -> Void,
+        onOpenSearch: @escaping () -> Void,
+        onSelectRoute: @escaping (CodexAppRoute) -> Void,
+        onToggleCollapsed: @escaping () -> Void,
+        onToggleProject: @escaping (String) -> Void,
+        onStartProjectChat: @escaping (String) -> Void,
+        onSelectProject: @escaping (String) -> Void,
+        onOpenFolder: @escaping () -> Void,
+        onSelectChat: @escaping (CodexThreadSummary) -> Void,
+        onTogglePinChat: @escaping (CodexThreadSummary) -> Void,
+        onArchiveChat: @escaping (CodexThreadSummary) -> Void
+    ) {
+        self.serverName = serverName
+        self.isThreadReady = isThreadReady
+        self.snapshot = snapshot
+        self.onNewChat = onNewChat
+        self.onOpenSearch = onOpenSearch
+        self.onSelectRoute = onSelectRoute
+        self.onToggleCollapsed = onToggleCollapsed
+        self.onToggleProject = onToggleProject
+        self.onStartProjectChat = onStartProjectChat
+        self.onSelectProject = onSelectProject
+        self.onOpenFolder = onOpenFolder
+        self.onSelectChat = onSelectChat
+        self.onTogglePinChat = onTogglePinChat
+        self.onArchiveChat = onArchiveChat
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             sidebarHeader
 

@@ -7,7 +7,7 @@ import CodexCoreUI
 struct WelcomeFlowView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    @Bindable var model: CodexChatModel
+    @Bindable var model: CodexCoreAppModel
 
     var body: some View {
         CodexGlassPanel {
@@ -67,7 +67,7 @@ struct WelcomeFlowView: View {
 struct SignInFlowView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    @Bindable var model: CodexChatModel
+    @Bindable var model: CodexCoreAppModel
     let openURL: OpenURLAction
 
     var body: some View {

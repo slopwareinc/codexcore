@@ -81,7 +81,7 @@ public struct CodexNoticeCard: View {
                         .foregroundStyle(theme.colors.textTertiary)
                         .lineLimit(1)
                     Spacer()
-                    CodexCopyButton(copied: $copied) { copyToPasteboard(notice.copyText) }
+                    CodexCopyButton(copied: $copied, copyText: notice.copyText)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)

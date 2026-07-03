@@ -710,6 +710,7 @@ struct CodexMessageFooterChromeState: Equatable, Sendable {
 
 private struct CodexMessageMetaFooter: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.codexClipboardService) private var clipboardService
 
     static let reservedHeight: CGFloat = 20
 
@@ -778,7 +779,7 @@ private struct CodexMessageMetaFooter: View {
                 tint: copied ? theme.colors.success : theme.colors.textTertiary,
                 help: "Copy"
             ) {
-                copyToPasteboard(copyText)
+                clipboardService.copy(copyText)
                 withAnimation(.snappy) { copied = true }
                 Task {
                     try? await Task.sleep(for: .seconds(1.4))

@@ -20,8 +20,8 @@ let package = Package(
             targets: ["CodexRun"]
         ),
         .executable(
-            name: "codex-chat-example",
-            targets: ["CodexChatExample"]
+            name: "codex-core-app",
+            targets: ["CodexCoreApp"]
         )
     ],
     dependencies: [],
@@ -47,9 +47,9 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
-            name: "CodexChatExample",
+            name: "CodexCoreApp",
             dependencies: ["CodexCore", "CodexCoreUI"],
-            path: "Examples/CodexChatExample",
+            path: "Sources/CodexCoreApp",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
