@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexCore
 
-extension CodexClientTerminalTests {
+final class CodexClientProtocolInventoryTests: XCTestCase {
     func testTypedClientMethodsUsePythonSDKWireMethods() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()
@@ -246,6 +246,37 @@ extension CodexClientTerminalTests {
         XCTAssertEqual(reply["result"], .dictionary(["token": .string("custom-attestation")]))
 
         await client.disconnect()
+    }
+
+    private func sendServerRequest(
+        method: CodexAppServerServerRequestMethod,
+        id: CodexJSONValue,
+        params: [String: CodexJSONValue],
+        transport: MockTransport
+    ) async throws -> [String: CodexJSONValue] {
+        let payload: [String: CodexJSONValue] = [
+            "jsonrpc": .string("2.0"),
+            "id": id,
+            "method": .string(method.rawValue),
+            "params": .dictionary(params)
+        ]
+        let data = try JSONEncoder().encode(payload)
+        guard let message = String(data: data, encoding: .utf8) else {
+            XCTFail("Failed to encode server request")
+            return [:]
+        }
+
+        await transport.receiveMessage(message)
+        for _ in 0..<100 {
+            let sent = await transport.sentPayloads
+            if let reply = sent.last(where: { $0["id"] == id && $0["result"] != nil }) {
+                return reply
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("No reply for server request \(method.rawValue)")
+        return [:]
     }
 
 }

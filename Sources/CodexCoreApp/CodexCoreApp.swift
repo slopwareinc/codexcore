@@ -5,16 +5,21 @@ import CodexCoreUI
 
 @main
 @MainActor
-final class CodexChatApp: NSObject, NSApplicationDelegate {
-    private static var sharedDelegate: CodexChatApp?
+final class CodexCoreApp: NSObject, NSApplicationDelegate {
+    private static var sharedDelegate: CodexCoreApp?
 
-    private let model = CodexChatModel()
+    private let clipboardService: any CodexClipboardService = CodexAppKitClipboardService()
+    private let preferenceStore: any CodexStringListPreferenceStore = CodexUserDefaultsStringListPreferenceStore()
+    private lazy var model = CodexCoreAppModel(
+        clipboardService: clipboardService,
+        preferenceStore: preferenceStore
+    )
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
 
     static func main() {
         let application = NSApplication.shared
-        let delegate = CodexChatApp()
+        let delegate = CodexCoreApp()
         sharedDelegate = delegate
         application.delegate = delegate
         application.setActivationPolicy(.regular)
@@ -69,13 +74,14 @@ final class CodexChatApp: NSObject, NSApplicationDelegate {
 
     private func showMainWindow() {
         if mainWindow == nil {
-            let controller = NSHostingController(rootView: CodexChatView(model: model)
+            let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
+                .codexClipboardService(clipboardService)
                 .frame(minWidth: 940, minHeight: 660))
             let window = NSWindow(contentViewController: controller)
-            window.title = "Codex Chat Example"
+            window.title = "CodexCore"
             window.setAccessibilityElement(true)
             window.setAccessibilityRole(.window)
-            window.setAccessibilityTitle("Codex Chat Example")
+            window.setAccessibilityTitle("CodexCore")
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.minSize = NSSize(width: 940, height: 660)
             window.setContentSize(NSSize(width: 1180, height: 760))
@@ -98,7 +104,7 @@ final class CodexChatApp: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         appMenu.addItem(settingsItem)
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit Codex Chat Example", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quit CodexCore", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu
 
         let fileItem = NSMenuItem()
@@ -121,8 +127,8 @@ final class CodexChatApp: NSObject, NSApplicationDelegate {
     }
 }
 
-struct CodexChatView: View {
-    @Bindable var model: CodexChatModel
+struct CodexCoreAppRootView: View {
+    @Bindable var model: CodexCoreAppModel
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -131,7 +137,7 @@ struct CodexChatView: View {
 
             Group {
                 if model.showsChatWorkspace {
-                    CodexExampleAppShell(model: model)
+                    CodexCoreAppShell(model: model)
                         .transition(.opacity)
                 } else if !model.isConnected {
                     WelcomeFlowView(model: model)
@@ -176,7 +182,7 @@ struct CodexChatView: View {
 
 private struct CodexSettingsView: View {
     @Environment(\.codexAgentTheme) private var theme
-    @Bindable var model: CodexChatModel
+    @Bindable var model: CodexCoreAppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -184,7 +190,7 @@ private struct CodexSettingsView: View {
                 Text("Settings")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
-                Text("Customize the Codex chat example.")
+                Text("Customize the CodexCore app.")
                     .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textSecondary)
             }
@@ -215,7 +221,7 @@ private struct CodexSettingsView: View {
 }
 
 private struct ThemePresetPicker: View {
-    @Bindable var model: CodexChatModel
+    @Bindable var model: CodexCoreAppModel
 
     var body: some View {
         Picker("Theme", selection: $model.themePreset) {

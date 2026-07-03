@@ -2,7 +2,7 @@ import XCTest
 @testable import CodexCore
 @testable import CodexCoreUI
 
-extension CodexAgentUITests {
+final class CodexSessionStateTests: XCTestCase {
     func testAuthSessionOwnsConnectionAuthenticationAndDeviceCodeState() {
         var session = CodexAuthSession()
 

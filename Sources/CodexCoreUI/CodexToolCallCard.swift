@@ -103,7 +103,7 @@ public struct CodexToolCallCard: View {
                     }
                     .buttonStyle(.plain)
                     .help(wrapsOutput ? "Disable wrapping" : "Wrap output")
-                    CodexCopyButton(copied: $copied) { copyToPasteboard(toolCall.copyText) }
+                    CodexCopyButton(copied: $copied, copyText: toolCall.copyText)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)

@@ -1,13 +1,19 @@
 import SwiftUI
-import CodexCore
-import CodexCoreUI
 
-struct PluginsRouteView: View {
+public struct CodexPluginRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    @Bindable var model: CodexChatModel
-    let onRefresh: () -> Void
-    let onAction: (CodexPluginRouteAction) -> Void
+    public let plugins: [CodexPluginSummary]
+    public let skills: [CodexSkillSummary]
+    public let mcpServers: [CodexMCPServerStatus]
+    public let isLoadingPlugins: Bool
+    public let isLoadingSkills: Bool
+    public let pluginErrorMessage: String?
+    public let skillErrorMessage: String?
+    public let pluginLoadErrors: [String]
+    public let launcherTarget: CodexComposerPluginLauncher?
+    public let onRefresh: () -> Void
+    public let onAction: (CodexPluginRouteAction) -> Void
 
     @State private var primaryTab: CodexPluginRoutePrimaryTab = .marketplace
     @State private var manageTab: CodexPluginManageTab = .plugins
@@ -15,21 +21,47 @@ struct PluginsRouteView: View {
     @State private var selectedPluginID: String?
     @State private var selectedSkillID: String?
 
+    public init(
+        plugins: [CodexPluginSummary],
+        skills: [CodexSkillSummary],
+        mcpServers: [CodexMCPServerStatus],
+        isLoadingPlugins: Bool = false,
+        isLoadingSkills: Bool = false,
+        pluginErrorMessage: String? = nil,
+        skillErrorMessage: String? = nil,
+        pluginLoadErrors: [String] = [],
+        launcherTarget: CodexComposerPluginLauncher? = nil,
+        onRefresh: @escaping () -> Void,
+        onAction: @escaping (CodexPluginRouteAction) -> Void
+    ) {
+        self.plugins = plugins
+        self.skills = skills
+        self.mcpServers = mcpServers
+        self.isLoadingPlugins = isLoadingPlugins
+        self.isLoadingSkills = isLoadingSkills
+        self.pluginErrorMessage = pluginErrorMessage
+        self.skillErrorMessage = skillErrorMessage
+        self.pluginLoadErrors = pluginLoadErrors
+        self.launcherTarget = launcherTarget
+        self.onRefresh = onRefresh
+        self.onAction = onAction
+    }
+
     private var routeState: CodexPluginRouteState {
         CodexPluginRouteState(
-            plugins: model.plugins,
-            skills: model.skills,
-            mcpServers: model.mcpServers,
+            plugins: plugins,
+            skills: skills,
+            mcpServers: mcpServers,
             primaryTab: primaryTab,
             manageTab: manageTab,
             searchQuery: searchQuery,
             selectedPluginID: selectedPluginID,
             selectedSkillID: selectedSkillID,
-            launcherTarget: model.pluginLauncherTarget
+            launcherTarget: launcherTarget
         )
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().overlay(theme.colors.border)
@@ -43,9 +75,9 @@ struct PluginsRouteView: View {
         }
         .background(theme.colors.surfaceSunken)
         .onAppear(perform: seedOrApplyLauncher)
-        .onChange(of: model.plugins.map(\.id)) { _, _ in seedOrApplyLauncher() }
-        .onChange(of: model.skills.map(\.id)) { _, _ in seedOrApplyLauncher() }
-        .onChange(of: model.pluginLauncherTarget) { _, _ in seedOrApplyLauncher() }
+        .onChange(of: plugins.map(\.id)) { _, _ in seedOrApplyLauncher() }
+        .onChange(of: skills.map(\.id)) { _, _ in seedOrApplyLauncher() }
+        .onChange(of: launcherTarget) { _, _ in seedOrApplyLauncher() }
     }
 
     private var header: some View {
@@ -69,7 +101,7 @@ struct PluginsRouteView: View {
 
             Spacer()
 
-            if model.isLoadingPlugins || model.isLoadingSkills {
+            if isLoadingPlugins || isLoadingSkills {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -163,13 +195,13 @@ struct PluginsRouteView: View {
 
     @ViewBuilder
     private var statusMessages: some View {
-        if let error = model.pluginErrorMessage {
+        if let error = pluginErrorMessage {
             statusText(error, color: theme.colors.danger)
         }
-        if let error = model.skillErrorMessage {
+        if let error = skillErrorMessage {
             statusText(error, color: theme.colors.danger)
         }
-        ForEach(model.pluginLoadErrors, id: \.self) { error in
+        ForEach(pluginLoadErrors, id: \.self) { error in
             statusText(error, color: theme.colors.warning)
         }
     }
@@ -279,7 +311,7 @@ struct PluginsRouteView: View {
     }
 
     private func seedOrApplyLauncher() {
-        if let target = model.pluginLauncherTarget {
+        if let target = launcherTarget {
             applyLauncherTarget(target)
             return
         }
@@ -291,7 +323,7 @@ struct PluginsRouteView: View {
         manageTab = .plugins
         searchQuery = target.searchQuery
         selectedSkillID = nil
-        selectedPluginID = model.plugins.first { plugin in
+        selectedPluginID = plugins.first { plugin in
             let preferred = target.preferredPluginNames.map { $0.lowercased() }
             let candidates = [plugin.name.lowercased(), plugin.displayName.lowercased(), plugin.id.lowercased()]
             return preferred.contains { preferredName in
@@ -304,10 +336,10 @@ struct PluginsRouteView: View {
 
     private func seedSelection() {
         if selectedPluginID == nil {
-            selectedPluginID = model.plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }?.id ?? model.plugins.first?.id
+            selectedPluginID = plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }?.id ?? plugins.first?.id
         }
         if selectedSkillID == nil {
-            selectedSkillID = model.skills.first?.id
+            selectedSkillID = skills.first?.id
         }
     }
 }

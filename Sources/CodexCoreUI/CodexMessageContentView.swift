@@ -1,12 +1,6 @@
 import SwiftUI
 import CodexCore
 
-#if canImport(AppKit)
-import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
-
 /// Renders projected assistant content blocks: prose, code blocks, and inline images.
 public struct CodexAssistantContentView: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -71,7 +65,7 @@ public struct CodexCodeBlock: View {
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.codeFaint)
                 Spacer()
-                CodexCopyButton(copied: $copied) { copyToPasteboard(code) }
+                CodexCopyButton(copied: $copied, copyText: code)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -178,7 +172,7 @@ public struct CodexCommandCard: View {
                             .truncationMode(.middle)
                     }
                     Spacer()
-                    CodexCopyButton(copied: $copied) { copyToPasteboard(run.output) }
+                    CodexCopyButton(copied: $copied, copyText: run.output)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
@@ -386,7 +380,7 @@ public struct CodexPlanCard: View {
             if !plan.copyText.isEmpty {
                 HStack {
                     Spacer()
-                    CodexCopyButton(copied: $copied) { copyToPasteboard(plan.copyText) }
+                    CodexCopyButton(copied: $copied, copyText: plan.copyText)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
@@ -474,18 +468,19 @@ private struct CodexCommandStatusChip: View {
 
 public struct CodexCopyButton: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.codexClipboardService) private var clipboardService
 
     @Binding private var copied: Bool
-    private let action: () -> Void
+    private let copyText: String
 
-    public init(copied: Binding<Bool>, action: @escaping () -> Void) {
+    public init(copied: Binding<Bool>, copyText: String) {
         self._copied = copied
-        self.action = action
+        self.copyText = copyText
     }
 
     public var body: some View {
         Button {
-            action()
+            clipboardService.copy(copyText)
             withAnimation(.snappy) { copied = true }
             Task {
                 try? await Task.sleep(for: .seconds(1.4))
@@ -502,13 +497,4 @@ public struct CodexCopyButton: View {
         }
         .buttonStyle(.plain)
     }
-}
-
-func copyToPasteboard(_ text: String) {
-    #if canImport(AppKit)
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
-    #elseif canImport(UIKit)
-    UIPasteboard.general.string = text
-    #endif
 }

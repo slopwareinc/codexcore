@@ -1,6 +1,6 @@
 # CodexCore
 
-Swift SDK and SwiftUI components for apps built on the Codex app-server.
+Swift SDK, reusable SwiftUI app layer, and full native app for the Codex app-server stack.
 
 ![CodexCore overview](docs/codexcore-overview.svg)
 
@@ -9,9 +9,16 @@ Swift SDK and SwiftUI components for apps built on the Codex app-server.
 | Product | What it is |
 | --- | --- |
 | `CodexCore` | Pure Swift SDK: client, transports, protocol types, store, projections, dynamic tools, and command sessions. |
-| `CodexCoreUI` | Optional SwiftUI workspace, transcript cards, themes, prompt state, side chat, and subagent UI. |
+| `CodexCoreUI` | Reusable SwiftUI app layer for using Codex as an intelligence layer inside a Swift app. |
 | `codex-run` | Small executable for exercising the SDK. |
-| `codex-chat-example` | Complete SwiftUI example app. |
+| `codex-core-app` | Full usable SwiftUI app demonstrating the modular Swift-native Codex stack. |
+
+## Stack Vocabulary
+
+- Codex app-server is the harness.
+- CodexCore is the Swift SDK for Codex app-server.
+- CodexCoreUI is the reusable app layer for using Codex as an intelligence layer in a Swift app.
+- CodexCoreApp is a full usable app made to demonstrate the modular Swift-native Codex stack.
 
 ## Install
 
@@ -79,7 +86,7 @@ CodexChatWorkspaceView(
 ```bash
 swift build
 swift test
-swift run codex-chat-example
+swift run codex-core-app
 ```
 
 `CodexConfig` inherits auth through `CODEX_HOME=~/.codex` by default. Override `CODEX_BINARY`, `CODEX_BIN`, `CODEX_APP_BUNDLE`, or `codexBinaryPath` when using a custom Codex runtime.

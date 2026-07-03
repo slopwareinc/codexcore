@@ -1,7 +1,7 @@
 import XCTest
 @testable import CodexCore
 
-extension CodexClientTerminalTests {
+final class CodexClientNotificationStreamTests: XCTestCase {
 
     func testNotificationStreamsRouteGlobalAndReplayTurnEvents() async throws {
         let transport = MockTransport()

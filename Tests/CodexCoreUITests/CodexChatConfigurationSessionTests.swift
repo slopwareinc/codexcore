@@ -2,7 +2,7 @@ import XCTest
 @testable import CodexCore
 @testable import CodexCoreUI
 
-extension CodexAgentUITests {
+final class CodexChatConfigurationSessionTests: XCTestCase {
     func testComposerSelectionsMapToTurnParameters() throws {
         XCTAssertEqual(CodexApprovalSelection.readOnly.displayName, "Read only")
         XCTAssertEqual(CodexApprovalSelection.readOnly.approvalMode, .denyAll)

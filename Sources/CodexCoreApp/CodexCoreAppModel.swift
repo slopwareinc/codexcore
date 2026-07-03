@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import Observation
 import CodexCore
@@ -12,7 +11,7 @@ func defaultWorkspacePath() -> String {
 
 @MainActor
 @Observable
-final class CodexChatModel {
+final class CodexCoreAppModel {
     typealias ConnectionState = CodexConnectionState
     typealias Message = CodexChatMessage
     typealias Activity = CodexActivity
@@ -29,7 +28,7 @@ final class CodexChatModel {
     private var loginTask: Task<Void, Never>?
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
     var sidebarNavigationSession = CodexSidebarNavigationSession(currentWorkspacePath: defaultWorkspacePath())
-    var pinnedThreadIDs = CodexPinnedThreadStorage.load()
+    var pinnedThreadIDs: [String]
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession()
     var activityLog = CodexActivityLogSession()
@@ -52,6 +51,25 @@ final class CodexChatModel {
     var bottomTerminalStatus = "Idle"
     var isBottomTerminalRunning = false
 
+    private let clipboardService: any CodexClipboardService
+    private let preferenceStore: any CodexStringListPreferenceStore
+
+    init(
+        clipboardService: any CodexClipboardService,
+        preferenceStore: any CodexStringListPreferenceStore
+    ) {
+        self.clipboardService = clipboardService
+        self.preferenceStore = preferenceStore
+        self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+    }
+
+    convenience init() {
+        self.init(
+            clipboardService: CodexNoopClipboardService(),
+            preferenceStore: CodexNoopStringListPreferenceStore()
+        )
+    }
+
     func connect() async {
         guard authSession.beginConnecting() else { return }
 
@@ -63,8 +81,8 @@ final class CodexChatModel {
             // the server reply until this app answers them.
             let config = CodexConfig(
                 cwd: workspacePath,
-                clientName: "codex_swiftui_example",
-                clientTitle: "Codex SwiftUI Example",
+                clientName: "codex_core_app",
+                clientTitle: "CodexCore App",
                 clientVersion: "1.0.0",
                 approvalPolicy: .ask
             )
@@ -499,7 +517,7 @@ final class CodexChatModel {
     func allowMobileRemoteControlBoundary() {
         Task {
             // The current parity slice exposes the explicit permission boundary
-            // without enabling live remote control from the example host.
+            // without enabling live remote control from the app host.
             var session = mobileRouteSession
             let activity = await session.allow(provider: CodexUnsupportedRemoteControlProvider())
             mobileRouteSession = session
@@ -1187,11 +1205,14 @@ final class CodexChatModel {
 
     func copyChatTranscript() {
         let transcript = CodexChatFormat.transcriptText(messages: messages)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(transcript, forType: .string)
+        clipboardService.copy(transcript)
 
         let detail = CodexChatFormat.copiedTranscriptActivityDetail(messageCount: messages.count)
         appendActivity(.notice, title: "Copied chat", detail: detail)
+    }
+
+    func copyText(_ text: String) {
+        clipboardService.copy(text)
     }
 
     func handleSlashCommand(_ command: CodexSlashCommand, presentMCPStatus: (() -> Void)? = nil) {
@@ -1486,7 +1507,7 @@ final class CodexChatModel {
         } else {
             pinnedThreadIDs.removeAll { $0 == threadID }
         }
-        CodexPinnedThreadStorage.save(pinnedThreadIDs)
+        CodexPinnedThreadStorage.savePinnedThreadIDs(pinnedThreadIDs, to: preferenceStore)
         guard announces else { return }
         appendActivity(
             .notice,
@@ -1608,15 +1629,19 @@ final class CodexChatModel {
 }
 
 enum CodexPinnedThreadStorage {
-    private static let key = "CodexChatExample.pinnedThreadIDs"
+    private static let pinnedThreadStorageKey = "CodexCoreApp.pinnedThreadIDs"
 
-    static func load() -> [String] {
-        let ids = UserDefaults.standard.stringArray(forKey: key) ?? []
-        return deduped(ids)
+    static func loadPinnedThreadIDs(
+        from store: any CodexStringListPreferenceStore
+    ) -> [String] {
+        deduped(store.loadStrings(forKey: pinnedThreadStorageKey))
     }
 
-    static func save(_ ids: [String]) {
-        UserDefaults.standard.set(deduped(ids), forKey: key)
+    static func savePinnedThreadIDs(
+        _ ids: [String],
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(deduped(ids), forKey: pinnedThreadStorageKey)
     }
 
     private static func deduped(_ ids: [String]) -> [String] {

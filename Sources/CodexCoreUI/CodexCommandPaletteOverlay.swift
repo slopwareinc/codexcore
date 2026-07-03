@@ -1,24 +1,46 @@
 import SwiftUI
-import CodexCore
-import CodexCoreUI
 
 #if canImport(AppKit)
 import AppKit
 #endif
 
-struct CommandPaletteOverlay: View {
+public struct CodexCommandPaletteOverlay: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    @Bindable var model: CodexChatModel
-    let onClose: () -> Void
-    let onSelectChat: (CodexThreadSearchResult) -> Void
-    let onSelectCommand: (CodexCommandPaletteAction) -> Void
+    public let searchResults: [CodexThreadSearchResult]
+    public let isSearchingChats: Bool
+    public let searchErrorMessage: String?
+    public let onClose: () -> Void
+    public let onSearchChats: (String) async -> Void
+    public let onClearSearchResults: () -> Void
+    public let onSelectChat: (CodexThreadSearchResult) -> Void
+    public let onSelectCommand: (CodexCommandPaletteAction) -> Void
 
     @State private var query = ""
     @State private var searchTask: Task<Void, Never>?
     @FocusState private var isFocused: Bool
 
-    var body: some View {
+    public init(
+        searchResults: [CodexThreadSearchResult],
+        isSearchingChats: Bool,
+        searchErrorMessage: String?,
+        onClose: @escaping () -> Void,
+        onSearchChats: @escaping (String) async -> Void,
+        onClearSearchResults: @escaping () -> Void,
+        onSelectChat: @escaping (CodexThreadSearchResult) -> Void,
+        onSelectCommand: @escaping (CodexCommandPaletteAction) -> Void
+    ) {
+        self.searchResults = searchResults
+        self.isSearchingChats = isSearchingChats
+        self.searchErrorMessage = searchErrorMessage
+        self.onClose = onClose
+        self.onSearchChats = onSearchChats
+        self.onClearSearchResults = onClearSearchResults
+        self.onSelectChat = onSelectChat
+        self.onSelectCommand = onSelectCommand
+    }
+
+    public var body: some View {
         ZStack {
             Color.black.opacity(0.42)
                 .ignoresSafeArea()
@@ -31,7 +53,7 @@ struct CommandPaletteOverlay: View {
         .onAppear { isFocused = true }
         .onDisappear {
             searchTask?.cancel()
-            model.clearSearchResults()
+            onClearSearchResults()
         }
         .onExitCommand(perform: onClose)
         #if canImport(AppKit)
@@ -91,7 +113,7 @@ struct CommandPaletteOverlay: View {
                 .foregroundStyle(theme.colors.textPrimary)
                 .focused($isFocused)
                 .onSubmit { runSearch(query) }
-            if model.isSearchingChats {
+            if isSearchingChats {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -107,7 +129,7 @@ struct CommandPaletteOverlay: View {
             searchTask?.cancel()
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
-                model.clearSearchResults()
+                onClearSearchResults()
                 return
             }
             searchTask = Task {
@@ -116,7 +138,7 @@ struct CommandPaletteOverlay: View {
                 } catch {
                     return
                 }
-                await model.searchChats(query: trimmed)
+                await onSearchChats(trimmed)
             }
         }
     }
@@ -126,9 +148,9 @@ struct CommandPaletteOverlay: View {
         let paletteModel = CodexCommandPaletteModel(
             query: query,
             commandRows: CodexCommandPaletteModel.defaultCommandRows,
-            chatResults: model.searchResults,
-            isLoading: model.isSearchingChats,
-            errorMessage: model.searchErrorMessage
+            chatResults: searchResults,
+            isLoading: isSearchingChats,
+            errorMessage: searchErrorMessage
         )
 
         ScrollView {
@@ -224,7 +246,7 @@ struct CommandPaletteOverlay: View {
     private func runSearch(_ value: String) {
         searchTask?.cancel()
         searchTask = Task {
-            await model.searchChats(query: value)
+            await onSearchChats(value)
         }
     }
 
