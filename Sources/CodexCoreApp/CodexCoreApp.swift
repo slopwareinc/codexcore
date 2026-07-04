@@ -130,6 +130,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
 struct CodexCoreAppRootView: View {
     @Bindable var model: CodexCoreAppModel
     @Environment(\.openURL) private var openURL
+    @State private var didStartInitialConnection = false
 
     var body: some View {
         ZStack {
@@ -151,6 +152,11 @@ struct CodexCoreAppRootView: View {
         }
         .codexAgentTheme(model.themePreset.theme)
         .tint(model.themePreset.theme.colors.accent)
+        .task {
+            guard !didStartInitialConnection else { return }
+            didStartInitialConnection = true
+            await model.connect()
+        }
         .toolbar {
             if model.showsChatWorkspace {
                 ToolbarItemGroup(placement: .automatic) {

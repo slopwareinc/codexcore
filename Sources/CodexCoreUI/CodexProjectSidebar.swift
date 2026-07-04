@@ -55,14 +55,15 @@ public struct CodexProjectSidebar: View {
             sidebarHeader
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 14) {
+                VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 22) {
                     routeRows
-                    projectsSection
+                    pinnedSection
+                    projectListSection
                     settingsSection
                 }
-                .padding(.horizontal, snapshot.isCollapsed ? 8 : 10)
-                .padding(.top, 6)
-                .padding(.bottom, 14)
+                .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
             }
         }
         .frame(
@@ -72,9 +73,10 @@ public struct CodexProjectSidebar: View {
         )
         .frame(maxHeight: .infinity)
         .background(.regularMaterial)
+        .background(theme.colors.surface.opacity(0.28))
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(theme.colors.border.opacity(0.72))
+                .fill(theme.colors.border.opacity(0.45))
                 .frame(width: 1)
         }
     }
@@ -82,15 +84,6 @@ public struct CodexProjectSidebar: View {
     private var sidebarHeader: some View {
         HStack(spacing: 8) {
             if !snapshot.isCollapsed {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Codex")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(theme.colors.textPrimary)
-                    Text(connectionDetail)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
-                }
                 Spacer(minLength: 0)
             }
 
@@ -104,8 +97,8 @@ public struct CodexProjectSidebar: View {
             .accessibilityLabel(CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed))
             .help(CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed))
         }
-        .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
-        .frame(height: 46)
+        .padding(.horizontal, snapshot.isCollapsed ? 8 : 10)
+        .frame(height: snapshot.isCollapsed ? 42 : 28)
     }
 
     private var routeRows: some View {
@@ -113,17 +106,22 @@ public struct CodexProjectSidebar: View {
             SidebarCommandRow(
                 systemImage: "square.and.pencil",
                 title: "New chat",
-                shortcut: "⌘N",
                 isCollapsed: snapshot.isCollapsed,
                 action: onNewChat
             )
             SidebarCommandRow(
                 systemImage: CodexAppRoute.search.systemImage,
                 title: CodexAppRoute.search.title,
-                shortcut: "⌘G",
                 isSelected: snapshot.selectedRoute == .search,
                 isCollapsed: snapshot.isCollapsed,
                 action: onOpenSearch
+            )
+            SidebarCommandRow(
+                systemImage: CodexAppRoute.automations.systemImage,
+                title: "Scheduled",
+                isSelected: snapshot.selectedRoute == .automations,
+                isCollapsed: snapshot.isCollapsed,
+                action: { onSelectRoute(.automations) }
             )
             SidebarCommandRow(
                 systemImage: CodexAppRoute.plugins.systemImage,
@@ -132,47 +130,32 @@ public struct CodexProjectSidebar: View {
                 isCollapsed: snapshot.isCollapsed,
                 action: { onSelectRoute(.plugins) }
             )
-            SidebarCommandRow(
-                systemImage: CodexAppRoute.automations.systemImage,
-                title: CodexAppRoute.automations.title,
-                isSelected: snapshot.selectedRoute == .automations,
-                isCollapsed: snapshot.isCollapsed,
-                action: { onSelectRoute(.automations) }
-            )
-            SidebarCommandRow(
-                systemImage: CodexAppRoute.codexMobile.systemImage,
-                title: CodexAppRoute.codexMobile.title,
-                isSelected: snapshot.selectedRoute == .codexMobile,
-                isCollapsed: snapshot.isCollapsed,
-                action: { onSelectRoute(.codexMobile) }
-            )
         }
     }
 
-    private var projectsSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !snapshot.isCollapsed {
-                SidebarSectionHeader(title: "Projects")
-            }
-
-            if !snapshot.pinnedRows.isEmpty && !snapshot.isCollapsed {
+    @ViewBuilder
+    private var pinnedSection: some View {
+        if !snapshot.pinnedRows.isEmpty && !snapshot.isCollapsed {
+            VStack(alignment: .leading, spacing: 4) {
                 SidebarSectionHeader(title: "Pinned")
                 ForEach(snapshot.pinnedRows) { row in
                     SidebarChatRow(
                         row: row,
+                        indentation: 0,
                         onSelect: { onSelectChat(row.summary) },
                         onTogglePin: { onTogglePinChat(row.summary) },
                         onArchive: { onArchiveChat(row.summary) }
                     )
                 }
             }
+        }
+    }
 
-            SidebarCommandRow(
-                systemImage: "folder.badge.plus",
-                title: "Open folder…",
-                isCollapsed: snapshot.isCollapsed,
-                action: onOpenFolder
-            )
+    private var projectListSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !snapshot.isCollapsed {
+                SidebarSectionHeader(title: "Projects")
+            }
 
             ForEach(snapshot.projects) { group in
                 ProjectSidebarGroupView(
@@ -199,21 +182,30 @@ public struct CodexProjectSidebar: View {
     }
 
     private var settingsSection: some View {
-        SidebarCommandRow(
-            systemImage: CodexAppRoute.settingsAbout.systemImage,
-            title: CodexAppRoute.settingsAbout.title,
-            isSelected: snapshot.selectedRoute == .settingsAbout,
-            isCollapsed: snapshot.isCollapsed,
-            action: { onSelectRoute(.settingsAbout) }
-        )
+        VStack(spacing: 2) {
+            SidebarCommandRow(
+                systemImage: "folder.badge.plus",
+                title: "Open folder",
+                isCollapsed: snapshot.isCollapsed,
+                action: onOpenFolder
+            )
+            SidebarCommandRow(
+                systemImage: CodexAppRoute.codexMobile.systemImage,
+                title: CodexAppRoute.codexMobile.title,
+                isSelected: snapshot.selectedRoute == .codexMobile,
+                isCollapsed: snapshot.isCollapsed,
+                action: { onSelectRoute(.codexMobile) }
+            )
+            SidebarCommandRow(
+                systemImage: CodexAppRoute.settingsAbout.systemImage,
+                title: CodexAppRoute.settingsAbout.title,
+                isSelected: snapshot.selectedRoute == .settingsAbout,
+                isCollapsed: snapshot.isCollapsed,
+                action: { onSelectRoute(.settingsAbout) }
+            )
+        }
     }
 
-    private var connectionDetail: String {
-        if let serverName {
-            return isThreadReady ? "Ready on \(serverName)" : serverName
-        }
-        return isThreadReady ? "Ready" : "New chat"
-    }
 }
 
 private struct SidebarCommandRow: View {
@@ -229,14 +221,14 @@ private struct SidebarCommandRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
+            HStack(spacing: 14) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textTertiary)
-                    .frame(width: 18)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                    .frame(width: 20)
                 if !isCollapsed {
                     Text(title)
-                        .font(.system(size: 13))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -247,15 +239,15 @@ private struct SidebarCommandRow: View {
                     }
                 }
             }
-            .frame(height: 29)
+            .frame(height: 35)
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-            .padding(.horizontal, isCollapsed ? 4 : 8)
-            .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+            .padding(.horizontal, isCollapsed ? 4 : 6)
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .background(
             rowFill,
-            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
         )
         .onHover { isHovered = $0 }
         .accessibilityLabel(CodexSidebarAccessibility.commandRowLabel(title: title, shortcut: shortcut))
@@ -264,10 +256,10 @@ private struct SidebarCommandRow: View {
 
     private var rowFill: Color {
         if isSelected {
-            return theme.colors.surfaceElevated.opacity(0.52)
+            return theme.colors.surfaceElevated.opacity(0.50)
         }
         if isHovered {
-            return theme.colors.surfaceElevated.opacity(0.28)
+            return theme.colors.surfaceElevated.opacity(0.22)
         }
         return .clear
     }
@@ -279,16 +271,14 @@ private struct SidebarSectionHeader: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8.5, weight: .bold))
+        HStack {
             Text(title)
-                .font(theme.fonts.caption.weight(.semibold))
+                .font(.system(size: 15, weight: .medium))
             Spacer(minLength: 0)
         }
         .foregroundStyle(theme.colors.textTertiary)
-        .frame(height: 24)
-        .padding(.horizontal, 8)
+        .frame(height: 30)
+        .padding(.horizontal, 2)
     }
 }
 
@@ -307,53 +297,28 @@ private struct ProjectSidebarGroupView: View {
     let onArchiveChat: (CodexThreadSummary) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
-                if !isCollapsed {
-                    Button {
-                        onToggleProject(group.project.workspacePath)
-                    } label: {
-                        Image(systemName: group.isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 8.5, weight: .bold))
-                            .frame(width: 18, height: 30)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .opacity(projectControlsAreVisible ? 1 : 0.68)
-                    .accessibilityLabel(CodexSidebarAccessibility.projectDisclosureLabel(
-                        projectTitle: group.project.displayName,
-                        isExpanded: group.isExpanded
-                    ))
-                    .help(group.isExpanded ? "Collapse project" : "Expand project")
-                }
-
                 Button {
                     onSelectProject(group.project.workspacePath)
                 } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .frame(width: 18)
+                    HStack(spacing: 14) {
+                        Image(systemName: "folder.badge.gearshape")
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                            .frame(width: 20)
                         if !isCollapsed {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(group.project.displayName)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(theme.colors.textPrimary)
-                                    .lineLimit(1)
-                                Text(projectDetail)
-                                    .font(theme.fonts.caption)
-                                    .foregroundStyle(theme.colors.textTertiary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
+                            Text(group.project.displayName)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .lineLimit(1)
                             Spacer(minLength: 0)
                         }
                     }
-                    .frame(height: isCollapsed ? 31 : 38)
+                    .frame(height: isCollapsed ? 31 : 35)
                     .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
                     .padding(.horizontal, isCollapsed ? 4 : 6)
-                    .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .help(group.project.displayName)
@@ -367,7 +332,7 @@ private struct ProjectSidebarGroupView: View {
             .padding(.horizontal, isCollapsed ? 0 : 2)
             .background(
                 projectRowFill,
-                in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             .onHover { isHovered = $0 }
 
@@ -382,11 +347,11 @@ private struct ProjectSidebarGroupView: View {
                     ForEach(group.rows) { row in
                         SidebarChatRow(
                             row: row,
+                            indentation: 32,
                             onSelect: { onSelectChat(row.summary) },
                             onTogglePin: { onTogglePinChat(row.summary) },
                             onArchive: { onArchiveChat(row.summary) }
                         )
-                        .padding(.leading, 22)
                     }
                 }
             }
@@ -444,16 +409,6 @@ private struct ProjectSidebarGroupView: View {
         .frame(width: 48, alignment: .trailing)
     }
 
-    private var projectDetail: String {
-        if isThreadReady {
-            return "Ready"
-        }
-        if group.project.chatCount == 1 {
-            return "1 chat"
-        }
-        return "\(group.project.chatCount) chats"
-    }
-
     private var hasSelectedThread: Bool {
         group.rows.contains { $0.isSelected }
     }
@@ -464,10 +419,10 @@ private struct ProjectSidebarGroupView: View {
 
     private var projectRowFill: Color {
         if group.isSelected && !hasSelectedThread {
-            return theme.colors.surfaceElevated.opacity(0.48)
+            return theme.colors.surfaceElevated.opacity(0.36)
         }
         if isHovered {
-            return theme.colors.surfaceElevated.opacity(0.24)
+            return theme.colors.surfaceElevated.opacity(0.18)
         }
         return .clear
     }
@@ -478,36 +433,28 @@ private struct SidebarChatRow: View {
     @State private var isHovered = false
 
     let row: CodexSidebarThreadRow
+    var indentation: CGFloat = 0
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
 
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "bubble.left")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(theme.colors.textTertiary)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.summary.title)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                    .lineLimit(1)
-                Text(row.summary.detail.isEmpty ? "No activity yet" : row.summary.detail)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
-            }
+        HStack(spacing: 10) {
+            Text(row.summary.title)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                .lineLimit(1)
             Spacer(minLength: 0)
             trailingStatusOrActions
         }
-        .padding(.horizontal, 8)
-        .frame(height: 38)
-        .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+        .padding(.leading, 6 + indentation)
+        .padding(.trailing, 8)
+        .frame(height: 34)
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onSelect)
         .background(
             rowFill,
-            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
         )
         .onHover { isHovered = $0 }
         .help(row.summary.title)
@@ -573,10 +520,10 @@ private struct SidebarChatRow: View {
 
     private var rowFill: Color {
         if row.isSelected {
-            return theme.colors.surfaceElevated.opacity(0.5)
+            return theme.colors.surfaceElevated.opacity(0.50)
         }
         if isHovered {
-            return theme.colors.surfaceElevated.opacity(0.24)
+            return theme.colors.surfaceElevated.opacity(0.22)
         }
         return .clear
     }

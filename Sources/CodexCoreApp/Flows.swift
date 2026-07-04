@@ -15,20 +15,15 @@ struct WelcomeFlowView: View {
                 CodexBrandMark(size: 60)
 
                 VStack(spacing: 8) {
-                    Text("Start a Codex chat")
+                    Text(model.isConnecting ? "Starting Codex" : "Codex is ready to start")
                         .font(.system(size: 30, weight: .semibold))
                         .foregroundStyle(theme.colors.textPrimary)
-                    Text("Connect to your local Codex app-server. If your installed Codex is already signed in, you'll go straight to chat.")
+                    Text("Codex opens with your default workspace and keeps recent projects available in the sidebar.")
                         .font(.system(size: 14))
                         .foregroundStyle(theme.colors.textSecondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 460)
                 }
-
-                VStack(spacing: 10) {
-                    CodexLabeledTextField(title: "Workspace", subtitle: "Where Codex reads and writes files", text: $model.workspacePath, systemImage: "folder")
-                }
-                .frame(maxWidth: 460)
 
                 if let message = model.connectionErrorMessage {
                     CodexErrorBanner(message: message).frame(maxWidth: 460)
@@ -43,7 +38,7 @@ struct WelcomeFlowView: View {
                         } else {
                             Image(systemName: "bolt.fill").font(.system(size: 13))
                         }
-                        Text(model.isConnecting ? "Connecting…" : "Connect")
+                        Text(model.isConnecting ? "Connecting…" : "Retry")
                             .font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundStyle(theme.colors.onAccent)
