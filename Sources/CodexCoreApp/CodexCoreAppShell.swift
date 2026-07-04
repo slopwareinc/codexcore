@@ -44,6 +44,7 @@ struct CodexCoreAppShell: View {
             .layoutPriority(1)
         }
         .frame(minWidth: sidebarSnapshot.isCollapsed ? 760 : 980, minHeight: 620)
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
                 VStack(alignment: .trailing, spacing: 10) {

@@ -143,23 +143,51 @@ public struct CodexProjectSidebar: View {
     }
 
     private var sidebarHeader: some View {
-        HStack(spacing: 8) {
-            if !snapshot.isCollapsed {
+        HStack(spacing: snapshot.isCollapsed ? 0 : 12) {
+            if snapshot.isCollapsed {
+                Spacer(minLength: 0)
+                titlebarChromeButton(
+                    systemImage: "sidebar.left",
+                    title: CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed),
+                    action: onToggleCollapsed
+                )
+                Spacer(minLength: 0)
+            } else {
+                Color.clear
+                    .frame(width: SidebarMetrics.trafficLightReserveWidth, height: 1)
+                titlebarChromeButton(
+                    systemImage: "sidebar.leading",
+                    title: CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed),
+                    action: onToggleCollapsed
+                )
+                titlebarChromeButton(systemImage: "chevron.left", title: "Back", isEnabled: false)
+                titlebarChromeButton(systemImage: "chevron.right", title: "Forward", isEnabled: false)
                 Spacer(minLength: 0)
             }
-
-            Button(action: onToggleCollapsed) {
-                Image(systemName: snapshot.isCollapsed ? "sidebar.left" : "sidebar.leading")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(theme.colors.textSecondary)
-            .accessibilityLabel(CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed))
-            .help(CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed))
         }
-        .padding(.horizontal, snapshot.isCollapsed ? 8 : 10)
-        .frame(height: snapshot.isCollapsed ? 42 : 28)
+        .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
+        .frame(height: SidebarMetrics.titlebarHeight)
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture())
+        .allowsWindowActivationEvents(true)
+    }
+
+    private func titlebarChromeButton(
+        systemImage: String,
+        title: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void = {}
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .medium))
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary.opacity(0.45))
+        .accessibilityLabel(title)
+        .help(title)
     }
 
     private var routeRows: some View {
@@ -635,4 +663,6 @@ private struct SidebarChatRow: View {
 private enum SidebarMetrics {
     static let expandedWidth: CGFloat = 288
     static let collapsedWidth: CGFloat = 58
+    static let titlebarHeight: CGFloat = 54
+    static let trafficLightReserveWidth: CGFloat = 92
 }
