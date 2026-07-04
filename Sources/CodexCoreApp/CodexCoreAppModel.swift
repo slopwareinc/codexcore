@@ -21,6 +21,7 @@ final class CodexCoreAppModel {
     var themePreset: CodexAgentThemePreset = .officialDark
     private(set) var gitBranch: String?
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
+    private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
 
     private var codex: Codex?
     var authSession = CodexAuthSession()
@@ -111,9 +112,11 @@ final class CodexCoreAppModel {
             bindApprovalStore(from: codex.store)
             let server = codex.metadata.serverInfo?.name ?? "Codex"
             authSession.connected(server: server)
+            accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
 
             do {
                 let account = try await codex.account(refreshToken: false)
+                accountMenuSummary = CodexAccountMenuSummary(account: account.account, serverName: server)
                 let authCheck = authSession.applyAccount(account)
                 if let activity = authCheck.activity {
                     appendActivity(activity)
@@ -1680,14 +1683,22 @@ enum CodexPinnedThreadStorage {
 
 enum CodexExpandedProjectStorage {
     private static let expandedProjectStorageKey = "CodexCoreApp.expandedProjectIDs"
-    private static let persistedMarker = "__codex_expanded_project_state_v1__"
+    private static let persistedMarker = "__codex_expanded_project_state_v2__"
+    private static let legacyPersistedMarkers: Set<String> = [
+        "__codex_expanded_project_state_v1__"
+    ]
 
     static func loadExpandedProjectState(
         from store: any CodexStringListPreferenceStore
     ) -> (hasStoredState: Bool, ids: Set<String>) {
         let stored = store.loadStrings(forKey: expandedProjectStorageKey)
-        let hasStoredState = store.hasStrings(forKey: expandedProjectStorageKey) || stored.contains(persistedMarker)
-        return (hasStoredState, Set(normalized(stored.filter { $0 != persistedMarker })))
+        if stored.contains(persistedMarker) {
+            return (true, Set(normalized(stored.filter { $0 != persistedMarker && !legacyPersistedMarkers.contains($0) })))
+        }
+        if stored.contains(where: legacyPersistedMarkers.contains) {
+            return (false, [])
+        }
+        return (store.hasStrings(forKey: expandedProjectStorageKey), Set(normalized(stored)))
     }
 
     static func saveExpandedProjectIDs(

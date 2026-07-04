@@ -5,6 +5,7 @@ public struct CodexProjectSidebar: View {
     @State private var showsOlderProjects = false
 
     let serverName: String?
+    let accountSummary: CodexAccountMenuSummary
     let isThreadReady: Bool
     let snapshot: CodexSidebarSnapshot
     let onNewChat: () -> Void
@@ -21,6 +22,7 @@ public struct CodexProjectSidebar: View {
 
     public init(
         serverName: String?,
+        accountSummary: CodexAccountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available"),
         isThreadReady: Bool,
         snapshot: CodexSidebarSnapshot,
         onNewChat: @escaping () -> Void,
@@ -36,6 +38,7 @@ public struct CodexProjectSidebar: View {
         onArchiveChat: @escaping (CodexThreadSummary) -> Void
     ) {
         self.serverName = serverName
+        self.accountSummary = accountSummary
         self.isThreadReady = isThreadReady
         self.snapshot = snapshot
         self.onNewChat = onNewChat
@@ -67,6 +70,8 @@ public struct CodexProjectSidebar: View {
                 .padding(.top, 10)
                 .padding(.bottom, 18)
             }
+
+            accountFooter
         }
         .frame(
             minWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth,
@@ -80,6 +85,60 @@ public struct CodexProjectSidebar: View {
             Rectangle()
                 .fill(theme.colors.border.opacity(0.45))
                 .frame(width: 1)
+        }
+    }
+
+    private var accountFooter: some View {
+        Button {
+            onSelectRoute(.codexMobile)
+        } label: {
+            HStack(spacing: 12) {
+                Text(accountSummary.initials)
+                    .font(.system(size: snapshot.isCollapsed ? 12 : 14, weight: .medium))
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(theme.colors.accent.opacity(0.26))
+                    )
+                    .overlay {
+                        Circle()
+                            .stroke(theme.colors.border.opacity(0.6), lineWidth: 1)
+                    }
+
+                if !snapshot.isCollapsed {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(accountSummary.displayName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .lineLimit(1)
+                        Text(accountSummary.detail)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "iphone")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .frame(width: 26, height: 30)
+                }
+            }
+            .frame(height: snapshot.isCollapsed ? 42 : 54)
+            .frame(maxWidth: .infinity, alignment: snapshot.isCollapsed ? .center : .leading)
+            .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(accountSummary.displayName)
+        .background {
+            Rectangle()
+                .fill(theme.colors.surface.opacity(0.12))
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(theme.colors.border.opacity(0.32))
+                        .frame(height: 1)
+                }
         }
     }
 
@@ -351,40 +410,48 @@ private struct ProjectSidebarGroupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 4) {
-                Button {
-                    if group.isExpanded {
-                        onToggleProject(group.project.workspacePath)
-                    } else {
-                        onToggleProject(group.project.workspacePath)
-                        onSelectProject(group.project.workspacePath)
-                    }
-                } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: "folder.badge.gearshape")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                            .frame(width: 20)
-                        if !isCollapsed {
-                            Text(group.project.displayName)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(theme.colors.textSecondary)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    .frame(height: isCollapsed ? 31 : 35)
-                    .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-                    .padding(.horizontal, isCollapsed ? 4 : 6)
-                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Button {
+                if group.isExpanded {
+                    onToggleProject(group.project.workspacePath)
+                } else {
+                    onToggleProject(group.project.workspacePath)
+                    onSelectProject(group.project.workspacePath)
                 }
-                .buttonStyle(.plain)
-                .help(group.project.displayName)
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                        .frame(width: 20)
+                    if !isCollapsed {
+                        Text(group.project.displayName)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .frame(height: isCollapsed ? 31 : 35)
+                .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+                .padding(.horizontal, isCollapsed ? 4 : 6)
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(CodexSidebarAccessibility.projectDisclosureLabel(projectTitle: group.project.displayName, isExpanded: group.isExpanded))
+            .help(group.project.displayName)
+            .contextMenu {
+                if group.canStartNewChat {
+                    Button {
+                        onStartProjectChat(group.project.workspacePath)
+                    } label: {
+                        Label("New chat", systemImage: "square.and.pencil")
+                    }
+                }
 
-                if !isCollapsed {
-                    projectActionButtons
-                        .opacity(projectControlsAreVisible ? 1 : 0)
-                        .allowsHitTesting(projectControlsAreVisible)
+                Button {
+                    onSelectProject(group.project.workspacePath)
+                } label: {
+                    Label("Select project", systemImage: "folder")
                 }
             }
             .padding(.horizontal, isCollapsed ? 0 : 2)
@@ -425,63 +492,8 @@ private struct ProjectSidebarGroupView: View {
         }
     }
 
-    @ViewBuilder
-    private var projectActionButtons: some View {
-        HStack(spacing: 2) {
-            if group.hasProjectActionsEntry {
-                Menu {
-                    if group.canStartNewChat {
-                        Button {
-                            onStartProjectChat(group.project.workspacePath)
-                        } label: {
-                            Label("New chat", systemImage: "square.and.pencil")
-                        }
-                    }
-
-                    Button {
-                        onSelectProject(group.project.workspacePath)
-                    } label: {
-                        Label("Select project", systemImage: "folder")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 22, height: 30)
-                }
-                .menuStyle(.borderlessButton)
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.colors.textTertiary)
-                .accessibilityLabel(CodexSidebarAccessibility.projectActionsLabel(projectTitle: group.project.displayName))
-                .help("Project actions")
-            } else {
-                Color.clear.frame(width: 22, height: 30)
-            }
-
-            if group.canStartNewChat {
-                Button {
-                    onStartProjectChat(group.project.workspacePath)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                        .frame(width: 22, height: 30)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.colors.textTertiary)
-                .accessibilityLabel(CodexSidebarAccessibility.projectNewChatLabel(projectTitle: group.project.displayName))
-                .help("New chat in project")
-            } else {
-                Color.clear.frame(width: 22, height: 30)
-            }
-        }
-        .frame(width: 48, alignment: .trailing)
-    }
-
     private var hasSelectedThread: Bool {
         group.rows.contains { $0.isSelected }
-    }
-
-    private var projectControlsAreVisible: Bool {
-        isHovered || group.isSelected
     }
 
     private var projectRowFill: Color {

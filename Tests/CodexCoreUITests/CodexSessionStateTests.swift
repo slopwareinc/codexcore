@@ -3,6 +3,21 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexSessionStateTests: XCTestCase {
+    func testAccountMenuSummaryFormatsServerAccount() {
+        let summary = CodexAccountMenuSummary(
+            account: Account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "pro"),
+            serverName: "Codex"
+        )
+
+        XCTAssertEqual(summary.displayName, "Pranjal Paliwal")
+        XCTAssertEqual(summary.detail, "Pro")
+        XCTAssertEqual(summary.initials, "PP")
+
+        let fallback = CodexAccountMenuSummary(account: nil, serverName: "Codex")
+        XCTAssertEqual(fallback.displayName, "Codex")
+        XCTAssertEqual(fallback.detail, "Available")
+    }
+
     func testAuthSessionOwnsConnectionAuthenticationAndDeviceCodeState() {
         var session = CodexAuthSession()
 

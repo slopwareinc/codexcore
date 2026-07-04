@@ -502,7 +502,7 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertEqual(snapshot.olderProjects.map(\.project.workspacePath), ["/tmp/Older"])
     }
 
-    func testSidebarDefaultExpandedProjectsIncludesRecentOnly() {
+    func testSidebarDefaultExpandedProjectsIsEmpty() {
         let now = Date().timeIntervalSince1970
         let projects = [
             CodexProjectSummary(workspacePath: "/tmp/Recent", updatedAt: now - 60),
@@ -512,7 +512,7 @@ final class CodexThreadListHistoryTests: XCTestCase {
 
         XCTAssertEqual(
             CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: projects, now: now),
-            ["/tmp/Recent"]
+            []
         )
     }
 

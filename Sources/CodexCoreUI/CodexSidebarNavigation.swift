@@ -311,12 +311,8 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         )
     }
 
-    public static func defaultExpandedProjectIDs(projects: [CodexProjectSummary], now: TimeInterval = Date().timeIntervalSince1970) -> Set<String> {
-        let cutoff = now - recentProjectInterval
-        return Set(projects.compactMap { project in
-            guard let updatedAt = project.updatedAt, updatedAt >= cutoff else { return nil }
-            return project.workspacePath
-        })
+    public static func defaultExpandedProjectIDs(projects _: [CodexProjectSummary], now _: TimeInterval = Date().timeIntervalSince1970) -> Set<String> {
+        []
     }
 
     private static func normalizedID(_ id: String) -> String? {

@@ -15,6 +15,7 @@ struct CodexCoreAppShell: View {
         HStack(spacing: 0) {
             CodexProjectSidebar(
                 serverName: model.serverName,
+                accountSummary: model.accountMenuSummary,
                 isThreadReady: model.isThreadReady,
                 snapshot: sidebarSnapshot,
                 onNewChat: { Task { await model.startNewChat() } },
