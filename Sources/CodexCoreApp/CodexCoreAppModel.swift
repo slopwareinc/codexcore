@@ -189,6 +189,7 @@ final class CodexCoreAppModel {
     }
 
     func sendDraft() async {
+        syncComposerThreadID()
         let route = CodexTurnSubmissionSession.consumeDraft(
             composerSession: &composerSession,
             canSendFollowUp: canSendFollowUp,
@@ -546,7 +547,7 @@ final class CodexCoreAppModel {
         } else {
             sidebarNavigationSession.selectRoute(.chat)
         }
-        composerSession.draft = request.prompt
+        composerSession.setDraft(request.prompt, for: currentThreadID)
         appendActivity(.notice, title: request.activityTitle, detail: request.activityDetail)
         await refreshRecentChats()
     }
@@ -686,6 +687,7 @@ final class CodexCoreAppModel {
                 return
             }
             threadSession.activateResumedThread(resumeResult.thread, using: codex)
+            syncComposerThreadID()
             await refreshGoal(
                 for: resumeResult.thread,
                 trace: trace,
@@ -777,7 +779,7 @@ final class CodexCoreAppModel {
                 sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
                 invalidatePendingChatSelection()
                 clearThreadState()
-                composerSession.draft = draftPrompt
+                composerSession.setDraft(draftPrompt, for: currentThreadID)
             }
             appendIntegrationActivity(outcome.activity)
             if outcome.shouldRefresh {
@@ -979,6 +981,7 @@ final class CodexCoreAppModel {
             using: codex,
             configuration: threadLaunchConfiguration
         )
+        syncComposerThreadID()
         if result.didStart {
             await refreshGoal(for: result.thread)
             appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
@@ -1089,6 +1092,7 @@ final class CodexCoreAppModel {
         clearThreadState()
         codex.store.hydrate(result.hydration)
         let thread = threadSession.activateCachedThread(id: threadID, using: codex)
+        syncComposerThreadID()
         let metadata = applyThreadHistoryRestore(result, trace: trace)
         cacheSpan.end(metadata: metadata.merging(["threadID": thread.id, "outcome": "success"]) { _, new in new })
         sidebarNavigationSession.selectChat(thread.id, workspacePath: workspacePath)
@@ -1236,6 +1240,7 @@ final class CodexCoreAppModel {
     }
 
     func handleSlashCommand(_ command: CodexSlashCommand, presentMCPStatus: (() -> Void)? = nil) {
+        syncComposerThreadID()
         let route = composerSession.routeSlashCommand(command)
         for activity in route.activities {
             appendActivity(activity)
@@ -1432,6 +1437,7 @@ final class CodexCoreAppModel {
     }
 
     func selectMention(_ result: FuzzyFileSearchResult) {
+        syncComposerThreadID()
         composerSession.selectMention(result)
         appendActivity(.notice, title: "Mentioned file", detail: result.path)
     }
@@ -1491,9 +1497,14 @@ final class CodexCoreAppModel {
             threadSession.reset()
         }
         runtimeSession.resetThreadState()
+        syncComposerThreadID()
         composerSession.clearThreadState()
         promptRuntime.reset()
         Task { await promptRuntime.cancelAllPrompts() }
+    }
+
+    private func syncComposerThreadID() {
+        composerSession.setActiveThreadID(currentThreadID)
     }
 
     private func resetSessionState() {

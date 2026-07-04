@@ -71,6 +71,30 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertTrue(session.isAuthenticated)
     }
 
+    func testComposerStateSessionScopesDraftByActiveThread() throws {
+        var session = CodexComposerStateSession()
+
+        session.setActiveThreadID("thread-a")
+        session.draft = "Draft A"
+
+        session.setActiveThreadID("thread-b")
+        XCTAssertEqual(session.draft, "")
+        session.draft = "Draft B"
+
+        XCTAssertEqual(session.draft(for: "thread-a"), "Draft A")
+        XCTAssertEqual(session.draft(for: "thread-b"), "Draft B")
+
+        let submission = try XCTUnwrap(session.consumeDraftForTurn())
+        XCTAssertEqual(submission.prompt, "Draft B")
+        XCTAssertEqual(session.draft(for: "thread-b"), "")
+        XCTAssertEqual(session.draft(for: "thread-a"), "Draft A")
+
+        session.setActiveThreadID("thread-a")
+        XCTAssertEqual(session.draft, "Draft A")
+        session.clearDraft()
+        XCTAssertEqual(session.draft(for: "thread-a"), "")
+    }
+
     func testComposerStateSessionOwnsDraftSkillsMentionsAndFollowUps() throws {
         let skill = CodexSlashCommand(
             id: "skill:thermo",

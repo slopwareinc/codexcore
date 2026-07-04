@@ -8,8 +8,11 @@ extension CodexCoreAppModel {
     }
 
     var draft: String {
-        get { composerSession.draft }
-        set { composerSession.draft = newValue }
+        get { composerSession.draft(for: currentThreadID) }
+        set {
+            composerSession.setActiveThreadID(currentThreadID)
+            composerSession.setDraft(newValue, for: currentThreadID)
+        }
     }
 
     var sideChatDraft: String {
@@ -236,7 +239,7 @@ extension CodexCoreAppModel {
     var canSend: Bool {
         if case .connected = connectionState,
            isAuthenticated,
-           !composerSession.trimmedDraft.isEmpty,
+           !composerSession.trimmedDraft(for: currentThreadID).isEmpty,
            !isSending || canSendFollowUp {
             return true
         }

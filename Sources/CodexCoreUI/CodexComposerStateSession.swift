@@ -55,7 +55,16 @@ public struct CodexComposerSlashCommandRoute: Equatable, Sendable {
 }
 
 public struct CodexComposerStateSession: Equatable, Sendable {
-    public var draft: String
+    private static let unassignedDraftKey = "__codex_unassigned_draft__"
+
+    private var activeThreadID: String?
+    private var draftByThreadID: [String: String]
+
+    public var draft: String {
+        get { draft(for: activeThreadID) }
+        set { setDraft(newValue, for: activeThreadID) }
+    }
+
     public var sideChatDraft: String
     public var followUpBehavior: CodexFollowUpBehavior
     public private(set) var queuedFollowUps: [String]
@@ -70,9 +79,17 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         queuedFollowUps: [String] = [],
         mentionResults: [FuzzyFileSearchResult] = [],
         attachedSkills: [CodexSlashCommand] = [],
-        selectedMentionsByName: [String: FuzzyFileSearchResult] = [:]
+        selectedMentionsByName: [String: FuzzyFileSearchResult] = [:],
+        activeThreadID: String? = nil,
+        draftByThreadID: [String: String] = [:]
     ) {
-        self.draft = draft
+        self.activeThreadID = Self.normalizedThreadID(activeThreadID)
+        var drafts = draftByThreadID
+        let initialKey = Self.draftKey(for: self.activeThreadID)
+        if !draft.isEmpty {
+            drafts[initialKey] = draft
+        }
+        self.draftByThreadID = drafts
         self.sideChatDraft = sideChatDraft
         self.followUpBehavior = followUpBehavior
         self.queuedFollowUps = queuedFollowUps
@@ -83,6 +100,27 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
     public var trimmedDraft: String {
         draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public func draft(for threadID: String?) -> String {
+        draftByThreadID[Self.draftKey(for: threadID)] ?? ""
+    }
+
+    public func trimmedDraft(for threadID: String?) -> String {
+        draft(for: threadID).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public mutating func setDraft(_ draft: String, for threadID: String?) {
+        let key = Self.draftKey(for: threadID)
+        if draft.isEmpty {
+            draftByThreadID.removeValue(forKey: key)
+        } else {
+            draftByThreadID[key] = draft
+        }
+    }
+
+    public mutating func setActiveThreadID(_ threadID: String?) {
+        activeThreadID = Self.normalizedThreadID(threadID)
     }
 
     public var trimmedSideChatDraft: String {
@@ -239,5 +277,14 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         CodexComposerSlashCommandRoute(activities: [
             CodexActivity(kind: .notice, title: title, detail: detail)
         ])
+    }
+
+    private static func draftKey(for threadID: String?) -> String {
+        normalizedThreadID(threadID) ?? unassignedDraftKey
+    }
+
+    private static func normalizedThreadID(_ threadID: String?) -> String? {
+        let trimmed = threadID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
