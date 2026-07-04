@@ -195,8 +195,9 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
             let normalized = normalizedPath(path)
             var bucket = buckets[normalized] ?? (chatCount: 0, updatedAt: nil)
             bucket.chatCount += 1
-            if let updatedAt = summary.updatedAt, bucket.updatedAt.map({ updatedAt > $0 }) ?? true {
-                bucket.updatedAt = updatedAt
+            if let recencyAt = summary.recencyAt ?? summary.updatedAt ?? summary.createdAt,
+               bucket.updatedAt.map({ recencyAt > $0 }) ?? true {
+                bucket.updatedAt = recencyAt
             }
             buckets[normalized] = bucket
         }

@@ -21,6 +21,7 @@ final class CodexCoreAppModel {
     var themePreset: CodexAgentThemePreset = .officialDark
     private(set) var gitBranch: String?
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
+    private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
 
     private var codex: Codex?
     var authSession = CodexAuthSession()
@@ -29,6 +30,7 @@ final class CodexCoreAppModel {
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
     var sidebarNavigationSession = CodexSidebarNavigationSession(currentWorkspacePath: defaultWorkspacePath())
     var pinnedThreadIDs: [String]
+    private var hasStoredExpandedProjectState: Bool
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession()
     var activityLog = CodexActivityLogSession()
@@ -61,6 +63,12 @@ final class CodexCoreAppModel {
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+        let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
+        self.hasStoredExpandedProjectState = expandedState.hasStoredState
+        self.sidebarNavigationSession = CodexSidebarNavigationSession(
+            currentWorkspacePath: defaultWorkspacePath(),
+            expandedProjectIDs: expandedState.ids
+        )
     }
 
     convenience init() {
@@ -104,9 +112,11 @@ final class CodexCoreAppModel {
             bindApprovalStore(from: codex.store)
             let server = codex.metadata.serverInfo?.name ?? "Codex"
             authSession.connected(server: server)
+            accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
 
             do {
                 let account = try await codex.account(refreshToken: false)
+                accountMenuSummary = CodexAccountMenuSummary(account: account.account, serverName: server)
                 let authCheck = authSession.applyAccount(account)
                 if let activity = authCheck.activity {
                     appendActivity(activity)
@@ -179,6 +189,7 @@ final class CodexCoreAppModel {
     }
 
     func sendDraft() async {
+        syncComposerThreadID()
         let route = CodexTurnSubmissionSession.consumeDraft(
             composerSession: &composerSession,
             canSendFollowUp: canSendFollowUp,
@@ -458,11 +469,14 @@ final class CodexCoreAppModel {
         )
         let applySpan = trace?.begin("threadList.model.apply")
         threadListSession = session
-        
-        for project in session.recentProjects {
-            sidebarNavigationSession.expandProject(project.workspacePath)
+
+        if !hasStoredExpandedProjectState {
+            sidebarNavigationSession.setExpandedProjects(
+                CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: session.recentProjects)
+            )
+            saveExpandedSidebarProjects()
         }
-        
+
         if let activity {
             appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
@@ -533,7 +547,7 @@ final class CodexCoreAppModel {
         } else {
             sidebarNavigationSession.selectRoute(.chat)
         }
-        composerSession.draft = request.prompt
+        composerSession.setDraft(request.prompt, for: currentThreadID)
         appendActivity(.notice, title: request.activityTitle, detail: request.activityDetail)
         await refreshRecentChats()
     }
@@ -548,15 +562,18 @@ final class CodexCoreAppModel {
 
     func toggleSidebarProject(_ workspacePath: String) {
         sidebarNavigationSession.toggleProject(workspacePath)
+        saveExpandedSidebarProjects()
     }
 
     func selectSidebarProject(_ path: String) async {
         sidebarNavigationSession.selectProject(path)
+        saveExpandedSidebarProjects()
         await switchWorkspace(to: path)
     }
 
     func startNewChat(inProject path: String) async {
         sidebarNavigationSession.selectProject(path)
+        saveExpandedSidebarProjects()
         if CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
             await switchWorkspace(to: path)
         }
@@ -565,6 +582,7 @@ final class CodexCoreAppModel {
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
         sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
+        saveExpandedSidebarProjects()
         if let path = chat.workspacePath,
            CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
             await switchWorkspace(to: path)
@@ -577,11 +595,13 @@ final class CodexCoreAppModel {
         guard !normalized.isEmpty else { return }
         guard normalized != CodexProjectSummary.normalizedPath(workspacePath) else {
             sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: currentThreadID)
+            saveExpandedSidebarProjects()
             return
         }
 
         workspacePath = normalized
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+        saveExpandedSidebarProjects()
         invalidatePendingChatSelection()
         clearThreadState()
         appendActivity(.notice, title: "Switched project", detail: normalized)
@@ -598,6 +618,7 @@ final class CodexCoreAppModel {
     func startNewChat() async {
         invalidatePendingChatSelection()
         sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+        saveExpandedSidebarProjects()
         clearThreadState()
         guard codex != nil else { return }
         await refreshRecentChats()
@@ -666,6 +687,7 @@ final class CodexCoreAppModel {
                 return
             }
             threadSession.activateResumedThread(resumeResult.thread, using: codex)
+            syncComposerThreadID()
             await refreshGoal(
                 for: resumeResult.thread,
                 trace: trace,
@@ -757,7 +779,7 @@ final class CodexCoreAppModel {
                 sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
                 invalidatePendingChatSelection()
                 clearThreadState()
-                composerSession.draft = draftPrompt
+                composerSession.setDraft(draftPrompt, for: currentThreadID)
             }
             appendIntegrationActivity(outcome.activity)
             if outcome.shouldRefresh {
@@ -959,6 +981,7 @@ final class CodexCoreAppModel {
             using: codex,
             configuration: threadLaunchConfiguration
         )
+        syncComposerThreadID()
         if result.didStart {
             await refreshGoal(for: result.thread)
             appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
@@ -1069,6 +1092,7 @@ final class CodexCoreAppModel {
         clearThreadState()
         codex.store.hydrate(result.hydration)
         let thread = threadSession.activateCachedThread(id: threadID, using: codex)
+        syncComposerThreadID()
         let metadata = applyThreadHistoryRestore(result, trace: trace)
         cacheSpan.end(metadata: metadata.merging(["threadID": thread.id, "outcome": "success"]) { _, new in new })
         sidebarNavigationSession.selectChat(thread.id, workspacePath: workspacePath)
@@ -1216,6 +1240,7 @@ final class CodexCoreAppModel {
     }
 
     func handleSlashCommand(_ command: CodexSlashCommand, presentMCPStatus: (() -> Void)? = nil) {
+        syncComposerThreadID()
         let route = composerSession.routeSlashCommand(command)
         for activity in route.activities {
             appendActivity(activity)
@@ -1412,6 +1437,7 @@ final class CodexCoreAppModel {
     }
 
     func selectMention(_ result: FuzzyFileSearchResult) {
+        syncComposerThreadID()
         composerSession.selectMention(result)
         appendActivity(.notice, title: "Mentioned file", detail: result.path)
     }
@@ -1471,9 +1497,14 @@ final class CodexCoreAppModel {
             threadSession.reset()
         }
         runtimeSession.resetThreadState()
+        syncComposerThreadID()
         composerSession.clearThreadState()
         promptRuntime.reset()
         Task { await promptRuntime.cancelAllPrompts() }
+    }
+
+    private func syncComposerThreadID() {
+        composerSession.setActiveThreadID(currentThreadID)
     }
 
     private func resetSessionState() {
@@ -1514,6 +1545,11 @@ final class CodexCoreAppModel {
             title: pinned ? "Pinned chat" : "Unpinned chat",
             detail: threadID
         )
+    }
+
+    private func saveExpandedSidebarProjects() {
+        CodexExpandedProjectStorage.saveExpandedProjectIDs(sidebarNavigationSession.expandedProjectIDs, to: preferenceStore)
+        hasStoredExpandedProjectState = true
     }
 
     private func renameChatInSidebar(_ threadID: String, title: String) {
@@ -1651,6 +1687,47 @@ enum CodexPinnedThreadStorage {
             if seen.insert(id).inserted {
                 result.append(id)
             }
+        }
+        return result
+    }
+}
+
+enum CodexExpandedProjectStorage {
+    private static let expandedProjectStorageKey = "CodexCoreApp.expandedProjectIDs"
+    private static let persistedMarker = "__codex_expanded_project_state_v2__"
+    private static let legacyPersistedMarkers: Set<String> = [
+        "__codex_expanded_project_state_v1__"
+    ]
+
+    static func loadExpandedProjectState(
+        from store: any CodexStringListPreferenceStore
+    ) -> (hasStoredState: Bool, ids: Set<String>) {
+        let stored = store.loadStrings(forKey: expandedProjectStorageKey)
+        if stored.contains(persistedMarker) {
+            return (true, Set(normalized(stored.filter { $0 != persistedMarker && !legacyPersistedMarkers.contains($0) })))
+        }
+        if stored.contains(where: legacyPersistedMarkers.contains) {
+            return (false, [])
+        }
+        return (store.hasStrings(forKey: expandedProjectStorageKey), Set(normalized(stored)))
+    }
+
+    static func saveExpandedProjectIDs(
+        _ ids: Set<String>,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings([persistedMarker] + normalized(Array(ids)).sorted(), forKey: expandedProjectStorageKey)
+    }
+
+    private static func normalized(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for id in ids {
+            let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let normalized = CodexProjectSummary.normalizedPath(trimmed)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
+            result.append(normalized)
         }
         return result
     }

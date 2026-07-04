@@ -3,6 +3,21 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexSessionStateTests: XCTestCase {
+    func testAccountMenuSummaryFormatsServerAccount() {
+        let summary = CodexAccountMenuSummary(
+            account: Account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "pro"),
+            serverName: "Codex"
+        )
+
+        XCTAssertEqual(summary.displayName, "Pranjal Paliwal")
+        XCTAssertEqual(summary.detail, "Pro")
+        XCTAssertEqual(summary.initials, "PP")
+
+        let fallback = CodexAccountMenuSummary(account: nil, serverName: "Codex")
+        XCTAssertEqual(fallback.displayName, "Codex")
+        XCTAssertEqual(fallback.detail, "Available")
+    }
+
     func testAuthSessionOwnsConnectionAuthenticationAndDeviceCodeState() {
         var session = CodexAuthSession()
 
@@ -54,6 +69,30 @@ final class CodexSessionStateTests: XCTestCase {
         session.resetAuthentication()
         XCTAssertEqual(session.authLabel, "Checking auth")
         XCTAssertTrue(session.isAuthenticated)
+    }
+
+    func testComposerStateSessionScopesDraftByActiveThread() throws {
+        var session = CodexComposerStateSession()
+
+        session.setActiveThreadID("thread-a")
+        session.draft = "Draft A"
+
+        session.setActiveThreadID("thread-b")
+        XCTAssertEqual(session.draft, "")
+        session.draft = "Draft B"
+
+        XCTAssertEqual(session.draft(for: "thread-a"), "Draft A")
+        XCTAssertEqual(session.draft(for: "thread-b"), "Draft B")
+
+        let submission = try XCTUnwrap(session.consumeDraftForTurn())
+        XCTAssertEqual(submission.prompt, "Draft B")
+        XCTAssertEqual(session.draft(for: "thread-b"), "")
+        XCTAssertEqual(session.draft(for: "thread-a"), "Draft A")
+
+        session.setActiveThreadID("thread-a")
+        XCTAssertEqual(session.draft, "Draft A")
+        session.clearDraft()
+        XCTAssertEqual(session.draft(for: "thread-a"), "")
     }
 
     func testComposerStateSessionOwnsDraftSkillsMentionsAndFollowUps() throws {

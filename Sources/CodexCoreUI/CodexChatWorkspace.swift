@@ -538,6 +538,12 @@ public struct CodexChatHeader: View {
         }
         .frame(height: theme.spacing.toolbarHeight)
         .padding(.horizontal, 10)
+        .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.14))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.colors.border.opacity(0.24))
+                .frame(height: 1)
+        }
     }
 }
 

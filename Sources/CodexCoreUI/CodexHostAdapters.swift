@@ -8,6 +8,7 @@ public protocol CodexClipboardService: Sendable {
 public protocol CodexStringListPreferenceStore: Sendable {
     func loadStrings(forKey key: String) -> [String]
     func saveStrings(_ strings: [String], forKey key: String)
+    func hasStrings(forKey key: String) -> Bool
 }
 
 public struct CodexNoopClipboardService: CodexClipboardService {
@@ -21,6 +22,7 @@ public struct CodexNoopStringListPreferenceStore: CodexStringListPreferenceStore
 
     public func loadStrings(forKey key: String) -> [String] { [] }
     public func saveStrings(_ strings: [String], forKey key: String) {}
+    public func hasStrings(forKey key: String) -> Bool { false }
 }
 
 private struct CodexClipboardServiceKey: EnvironmentKey {

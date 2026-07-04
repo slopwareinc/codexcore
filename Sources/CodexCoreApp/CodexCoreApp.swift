@@ -72,6 +72,16 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         model.selectAppRoute(.search)
     }
 
+    @objc private func toggleBottomTerminalPanel(_ sender: Any?) {
+        showMainWindow()
+        model.toggleBottomTerminalPanel()
+    }
+
+    @objc private func openBottomTerminal(_ sender: Any?) {
+        showMainWindow()
+        Task { await model.openBottomTerminalDemo() }
+    }
+
     private func showMainWindow() {
         if mainWindow == nil {
             let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
@@ -82,7 +92,11 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             window.setAccessibilityElement(true)
             window.setAccessibilityRole(.window)
             window.setAccessibilityTitle("CodexCore")
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = .clear
             window.minSize = NSSize(width: 940, height: 660)
             window.setContentSize(NSSize(width: 1180, height: 760))
             window.isReleasedWhenClosed = false
@@ -113,6 +127,14 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         let newWindowItem = NSMenuItem(title: "New Chat", action: #selector(newWindow(_:)), keyEquivalent: "n")
         newWindowItem.target = self
         fileMenu.addItem(newWindowItem)
+        fileMenu.addItem(.separator())
+        let toggleTerminalItem = NSMenuItem(title: "Toggle Bottom Panel", action: #selector(toggleBottomTerminalPanel(_:)), keyEquivalent: "t")
+        toggleTerminalItem.target = self
+        toggleTerminalItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(toggleTerminalItem)
+        let openTerminalItem = NSMenuItem(title: "Open Terminal Demo", action: #selector(openBottomTerminal(_:)), keyEquivalent: "")
+        openTerminalItem.target = self
+        fileMenu.addItem(openTerminalItem)
         fileItem.submenu = fileMenu
 
         let editItem = NSMenuItem()
@@ -130,6 +152,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
 struct CodexCoreAppRootView: View {
     @Bindable var model: CodexCoreAppModel
     @Environment(\.openURL) private var openURL
+    @State private var didStartInitialConnection = false
 
     var body: some View {
         ZStack {
@@ -151,25 +174,10 @@ struct CodexCoreAppRootView: View {
         }
         .codexAgentTheme(model.themePreset.theme)
         .tint(model.themePreset.theme.colors.accent)
-        .toolbar {
-            if model.showsChatWorkspace {
-                ToolbarItemGroup(placement: .automatic) {
-                    Button {
-                        model.toggleBottomTerminalPanel()
-                    } label: {
-                        Label("Toggle bottom panel", systemImage: "rectangle.bottomthird.inset.filled")
-                    }
-                    .help("Toggle bottom panel")
-                    .keyboardShortcut("t", modifiers: [.command, .shift])
-
-                    Button {
-                        Task { await model.openBottomTerminalDemo() }
-                    } label: {
-                        Label("Open terminal", systemImage: "terminal")
-                    }
-                    .help("Open terminal")
-                }
-            }
+        .task {
+            guard !didStartInitialConnection else { return }
+            didStartInitialConnection = true
+            await model.connect()
         }
     }
 

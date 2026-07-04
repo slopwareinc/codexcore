@@ -15,6 +15,7 @@ struct CodexCoreAppShell: View {
         HStack(spacing: 0) {
             CodexProjectSidebar(
                 serverName: model.serverName,
+                accountSummary: model.accountMenuSummary,
                 isThreadReady: model.isThreadReady,
                 snapshot: sidebarSnapshot,
                 onNewChat: { Task { await model.startNewChat() } },
@@ -43,6 +44,7 @@ struct CodexCoreAppShell: View {
             .layoutPriority(1)
         }
         .frame(minWidth: sidebarSnapshot.isCollapsed ? 760 : 980, minHeight: 620)
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
                 VStack(alignment: .trailing, spacing: 10) {
