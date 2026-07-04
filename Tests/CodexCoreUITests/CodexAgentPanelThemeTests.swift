@@ -125,4 +125,20 @@ final class CodexAgentPanelThemeTests: XCTestCase {
         XCTAssertEqual(theme.effects.surfaceOpacity, 0.85)
     }
 
+    func testOfficialThemeCentralizesSidebarTypographyTokens() throws {
+        let typography = CodexAgentTheme.officialDark.fonts.sidebar
+
+        XCTAssertEqual(typography.commandTitle.size, 15)
+        XCTAssertEqual(typography.commandTitle.weight, .medium)
+        XCTAssertEqual(typography.projectTitle.size, 15)
+        XCTAssertEqual(typography.chatTitle.size, 15)
+        XCTAssertEqual(typography.sectionHeader.size, 13)
+        XCTAssertEqual(typography.chatRecency.size, 12)
+        XCTAssertEqual(typography.chatActionIcon.size, 9.5)
+
+        let encoded = try JSONEncoder().encode(typography)
+        let decoded = try JSONDecoder().decode(CodexAgentTheme.Fonts.SidebarTypography.self, from: encoded)
+        XCTAssertEqual(decoded, typography)
+    }
+
 }

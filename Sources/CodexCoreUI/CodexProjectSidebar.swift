@@ -92,9 +92,10 @@ public struct CodexProjectSidebar: View {
         Button {
             onSelectRoute(.codexMobile)
         } label: {
+            let sidebarFonts = theme.fonts.sidebar
             HStack(spacing: 12) {
                 Text(accountSummary.initials)
-                    .font(.system(size: snapshot.isCollapsed ? 12 : 14, weight: .medium))
+                    .font(sidebarFonts.accountInitials(isCollapsed: snapshot.isCollapsed))
                     .foregroundStyle(theme.colors.textPrimary)
                     .frame(width: 34, height: 34)
                     .background(
@@ -109,17 +110,17 @@ public struct CodexProjectSidebar: View {
                 if !snapshot.isCollapsed {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(accountSummary.displayName)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(sidebarFonts.accountName.font)
                             .foregroundStyle(theme.colors.textPrimary)
                             .lineLimit(1)
                         Text(accountSummary.detail)
-                            .font(theme.fonts.caption)
+                            .font(sidebarFonts.accountDetail.font)
                             .foregroundStyle(theme.colors.textTertiary)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "iphone")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(sidebarFonts.accountDeviceIcon.font)
                         .foregroundStyle(theme.colors.textTertiary)
                         .frame(width: 26, height: 30)
                 }
@@ -180,7 +181,7 @@ public struct CodexProjectSidebar: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .medium))
+                .font(theme.fonts.sidebar.titlebarIcon.font)
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
@@ -262,7 +263,7 @@ public struct CodexProjectSidebar: View {
 
             if snapshot.showsNoChats && !snapshot.isCollapsed {
                 Text(snapshot.noChatsTitle)
-                    .font(theme.fonts.caption)
+                    .font(theme.fonts.sidebar.emptyState.font)
                     .foregroundStyle(theme.colors.textTertiary)
                     .padding(.horizontal, 30)
                     .padding(.vertical, 6)
@@ -284,12 +285,12 @@ public struct CodexProjectSidebar: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: showsOlderProjects ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(theme.fonts.sidebar.disclosureChevron.font)
                                 .frame(width: 14)
                             Text("Show older")
-                                .font(.system(size: 15, weight: .medium))
+                                .font(theme.fonts.sidebar.disclosureTitle.font)
                             Text("\(snapshot.olderProjects.count)")
-                                .font(theme.fonts.caption)
+                                .font(theme.fonts.sidebar.disclosureCount.font)
                                 .foregroundStyle(theme.colors.textTertiary.opacity(theme.effects.textFaintOpacity))
                             Spacer(minLength: 0)
                         }
@@ -363,18 +364,18 @@ private struct SidebarCommandRow: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .regular))
+                    .font(theme.fonts.sidebar.commandIcon.font)
                     .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                     .frame(width: 20)
                 if !isCollapsed {
                     Text(title)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(theme.fonts.sidebar.commandTitle.font)
                         .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if let shortcut {
                         Text(shortcut)
-                            .font(theme.fonts.caption)
+                            .font(theme.fonts.sidebar.commandShortcut.font)
                             .foregroundStyle(theme.colors.textTertiary)
                     }
                 }
@@ -413,7 +414,7 @@ private struct SidebarSectionHeader: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.system(size: 15, weight: .medium))
+                .font(theme.fonts.sidebar.sectionHeader.font)
             Spacer(minLength: 0)
         }
         .foregroundStyle(theme.colors.textTertiary)
@@ -448,12 +449,12 @@ private struct ProjectSidebarGroupView: View {
             } label: {
                 HStack(spacing: 14) {
                     Image(systemName: "folder.badge.gearshape")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(theme.fonts.sidebar.projectIcon.font)
                         .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                         .frame(width: 20)
                     if !isCollapsed {
                         Text(group.project.displayName)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(theme.fonts.sidebar.projectTitle.font)
                             .foregroundStyle(theme.colors.textSecondary)
                             .lineLimit(1)
                         Spacer(minLength: 0)
@@ -492,7 +493,7 @@ private struct ProjectSidebarGroupView: View {
             if group.isExpanded && !isCollapsed {
                 if group.rows.isEmpty {
                     Text("No chats")
-                        .font(theme.fonts.caption)
+                        .font(theme.fonts.sidebar.emptyState.font)
                         .foregroundStyle(theme.colors.textTertiary)
                         .padding(.leading, 30)
                         .padding(.vertical, 5)
@@ -508,7 +509,7 @@ private struct ProjectSidebarGroupView: View {
                     }
                     if group.hiddenRowCount > 0 {
                         Text("Show \(group.hiddenRowCount) more")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(theme.fonts.sidebar.hiddenRowsPrompt.font)
                             .foregroundStyle(theme.colors.textTertiary)
                             .lineLimit(1)
                             .padding(.leading, 38)
@@ -548,7 +549,7 @@ private struct SidebarChatRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Text(row.summary.title)
-                .font(.system(size: 16, weight: .medium))
+                .font(theme.fonts.sidebar.chatTitle.font)
                 .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -571,7 +572,7 @@ private struct SidebarChatRow: View {
         ZStack(alignment: .trailing) {
             TimelineView(.periodic(from: .now, by: 60)) { _ in
                 Text(recencyLabel)
-                    .font(theme.fonts.caption)
+                    .font(theme.fonts.sidebar.chatRecency.font)
                     .foregroundStyle(theme.colors.textTertiary)
                     .lineLimit(1)
             }
@@ -611,7 +612,7 @@ private struct SidebarChatRow: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(theme.fonts.sidebar.chatActionIcon.font)
                 .frame(width: 21, height: 21)
                 .background(.regularMaterial, in: Circle())
                 .overlay {

@@ -133,6 +133,57 @@ public struct CodexAgentTheme {
         }
     }
 
+    public enum FontWeightToken: String, CaseIterable, Codable {
+        case regular
+        case medium
+        case semibold
+        case bold
+
+        var fontWeight: Font.Weight {
+            switch self {
+            case .regular: return .regular
+            case .medium: return .medium
+            case .semibold: return .semibold
+            case .bold: return .bold
+            }
+        }
+    }
+
+    public enum FontDesignToken: String, CaseIterable, Codable {
+        case system
+        case rounded
+        case serif
+        case monospaced
+
+        var fontDesign: Font.Design? {
+            switch self {
+            case .system: return nil
+            case .rounded: return .rounded
+            case .serif: return .serif
+            case .monospaced: return .monospaced
+            }
+        }
+    }
+
+    public struct FontToken: Codable, Equatable {
+        public var size: CGFloat
+        public var weight: FontWeightToken
+        public var design: FontDesignToken
+
+        public init(size: CGFloat, weight: FontWeightToken = .regular, design: FontDesignToken = .system) {
+            self.size = size
+            self.weight = weight
+            self.design = design
+        }
+
+        public var font: Font {
+            if let fontDesign = design.fontDesign {
+                return .system(size: size, weight: weight.fontWeight, design: fontDesign)
+            }
+            return .system(size: size, weight: weight.fontWeight)
+        }
+    }
+
     public struct Fonts {
         public var body: Font
         public var chat: Font
@@ -140,6 +191,7 @@ public struct CodexAgentTheme {
         public var label: Font
         public var code: Font
         public var micro: Font
+        public var sidebar: SidebarTypography
         /// Optional platform font backing `chat`. When set, the prose
         /// cache bakes this font into each `AttributedString` run and
         /// applies `NSInlinePresentationIntent` (bold, italic, code)
@@ -159,6 +211,7 @@ public struct CodexAgentTheme {
             label: Font,
             code: Font,
             micro: Font,
+            sidebar: SidebarTypography = .official,
             chatNSFont: NSFont? = nil,
             codeNSFont: NSFont? = nil
         ) {
@@ -168,6 +221,7 @@ public struct CodexAgentTheme {
             self.label = label
             self.code = code
             self.micro = micro
+            self.sidebar = sidebar
             self.chatNSFont = chatNSFont
             self.codeNSFont = codeNSFont
         }
@@ -181,6 +235,102 @@ public struct CodexAgentTheme {
                 code: .system(.footnote, design: .monospaced),
                 micro: .system(.caption2, design: .monospaced).weight(.semibold)
             )
+        }
+
+        public struct SidebarTypography: Codable, Equatable {
+            public var titlebarIcon: FontToken
+            public var accountInitialsCollapsed: FontToken
+            public var accountInitialsExpanded: FontToken
+            public var accountName: FontToken
+            public var accountDetail: FontToken
+            public var accountDeviceIcon: FontToken
+            public var commandIcon: FontToken
+            public var commandTitle: FontToken
+            public var commandShortcut: FontToken
+            public var sectionHeader: FontToken
+            public var disclosureChevron: FontToken
+            public var disclosureTitle: FontToken
+            public var disclosureCount: FontToken
+            public var projectIcon: FontToken
+            public var projectTitle: FontToken
+            public var emptyState: FontToken
+            public var hiddenRowsPrompt: FontToken
+            public var chatTitle: FontToken
+            public var chatRecency: FontToken
+            public var chatActionIcon: FontToken
+
+            public init(
+                titlebarIcon: FontToken,
+                accountInitialsCollapsed: FontToken,
+                accountInitialsExpanded: FontToken,
+                accountName: FontToken,
+                accountDetail: FontToken,
+                accountDeviceIcon: FontToken,
+                commandIcon: FontToken,
+                commandTitle: FontToken,
+                commandShortcut: FontToken,
+                sectionHeader: FontToken,
+                disclosureChevron: FontToken,
+                disclosureTitle: FontToken,
+                disclosureCount: FontToken,
+                projectIcon: FontToken,
+                projectTitle: FontToken,
+                emptyState: FontToken,
+                hiddenRowsPrompt: FontToken,
+                chatTitle: FontToken,
+                chatRecency: FontToken,
+                chatActionIcon: FontToken
+            ) {
+                self.titlebarIcon = titlebarIcon
+                self.accountInitialsCollapsed = accountInitialsCollapsed
+                self.accountInitialsExpanded = accountInitialsExpanded
+                self.accountName = accountName
+                self.accountDetail = accountDetail
+                self.accountDeviceIcon = accountDeviceIcon
+                self.commandIcon = commandIcon
+                self.commandTitle = commandTitle
+                self.commandShortcut = commandShortcut
+                self.sectionHeader = sectionHeader
+                self.disclosureChevron = disclosureChevron
+                self.disclosureTitle = disclosureTitle
+                self.disclosureCount = disclosureCount
+                self.projectIcon = projectIcon
+                self.projectTitle = projectTitle
+                self.emptyState = emptyState
+                self.hiddenRowsPrompt = hiddenRowsPrompt
+                self.chatTitle = chatTitle
+                self.chatRecency = chatRecency
+                self.chatActionIcon = chatActionIcon
+            }
+
+            public func accountInitials(isCollapsed: Bool) -> Font {
+                (isCollapsed ? accountInitialsCollapsed : accountInitialsExpanded).font
+            }
+
+            public static var official: SidebarTypography {
+                SidebarTypography(
+                    titlebarIcon: FontToken(size: 15, weight: .medium),
+                    accountInitialsCollapsed: FontToken(size: 12, weight: .medium),
+                    accountInitialsExpanded: FontToken(size: 14, weight: .medium),
+                    accountName: FontToken(size: 15, weight: .semibold),
+                    accountDetail: FontToken(size: 12, weight: .regular),
+                    accountDeviceIcon: FontToken(size: 16),
+                    commandIcon: FontToken(size: 15),
+                    commandTitle: FontToken(size: 15, weight: .medium),
+                    commandShortcut: FontToken(size: 12, weight: .regular),
+                    sectionHeader: FontToken(size: 13, weight: .medium),
+                    disclosureChevron: FontToken(size: 10, weight: .semibold),
+                    disclosureTitle: FontToken(size: 14, weight: .medium),
+                    disclosureCount: FontToken(size: 12, weight: .regular),
+                    projectIcon: FontToken(size: 15),
+                    projectTitle: FontToken(size: 15, weight: .medium),
+                    emptyState: FontToken(size: 12, weight: .regular),
+                    hiddenRowsPrompt: FontToken(size: 13, weight: .medium),
+                    chatTitle: FontToken(size: 15, weight: .medium),
+                    chatRecency: FontToken(size: 12, weight: .regular),
+                    chatActionIcon: FontToken(size: 9.5, weight: .semibold)
+                )
+            }
         }
     }
 
