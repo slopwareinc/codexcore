@@ -252,6 +252,32 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertFalse(state.prefetchOlderItemsIfNeeded(contentOffsetY: 0, totalItemCount: 287))
     }
 
+    func testTranscriptScrollSnapshotPreservesConcreteOffset() {
+        let middle = CodexTranscriptScrollSnapshot(
+            contentOffsetY: 1_234,
+            contentHeight: 5_000,
+            containerHeight: 800
+        )
+
+        XCTAssertEqual(middle.restoredContentOffsetY, 1_234)
+        XCTAssertFalse(middle.isPinnedToBottom)
+        XCTAssertTrue(middle.isNearTop)
+
+        let overscrolled = CodexTranscriptScrollSnapshot(
+            contentOffsetY: 9_000,
+            contentHeight: 5_000,
+            containerHeight: 800
+        )
+        XCTAssertEqual(overscrolled.restoredContentOffsetY, 4_200)
+
+        let bottom = CodexTranscriptScrollSnapshot(
+            contentOffsetY: 4_130,
+            contentHeight: 5_000,
+            containerHeight: 800
+        )
+        XCTAssertTrue(bottom.isPinnedToBottom)
+    }
+
     func testTranscriptTimelineSortsUnsortedMessagesAndLifecycleEvents() throws {
         let start = Date(timeIntervalSince1970: 100)
         let firstUser = CodexChatMessage(role: .user, text: "First", createdAt: start)

@@ -35,7 +35,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var timelineItems: [CodexTranscriptTimelineItem] = []
     @State private var messageLookup: [UUID: CodexChatMessage] = [:]
-    @State private var scrollPositionsByTranscriptID: [String: ScrollPosition] = [:]
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    @State private var scrollSnapshotsByTranscriptID: [String: CodexTranscriptScrollSnapshot] = [:]
     @State private var windowStatesByTranscriptID: [String: CodexTranscriptWindowState] = [:]
     @State private var isPinnedToBottom = true
     @State private var windowState = CodexTranscriptWindowState()
@@ -106,21 +107,18 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .id(transcriptID ?? "empty")
-        .scrollPosition(activeScrollPosition)
+        .scrollPosition($scrollPosition)
         .defaultScrollAnchor(.bottom)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
         .scrollContentBackground(.hidden)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - Self.bottomPinTolerance
-        } action: { _, pinned in
-            isPinnedToBottom = pinned
-        }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            CodexTranscriptWindowState.shouldPrefetchOlderItems(contentOffsetY: geometry.contentOffset.y)
-        } action: { _, isNearTop in
-            guard isNearTop else { return }
-            prefetchOlderItems()
+        .onScrollGeometryChange(for: CodexTranscriptScrollSnapshot.self) { geometry in
+            CodexTranscriptScrollSnapshot(
+                contentOffsetY: geometry.contentOffset.y,
+                contentHeight: geometry.contentSize.height,
+                containerHeight: geometry.containerSize.height
+            )
+        } action: { _, snapshot in
+            updateScrollSnapshot(snapshot)
         }
         .overlay(alignment: .bottomTrailing) {
             jumpToBottomButton
@@ -130,14 +128,6 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         }
         .task(id: transcriptInput) {
             refreshTimeline(for: transcriptInput)
-        }
-    }
-
-    private var activeScrollPosition: Binding<ScrollPosition> {
-        Binding {
-            scrollPositionsByTranscriptID[scrollStateKey(for: transcriptID)] ?? ScrollPosition(edge: .bottom)
-        } set: { position in
-            scrollPositionsByTranscriptID[scrollStateKey(for: transcriptID)] = position
         }
     }
 
@@ -193,16 +183,35 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         windowStatesByTranscriptID[scrollStateKey(for: oldID)] = windowState
         let newKey = scrollStateKey(for: newID)
         windowState = windowStatesByTranscriptID[newKey] ?? CodexTranscriptWindowState()
-        if scrollPositionsByTranscriptID[newKey] == nil {
-            scrollPositionsByTranscriptID[newKey] = ScrollPosition(edge: .bottom)
+        restoreScrollPosition(forKey: newKey)
+    }
+
+    private func updateScrollSnapshot(_ snapshot: CodexTranscriptScrollSnapshot) {
+        scrollSnapshotsByTranscriptID[scrollStateKey(for: transcriptID)] = snapshot
+        isPinnedToBottom = snapshot.isPinnedToBottom
+        guard snapshot.isNearTop else { return }
+        prefetchOlderItems()
+    }
+
+    private func restoreScrollPosition(forKey key: String) {
+        guard let snapshot = scrollSnapshotsByTranscriptID[key] else {
+            scrollPosition = ScrollPosition(edge: .bottom)
             isPinnedToBottom = true
+            return
+        }
+
+        isPinnedToBottom = snapshot.isPinnedToBottom
+        if snapshot.isPinnedToBottom {
+            scrollPosition = ScrollPosition(edge: .bottom)
+        } else {
+            var restoredPosition = ScrollPosition(edge: .top)
+            restoredPosition.scrollTo(point: CGPoint(x: 0, y: snapshot.restoredContentOffsetY))
+            scrollPosition = restoredPosition
         }
     }
 
     private func scrollToBottom() {
-        var position = activeScrollPosition.wrappedValue
-        position.scrollTo(edge: .bottom)
-        activeScrollPosition.wrappedValue = position
+        scrollPosition.scrollTo(edge: .bottom)
     }
 
     private func scrollStateKey(for transcriptID: String?) -> String {
@@ -210,6 +219,32 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     private static var bottomPinTolerance: CGFloat { 80 }
+}
+
+struct CodexTranscriptScrollSnapshot: Equatable, Sendable {
+    var contentOffsetY: CGFloat
+    var contentHeight: CGFloat
+    var containerHeight: CGFloat
+    var isPinnedToBottom: Bool
+    var isNearTop: Bool
+
+    init(
+        contentOffsetY: CGFloat,
+        contentHeight: CGFloat,
+        containerHeight: CGFloat,
+        bottomPinTolerance: CGFloat = 80,
+        topPrefetchThreshold: CGFloat = CodexTranscriptWindowState.topPrefetchThreshold
+    ) {
+        self.contentOffsetY = max(0, contentOffsetY)
+        self.contentHeight = max(0, contentHeight)
+        self.containerHeight = max(0, containerHeight)
+        self.isPinnedToBottom = contentOffsetY + containerHeight >= contentHeight - bottomPinTolerance
+        self.isNearTop = contentOffsetY < topPrefetchThreshold
+    }
+
+    var restoredContentOffsetY: CGFloat {
+        min(contentOffsetY, max(0, contentHeight - containerHeight))
+    }
 }
 
 struct CodexTranscriptWindowState: Equatable, Sendable {
