@@ -74,7 +74,7 @@ struct CodexCoreAppShell: View {
                         )
                     }
                 }
-                .codexAgentTheme(model.themePreset.theme)
+                .codexAgentTheme(model.theme)
                 .padding(.top, 54)
                 .padding(.trailing, 18)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -94,7 +94,7 @@ struct CodexCoreAppShell: View {
                     },
                     onSelectCommand: handleCommandPaletteAction
                 )
-                .codexAgentTheme(model.themePreset.theme)
+                .codexAgentTheme(model.theme)
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
@@ -107,7 +107,7 @@ struct CodexCoreAppShell: View {
                     Task { await model.renameCurrentChat(to: renameDraft) }
                 }
             )
-            .codexAgentTheme(model.themePreset.theme)
+            .codexAgentTheme(model.theme)
         }
         .sheet(isPresented: $isMCPStatusSheetPresented) {
             CodexMCPStatusSheet(
@@ -117,7 +117,7 @@ struct CodexCoreAppShell: View {
                 onClose: { isMCPStatusSheetPresented = false },
                 onRefresh: { Task { await model.refreshMCPServers() } }
             )
-            .codexAgentTheme(model.themePreset.theme)
+            .codexAgentTheme(model.theme)
         }
     }
 
@@ -141,10 +141,10 @@ struct CodexCoreAppShell: View {
                 onAction: { model.performPluginCatalogAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .codexAgentTheme(model.themePreset.theme)
+            .codexAgentTheme(model.theme)
         case .automations:
             CodexAutomationRouteView(onAction: model.performAutomationRouteAction)
-                .codexAgentTheme(model.themePreset.theme)
+                .codexAgentTheme(model.theme)
         case .codexMobile:
             CodexMobileRouteView(
                 state: model.mobileRouteSession.state,
@@ -153,10 +153,14 @@ struct CodexCoreAppShell: View {
                 onCancelPermissionGate: model.cancelMobilePermissionGate,
                 onAllow: model.allowMobileRemoteControlBoundary
             )
-                .codexAgentTheme(model.themePreset.theme)
+                .codexAgentTheme(model.theme)
         case .settingsAbout:
-            CodexSettingsAboutRouteView(metadata: CodexAboutMetadata(bundle: .main, serverName: model.serverName))
-                .codexAgentTheme(model.themePreset.theme)
+            CodexSettingsAboutRouteView(
+                metadata: CodexAboutMetadata(bundle: .main, serverName: model.serverName),
+                sidebarFontSize: $model.sidebarFontSize,
+                sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange
+            )
+                .codexAgentTheme(model.theme)
         }
     }
 

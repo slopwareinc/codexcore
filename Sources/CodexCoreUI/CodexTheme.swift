@@ -238,6 +238,9 @@ public struct CodexAgentTheme {
         }
 
         public struct SidebarTypography: Codable, Equatable {
+            public static let defaultBaseTextSize: Double = 14
+            public static let baseTextSizeRange: ClosedRange<Double> = 11...18
+
             public var titlebarIcon: FontToken
             public var accountInitialsCollapsed: FontToken
             public var accountInitialsExpanded: FontToken
@@ -308,27 +311,37 @@ public struct CodexAgentTheme {
             }
 
             public static var official: SidebarTypography {
-                SidebarTypography(
-                    titlebarIcon: FontToken(size: 15, weight: .medium),
-                    accountInitialsCollapsed: FontToken(size: 12, weight: .medium),
-                    accountInitialsExpanded: FontToken(size: 14, weight: .medium),
-                    accountName: FontToken(size: 15, weight: .semibold),
-                    accountDetail: FontToken(size: 12, weight: .regular),
-                    accountDeviceIcon: FontToken(size: 16),
-                    commandIcon: FontToken(size: 15),
-                    commandTitle: FontToken(size: 15, weight: .medium),
-                    commandShortcut: FontToken(size: 12, weight: .regular),
-                    sectionHeader: FontToken(size: 13, weight: .medium),
-                    disclosureChevron: FontToken(size: 10, weight: .semibold),
-                    disclosureTitle: FontToken(size: 14, weight: .medium),
-                    disclosureCount: FontToken(size: 12, weight: .regular),
-                    projectIcon: FontToken(size: 15),
-                    projectTitle: FontToken(size: 15, weight: .medium),
-                    emptyState: FontToken(size: 12, weight: .regular),
-                    hiddenRowsPrompt: FontToken(size: 13, weight: .medium),
-                    chatTitle: FontToken(size: 15, weight: .medium),
-                    chatRecency: FontToken(size: 12, weight: .regular),
-                    chatActionIcon: FontToken(size: 9.5, weight: .semibold)
+                official(baseTextSize: defaultBaseTextSize)
+            }
+
+            public static func official(baseTextSize requestedSize: Double) -> SidebarTypography {
+                let baseTextSize = min(max(requestedSize, baseTextSizeRange.lowerBound), baseTextSizeRange.upperBound)
+
+                func token(_ offset: Double, weight: FontWeightToken = .regular) -> FontToken {
+                    FontToken(size: CGFloat(max(8, baseTextSize + offset)), weight: weight)
+                }
+
+                return SidebarTypography(
+                    titlebarIcon: token(1, weight: .medium),
+                    accountInitialsCollapsed: token(-3, weight: .medium),
+                    accountInitialsExpanded: token(-1, weight: .medium),
+                    accountName: token(-1, weight: .semibold),
+                    accountDetail: token(-3),
+                    accountDeviceIcon: token(1),
+                    commandIcon: token(1),
+                    commandTitle: token(0, weight: .medium),
+                    commandShortcut: token(-3),
+                    sectionHeader: token(-2, weight: .medium),
+                    disclosureChevron: token(-4, weight: .semibold),
+                    disclosureTitle: token(-1, weight: .medium),
+                    disclosureCount: token(-3),
+                    projectIcon: token(1),
+                    projectTitle: token(0, weight: .medium),
+                    emptyState: token(-3),
+                    hiddenRowsPrompt: token(-1, weight: .medium),
+                    chatTitle: token(0, weight: .medium),
+                    chatRecency: token(-3),
+                    chatActionIcon: FontToken(size: CGFloat(max(8, baseTextSize - 5.5)), weight: .semibold)
                 )
             }
         }

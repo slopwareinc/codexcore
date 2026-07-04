@@ -19,6 +19,21 @@ final class CodexCoreAppModel {
     var workspacePath = defaultWorkspacePath()
     var apiKey = ""
     var themePreset: CodexAgentThemePreset = .officialDark
+    var sidebarFontSize: Double = CodexSidebarFontSizeStorage.defaultFontSize {
+        didSet {
+            let clamped = CodexSidebarFontSizeStorage.clamped(sidebarFontSize)
+            if sidebarFontSize != clamped {
+                sidebarFontSize = clamped
+                return
+            }
+            CodexSidebarFontSizeStorage.saveSidebarFontSize(clamped, to: preferenceStore)
+        }
+    }
+    var theme: CodexAgentTheme {
+        var theme = themePreset.theme
+        theme.fonts.sidebar = .official(baseTextSize: sidebarFontSize)
+        return theme
+    }
     private(set) var gitBranch: String?
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
     private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
@@ -62,6 +77,7 @@ final class CodexCoreAppModel {
     ) {
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
+        self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
         self.hasStoredExpandedProjectState = expandedState.hasStoredState
@@ -116,6 +132,7 @@ final class CodexCoreAppModel {
 
             do {
                 let account = try await codex.account(refreshToken: false)
+                appendActivity(.login, title: "Account detail JSON", detail: CodexAccountDetailLog.json(from: account))
                 accountMenuSummary = CodexAccountMenuSummary(account: account.account, serverName: server)
                 let authCheck = authSession.applyAccount(account)
                 if let activity = authCheck.activity {
@@ -1689,6 +1706,33 @@ enum CodexPinnedThreadStorage {
             }
         }
         return result
+    }
+}
+
+enum CodexSidebarFontSizeStorage {
+    static let defaultFontSize = CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize
+    static let fontSizeRange = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
+    private static let sidebarFontSizeKey = "CodexCoreApp.sidebarFontSize"
+
+    static func loadSidebarFontSize(from store: any CodexStringListPreferenceStore) -> Double {
+        guard let stored = store.loadStrings(forKey: sidebarFontSizeKey).first,
+              let value = Double(stored)
+        else {
+            return defaultFontSize
+        }
+        return clamped(value)
+    }
+
+    static func saveSidebarFontSize(
+        _ fontSize: Double,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings([String(Int(clamped(fontSize).rounded()))], forKey: sidebarFontSizeKey)
+    }
+
+    static func clamped(_ fontSize: Double) -> Double {
+        guard fontSize.isFinite else { return defaultFontSize }
+        return min(max(fontSize, fontSizeRange.lowerBound), fontSizeRange.upperBound)
     }
 }
 

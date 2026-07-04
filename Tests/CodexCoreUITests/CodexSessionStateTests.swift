@@ -18,6 +18,18 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(fallback.detail, "Available")
     }
 
+    func testAccountDetailLogPrintsServerAccountResponseJSON() {
+        let json = CodexAccountDetailLog.json(from: GetAccountResponse(
+            account: Account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "plus"),
+            requiresOpenAIAuth: false
+        ))
+
+        XCTAssertEqual(
+            json,
+            #"{"account":{"email":"pranjal.paliwal@example.com","planType":"plus","type":"chatgpt"},"requiresOpenaiAuth":false}"#
+        )
+    }
+
     func testAuthSessionOwnsConnectionAuthenticationAndDeviceCodeState() {
         var session = CodexAuthSession()
 
