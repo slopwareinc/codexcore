@@ -58,6 +58,7 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
 public struct CodexSidebarProjectGroup: Identifiable, Equatable, Sendable {
     public var project: CodexProjectSummary
     public var rows: [CodexSidebarThreadRow]
+    public var hiddenRowCount: Int
     public var isExpanded: Bool
     public var isSelected: Bool
     public var canStartNewChat: Bool
@@ -68,6 +69,7 @@ public struct CodexSidebarProjectGroup: Identifiable, Equatable, Sendable {
     public init(
         project: CodexProjectSummary,
         rows: [CodexSidebarThreadRow] = [],
+        hiddenRowCount: Int = 0,
         isExpanded: Bool = false,
         isSelected: Bool = false,
         canStartNewChat: Bool = true,
@@ -75,6 +77,7 @@ public struct CodexSidebarProjectGroup: Identifiable, Equatable, Sendable {
     ) {
         self.project = project
         self.rows = rows
+        self.hiddenRowCount = max(0, hiddenRowCount)
         self.isExpanded = isExpanded
         self.isSelected = isSelected
         self.canStartNewChat = canStartNewChat
@@ -120,6 +123,8 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
 }
 
 public struct CodexSidebarNavigationSession: Sendable, Equatable {
+    public static let projectChatPreviewLimit = 5
+
     public private(set) var selectedRoute: CodexAppRoute
     public private(set) var lastContentRoute: CodexAppRoute
     public private(set) var isCollapsed: Bool
@@ -132,14 +137,20 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         currentWorkspacePath: String,
         selectedRoute: CodexAppRoute = .chat,
         isCollapsed: Bool = false,
-        selectedThreadID: String? = nil
+        selectedThreadID: String? = nil,
+        expandedProjectIDs: Set<String> = []
     ) {
         let normalized = CodexProjectSummary.normalizedPath(currentWorkspacePath)
         self.selectedRoute = selectedRoute
         self.lastContentRoute = selectedRoute == .search ? .chat : selectedRoute
         self.isCollapsed = isCollapsed
         self.isSearchOverlayPresented = selectedRoute == .search
-        self.expandedProjectIDs = [normalized]
+        self.expandedProjectIDs = Set(expandedProjectIDs.compactMap { id in
+            let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let normalizedID = CodexProjectSummary.normalizedPath(trimmed)
+            return normalizedID.isEmpty ? nil : normalizedID
+        })
         self.selectedProjectPath = normalized
         self.selectedThreadID = selectedThreadID
     }
@@ -256,17 +267,18 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             .map(row)
 
         let projectGroups = effectiveProjects.map { project in
-            let rows = (groupedChats[project.workspacePath] ?? [])
+            let sortedChats = (groupedChats[project.workspacePath] ?? [])
                 .sorted { lhs, rhs in
                     let leftPinned = pinnedIDSet.contains(lhs.id)
                     let rightPinned = pinnedIDSet.contains(rhs.id)
                     if leftPinned != rightPinned { return leftPinned && !rightPinned }
                     return Self.compareByRecency(lhs, rhs)
                 }
-                .map(row)
+            let visibleChats = Array(sortedChats.prefix(Self.projectChatPreviewLimit))
             return CodexSidebarProjectGroup(
                 project: project,
-                rows: rows,
+                rows: visibleChats.map(row),
+                hiddenRowCount: sortedChats.count - visibleChats.count,
                 isExpanded: expandedProjectIDs.contains(project.workspacePath),
                 isSelected: project.workspacePath == selectedProjectPath,
                 canStartNewChat: true,

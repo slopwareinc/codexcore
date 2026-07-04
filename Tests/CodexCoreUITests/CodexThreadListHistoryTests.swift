@@ -320,7 +320,10 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertTrue(session.isCollapsed)
         session.setCollapsed(false)
         XCTAssertFalse(session.isCollapsed)
+        XCTAssertFalse(session.expandedProjectIDs.contains("/tmp/CodexCore"))
 
+        session.toggleProject("/tmp/CodexCore")
+        XCTAssertTrue(session.expandedProjectIDs.contains("/tmp/CodexCore"))
         session.toggleProject("/tmp/CodexCore")
         XCTAssertFalse(session.expandedProjectIDs.contains("/tmp/CodexCore"))
         session.toggleProject("/tmp/Other")
@@ -436,6 +439,44 @@ final class CodexThreadListHistoryTests: XCTestCase {
         let currentProjectRows = snapshot.projects.first?.rows ?? []
         XCTAssertEqual(currentProjectRows.map(\.summary.id), ["thread-a", "thread-b"])
         XCTAssertEqual(currentProjectRows.map(\.isPinned), [true, false])
+    }
+
+    func testSidebarSnapshotLimitsProjectRowsToFiveRecentChats() throws {
+        let chats = (0..<7).map { index in
+            CodexThreadSummary(
+                id: "thread-\(index)",
+                title: "Chat \(index)",
+                workspacePath: "/tmp/CodexCore",
+                updatedAt: TimeInterval(index)
+            )
+        }
+        let projects = CodexProjectSummary.projects(from: chats, currentWorkspacePath: "/tmp/CodexCore")
+        let session = CodexSidebarNavigationSession(
+            currentWorkspacePath: "/tmp/CodexCore",
+            expandedProjectIDs: ["/tmp/CodexCore"]
+        )
+
+        let snapshot = session.snapshot(
+            projects: projects,
+            chats: chats,
+            currentWorkspacePath: "/tmp/CodexCore",
+            currentThreadID: nil
+        )
+
+        let project = try XCTUnwrap(snapshot.projects.first)
+        XCTAssertTrue(project.isExpanded)
+        XCTAssertEqual(project.rows.map(\.summary.id), ["thread-6", "thread-5", "thread-4", "thread-3", "thread-2"])
+        XCTAssertEqual(project.hiddenRowCount, 2)
+    }
+
+    func testSidebarSessionRestoresExpandedProjectsWithoutOpeningCurrentByDefault() {
+        let session = CodexSidebarNavigationSession(
+            currentWorkspacePath: "/tmp/CodexCore",
+            expandedProjectIDs: ["/tmp/Other", "  ", "/tmp/Other/"]
+        )
+
+        XCTAssertFalse(session.expandedProjectIDs.contains("/tmp/CodexCore"))
+        XCTAssertEqual(session.expandedProjectIDs, ["/tmp/Other"])
     }
 
     func testSidebarSnapshotShowsNoChatsEmptyState() {

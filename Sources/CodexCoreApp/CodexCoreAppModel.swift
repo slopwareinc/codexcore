@@ -61,6 +61,10 @@ final class CodexCoreAppModel {
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+        self.sidebarNavigationSession = CodexSidebarNavigationSession(
+            currentWorkspacePath: defaultWorkspacePath(),
+            expandedProjectIDs: CodexExpandedProjectStorage.loadExpandedProjectIDs(from: preferenceStore)
+        )
     }
 
     convenience init() {
@@ -548,15 +552,18 @@ final class CodexCoreAppModel {
 
     func toggleSidebarProject(_ workspacePath: String) {
         sidebarNavigationSession.toggleProject(workspacePath)
+        saveExpandedSidebarProjects()
     }
 
     func selectSidebarProject(_ path: String) async {
         sidebarNavigationSession.selectProject(path)
+        saveExpandedSidebarProjects()
         await switchWorkspace(to: path)
     }
 
     func startNewChat(inProject path: String) async {
         sidebarNavigationSession.selectProject(path)
+        saveExpandedSidebarProjects()
         if CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
             await switchWorkspace(to: path)
         }
@@ -565,6 +572,7 @@ final class CodexCoreAppModel {
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
         sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
+        saveExpandedSidebarProjects()
         if let path = chat.workspacePath,
            CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
             await switchWorkspace(to: path)
@@ -577,11 +585,13 @@ final class CodexCoreAppModel {
         guard !normalized.isEmpty else { return }
         guard normalized != CodexProjectSummary.normalizedPath(workspacePath) else {
             sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: currentThreadID)
+            saveExpandedSidebarProjects()
             return
         }
 
         workspacePath = normalized
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+        saveExpandedSidebarProjects()
         invalidatePendingChatSelection()
         clearThreadState()
         appendActivity(.notice, title: "Switched project", detail: normalized)
@@ -598,6 +608,7 @@ final class CodexCoreAppModel {
     func startNewChat() async {
         invalidatePendingChatSelection()
         sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+        saveExpandedSidebarProjects()
         clearThreadState()
         guard codex != nil else { return }
         await refreshRecentChats()
@@ -1516,6 +1527,10 @@ final class CodexCoreAppModel {
         )
     }
 
+    private func saveExpandedSidebarProjects() {
+        CodexExpandedProjectStorage.saveExpandedProjectIDs(sidebarNavigationSession.expandedProjectIDs, to: preferenceStore)
+    }
+
     private func renameChatInSidebar(_ threadID: String, title: String) {
         var session = threadListSession
         session.renameThread(id: threadID, title: title, currentWorkspacePath: workspacePath)
@@ -1651,6 +1666,36 @@ enum CodexPinnedThreadStorage {
             if seen.insert(id).inserted {
                 result.append(id)
             }
+        }
+        return result
+    }
+}
+
+enum CodexExpandedProjectStorage {
+    private static let expandedProjectStorageKey = "CodexCoreApp.expandedProjectIDs"
+
+    static func loadExpandedProjectIDs(
+        from store: any CodexStringListPreferenceStore
+    ) -> Set<String> {
+        Set(normalized(store.loadStrings(forKey: expandedProjectStorageKey)))
+    }
+
+    static func saveExpandedProjectIDs(
+        _ ids: Set<String>,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(normalized(Array(ids)).sorted(), forKey: expandedProjectStorageKey)
+    }
+
+    private static func normalized(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for id in ids {
+            let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let normalized = CodexProjectSummary.normalizedPath(trimmed)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
+            result.append(normalized)
         }
         return result
     }

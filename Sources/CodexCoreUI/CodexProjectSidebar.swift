@@ -300,7 +300,11 @@ private struct ProjectSidebarGroupView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Button {
-                    onSelectProject(group.project.workspacePath)
+                    if group.isExpanded {
+                        onToggleProject(group.project.workspacePath)
+                    } else {
+                        onSelectProject(group.project.workspacePath)
+                    }
                 } label: {
                     HStack(spacing: 14) {
                         Image(systemName: "folder.badge.gearshape")
@@ -352,6 +356,15 @@ private struct ProjectSidebarGroupView: View {
                             onTogglePin: { onTogglePinChat(row.summary) },
                             onArchive: { onArchiveChat(row.summary) }
                         )
+                    }
+                    if group.hiddenRowCount > 0 {
+                        Text("Show \(group.hiddenRowCount) more")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .lineLimit(1)
+                            .padding(.leading, 38)
+                            .frame(height: 30)
+                            .help("\(group.hiddenRowCount) older chats hidden")
                     }
                 }
             }
