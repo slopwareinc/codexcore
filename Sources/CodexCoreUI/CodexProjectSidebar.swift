@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var showsOlderProjects = false
 
     let serverName: String?
     let isThreadReady: Bool
@@ -59,6 +60,7 @@ public struct CodexProjectSidebar: View {
                     routeRows
                     pinnedSection
                     projectListSection
+                    olderProjectsSection
                     settingsSection
                 }
                 .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
@@ -72,8 +74,8 @@ public struct CodexProjectSidebar: View {
             maxWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth
         )
         .frame(maxHeight: .infinity)
-        .background(.regularMaterial)
-        .background(theme.colors.surface.opacity(0.28))
+        .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.18))
+        .background(theme.colors.surface.opacity(0.26))
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.colors.border.opacity(0.45))
@@ -177,6 +179,57 @@ public struct CodexProjectSidebar: View {
                     .foregroundStyle(theme.colors.textTertiary)
                     .padding(.horizontal, 30)
                     .padding(.vertical, 6)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var olderProjectsSection: some View {
+        if !snapshot.olderProjects.isEmpty {
+            if snapshot.isCollapsed {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+                            showsOlderProjects.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: showsOlderProjects ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 14)
+                            Text("Show older")
+                                .font(.system(size: 15, weight: .medium))
+                            Text("\(snapshot.olderProjects.count)")
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textTertiary.opacity(theme.effects.textFaintOpacity))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .frame(height: 32)
+                        .padding(.horizontal, 2)
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    if showsOlderProjects {
+                        ForEach(snapshot.olderProjects) { group in
+                            ProjectSidebarGroupView(
+                                group: group,
+                                isCollapsed: snapshot.isCollapsed,
+                                isThreadReady: group.isSelected && isThreadReady,
+                                onToggleProject: onToggleProject,
+                                onStartProjectChat: onStartProjectChat,
+                                onSelectProject: onSelectProject,
+                                onSelectChat: onSelectChat,
+                                onTogglePinChat: onTogglePinChat,
+                                onArchiveChat: onArchiveChat
+                            )
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
             }
         }
     }
@@ -303,6 +356,7 @@ private struct ProjectSidebarGroupView: View {
                     if group.isExpanded {
                         onToggleProject(group.project.workspacePath)
                     } else {
+                        onToggleProject(group.project.workspacePath)
                         onSelectProject(group.project.workspacePath)
                     }
                 } label: {

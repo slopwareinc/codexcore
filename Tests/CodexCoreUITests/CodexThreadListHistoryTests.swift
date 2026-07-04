@@ -349,23 +349,24 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertEqual(session.lastContentRoute, .chat)
         XCTAssertEqual(session.selectedProjectPath, "/tmp/CodexCore")
         XCTAssertNil(session.selectedThreadID)
-        XCTAssertTrue(session.expandedProjectIDs.contains("/tmp/CodexCore"))
+        XCTAssertFalse(session.expandedProjectIDs.contains("/tmp/CodexCore"))
     }
 
     func testSidebarSnapshotGroupsProjectsAndChildChatAffordances() {
+        let now = Date().timeIntervalSince1970
         let chats = [
             CodexThreadSummary(
                 id: "thread-current",
                 title: "Current project chat",
                 preview: "Preview",
                 workspacePath: "/tmp/CodexCore",
-                updatedAt: 2_000
+                updatedAt: now - 200
             ),
             CodexThreadSummary(
                 id: "thread-other",
                 title: "Other project chat",
                 workspacePath: "/tmp/Other",
-                updatedAt: 3_000
+                updatedAt: now - 100
             )
         ]
         let projects = CodexProjectSummary.projects(from: chats, currentWorkspacePath: "/tmp/CodexCore")
@@ -386,7 +387,7 @@ final class CodexThreadListHistoryTests: XCTestCase {
 
         let other = snapshot.projects[1]
         XCTAssertTrue(other.isSelected)
-        XCTAssertTrue(other.isExpanded)
+        XCTAssertFalse(other.isExpanded)
         XCTAssertTrue(other.canStartNewChat)
         XCTAssertTrue(other.hasProjectActionsEntry)
         XCTAssertEqual(other.rows.map(\.summary.id), ["thread-other"])
@@ -396,27 +397,28 @@ final class CodexThreadListHistoryTests: XCTestCase {
     }
 
     func testSidebarSnapshotBuildsPinnedRowsAndAffordanceState() {
+        let now = Date().timeIntervalSince1970
         let chats = [
             CodexThreadSummary(
                 id: "thread-a",
                 title: "Newest pinned",
                 workspacePath: "/tmp/CodexCore",
-                updatedAt: 4_000,
-                recencyAt: 4_500
+                updatedAt: now - 200,
+                recencyAt: now - 150
             ),
             CodexThreadSummary(
                 id: "thread-b",
                 title: "Older unpinned",
                 workspacePath: "/tmp/CodexCore",
-                updatedAt: 3_000,
-                recencyAt: 3_500
+                updatedAt: now - 300,
+                recencyAt: now - 250
             ),
             CodexThreadSummary(
                 id: "thread-c",
                 title: "Pinned by explicit order",
                 workspacePath: "/tmp/Other",
-                updatedAt: 2_000,
-                recencyAt: 2_500
+                updatedAt: now - 400,
+                recencyAt: now - 350
             )
         ]
         let projects = CodexProjectSummary.projects(from: chats, currentWorkspacePath: "/tmp/CodexCore")
@@ -442,12 +444,13 @@ final class CodexThreadListHistoryTests: XCTestCase {
     }
 
     func testSidebarSnapshotLimitsProjectRowsToFiveRecentChats() throws {
+        let now = Date().timeIntervalSince1970
         let chats = (0..<7).map { index in
             CodexThreadSummary(
                 id: "thread-\(index)",
                 title: "Chat \(index)",
                 workspacePath: "/tmp/CodexCore",
-                updatedAt: TimeInterval(index)
+                updatedAt: now - TimeInterval(7 - index)
             )
         }
         let projects = CodexProjectSummary.projects(from: chats, currentWorkspacePath: "/tmp/CodexCore")
@@ -467,6 +470,50 @@ final class CodexThreadListHistoryTests: XCTestCase {
         XCTAssertTrue(project.isExpanded)
         XCTAssertEqual(project.rows.map(\.summary.id), ["thread-6", "thread-5", "thread-4", "thread-3", "thread-2"])
         XCTAssertEqual(project.hiddenRowCount, 2)
+    }
+
+    func testSidebarSnapshotMovesOlderProjectsBehindOlderBucket() throws {
+        let now = Date().timeIntervalSince1970
+        let chats = [
+            CodexThreadSummary(
+                id: "recent",
+                title: "Recent",
+                workspacePath: "/tmp/Recent",
+                updatedAt: now - 60
+            ),
+            CodexThreadSummary(
+                id: "older",
+                title: "Older",
+                workspacePath: "/tmp/Older",
+                updatedAt: now - CodexSidebarNavigationSession.recentProjectInterval - 60
+            )
+        ]
+        let projects = CodexProjectSummary.projects(from: chats, currentWorkspacePath: "/tmp/Recent")
+        let session = CodexSidebarNavigationSession(currentWorkspacePath: "/tmp/Recent")
+
+        let snapshot = session.snapshot(
+            projects: projects,
+            chats: chats,
+            currentWorkspacePath: "/tmp/Recent",
+            currentThreadID: nil
+        )
+
+        XCTAssertEqual(snapshot.projects.map(\.project.workspacePath), ["/tmp/Recent"])
+        XCTAssertEqual(snapshot.olderProjects.map(\.project.workspacePath), ["/tmp/Older"])
+    }
+
+    func testSidebarDefaultExpandedProjectsIncludesRecentOnly() {
+        let now = Date().timeIntervalSince1970
+        let projects = [
+            CodexProjectSummary(workspacePath: "/tmp/Recent", updatedAt: now - 60),
+            CodexProjectSummary(workspacePath: "/tmp/Older", updatedAt: now - CodexSidebarNavigationSession.recentProjectInterval - 60),
+            CodexProjectSummary(workspacePath: "/tmp/Empty", updatedAt: nil)
+        ]
+
+        XCTAssertEqual(
+            CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: projects, now: now),
+            ["/tmp/Recent"]
+        )
     }
 
     func testSidebarSessionRestoresExpandedProjectsWithoutOpeningCurrentByDefault() {
@@ -491,8 +538,9 @@ final class CodexThreadListHistoryTests: XCTestCase {
 
         XCTAssertTrue(snapshot.showsNoChats)
         XCTAssertEqual(snapshot.noChatsTitle, "No chats")
-        XCTAssertEqual(snapshot.projects.map(\.project.workspacePath), ["/tmp/Empty"])
-        XCTAssertEqual(snapshot.projects.first?.rows, [])
+        XCTAssertEqual(snapshot.projects.map(\.project.workspacePath), [])
+        XCTAssertEqual(snapshot.olderProjects.map(\.project.workspacePath), ["/tmp/Empty"])
+        XCTAssertEqual(snapshot.olderProjects.first?.rows, [])
     }
 
     func testThreadHistorySnapshotRestoresMessagesFromRawThreadRead() {

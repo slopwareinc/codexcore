@@ -29,6 +29,7 @@ final class CodexCoreAppModel {
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
     var sidebarNavigationSession = CodexSidebarNavigationSession(currentWorkspacePath: defaultWorkspacePath())
     var pinnedThreadIDs: [String]
+    private var hasStoredExpandedProjectState: Bool
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession()
     var activityLog = CodexActivityLogSession()
@@ -61,9 +62,11 @@ final class CodexCoreAppModel {
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+        let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
+        self.hasStoredExpandedProjectState = expandedState.hasStoredState
         self.sidebarNavigationSession = CodexSidebarNavigationSession(
             currentWorkspacePath: defaultWorkspacePath(),
-            expandedProjectIDs: CodexExpandedProjectStorage.loadExpandedProjectIDs(from: preferenceStore)
+            expandedProjectIDs: expandedState.ids
         )
     }
 
@@ -462,11 +465,14 @@ final class CodexCoreAppModel {
         )
         let applySpan = trace?.begin("threadList.model.apply")
         threadListSession = session
-        
-        for project in session.recentProjects {
-            sidebarNavigationSession.expandProject(project.workspacePath)
+
+        if !hasStoredExpandedProjectState {
+            sidebarNavigationSession.setExpandedProjects(
+                CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: session.recentProjects)
+            )
+            saveExpandedSidebarProjects()
         }
-        
+
         if let activity {
             appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
@@ -1529,6 +1535,7 @@ final class CodexCoreAppModel {
 
     private func saveExpandedSidebarProjects() {
         CodexExpandedProjectStorage.saveExpandedProjectIDs(sidebarNavigationSession.expandedProjectIDs, to: preferenceStore)
+        hasStoredExpandedProjectState = true
     }
 
     private func renameChatInSidebar(_ threadID: String, title: String) {
@@ -1673,18 +1680,21 @@ enum CodexPinnedThreadStorage {
 
 enum CodexExpandedProjectStorage {
     private static let expandedProjectStorageKey = "CodexCoreApp.expandedProjectIDs"
+    private static let persistedMarker = "__codex_expanded_project_state_v1__"
 
-    static func loadExpandedProjectIDs(
+    static func loadExpandedProjectState(
         from store: any CodexStringListPreferenceStore
-    ) -> Set<String> {
-        Set(normalized(store.loadStrings(forKey: expandedProjectStorageKey)))
+    ) -> (hasStoredState: Bool, ids: Set<String>) {
+        let stored = store.loadStrings(forKey: expandedProjectStorageKey)
+        let hasStoredState = store.hasStrings(forKey: expandedProjectStorageKey) || stored.contains(persistedMarker)
+        return (hasStoredState, Set(normalized(stored.filter { $0 != persistedMarker })))
     }
 
     static func saveExpandedProjectIDs(
         _ ids: Set<String>,
         to store: any CodexStringListPreferenceStore
     ) {
-        store.saveStrings(normalized(Array(ids)).sorted(), forKey: expandedProjectStorageKey)
+        store.saveStrings([persistedMarker] + normalized(Array(ids)).sorted(), forKey: expandedProjectStorageKey)
     }
 
     private static func normalized(_ ids: [String]) -> [String] {

@@ -16,4 +16,8 @@ struct CodexUserDefaultsStringListPreferenceStore: CodexStringListPreferenceStor
     func saveStrings(_ strings: [String], forKey key: String) {
         UserDefaults.standard.set(strings, forKey: key)
     }
+
+    func hasStrings(forKey key: String) -> Bool {
+        UserDefaults.standard.object(forKey: key) != nil
+    }
 }

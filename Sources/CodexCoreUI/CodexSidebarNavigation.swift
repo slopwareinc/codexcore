@@ -94,6 +94,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
     public var selectedThreadID: String?
     public var pinnedRows: [CodexSidebarThreadRow]
     public var projects: [CodexSidebarProjectGroup]
+    public var olderProjects: [CodexSidebarProjectGroup]
     public var showsNoChats: Bool
     public var noChatsTitle: String
 
@@ -106,6 +107,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         selectedThreadID: String?,
         pinnedRows: [CodexSidebarThreadRow] = [],
         projects: [CodexSidebarProjectGroup],
+        olderProjects: [CodexSidebarProjectGroup] = [],
         showsNoChats: Bool,
         noChatsTitle: String = "No chats"
     ) {
@@ -117,6 +119,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         self.selectedThreadID = selectedThreadID
         self.pinnedRows = pinnedRows
         self.projects = projects
+        self.olderProjects = olderProjects
         self.showsNoChats = showsNoChats
         self.noChatsTitle = noChatsTitle
     }
@@ -124,6 +127,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
 
 public struct CodexSidebarNavigationSession: Sendable, Equatable {
     public static let projectChatPreviewLimit = 5
+    public static let recentProjectInterval: TimeInterval = 7 * 24 * 60 * 60
 
     public private(set) var selectedRoute: CodexAppRoute
     public private(set) var lastContentRoute: CodexAppRoute
@@ -189,6 +193,10 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         }
     }
 
+    public mutating func setExpandedProjects(_ workspacePaths: Set<String>) {
+        expandedProjectIDs = Set(workspacePaths.compactMap(Self.normalizedID))
+    }
+
     public mutating func expandProject(_ workspacePath: String) {
         let id = CodexProjectSummary.normalizedPath(workspacePath)
         expandedProjectIDs.insert(id)
@@ -198,7 +206,6 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
         selectedProjectPath = normalized
         selectedThreadID = nil
-        expandedProjectIDs.insert(normalized)
         selectRoute(.chat)
     }
 
@@ -206,7 +213,6 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
         selectedProjectPath = normalized
         selectedThreadID = nil
-        expandedProjectIDs.insert(normalized)
         selectRoute(.chat)
     }
 
@@ -215,7 +221,6 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         if let workspacePath, !workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let normalized = CodexProjectSummary.normalizedPath(workspacePath)
             selectedProjectPath = normalized
-            expandedProjectIDs.insert(normalized)
         }
         selectRoute(.chat)
     }
@@ -224,7 +229,6 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
         selectedProjectPath = normalized
         selectedThreadID = currentThreadID
-        expandedProjectIDs.insert(normalized)
     }
 
     public func snapshot(
@@ -285,6 +289,13 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
                 hasProjectActionsEntry: true
             )
         }
+        let recentCutoff = Date().timeIntervalSince1970 - Self.recentProjectInterval
+        let recentGroups = projectGroups.filter { group in
+            group.project.updatedAt.map { $0 >= recentCutoff } ?? false
+        }
+        let olderGroups = projectGroups.filter { group in
+            group.project.updatedAt.map { $0 < recentCutoff } ?? true
+        }
 
         return CodexSidebarSnapshot(
             selectedRoute: selectedRoute,
@@ -294,9 +305,25 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             selectedProjectPath: selectedProjectPath,
             selectedThreadID: effectiveThreadID,
             pinnedRows: pinnedRows,
-            projects: projectGroups,
+            projects: recentGroups,
+            olderProjects: olderGroups,
             showsNoChats: chats.isEmpty
         )
+    }
+
+    public static func defaultExpandedProjectIDs(projects: [CodexProjectSummary], now: TimeInterval = Date().timeIntervalSince1970) -> Set<String> {
+        let cutoff = now - recentProjectInterval
+        return Set(projects.compactMap { project in
+            guard let updatedAt = project.updatedAt, updatedAt >= cutoff else { return nil }
+            return project.workspacePath
+        })
+    }
+
+    private static func normalizedID(_ id: String) -> String? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalizedID = CodexProjectSummary.normalizedPath(trimmed)
+        return normalizedID.isEmpty ? nil : normalizedID
     }
 
     private static func compareByRecency(_ lhs: CodexThreadSummary, _ rhs: CodexThreadSummary) -> Bool {
