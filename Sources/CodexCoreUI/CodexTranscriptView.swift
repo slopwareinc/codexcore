@@ -35,7 +35,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var timelineItems: [CodexTranscriptTimelineItem] = []
     @State private var messageLookup: [UUID: CodexChatMessage] = [:]
-    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    @State private var scrollPositionsByTranscriptID: [String: ScrollPosition] = [:]
+    @State private var windowStatesByTranscriptID: [String: CodexTranscriptWindowState] = [:]
     @State private var isPinnedToBottom = true
     @State private var windowState = CodexTranscriptWindowState()
 
@@ -106,7 +107,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
             }
         }
         .id(transcriptID ?? "empty")
-        .scrollPosition($scrollPosition)
+        .scrollPosition(activeScrollPosition)
         .defaultScrollAnchor(.bottom)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
         .scrollContentBackground(.hidden)
@@ -124,11 +125,19 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         .overlay(alignment: .bottomTrailing) {
             jumpToBottomButton
         }
-        .onChange(of: transcriptID) { _, _ in
-            resetVisibleWindow()
+        .onChange(of: transcriptID) { oldID, newID in
+            restoreVisibleWindow(from: oldID, to: newID)
         }
         .task(id: transcriptInput) {
             refreshTimeline(for: transcriptInput)
+        }
+    }
+
+    private var activeScrollPosition: Binding<ScrollPosition> {
+        Binding {
+            scrollPositionsByTranscriptID[scrollStateKey(for: transcriptID)] ?? ScrollPosition(edge: .bottom)
+        } set: { position in
+            scrollPositionsByTranscriptID[scrollStateKey(for: transcriptID)] = position
         }
     }
 
@@ -141,7 +150,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         if !isPinnedToBottom && !timelineItems.isEmpty {
             Button {
                 withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
-                    scrollPosition.scrollTo(edge: .bottom)
+                    scrollToBottom()
                 }
             } label: {
                 Image(systemName: "arrow.down")
@@ -175,13 +184,29 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     private func prefetchOlderItems() {
-        _ = windowState.prefetchOlderItems(totalItemCount: timelineItems.count)
+        if windowState.prefetchOlderItems(totalItemCount: timelineItems.count) {
+            windowStatesByTranscriptID[scrollStateKey(for: transcriptID)] = windowState
+        }
     }
 
-    private func resetVisibleWindow() {
-        windowState.reset()
-        isPinnedToBottom = true
-        scrollPosition = ScrollPosition(edge: .bottom)
+    private func restoreVisibleWindow(from oldID: String?, to newID: String?) {
+        windowStatesByTranscriptID[scrollStateKey(for: oldID)] = windowState
+        let newKey = scrollStateKey(for: newID)
+        windowState = windowStatesByTranscriptID[newKey] ?? CodexTranscriptWindowState()
+        if scrollPositionsByTranscriptID[newKey] == nil {
+            scrollPositionsByTranscriptID[newKey] = ScrollPosition(edge: .bottom)
+            isPinnedToBottom = true
+        }
+    }
+
+    private func scrollToBottom() {
+        var position = activeScrollPosition.wrappedValue
+        position.scrollTo(edge: .bottom)
+        activeScrollPosition.wrappedValue = position
+    }
+
+    private func scrollStateKey(for transcriptID: String?) -> String {
+        transcriptID?.nilIfBlank ?? "__codex_empty_transcript__"
     }
 
     private static var bottomPinTolerance: CGFloat { 80 }
