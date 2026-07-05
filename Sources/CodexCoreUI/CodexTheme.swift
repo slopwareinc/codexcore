@@ -174,6 +174,21 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
 }
 
 public extension CodexEditableTheme {
+    /// Returns black/white text color for a given accent hex based on relative
+    /// luminance. Avoids the previous hardcoded `.white` which produced a
+    /// contrast violation for any light custom accent (pastel yellow, etc.).
+    static func onAccent(forAccentHex hex: UInt32) -> Color {
+        let r = Double((hex >> 16) & 0xFF) / 255.0
+        let g = Double((hex >> 8) & 0xFF) / 255.0
+        let b = Double(hex & 0xFF) / 255.0
+        // Per W3C relative luminance.
+        func channel(_ v: Double) -> Double {
+            v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        let lum = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+        return lum > 0.5 ? .black : .white
+    }
+
     static var officialLight: CodexEditableTheme {
         CodexEditableTheme(
             accent: CodexThemeColorValue(rawValue: 0x339CFF),
@@ -210,7 +225,7 @@ public extension CodexEditableTheme {
         theme.colors.textTertiary = foregroundColor.opacity(isDark ? 0.48 : 0.52)
         theme.colors.accent = accent.color
         theme.colors.accentSoft = accent.color.opacity(isDark ? 0.20 : 0.14)
-        theme.colors.onAccent = isDark ? .white : .white
+        theme.colors.onAccent = Self.onAccent(forAccentHex: accent.rawValue)
         theme.colors.border = foregroundColor.opacity(borderOpacity)
         theme.colors.borderStrong = foregroundColor.opacity(min(borderOpacity * 1.9, 0.48))
         theme.colors.userBubble = accent.color.opacity(isDark ? 0.16 : 0.12)
@@ -1055,7 +1070,7 @@ public struct CodexBrandMark: View {
                 )
             Image(systemName: systemImage)
                 .font(.system(size: size * 0.46, weight: .medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.onAccent)
         }
         .frame(width: size, height: size)
         .shadow(color: theme.colors.accent.opacity(0.32), radius: size * 0.32, y: size * 0.16)
