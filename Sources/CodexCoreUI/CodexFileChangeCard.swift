@@ -110,10 +110,10 @@ public struct CodexFileChangeCard: View {
                         reviewAction?(change)
                     }
 
-                    Image(systemName: "chevron.down")
+                    Image(systemName: "chevron.right")
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)

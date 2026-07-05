@@ -50,12 +50,13 @@ public struct CodexNoticeCard: View {
                         CodexNoticeStatusChip(notice: notice)
                     }
 
-                    Image(systemName: "chevron.down")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
-                        .opacity(isExpandable ? 1 : 0.25)
-                        .padding(.top, 4)
+                    if isExpandable {
+                        Image(systemName: "chevron.right")
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .padding(.top, 4)
+                    }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
