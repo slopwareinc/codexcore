@@ -92,16 +92,10 @@ public struct CodexFileChangeCard: View {
                     Spacer(minLength: 8)
 
                     if facts.hasDiff {
-                        HStack(spacing: 4) {
-                            Text("+\(facts.addedLineCount)")
-                                .foregroundStyle(theme.colors.success)
-                            Text("−\(facts.removedLineCount)")
-                                .foregroundStyle(theme.colors.danger)
-                        }
-                        .font(theme.fonts.micro)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(theme.colors.surfaceElevated.opacity(0.32), in: Capsule())
+                        CodexDiffCounter(added: facts.addedLineCount, removed: facts.removedLineCount)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(theme.colors.surfaceElevated.opacity(0.32), in: Capsule())
                     }
 
                     CodexFileChangeStatusChip(change: change)
