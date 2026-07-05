@@ -758,15 +758,6 @@ public struct CodexEditableThemePanel: View {
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer()
-                CodexSettingsDisabledPill("Import")
-                CodexSettingsDisabledPill("Copy theme")
-                Text(editableTheme.uiFontName)
-                    .font(theme.fonts.caption)
-                    .lineLimit(1)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .padding(.horizontal, 10)
-                    .frame(width: 176, height: 28, alignment: .leading)
-                    .background(theme.colors.surfaceSunken.opacity(0.64), in: Capsule())
             }
             .padding(.bottom, 10)
 
