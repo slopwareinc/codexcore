@@ -252,6 +252,17 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertFalse(state.prefetchOlderItemsIfNeeded(contentOffsetY: 0, totalItemCount: 287))
     }
 
+    func testTranscriptTopPrefetchGateOnlyFiresOnNearTopEntry() {
+        var gate = CodexTranscriptTopPrefetchGate()
+
+        XCTAssertFalse(gate.shouldPrefetch(key: "thread-a", isNearTop: false))
+        XCTAssertTrue(gate.shouldPrefetch(key: "thread-a", isNearTop: true))
+        XCTAssertFalse(gate.shouldPrefetch(key: "thread-a", isNearTop: true))
+        XCTAssertTrue(gate.shouldPrefetch(key: "thread-b", isNearTop: true))
+        XCTAssertFalse(gate.shouldPrefetch(key: "thread-a", isNearTop: false))
+        XCTAssertTrue(gate.shouldPrefetch(key: "thread-a", isNearTop: true))
+    }
+
     func testTranscriptScrollSnapshotPreservesConcreteOffset() {
         let middle = CodexTranscriptScrollSnapshot(
             contentOffsetY: 1_234,
