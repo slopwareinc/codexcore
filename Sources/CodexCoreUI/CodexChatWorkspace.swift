@@ -431,8 +431,7 @@ public struct CodexThreadLoadingView: View {
 
     public var body: some View {
         HStack(spacing: 9) {
-            ProgressView()
-                .controlSize(.small)
+            CodexSpinner(size: .small)
             Text("Loading chat...")
                 .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.textSecondary)

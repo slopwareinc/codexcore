@@ -94,9 +94,7 @@ struct CodexSubagentRunInlineView: View {
     private var aggregateIcon: some View {
         switch summary.status {
         case .spawning, .running:
-            ProgressView()
-                .controlSize(.mini)
-                .tint(theme.colors.running)
+            CodexSpinner(color: theme.colors.running, size: .mini)
         case .completed, .closed:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(theme.colors.success)
@@ -113,9 +111,7 @@ struct CodexSubagentRunInlineView: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(theme.colors.accent)
         case .running:
-            ProgressView()
-                .controlSize(.mini)
-                .tint(theme.colors.running)
+            CodexSpinner(color: theme.colors.running, size: .mini)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(theme.colors.success)

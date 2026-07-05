@@ -114,8 +114,7 @@ public struct CodexCommandPaletteOverlay: View {
                 .focused($isFocused)
                 .onSubmit { runSearch(query) }
             if isSearchingChats {
-                ProgressView()
-                    .controlSize(.small)
+                CodexSpinner(size: .small)
             }
         }
         .padding(.horizontal, 11)

@@ -53,8 +53,7 @@ public struct CodexMCPStatusSheet: View {
 
             if isLoading {
                 HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
+                    CodexSpinner(size: .small)
                     Text("Loading")
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textSecondary)
