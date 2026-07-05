@@ -64,13 +64,13 @@ public struct CodexProjectSidebar: View {
                     pinnedSection
                     projectListSection
                     olderProjectsSection
-                    settingsSection
                 }
                 .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
                 .padding(.top, 10)
                 .padding(.bottom, 18)
             }
 
+            utilitySection
             accountFooter
         }
         .frame(
@@ -125,7 +125,7 @@ public struct CodexProjectSidebar: View {
                         .frame(width: 26, height: 30)
                 }
             }
-            .frame(height: snapshot.isCollapsed ? 42 : 54)
+            .frame(height: snapshot.isCollapsed ? sidebarFonts.collapsedAccountFooterHeight : sidebarFonts.accountFooterHeight)
             .frame(maxWidth: .infinity, alignment: snapshot.isCollapsed ? .center : .leading)
             .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
             .contentShape(Rectangle())
@@ -295,7 +295,7 @@ public struct CodexProjectSidebar: View {
                             Spacer(minLength: 0)
                         }
                         .foregroundStyle(theme.colors.textTertiary)
-                        .frame(height: 32)
+                        .frame(height: theme.fonts.sidebar.disclosureRowHeight)
                         .padding(.horizontal, 2)
                         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
@@ -322,7 +322,7 @@ public struct CodexProjectSidebar: View {
         }
     }
 
-    private var settingsSection: some View {
+    private var utilitySection: some View {
         VStack(spacing: 2) {
             SidebarCommandRow(
                 systemImage: "folder.badge.plus",
@@ -344,6 +344,17 @@ public struct CodexProjectSidebar: View {
                 isCollapsed: snapshot.isCollapsed,
                 action: { onSelectRoute(.settingsAbout) }
             )
+        }
+        .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
+        .padding(.vertical, 8)
+        .background {
+            Rectangle()
+                .fill(theme.colors.surface.opacity(0.10))
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(theme.colors.border.opacity(0.28))
+                        .frame(height: 1)
+                }
         }
     }
 
@@ -380,7 +391,7 @@ private struct SidebarCommandRow: View {
                     }
                 }
             }
-            .frame(height: 35)
+            .frame(height: theme.fonts.sidebar.commandRowHeight)
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
             .padding(.horizontal, isCollapsed ? 4 : 6)
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -418,7 +429,7 @@ private struct SidebarSectionHeader: View {
             Spacer(minLength: 0)
         }
         .foregroundStyle(theme.colors.textTertiary)
-        .frame(height: 30)
+        .frame(height: theme.fonts.sidebar.sectionHeaderHeight)
         .padding(.horizontal, 2)
     }
 }
@@ -460,7 +471,7 @@ private struct ProjectSidebarGroupView: View {
                         Spacer(minLength: 0)
                     }
                 }
-                .frame(height: isCollapsed ? 31 : 35)
+                .frame(height: isCollapsed ? theme.fonts.sidebar.collapsedProjectRowHeight : theme.fonts.sidebar.projectRowHeight)
                 .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
                 .padding(.horizontal, isCollapsed ? 4 : 6)
                 .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -513,7 +524,7 @@ private struct ProjectSidebarGroupView: View {
                             .foregroundStyle(theme.colors.textTertiary)
                             .lineLimit(1)
                             .padding(.leading, 38)
-                            .frame(height: 30)
+                            .frame(height: theme.fonts.sidebar.hiddenRowsPromptHeight)
                             .help("\(group.hiddenRowCount) older chats hidden")
                     }
                 }
@@ -557,7 +568,7 @@ private struct SidebarChatRow: View {
         }
         .padding(.leading, 6 + indentation)
         .padding(.trailing, 8)
-        .frame(height: 34)
+        .frame(height: theme.fonts.sidebar.chatRowHeight)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onSelect)
         .background(

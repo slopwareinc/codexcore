@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Observation
 import CodexCore
 import CodexCoreUI
@@ -18,7 +19,16 @@ final class CodexCoreAppModel {
 
     var workspacePath = defaultWorkspacePath()
     var apiKey = ""
-    var themePreset: CodexAgentThemePreset = .officialDark
+    var appearanceSettings: CodexAppearanceSettings = .official {
+        didSet {
+            CodexAppearanceSettingsStorage.saveAppearanceSettings(appearanceSettings, to: preferenceStore)
+        }
+    }
+    var gitSettings: CodexGitSettings = .defaults {
+        didSet {
+            CodexGitSettingsStorage.saveGitSettings(gitSettings, to: preferenceStore)
+        }
+    }
     var sidebarFontSize: Double = CodexSidebarFontSizeStorage.defaultFontSize {
         didSet {
             let clamped = CodexSidebarFontSizeStorage.clamped(sidebarFontSize)
@@ -30,7 +40,7 @@ final class CodexCoreAppModel {
         }
     }
     var theme: CodexAgentTheme {
-        var theme = themePreset.theme
+        var theme = appearanceSettings.effectiveTheme(systemIsDark: CodexSystemAppearance.isDark)
         theme.fonts.sidebar = .official(baseTextSize: sidebarFontSize)
         return theme
     }
@@ -77,6 +87,8 @@ final class CodexCoreAppModel {
     ) {
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
+        self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
+        self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
         self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
@@ -132,8 +144,13 @@ final class CodexCoreAppModel {
 
             do {
                 let account = try await codex.account(refreshToken: false)
-                appendActivity(.login, title: "Account detail JSON", detail: CodexAccountDetailLog.json(from: account))
-                accountMenuSummary = CodexAccountMenuSummary(account: account.account, serverName: server)
+                print("[codextrace] account/read \(CodexAccountDetailLog.json(from: account))")
+                let tokenDisplayName = CodexAuthTokenProfileReader.displayName(codexHome: defaultCodexHome())
+                accountMenuSummary = CodexAccountMenuSummary(
+                    account: account.account,
+                    displayName: tokenDisplayName,
+                    serverName: server
+                )
                 let authCheck = authSession.applyAccount(account)
                 if let activity = authCheck.activity {
                     appendActivity(activity)
@@ -1709,10 +1726,69 @@ enum CodexPinnedThreadStorage {
     }
 }
 
+@MainActor
+enum CodexSystemAppearance {
+    static var isDark: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+}
+
+enum CodexAppearanceSettingsStorage {
+    private static let appearanceSettingsKey = "CodexCoreApp.appearanceSettings.v2"
+
+    static func loadAppearanceSettings(from store: any CodexStringListPreferenceStore) -> CodexAppearanceSettings {
+        guard let stored = store.loadStrings(forKey: appearanceSettingsKey).first,
+              let data = stored.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(CodexAppearanceSettings.self, from: data)
+        else {
+            return .official
+        }
+        return decoded
+    }
+
+    static func saveAppearanceSettings(
+        _ settings: CodexAppearanceSettings,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        guard let data = try? JSONEncoder().encode(settings),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        store.saveStrings([string], forKey: appearanceSettingsKey)
+    }
+}
+
+enum CodexGitSettingsStorage {
+    private static let gitSettingsKey = "CodexCoreApp.gitSettings.v1"
+
+    static func loadGitSettings(from store: any CodexStringListPreferenceStore) -> CodexGitSettings {
+        guard let stored = store.loadStrings(forKey: gitSettingsKey).first,
+              let data = stored.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(CodexGitSettings.self, from: data)
+        else {
+            return .defaults
+        }
+        return decoded
+    }
+
+    static func saveGitSettings(
+        _ settings: CodexGitSettings,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        guard let data = try? JSONEncoder().encode(settings),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        store.saveStrings([string], forKey: gitSettingsKey)
+    }
+}
+
 enum CodexSidebarFontSizeStorage {
     static let defaultFontSize = CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize
     static let fontSizeRange = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
-    private static let sidebarFontSizeKey = "CodexCoreApp.sidebarFontSize"
+    private static let sidebarFontSizeKey = "CodexCoreApp.sidebarFontSize.v2"
 
     static func loadSidebarFontSize(from store: any CodexStringListPreferenceStore) -> Double {
         guard let stored = store.loadStrings(forKey: sidebarFontSizeKey).first,

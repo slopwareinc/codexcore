@@ -8,11 +8,244 @@ import UIKit
 
 @inline(__always)
 private func codexHex(_ value: UInt32) -> Color {
-    Color(
-        red: Double((value >> 16) & 0xFF) / 255.0,
-        green: Double((value >> 8) & 0xFF) / 255.0,
-        blue: Double(value & 0xFF) / 255.0
-    )
+    Color.codexHex(value)
+}
+
+private extension Color {
+    static func codexHex(_ value: UInt32) -> Color {
+        Color(
+            red: Double((value >> 16) & 0xFF) / 255.0,
+            green: Double((value >> 8) & 0xFF) / 255.0,
+            blue: Double(value & 0xFF) / 255.0
+        )
+    }
+}
+
+public struct CodexThemeColorValue: Codable, Equatable, Sendable, Identifiable {
+    public var id: UInt32 { rawValue }
+    public var rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue & 0xFFFFFF
+    }
+
+    public init(hex: String) {
+        let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines))
+        self.rawValue = UInt32(trimmed, radix: 16).map { $0 & 0xFFFFFF } ?? 0
+    }
+
+    public var color: Color {
+        .codexHex(rawValue)
+    }
+
+    public var hexString: String {
+        String(format: "#%06X", rawValue)
+    }
+}
+
+public enum CodexAppearanceMode: String, CaseIterable, Codable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
+public enum CodexDiffMarkerStyle: String, CaseIterable, Codable, Identifiable, Sendable {
+    case color
+    case signs
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .color: return "Color"
+        case .signs: return "+/-"
+        }
+    }
+}
+
+public enum CodexDockIconVariant: String, CaseIterable, Codable, Identifiable, Sendable {
+    case `default`
+    case codexLight
+    case codexDark
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .default: return "Default"
+        case .codexLight: return "Codex Light"
+        case .codexDark: return "Codex Dark"
+        }
+    }
+}
+
+public struct CodexEditableTheme: Codable, Equatable, Sendable {
+    public var accent: CodexThemeColorValue
+    public var background: CodexThemeColorValue
+    public var foreground: CodexThemeColorValue
+    public var uiFontName: String
+    public var translucentSidebar: Bool
+    public var contrast: Double
+
+    public init(
+        accent: CodexThemeColorValue,
+        background: CodexThemeColorValue,
+        foreground: CodexThemeColorValue,
+        uiFontName: String = "-apple-system, BlinkMacSystemFont",
+        translucentSidebar: Bool,
+        contrast: Double
+    ) {
+        self.accent = accent
+        self.background = background
+        self.foreground = foreground
+        self.uiFontName = uiFontName
+        self.translucentSidebar = translucentSidebar
+        self.contrast = min(max(contrast, 0), 100)
+    }
+}
+
+public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
+    public static let uiFontSizeRange: ClosedRange<Double> = 11...18
+    public static let contrastRange: ClosedRange<Double> = 0...100
+
+    public var mode: CodexAppearanceMode
+    public var lightTheme: CodexEditableTheme
+    public var darkTheme: CodexEditableTheme
+    public var usesPointerCursors: Bool
+    public var reduceMotion: Bool
+    public var uiFontSize: Double
+    public var diffMarkerStyle: CodexDiffMarkerStyle
+    public var usesFontSmoothing: Bool
+    public var dockIconVariant: CodexDockIconVariant
+
+    public init(
+        mode: CodexAppearanceMode = .dark,
+        lightTheme: CodexEditableTheme = .officialLight,
+        darkTheme: CodexEditableTheme = .officialDark,
+        usesPointerCursors: Bool = true,
+        reduceMotion: Bool = false,
+        uiFontSize: Double = 14,
+        diffMarkerStyle: CodexDiffMarkerStyle = .color,
+        usesFontSmoothing: Bool = true,
+        dockIconVariant: CodexDockIconVariant = .default
+    ) {
+        self.mode = mode
+        self.lightTheme = lightTheme
+        self.darkTheme = darkTheme
+        self.usesPointerCursors = usesPointerCursors
+        self.reduceMotion = reduceMotion
+        self.uiFontSize = min(max(uiFontSize, Self.uiFontSizeRange.lowerBound), Self.uiFontSizeRange.upperBound)
+        self.diffMarkerStyle = diffMarkerStyle
+        self.usesFontSmoothing = usesFontSmoothing
+        self.dockIconVariant = dockIconVariant
+    }
+
+    public static var official: CodexAppearanceSettings {
+        CodexAppearanceSettings()
+    }
+
+    public func effectiveTheme(systemIsDark: Bool) -> CodexAgentTheme {
+        let editableTheme: CodexEditableTheme
+        switch mode {
+        case .system:
+            editableTheme = systemIsDark ? darkTheme : lightTheme
+        case .light:
+            editableTheme = lightTheme
+        case .dark:
+            editableTheme = darkTheme
+        }
+
+        return editableTheme.agentTheme(
+            isDark: mode == .dark || (mode == .system && systemIsDark),
+            uiFontSize: uiFontSize,
+            reduceMotion: reduceMotion
+        )
+    }
+}
+
+public extension CodexEditableTheme {
+    static var officialLight: CodexEditableTheme {
+        CodexEditableTheme(
+            accent: CodexThemeColorValue(rawValue: 0x339CFF),
+            background: CodexThemeColorValue(rawValue: 0xFFFFFF),
+            foreground: CodexThemeColorValue(rawValue: 0x1A1C1F),
+            translucentSidebar: true,
+            contrast: 45
+        )
+    }
+
+    static var officialDark: CodexEditableTheme {
+        CodexEditableTheme(
+            accent: CodexThemeColorValue(rawValue: 0x0EA5E9),
+            background: CodexThemeColorValue(rawValue: 0x111111),
+            foreground: CodexThemeColorValue(rawValue: 0xF7F7F7),
+            translucentSidebar: true,
+            contrast: 60
+        )
+    }
+
+    func agentTheme(isDark: Bool, uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
+        let base = isDark ? CodexAgentTheme.officialDark : CodexAgentTheme.nativeLight
+        var theme = base
+        let contrastScale = min(max(contrast / 100, 0), 1)
+        let borderOpacity = isDark ? 0.06 + contrastScale * 0.22 : 0.05 + contrastScale * 0.16
+        let surfaceOpacity = translucentSidebar ? base.effects.surfaceOpacity : 0.98
+        let canvas = background.color
+        let foregroundColor = foreground.color
+
+        theme.colors.canvas = canvas
+        theme.colors.surface = canvas
+        theme.colors.textPrimary = foregroundColor
+        theme.colors.textSecondary = foregroundColor.opacity(isDark ? 0.68 : 0.70)
+        theme.colors.textTertiary = foregroundColor.opacity(isDark ? 0.48 : 0.52)
+        theme.colors.accent = accent.color
+        theme.colors.accentSoft = accent.color.opacity(isDark ? 0.20 : 0.14)
+        theme.colors.onAccent = isDark ? .white : .white
+        theme.colors.border = foregroundColor.opacity(borderOpacity)
+        theme.colors.borderStrong = foregroundColor.opacity(min(borderOpacity * 1.9, 0.48))
+        theme.colors.userBubble = accent.color.opacity(isDark ? 0.16 : 0.12)
+        theme.colors.userBubbleStroke = accent.color.opacity(isDark ? 0.20 : 0.18)
+        theme.effects.usesLiquidGlass = translucentSidebar
+        theme.effects.surfaceOpacity = surfaceOpacity
+        theme.effects.glassOpacity = translucentSidebar ? 0.72 : 0.92
+        theme.effects.glowOpacity = translucentSidebar ? base.effects.glowOpacity : 0.04
+        theme.fonts = .official.scaled(baseTextSize: uiFontSize)
+        theme.animations = reduceMotion ? .reduced : .official
+        return theme
+    }
+}
+
+private extension CodexAgentTheme.Fonts {
+    func scaled(baseTextSize: Double) -> CodexAgentTheme.Fonts {
+        let bodySize = CGFloat(min(max(baseTextSize, CodexAppearanceSettings.uiFontSizeRange.lowerBound), CodexAppearanceSettings.uiFontSizeRange.upperBound))
+        return CodexAgentTheme.Fonts(
+            body: .system(size: bodySize),
+            chat: .system(size: bodySize + 1),
+            caption: .system(size: max(9, bodySize - 2)),
+            label: .system(size: max(10, bodySize - 1), weight: .semibold),
+            code: .system(size: max(10, bodySize - 1), design: .monospaced),
+            micro: .system(size: max(8, bodySize - 3), weight: .semibold, design: .monospaced),
+            sidebar: sidebar,
+            chatNSFont: chatNSFont,
+            codeNSFont: codeNSFont
+        )
+    }
+}
+
+private extension CodexAgentTheme.Animations {
+    static var reduced: CodexAgentTheme.Animations {
+        CodexAgentTheme.Animations(defaultDuration: 0.01, snappyDuration: 0.01, springResponse: 0.01, springDamping: 1)
+    }
 }
 
 private extension Color {
@@ -238,7 +471,7 @@ public struct CodexAgentTheme {
         }
 
         public struct SidebarTypography: Codable, Equatable {
-            public static let defaultBaseTextSize: Double = 14
+            public static let defaultBaseTextSize: Double = 12
             public static let baseTextSizeRange: ClosedRange<Double> = 11...18
 
             public var titlebarIcon: FontToken
@@ -308,6 +541,46 @@ public struct CodexAgentTheme {
 
             public func accountInitials(isCollapsed: Bool) -> Font {
                 (isCollapsed ? accountInitialsCollapsed : accountInitialsExpanded).font
+            }
+
+            public var commandRowHeight: CGFloat {
+                rowHeight(for: commandTitle, padding: 20)
+            }
+
+            public var projectRowHeight: CGFloat {
+                rowHeight(for: projectTitle, padding: 19)
+            }
+
+            public var collapsedProjectRowHeight: CGFloat {
+                rowHeight(for: projectTitle, padding: 17)
+            }
+
+            public var chatRowHeight: CGFloat {
+                rowHeight(for: chatTitle, padding: 18)
+            }
+
+            public var sectionHeaderHeight: CGFloat {
+                rowHeight(for: sectionHeader, padding: 16)
+            }
+
+            public var disclosureRowHeight: CGFloat {
+                rowHeight(for: disclosureTitle, padding: 18)
+            }
+
+            public var hiddenRowsPromptHeight: CGFloat {
+                rowHeight(for: hiddenRowsPrompt, padding: 17)
+            }
+
+            public var accountFooterHeight: CGFloat {
+                max(44, accountName.size + accountDetail.size + 24)
+            }
+
+            public var collapsedAccountFooterHeight: CGFloat {
+                max(38, accountInitialsCollapsed.size + 30)
+            }
+
+            private func rowHeight(for token: FontToken, padding: CGFloat) -> CGFloat {
+                max(24, token.size + padding)
             }
 
             public static var official: SidebarTypography {

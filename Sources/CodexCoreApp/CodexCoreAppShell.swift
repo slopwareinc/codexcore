@@ -157,8 +157,20 @@ struct CodexCoreAppShell: View {
         case .settingsAbout:
             CodexSettingsAboutRouteView(
                 metadata: CodexAboutMetadata(bundle: .main, serverName: model.serverName),
+                accountSummary: model.accountMenuSummary,
+                appearanceSettings: $model.appearanceSettings,
                 sidebarFontSize: $model.sidebarFontSize,
-                sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange
+                sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange,
+                approvalSelection: $model.approvalSelection,
+                approvalOptions: model.approvalOptions,
+                modelSelection: $model.modelSelection,
+                modelOptions: model.modelOptions,
+                reasoningSelection: $model.reasoningSelection,
+                isBottomPanelVisible: $model.isBottomTerminalVisible,
+                gitSettings: $model.gitSettings,
+                mcpServers: model.mcpServers,
+                isLoadingMCPServers: model.isLoadingMCPServers,
+                onBackToApp: { model.selectAppRoute(.chat) }
             )
                 .codexAgentTheme(model.theme)
         }
