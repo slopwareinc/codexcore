@@ -87,6 +87,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var selectedPanelTabID: String?
     @State private var agentPanelWidth: CGFloat = CodexAgentTheme.officialDark.spacing.sidePanelWidth
     @State private var terminalSessions: [CodexTerminalSession] = []
+    @State private var filesSession: CodexFilesSession?
     @State private var nextTerminalNumber = 1
 
     public init(
@@ -399,6 +400,7 @@ public struct CodexChatWorkspaceView: View {
             selectedTabID: $selectedPanelTabID,
             width: resizable ? $agentPanelWidth : .constant(theme.spacing.sidePanelWidth),
             terminalSessions: terminalSessions,
+            filesSession: filesSession,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
@@ -406,6 +408,8 @@ public struct CodexChatWorkspaceView: View {
             onInterruptSideChatMessage: onInterruptSideChatMessage,
             onOpenTerminal: openTerminalTab,
             onCloseTerminal: closeTerminalTab,
+            onOpenFiles: openFilesTab,
+            onCloseFiles: closeFilesTab,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { isAgentPanelOpen = false } }
         )
     }
@@ -457,6 +461,23 @@ public struct CodexChatWorkspaceView: View {
 
     private func closeTerminalTab(_ id: String) {
         terminalSessions.removeAll { $0.id == id }
+        if selectedPanelTabID == id {
+            selectedPanelTabID = terminalSessions.first?.id ?? filesSession?.id ?? panelTabs.first?.id
+        }
+    }
+
+    private func openFilesTab() {
+        let session = filesSession ?? CodexFilesSession(rootURL: URL(fileURLWithPath: workspacePath))
+        filesSession = session
+        selectedPanelTabID = session.id
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            isAgentPanelOpen = true
+        }
+    }
+
+    private func closeFilesTab(_ id: String) {
+        guard filesSession?.id == id else { return }
+        filesSession = nil
         if selectedPanelTabID == id {
             selectedPanelTabID = terminalSessions.first?.id ?? panelTabs.first?.id
         }
