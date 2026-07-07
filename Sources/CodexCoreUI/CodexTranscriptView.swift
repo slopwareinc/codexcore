@@ -30,6 +30,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let onOpenMCPDetails: (() -> Void)?
     private let onEditUserMessage: ((String) -> Void)?
     private let toolCallRenderer: CodexTranscriptToolCallRenderer?
+    private let contentHorizontalOffset: CGFloat
     private let topContentMargin: CGFloat
     private let bottomContentMargin: CGFloat
 
@@ -50,6 +51,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         onOpenMCPDetails: (() -> Void)? = nil,
         onEditUserMessage: ((String) -> Void)? = nil,
         toolCallRenderer: CodexTranscriptToolCallRenderer? = nil,
+        contentHorizontalOffset: CGFloat = 0,
         topContentMargin: CGFloat = 0,
         bottomContentMargin: CGFloat = 0,
         @ViewBuilder emptyContent: () -> EmptyContent
@@ -62,6 +64,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
         self.toolCallRenderer = toolCallRenderer
+        self.contentHorizontalOffset = contentHorizontalOffset
         self.topContentMargin = topContentMargin
         self.bottomContentMargin = bottomContentMargin
         self.emptyContent = emptyContent()
@@ -84,6 +87,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                     .padding(.horizontal, 28)
                     .padding(.top, topContentMargin)
                     .padding(.bottom, bottomContentMargin)
+                    .offset(x: contentHorizontalOffset)
             } else {
                 LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
                     ForEach(visibleTimelineItems) { item in
@@ -108,6 +112,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                 .padding(.bottom, 28 + bottomContentMargin)
                 .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
                 .frame(maxWidth: .infinity)
+                .offset(x: contentHorizontalOffset)
             }
         }
         .scrollPosition($scrollPosition)
@@ -562,7 +567,6 @@ public struct CodexAgentLifecycleBlock: View {
 
 public struct CodexMessageRow: View {
     private let message: CodexChatMessage
-    private let assistantName: String
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
     private let onEditUserMessage: ((String) -> Void)?
@@ -577,7 +581,6 @@ public struct CodexMessageRow: View {
         toolCallRenderer: CodexTranscriptToolCallRenderer? = nil
     ) {
         self.message = message
-        self.assistantName = assistantName
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
@@ -656,7 +659,7 @@ public struct CodexMessageRow: View {
             }
         case .assistant:
             CodexAgentRow(visibility: .hidden) {
-                CodexAssistantMessageView(message: message, assistantName: assistantName)
+                CodexAssistantMessageView(message: message)
                     .accessibilityLabel(CodexTranscriptAccessibility.assistantMessageLabel(prefix: String(message.text.prefix(60))))
             }
         }
@@ -719,14 +722,12 @@ public struct CodexAssistantMessageView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let message: CodexChatMessage
-    private let assistantName: String
     @State private var isHovered = false
     @State private var copied = false
     @State private var hoverTask: Task<Void, Never>?
 
     public init(message: CodexChatMessage, assistantName: String = "Codex") {
         self.message = message
-        self.assistantName = assistantName
     }
 
     public var body: some View {

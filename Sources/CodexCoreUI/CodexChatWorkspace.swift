@@ -8,16 +8,28 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
         self.availableWidth = max(0, availableWidth)
     }
 
-    public var usesFloatingSummaryPanel: Bool {
-        availableWidth >= 1_040
+    public var supportsDockedOverviewWithoutSidePanel: Bool {
+        availableWidth >= 1_120
+    }
+
+    public var supportsDockedOverviewWithSidePanel: Bool {
+        availableWidth >= 1_560
+    }
+
+    public func supportsDockedOverview(isSidePanelOpen: Bool) -> Bool {
+        isSidePanelOpen ? supportsDockedOverviewWithSidePanel : supportsDockedOverviewWithoutSidePanel
     }
 
     public var usesPersistentSidePanel: Bool {
         availableWidth >= 980
     }
 
+    public var usesFloatingSummaryPanel: Bool {
+        supportsDockedOverviewWithoutSidePanel
+    }
+
     public var usesOverlaySummaryPanel: Bool {
-        !usesFloatingSummaryPanel
+        !supportsDockedOverviewWithoutSidePanel
     }
 
     public var usesOverlaySidePanel: Bool {
@@ -202,10 +214,16 @@ public struct CodexChatWorkspaceView: View {
     public var body: some View {
         GeometryReader { proxy in
             let panelState = CodexWorkspaceResponsivePanelState(availableWidth: proxy.size.width)
+            let isDockedOverviewVisible = isSummaryPanelOpen && panelState.supportsDockedOverview(isSidePanelOpen: isAgentPanelOpen)
+            let isFloatingOverviewVisible = isCompactSummaryPanelPresented && !isDockedOverviewVisible
 
             ZStack(alignment: .trailing) {
                 HStack(spacing: 0) {
-                    mainColumn(panelState: panelState)
+                    mainColumn(
+                        panelState: panelState,
+                        isDockedOverviewVisible: isDockedOverviewVisible,
+                        isOverviewControlActive: isDockedOverviewVisible || isFloatingOverviewVisible
+                    )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if panelState.usesPersistentSidePanel, isAgentPanelOpen {
@@ -214,7 +232,7 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
 
-                if panelState.usesOverlaySummaryPanel, isCompactSummaryPanelPresented {
+                if isFloatingOverviewVisible {
                     compactOverlayBackdrop {
                         isCompactSummaryPanelPresented = false
                     }
@@ -244,29 +262,30 @@ public struct CodexChatWorkspaceView: View {
         .background(theme.colors.canvas.opacity(0.001))
     }
 
-    private func mainColumn(panelState: CodexWorkspaceResponsivePanelState) -> some View {
-        return HStack(spacing: 0) {
-            chatColumn()
+    private func mainColumn(
+        panelState: CodexWorkspaceResponsivePanelState,
+        isDockedOverviewVisible: Bool,
+        isOverviewControlActive: Bool
+    ) -> some View {
+        ZStack(alignment: .topTrailing) {
+            chatColumn(
+                panelState: panelState,
+                isOverviewControlActive: isOverviewControlActive,
+                isDockedOverviewVisible: isDockedOverviewVisible
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if panelState.usesFloatingSummaryPanel, isSummaryPanelOpen, !isAgentPanelOpen {
-                Divider()
-                    .overlay(theme.colors.border)
-                    .padding(.vertical, 12)
-
-                floatingSummaryPanel
-                    .frame(width: theme.spacing.summaryPanelWidth)
-                    .padding(.top, 58)
-                    .padding(.trailing, 16)
-                    .padding(.leading, 4)
-                    .transition(.opacity)
-            }
         }
         .frame(minWidth: 540)
     }
 
-    private func chatColumn() -> some View {
-        ZStack(alignment: .topTrailing) {
+    private func chatColumn(
+        panelState: CodexWorkspaceResponsivePanelState,
+        isOverviewControlActive: Bool,
+        isDockedOverviewVisible: Bool
+    ) -> some View {
+        let contentShift = isDockedOverviewVisible ? dockedOverviewContentShift : 0
+
+        return ZStack(alignment: .topTrailing) {
             CodexTranscriptView(
                 messages: messages,
                 transcriptID: currentThreadID,
@@ -275,8 +294,9 @@ public struct CodexChatWorkspaceView: View {
                 onCloseMessage: onCloseTranscriptMessage,
                 onOpenMCPDetails: onOpenMCPDetails,
                 onEditUserMessage: { draft = $0 },
+                contentHorizontalOffset: -contentShift,
                 topContentMargin: 58,
-                bottomContentMargin: 122
+                bottomContentMargin: 150
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
@@ -291,21 +311,27 @@ public struct CodexChatWorkspaceView: View {
                 }
             }
 
+            if isDockedOverviewVisible {
+                floatingSummaryPanel
+                    .frame(width: theme.spacing.summaryPanelWidth)
+                    .padding(.top, 58)
+                    .padding(.trailing, 28)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+            }
+
             VStack(spacing: 0) {
                 CodexChatHeader(
                     title: chatTitle,
                     workspacePath: workspacePath,
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
-                    isSummaryPanelOpen: isSummaryPanelOpen,
+                    isSummaryPanelOpen: isOverviewControlActive,
                     hasPanelTabs: true,
                     isPanelOpen: isAgentPanelOpen,
                     chatActions: workspaceChatActions,
                     onToggleSidebar: onToggleSidebar,
                     onToggleSummaryPanel: {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                            isSummaryPanelOpen.toggle()
-                        }
+                        toggleSummaryPanel(panelState: panelState)
                     },
                     onTogglePanel: toggleAgentPanel,
                     onDisconnect: onDisconnect
@@ -317,6 +343,7 @@ public struct CodexChatWorkspaceView: View {
                         .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 6)
+                        .offset(x: -contentShift)
                 }
                 CodexComposerBar(
                     draft: $draft,
@@ -346,8 +373,16 @@ public struct CodexChatWorkspaceView: View {
                     onAddMenuRoute: onComposerAddMenuRoute,
                     onComposerChipClear: onComposerChipClear
                 )
+                .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 22)
+                .offset(x: -contentShift)
             }
         }
+    }
+
+    private var dockedOverviewContentShift: CGFloat {
+        min(theme.spacing.summaryPanelWidth * 0.38, 120)
     }
 
     private var activeTurnState: CodexActiveTurnState? {
@@ -440,7 +475,8 @@ public struct CodexChatWorkspaceView: View {
 
     private func toggleSummaryPanel(panelState: CodexWorkspaceResponsivePanelState) {
         withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            if panelState.usesFloatingSummaryPanel {
+            if panelState.supportsDockedOverview(isSidePanelOpen: isAgentPanelOpen) {
+                isCompactSummaryPanelPresented = false
                 isSummaryPanelOpen.toggle()
             } else {
                 isCompactSummaryPanelPresented.toggle()

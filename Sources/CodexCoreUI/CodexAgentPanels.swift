@@ -268,22 +268,7 @@ public struct CodexAgentSidePanel: View {
         VStack(spacing: 0) {
             tabBar
             Divider().overlay(theme.colors.border)
-            if let terminalSession = selectedTerminalSession {
-                CodexTerminalToolView(session: terminalSession)
-            } else if let browserSession = selectedBrowserSession {
-                CodexBrowserToolView(session: browserSession)
-            } else if let tab = selectedTab {
-                CodexAgentPanelContent(
-                    tab: tab,
-                    sideChatDraft: $sideChatDraft,
-                    isSideChatSending: isSideChatSending,
-                    canSendSideChatMessage: canSendSideChatMessage,
-                    onSendSideChatMessage: onSendSideChatMessage,
-                    onInterruptSideChatMessage: onInterruptSideChatMessage
-                )
-            } else {
-                toolLauncher
-            }
+            panelContent
         }
         .frame(width: panelWidth)
         .frame(maxHeight: .infinity)
@@ -295,6 +280,38 @@ public struct CodexAgentSidePanel: View {
         .animation(nil, value: panelWidth)
         .onAppear(perform: ensureSelection)
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
+    }
+
+    @ViewBuilder
+    private var panelContent: some View {
+        ZStack {
+            ForEach(terminalSessions) { session in
+                CodexTerminalToolView(session: session)
+                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .id(session.id)
+            }
+
+            ForEach(browserSessions) { session in
+                CodexBrowserToolView(session: session)
+                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .id(session.id)
+            }
+
+            if selectedTerminalSession == nil, selectedBrowserSession == nil {
+                if let tab = selectedTab {
+                    CodexAgentPanelContent(
+                        tab: tab,
+                        sideChatDraft: $sideChatDraft,
+                        isSideChatSending: isSideChatSending,
+                        canSendSideChatMessage: canSendSideChatMessage,
+                        onSendSideChatMessage: onSendSideChatMessage,
+                        onInterruptSideChatMessage: onInterruptSideChatMessage
+                    )
+                } else {
+                    toolLauncher
+                }
+            }
+        }
     }
 
     private var panelWidth: CGFloat {
@@ -547,6 +564,15 @@ private struct BrowserPanelTabButton: View {
     }
 }
 
+private extension View {
+    func toolPanelVisibility(isSelected: Bool) -> some View {
+        self
+            .opacity(isSelected ? 1 : 0)
+            .allowsHitTesting(isSelected)
+            .accessibilityHidden(!isSelected)
+    }
+}
+
 private struct WorkspaceToolLauncherRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -605,36 +631,29 @@ private struct CodexAgentPanelContent: View {
     let onInterruptSideChatMessage: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    parentChatPill
-
-                    switch tab {
-                    case .sideChat(let sideChat):
-                        panelTranscript(
-                            messages: sideChat.messages,
-                            assistantName: "Codex",
-                            empty: "Side chat is ready for a focused branch of the parent conversation."
-                        )
-                    case .subagent(let subagent):
-                        subagentHeader(subagent)
-                        panelTranscript(
-                            messages: subagent.messages,
-                            assistantName: subagent.name,
-                            empty: "No transcript returned yet."
-                        )
-                    case .review(let session):
-                        CodexGitReviewPanel(session: session)
-                    }
+        ZStack(alignment: .bottom) {
+            switch tab {
+            case .sideChat(let sideChat):
+                transcriptPanel(
+                    messages: sideChat.messages,
+                    transcriptID: sideChat.id,
+                    empty: "Side chat is ready for a focused branch of the parent conversation."
+                )
+            case .subagent(let subagent):
+                transcriptPanel(
+                    messages: subagent.messages,
+                    transcriptID: subagent.id,
+                    empty: "No transcript returned yet."
+                ) {
+                    subagentHeader(subagent)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 130)
+            case .review(let session):
+                reviewPanel(session)
             }
-            .scrollContentBackground(.hidden)
 
             compactComposer(for: tab)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
         }
     }
 
@@ -671,16 +690,57 @@ private struct CodexAgentPanelContent: View {
         }
     }
 
-    private func panelTranscript(messages: [CodexChatMessage], assistantName: String, empty: String) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            if messages.isEmpty {
+    private func transcriptPanel(
+        messages: [CodexChatMessage],
+        transcriptID: String,
+        empty: String
+    ) -> some View {
+        transcriptPanel(
+            messages: messages,
+            transcriptID: transcriptID,
+            empty: empty
+        ) {
+            EmptyView()
+        }
+    }
+
+    private func transcriptPanel<Header: View>(
+        messages: [CodexChatMessage],
+        transcriptID: String,
+        empty: String,
+        @ViewBuilder header: () -> Header
+    ) -> some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                parentChatPill
+                header()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+
+            CodexTranscriptView(
+                messages: messages,
+                transcriptID: "agent-panel-\(transcriptID)",
+                bottomContentMargin: 96
+            ) {
                 emptyText(empty)
-            } else {
-                ForEach(messages) { message in
-                    CodexMessageRow(message: message, assistantName: assistantName)
-                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func reviewPanel(_ session: CodexGitReviewSession) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                parentChatPill
+                CodexGitReviewPanel(session: session)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 130)
+        }
+        .scrollContentBackground(.hidden)
     }
 
     private func emptyText(_ text: String) -> some View {
@@ -733,53 +793,45 @@ private struct AgentPanelComposer: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            LinearGradient(
-                colors: [.clear, theme.colors.surface],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 24)
-            .allowsHitTesting(false)
+        HStack(spacing: 8) {
+            composerToolButton(systemImage: "plus", help: "Add files to side chat")
 
-            HStack(spacing: 8) {
-                composerToolButton(systemImage: "plus", help: "Add files to side chat")
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(theme.fonts.chat)
+                .foregroundStyle(isEnabled ? theme.colors.textPrimary : theme.colors.textTertiary)
+                .lineLimit(1...4)
+                .focused($focused)
+                .disabled(!isEnabled)
+                .onSubmit(submit)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(minHeight: 38)
+                .background(theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity), in: RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous)
+                        .stroke(theme.colors.border.opacity(0.85), lineWidth: 1)
+                )
 
-                TextField(placeholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(isEnabled ? theme.colors.textPrimary : theme.colors.textTertiary)
-                    .lineLimit(1...4)
-                    .focused($focused)
-                    .disabled(!isEnabled)
-                    .onSubmit(submit)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(minHeight: 44)
-                    .background(theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity), in: RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous)
-                            .stroke(theme.colors.border, lineWidth: 1)
-                    )
+            composerChip("Ask", help: "Side chat approval mode")
+            composerChip("5.5", help: "Side chat model")
+            composerToolButton(systemImage: "mic", help: "Dictate side chat")
 
-                composerChip("Ask", help: "Side chat approval mode")
-                composerChip("5.5", help: "Side chat model")
-                composerToolButton(systemImage: "mic", help: "Dictate side chat")
-
-                Button(action: isSending ? onInterrupt : submit) {
-                    Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .disabled(!isSending && !canSend)
-                .accessibilityLabel(isSending ? CodexComposerAccessibility.stopButtonLabel : CodexComposerAccessibility.sendButtonLabel(isEnabled: canSend))
-                .help(isSending ? "Stop side chat" : "Send side chat message")
+            Button(action: isSending ? onInterrupt : submit) {
+                Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
-            .background(theme.colors.surface)
+            .buttonStyle(.plain)
+            .disabled(!isSending && !canSend)
+            .accessibilityLabel(isSending ? CodexComposerAccessibility.stopButtonLabel : CodexComposerAccessibility.sendButtonLabel(isEnabled: canSend))
+            .help(isSending ? "Stop side chat" : "Send side chat message")
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), interactive: true)
+        .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 18, x: 0, y: 8)
     }
 
     private func composerToolButton(systemImage: String, help: String) -> some View {
