@@ -269,7 +269,7 @@ public struct CodexAgentSidePanel: View {
         VStack(spacing: 0) {
             tabBar
             Divider().overlay(theme.colors.border)
-            panelContent
+            resizablePanelContent
         }
         .frame(width: panelWidth)
         .frame(maxHeight: .infinity)
@@ -281,6 +281,14 @@ public struct CodexAgentSidePanel: View {
         .animation(nil, value: panelWidth)
         .onAppear(perform: ensureSelection)
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
+    }
+
+    private var resizablePanelContent: some View {
+        panelContent
+            .frame(width: contentLayoutWidth)
+            .clipped()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .clipped()
     }
 
     @ViewBuilder
@@ -317,6 +325,10 @@ public struct CodexAgentSidePanel: View {
 
     private var panelWidth: CGFloat {
         liveResizeWidth ?? clamped(width?.wrappedValue ?? theme.spacing.sidePanelWidth)
+    }
+
+    private var contentLayoutWidth: CGFloat {
+        clamped(width?.wrappedValue ?? theme.spacing.sidePanelWidth)
     }
 
     private var minPanelWidth: CGFloat { 300 }
