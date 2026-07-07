@@ -196,6 +196,7 @@ public struct CodexAgentSidePanel: View {
     private let onCloseBrowser: (String) -> Void
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
+    @State private var liveResizeWidth: CGFloat?
 
     public init(
         tabs: [CodexAgentPanelTab],
@@ -315,7 +316,7 @@ public struct CodexAgentSidePanel: View {
     }
 
     private var panelWidth: CGFloat {
-        clamped(width?.wrappedValue ?? theme.spacing.sidePanelWidth)
+        liveResizeWidth ?? clamped(width?.wrappedValue ?? theme.spacing.sidePanelWidth)
     }
 
     private var minPanelWidth: CGFloat { 300 }
@@ -344,17 +345,22 @@ public struct CodexAgentSidePanel: View {
     private var resizeGesture: some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
-                guard let width else { return }
+                guard width != nil else { return }
                 let start = resizeStartWidth ?? panelWidth
                 resizeStartWidth = start
+                let nextWidth = clamped(start - value.translation.width)
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    width.wrappedValue = clamped(start - value.translation.width)
+                    liveResizeWidth = nextWidth
                 }
             }
             .onEnded { _ in
+                if let liveResizeWidth {
+                    width?.wrappedValue = liveResizeWidth
+                }
                 resizeStartWidth = nil
+                liveResizeWidth = nil
             }
     }
 
