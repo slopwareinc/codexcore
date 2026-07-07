@@ -283,7 +283,9 @@ public struct CodexChatWorkspaceView: View {
         isOverviewControlActive: Bool,
         isDockedOverviewVisible: Bool
     ) -> some View {
-        ZStack(alignment: .topTrailing) {
+        let contentShift = isDockedOverviewVisible ? dockedOverviewContentShift : 0
+
+        return ZStack(alignment: .topTrailing) {
             CodexTranscriptView(
                 messages: messages,
                 transcriptID: currentThreadID,
@@ -292,6 +294,7 @@ public struct CodexChatWorkspaceView: View {
                 onCloseMessage: onCloseTranscriptMessage,
                 onOpenMCPDetails: onOpenMCPDetails,
                 onEditUserMessage: { draft = $0 },
+                contentHorizontalOffset: -contentShift,
                 topContentMargin: 58,
                 bottomContentMargin: 150
             ) {
@@ -340,6 +343,7 @@ public struct CodexChatWorkspaceView: View {
                         .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 6)
+                        .offset(x: -contentShift)
                 }
                 CodexComposerBar(
                     draft: $draft,
@@ -372,8 +376,13 @@ public struct CodexChatWorkspaceView: View {
                 .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 22)
+                .offset(x: -contentShift)
             }
         }
+    }
+
+    private var dockedOverviewContentShift: CGFloat {
+        min(theme.spacing.summaryPanelWidth * 0.38, 120)
     }
 
     private var activeTurnState: CodexActiveTurnState? {
