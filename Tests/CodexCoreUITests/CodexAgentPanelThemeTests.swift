@@ -67,6 +67,8 @@ final class CodexAgentPanelThemeTests: XCTestCase {
 
         XCTAssertTrue(wide.usesFloatingSummaryPanel)
         XCTAssertTrue(wide.usesPersistentSidePanel)
+        XCTAssertTrue(wide.supportsDockedOverview(isSidePanelOpen: false))
+        XCTAssertFalse(wide.supportsDockedOverview(isSidePanelOpen: true))
         XCTAssertFalse(wide.usesOverlaySummaryPanel)
         XCTAssertFalse(wide.usesOverlaySidePanel)
 
@@ -74,8 +76,14 @@ final class CodexAgentPanelThemeTests: XCTestCase {
 
         XCTAssertFalse(narrow.usesFloatingSummaryPanel)
         XCTAssertFalse(narrow.usesPersistentSidePanel)
+        XCTAssertFalse(narrow.supportsDockedOverview(isSidePanelOpen: false))
         XCTAssertTrue(narrow.usesOverlaySummaryPanel)
         XCTAssertTrue(narrow.usesOverlaySidePanel)
+
+        let veryWide = CodexWorkspaceResponsivePanelState(availableWidth: 1_560)
+
+        XCTAssertTrue(veryWide.supportsDockedOverview(isSidePanelOpen: false))
+        XCTAssertTrue(veryWide.supportsDockedOverview(isSidePanelOpen: true))
     }
 
     @MainActor
