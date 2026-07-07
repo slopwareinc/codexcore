@@ -47,6 +47,7 @@ struct CodexCollapsibleCard<Header: View, Body: View>: View {
                 .stroke(border, lineWidth: 1)
         )
         .frame(maxWidth: maxWidth, alignment: .leading)
+        .sensoryFeedback(.selection, trigger: isExpanded.wrappedValue)
     }
 
     private func toggle() {

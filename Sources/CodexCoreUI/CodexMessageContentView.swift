@@ -139,10 +139,10 @@ public struct CodexCommandCard: View {
 
                     CodexCommandStatusChip(run: run)
 
-                    Image(systemName: "chevron.down")
+                    Image(systemName: "chevron.right")
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.codeFaint)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -251,10 +251,10 @@ public struct CodexReasoningCard: View {
                             .lineLimit(1)
                     }
 
-                    Image(systemName: "chevron.down")
+                    Image(systemName: "chevron.right")
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.codeFaint)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -342,10 +342,10 @@ public struct CodexPlanCard: View {
 
                     CodexPlanStatusChip(plan: plan)
 
-                    Image(systemName: "chevron.down")
+                    Image(systemName: "chevron.right")
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.codeFaint)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)

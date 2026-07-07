@@ -53,13 +53,13 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
 
     @objc private func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            let controller = NSHostingController(rootView: CodexSettingsView(model: model)
-                .codexAgentTheme(model.theme)
-                .tint(model.theme.colors.accent))
+            let controller = NSHostingController(rootView: CodexSettingsWindowView(model: model)
+                .frame(minWidth: 700, minHeight: 500))
             let window = NSWindow(contentViewController: controller)
             window.title = "Settings"
-            window.styleMask = [.titled, .closable]
+            window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
             window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 980, height: 760))
             window.center()
             settingsWindow = window
         }
@@ -97,7 +97,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             window.titlebarAppearsTransparent = true
             window.isMovableByWindowBackground = true
             window.backgroundColor = .clear
-            window.minSize = NSSize(width: 940, height: 660)
+            window.minSize = NSSize(width: 600, height: 540)
             window.setContentSize(NSSize(width: 1180, height: 760))
             window.isReleasedWhenClosed = false
             window.center()
@@ -188,63 +188,28 @@ struct CodexCoreAppRootView: View {
     }
 }
 
-private struct CodexSettingsView: View {
-    @Environment(\.codexAgentTheme) private var theme
+private struct CodexSettingsWindowView: View {
     @Bindable var model: CodexCoreAppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Settings")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                Text("Customize the CodexCore app.")
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(theme.colors.textSecondary)
-            }
-
-            Divider().overlay(theme.colors.border)
-
-            HStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Theme")
-                        .font(theme.fonts.label)
-                        .foregroundStyle(theme.colors.textPrimary)
-                    Text("Applies to the whole workspace, including side chats and subagents.")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                }
-
-                Spacer(minLength: 24)
-
-                ThemePresetPicker(model: model)
-            }
-
-            CodexSidebarFontSizeControl(
-                fontSize: $model.sidebarFontSize,
-                range: CodexSidebarFontSizeStorage.fontSizeRange
-            )
-
-            Spacer(minLength: 0)
-        }
-        .padding(24)
-        .frame(width: 460, height: 280, alignment: .topLeading)
-        .background(theme.colors.canvas)
-    }
-}
-
-private struct ThemePresetPicker: View {
-    @Bindable var model: CodexCoreAppModel
-
-    var body: some View {
-        Picker("Theme", selection: $model.themePreset) {
-            ForEach(CodexAgentThemePreset.allCases) { preset in
-                Text(preset.displayName).tag(preset)
-            }
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .frame(width: 156)
-        .codexGlass(Capsule(), interactive: true)
+        CodexSettingsAboutRouteView(
+            metadata: CodexAboutMetadata(bundle: .main, serverName: model.serverName),
+            accountSummary: model.accountMenuSummary,
+            appearanceSettings: $model.appearanceSettings,
+            sidebarFontSize: $model.sidebarFontSize,
+            sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange,
+            approvalSelection: $model.approvalSelection,
+            approvalOptions: model.approvalOptions,
+            modelSelection: $model.modelSelection,
+            modelOptions: model.modelOptions,
+            reasoningSelection: $model.reasoningSelection,
+            isBottomPanelVisible: $model.isBottomTerminalVisible,
+            gitSettings: $model.gitSettings,
+            mcpServers: model.mcpServers,
+            isLoadingMCPServers: model.isLoadingMCPServers
+        )
+        .frame(minWidth: 700, minHeight: 500, alignment: .topLeading)
+        .codexAgentTheme(model.theme)
+        .tint(model.theme.colors.accent)
     }
 }

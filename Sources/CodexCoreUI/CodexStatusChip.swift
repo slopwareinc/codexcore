@@ -11,9 +11,7 @@ struct CodexStatusChip: View {
     var body: some View {
         HStack(spacing: 5) {
             if isStreaming {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(color)
+                CodexSpinner(color: color, size: .mini)
             } else {
                 Circle()
                     .fill(color)

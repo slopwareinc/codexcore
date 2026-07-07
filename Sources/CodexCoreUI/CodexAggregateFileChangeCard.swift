@@ -73,12 +73,8 @@ public struct CodexAggregateFileChangeCard: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer(minLength: 8)
-                            Text("+\(row.addedLineCount)")
-                                .foregroundStyle(theme.colors.success)
-                            Text("-\(row.removedLineCount)")
-                                .foregroundStyle(theme.colors.danger)
+                            CodexDiffCounter(added: row.addedLineCount, removed: row.removedLineCount)
                         }
-                        .font(theme.fonts.micro)
                     }
 
                     if let hiddenRowsTitle = summary.hiddenRowsTitle {

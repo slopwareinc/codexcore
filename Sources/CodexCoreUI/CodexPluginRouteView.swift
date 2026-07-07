@@ -102,8 +102,7 @@ public struct CodexPluginRouteView: View {
             Spacer()
 
             if isLoadingPlugins || isLoadingSkills {
-                ProgressView()
-                    .controlSize(.small)
+                CodexSpinner(size: .small)
             }
 
             Button(action: onRefresh) {

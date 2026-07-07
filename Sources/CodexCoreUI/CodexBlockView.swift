@@ -77,8 +77,9 @@ enum CodexProseCache {
             return parsed
         }
 
-        let isBaseBold = baseNSFont.fontName.localizedCaseInsensitiveContains("bold") || baseNSFont.fontName.localizedCaseInsensitiveContains("semibold") || baseNSFont.fontName.localizedCaseInsensitiveContains("medium")
-        let isBaseItalic = baseNSFont.fontName.localizedCaseInsensitiveContains("italic") || baseNSFont.fontName.localizedCaseInsensitiveContains("oblique")
+        let symbolicTraitsRaw = baseNSFont.fontDescriptor.symbolicTraits.rawValue
+        let isBaseBold = (symbolicTraitsRaw & 0x02) != 0
+        let isBaseItalic = (symbolicTraitsRaw & 0x01) != 0
 
         var rebuilt = AttributedString()
         for run in parsed.runs {

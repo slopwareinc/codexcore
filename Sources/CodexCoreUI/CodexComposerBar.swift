@@ -874,11 +874,15 @@ public struct ComposerChipLabel: View {
 
 private struct ComposerStopButton: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var tapCount = 0
 
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            tapCount &+= 1
+            action()
+        } label: {
             Image(systemName: "stop.fill")
                 .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.danger)
@@ -890,6 +894,7 @@ private struct ComposerStopButton: View {
         .keyboardShortcut(.cancelAction)
         .accessibilityLabel(CodexComposerAccessibility.stopButtonLabel)
         .help(CodexComposerAccessibility.stopButtonHelp)
+        .sensoryFeedback(.impact(weight: .medium), trigger: tapCount)
     }
 }
 
@@ -1254,12 +1259,16 @@ private struct CodexComposerInlineSelectorPalette: View {
 
 private struct SendButton: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var tapCount = 0
 
     let enabled: Bool
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            tapCount &+= 1
+            action()
+        } label: {
             Image(systemName: "arrow.up")
                 .font(theme.fonts.chat)
                 .foregroundStyle(enabled ? theme.colors.onAccent : theme.colors.textTertiary)
@@ -1278,5 +1287,6 @@ private struct SendButton: View {
         .accessibilityLabel(CodexComposerAccessibility.sendButtonLabel(isEnabled: enabled))
         .help(CodexComposerAccessibility.sendButtonHelp(isEnabled: enabled))
         .animation(.snappy(duration: theme.animations.snappyDuration), value: enabled)
+        .sensoryFeedback(.impact(weight: .light), trigger: tapCount)
     }
 }

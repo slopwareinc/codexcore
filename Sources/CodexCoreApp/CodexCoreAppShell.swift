@@ -40,10 +40,10 @@ struct CodexCoreAppShell: View {
             GeometryReader { proxy in
                 routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
             }
-            .frame(minWidth: 620)
+            .frame(minWidth: sidebarSnapshot.isCollapsed ? 420 : 620)
             .layoutPriority(1)
         }
-        .frame(minWidth: sidebarSnapshot.isCollapsed ? 760 : 980, minHeight: 620)
+        .frame(minWidth: sidebarSnapshot.isCollapsed ? 600 : 940, minHeight: 540)
         .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
@@ -157,8 +157,20 @@ struct CodexCoreAppShell: View {
         case .settingsAbout:
             CodexSettingsAboutRouteView(
                 metadata: CodexAboutMetadata(bundle: .main, serverName: model.serverName),
+                accountSummary: model.accountMenuSummary,
+                appearanceSettings: $model.appearanceSettings,
                 sidebarFontSize: $model.sidebarFontSize,
-                sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange
+                sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange,
+                approvalSelection: $model.approvalSelection,
+                approvalOptions: model.approvalOptions,
+                modelSelection: $model.modelSelection,
+                modelOptions: model.modelOptions,
+                reasoningSelection: $model.reasoningSelection,
+                isBottomPanelVisible: $model.isBottomTerminalVisible,
+                gitSettings: $model.gitSettings,
+                mcpServers: model.mcpServers,
+                isLoadingMCPServers: model.isLoadingMCPServers,
+                onBackToApp: { model.selectAppRoute(.chat) }
             )
                 .codexAgentTheme(model.theme)
         }

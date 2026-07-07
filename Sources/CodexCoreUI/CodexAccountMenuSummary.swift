@@ -14,9 +14,10 @@ public struct CodexAccountMenuSummary: Equatable, Sendable {
         self.initials = initials?.nilIfBlank ?? Self.initials(for: self.displayName)
     }
 
-    public init(account: Account?, serverName: String? = nil) {
+    public init(account: Account?, displayName preferredDisplayName: String? = nil, serverName: String? = nil) {
         if let account {
-            let displayName = Self.displayName(fromEmail: account.email)
+            let displayName = preferredDisplayName?.nilIfBlank
+                ?? Self.displayName(fromEmail: account.email)
                 ?? Self.titleLabel(account.type)
                 ?? serverName?.nilIfBlank
                 ?? "Codex"

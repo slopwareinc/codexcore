@@ -128,21 +128,81 @@ final class CodexAgentPanelThemeTests: XCTestCase {
     func testOfficialThemeCentralizesSidebarTypographyTokens() throws {
         let typography = CodexAgentTheme.officialDark.fonts.sidebar
 
-        XCTAssertEqual(typography.commandTitle.size, 14)
+        XCTAssertEqual(typography.commandTitle.size, 12)
         XCTAssertEqual(typography.commandTitle.weight, .medium)
-        XCTAssertEqual(typography.projectTitle.size, 14)
-        XCTAssertEqual(typography.chatTitle.size, 14)
-        XCTAssertEqual(typography.sectionHeader.size, 12)
-        XCTAssertEqual(typography.chatRecency.size, 11)
-        XCTAssertEqual(typography.chatActionIcon.size, 8.5)
+        XCTAssertEqual(typography.projectTitle.size, 12)
+        XCTAssertEqual(typography.chatTitle.size, 12)
+        XCTAssertEqual(typography.sectionHeader.size, 10)
+        XCTAssertEqual(typography.chatRecency.size, 9)
+        XCTAssertEqual(typography.chatActionIcon.size, 8)
+        XCTAssertEqual(typography.commandRowHeight, 32)
+        XCTAssertEqual(typography.projectRowHeight, 31)
+        XCTAssertEqual(typography.chatRowHeight, 30)
+        XCTAssertEqual(typography.sectionHeaderHeight, 26)
+        XCTAssertEqual(typography.accountFooterHeight, 44)
 
         let largerTypography = CodexAgentTheme.Fonts.SidebarTypography.official(baseTextSize: 16)
         XCTAssertEqual(largerTypography.commandTitle.size, 16)
         XCTAssertEqual(largerTypography.sectionHeader.size, 14)
+        XCTAssertEqual(largerTypography.commandRowHeight, 36)
+        XCTAssertEqual(largerTypography.chatRowHeight, 34)
 
         let encoded = try JSONEncoder().encode(typography)
         let decoded = try JSONDecoder().decode(CodexAgentTheme.Fonts.SidebarTypography.self, from: encoded)
         XCTAssertEqual(decoded, typography)
+    }
+
+    func testAppearanceSettingsCodableAndBuildTheme() throws {
+        var settings = CodexAppearanceSettings.official
+        settings.preset = .officialDark
+        settings.uiFontSize = 16
+        settings.reduceMotion = true
+
+        let encoded = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(CodexAppearanceSettings.self, from: encoded)
+
+        XCTAssertEqual(decoded, settings)
+        XCTAssertEqual(decoded.preset, .officialDark)
+        XCTAssertEqual(decoded.uiFontSize, 16)
+        XCTAssertTrue(decoded.reduceMotion)
+
+        let theme = decoded.agentTheme(uiFontSize: 16, reduceMotion: true)
+        XCTAssertEqual(theme.animations.defaultDuration, 0.01)
+    }
+
+    func testAppearanceSettingsDefaultToCodexDark() {
+        let settings = CodexAppearanceSettings.official
+        XCTAssertEqual(settings.preset, .officialDark)
+    }
+
+    func testSettingsRoutesExposeProductionShellPages() {
+        XCTAssertEqual(CodexSettingsRoute.allCases.map(\.title), [
+            "General",
+            "Appearance",
+            "Profile",
+            "Configuration",
+            "Git",
+            "Integrations",
+            "About"
+        ])
+
+        XCTAssertTrue(CodexSettingsRoute.appearance.searchTerms.contains("theme"))
+        XCTAssertTrue(CodexSettingsRoute.integrations.searchTerms.contains("mcp"))
+    }
+
+    func testGitSettingsCodableDefaults() throws {
+        var settings = CodexGitSettings.defaults
+        settings.branchPrefix = "codex/"
+        settings.mergeMethod = .squash
+        settings.createsDraftPullRequests = true
+        settings.commitInstructions = "Use concise messages"
+
+        let encoded = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(CodexGitSettings.self, from: encoded)
+
+        XCTAssertEqual(decoded, settings)
+        XCTAssertEqual(decoded.branchPrefix, "codex/")
+        XCTAssertEqual(decoded.mergeMethod.displayName, "Squash")
     }
 
 }

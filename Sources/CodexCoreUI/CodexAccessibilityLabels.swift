@@ -13,6 +13,32 @@ public enum CodexComposerAccessibility {
     }
 }
 
+public enum CodexTranscriptAccessibility {
+    public static func assistantMessageLabel(prefix: String) -> String {
+        "Assistant message: \(prefix)"
+    }
+
+    public static func userMessageLabel(prefix: String) -> String {
+        "Your message: \(prefix)"
+    }
+
+    public static func toolCallLabel(name: String) -> String {
+        "Tool call: \(name)"
+    }
+
+    public static func fileChangeLabel(path: String, lines: String) -> String {
+        "File change: \(path), \(lines)"
+    }
+
+    public static func planUpdateLabel(detail: String) -> String {
+        "Plan update: \(detail)"
+    }
+
+    public static let thinkingIndicatorLabel = "Codex is thinking"
+    public static let threadLoadingLabel = "Loading chat"
+    public static let emptyTranscriptLabel = "No messages yet. Type a prompt to start."
+}
+
 public enum CodexSidebarAccessibility {
     public static func commandRowLabel(title: String, shortcut: String? = nil) -> String {
         guard let shortcut, !shortcut.isEmpty else {
@@ -44,4 +70,17 @@ public enum CodexSidebarAccessibility {
     public static func chatArchiveLabel(title: String) -> String {
         "Archive chat \(title)"
     }
+}
+
+public enum CodexButtonAccessibility {
+    public static func accessLevelLabel(level: String) -> String {
+        "Approval level: \(level). Change with arrow keys."
+    }
+
+    public static func modelLabel(model: String) -> String {
+        "Model: \(model). Change with arrow keys."
+    }
+
+    public static let addMenuLabel = "Add attachment or command"
+    public static let composerLabel = "Ask Codex anything about this workspace"
 }

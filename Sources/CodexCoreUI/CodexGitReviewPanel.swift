@@ -161,9 +161,7 @@ public struct CodexGitReviewPanel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            Text("+\(file.addedLines) -\(file.removedLines)")
-                .font(theme.fonts.micro)
-                .foregroundStyle(theme.colors.textSecondary)
+            CodexDiffCounter(added: file.addedLines, removed: file.removedLines)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

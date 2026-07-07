@@ -92,16 +92,10 @@ public struct CodexFileChangeCard: View {
                     Spacer(minLength: 8)
 
                     if facts.hasDiff {
-                        HStack(spacing: 4) {
-                            Text("+\(facts.addedLineCount)")
-                                .foregroundStyle(theme.colors.success)
-                            Text("−\(facts.removedLineCount)")
-                                .foregroundStyle(theme.colors.danger)
-                        }
-                        .font(theme.fonts.micro)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(theme.colors.surfaceElevated.opacity(0.32), in: Capsule())
+                        CodexDiffCounter(added: facts.addedLineCount, removed: facts.removedLineCount)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(theme.colors.surfaceElevated.opacity(0.32), in: Capsule())
                     }
 
                     CodexFileChangeStatusChip(change: change)
@@ -116,10 +110,10 @@ public struct CodexFileChangeCard: View {
                         reviewAction?(change)
                     }
 
-                    Image(systemName: "chevron.down")
+                    Image(systemName: "chevron.right")
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)

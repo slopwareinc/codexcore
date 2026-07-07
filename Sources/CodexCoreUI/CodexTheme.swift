@@ -8,11 +8,128 @@ import UIKit
 
 @inline(__always)
 private func codexHex(_ value: UInt32) -> Color {
-    Color(
-        red: Double((value >> 16) & 0xFF) / 255.0,
-        green: Double((value >> 8) & 0xFF) / 255.0,
-        blue: Double(value & 0xFF) / 255.0
-    )
+    Color.codexHex(value)
+}
+
+private extension Color {
+    static func codexHex(_ value: UInt32) -> Color {
+        Color(
+            red: Double((value >> 16) & 0xFF) / 255.0,
+            green: Double((value >> 8) & 0xFF) / 255.0,
+            blue: Double(value & 0xFF) / 255.0
+        )
+    }
+}
+
+public struct CodexThemeColorValue: Codable, Equatable, Sendable, Identifiable {
+    public var id: UInt32 { rawValue }
+    public var rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue & 0xFFFFFF
+    }
+
+    public init(hex: String) {
+        let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines))
+        self.rawValue = UInt32(trimmed, radix: 16).map { $0 & 0xFFFFFF } ?? 0
+    }
+
+    public var color: Color {
+        .codexHex(rawValue)
+    }
+
+    public var hexString: String {
+        String(format: "#%06X", rawValue)
+    }
+}
+
+public enum CodexDiffMarkerStyle: String, CaseIterable, Codable, Identifiable, Sendable {
+    case color
+    case signs
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .color: return "Color"
+        case .signs: return "+/-"
+        }
+    }
+}
+
+public enum CodexDockIconVariant: String, CaseIterable, Codable, Identifiable, Sendable {
+    case `default`
+    case codexLight
+    case codexDark
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .default: return "Default"
+        case .codexLight: return "Codex Light"
+        case .codexDark: return "Codex Dark"
+        }
+    }
+}
+
+public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
+    public static let uiFontSizeRange: ClosedRange<Double> = 11...18
+
+    public var preset: CodexAgentThemePreset
+    public var reduceMotion: Bool
+    public var uiFontSize: Double
+    public var diffMarkerStyle: CodexDiffMarkerStyle
+    public var dockIconVariant: CodexDockIconVariant
+
+    public init(
+        preset: CodexAgentThemePreset = .officialDark,
+        reduceMotion: Bool = false,
+        uiFontSize: Double = 14,
+        diffMarkerStyle: CodexDiffMarkerStyle = .color,
+        dockIconVariant: CodexDockIconVariant = .default
+    ) {
+        self.preset = preset
+        self.reduceMotion = reduceMotion
+        self.uiFontSize = min(max(uiFontSize, Self.uiFontSizeRange.lowerBound), Self.uiFontSizeRange.upperBound)
+        self.diffMarkerStyle = diffMarkerStyle
+        self.dockIconVariant = dockIconVariant
+    }
+
+    public static var official: CodexAppearanceSettings {
+        CodexAppearanceSettings()
+    }
+
+    public func agentTheme(uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
+        let base = preset.theme
+        var theme = base
+        theme.fonts = .official.scaled(baseTextSize: uiFontSize)
+        theme.animations = reduceMotion ? .reduced : .official
+        return theme
+    }
+}
+
+private extension CodexAgentTheme.Fonts {
+    func scaled(baseTextSize: Double) -> CodexAgentTheme.Fonts {
+        let bodySize = CGFloat(min(max(baseTextSize, CodexAppearanceSettings.uiFontSizeRange.lowerBound), CodexAppearanceSettings.uiFontSizeRange.upperBound))
+        return CodexAgentTheme.Fonts(
+            body: .system(size: bodySize),
+            chat: .system(size: bodySize + 1),
+            caption: .system(size: max(9, bodySize - 2)),
+            label: .system(size: max(10, bodySize - 1), weight: .semibold),
+            code: .system(size: max(10, bodySize - 1), design: .monospaced),
+            micro: .system(size: max(8, bodySize - 3), weight: .semibold, design: .monospaced),
+            sidebar: sidebar,
+            chatNSFont: chatNSFont,
+            codeNSFont: codeNSFont
+        )
+    }
+}
+
+extension CodexAgentTheme.Animations {
+    public static var reduced: CodexAgentTheme.Animations {
+        CodexAgentTheme.Animations(defaultDuration: 0.01, snappyDuration: 0.01, springResponse: 0.01, springDamping: 1)
+    }
 }
 
 private extension Color {
@@ -238,7 +355,7 @@ public struct CodexAgentTheme {
         }
 
         public struct SidebarTypography: Codable, Equatable {
-            public static let defaultBaseTextSize: Double = 14
+            public static let defaultBaseTextSize: Double = 12
             public static let baseTextSizeRange: ClosedRange<Double> = 11...18
 
             public var titlebarIcon: FontToken
@@ -308,6 +425,46 @@ public struct CodexAgentTheme {
 
             public func accountInitials(isCollapsed: Bool) -> Font {
                 (isCollapsed ? accountInitialsCollapsed : accountInitialsExpanded).font
+            }
+
+            public var commandRowHeight: CGFloat {
+                rowHeight(for: commandTitle, padding: 20)
+            }
+
+            public var projectRowHeight: CGFloat {
+                rowHeight(for: projectTitle, padding: 19)
+            }
+
+            public var collapsedProjectRowHeight: CGFloat {
+                rowHeight(for: projectTitle, padding: 17)
+            }
+
+            public var chatRowHeight: CGFloat {
+                rowHeight(for: chatTitle, padding: 18)
+            }
+
+            public var sectionHeaderHeight: CGFloat {
+                rowHeight(for: sectionHeader, padding: 16)
+            }
+
+            public var disclosureRowHeight: CGFloat {
+                rowHeight(for: disclosureTitle, padding: 18)
+            }
+
+            public var hiddenRowsPromptHeight: CGFloat {
+                rowHeight(for: hiddenRowsPrompt, padding: 17)
+            }
+
+            public var accountFooterHeight: CGFloat {
+                max(44, accountName.size + accountDetail.size + 24)
+            }
+
+            public var collapsedAccountFooterHeight: CGFloat {
+                max(38, accountInitialsCollapsed.size + 30)
+            }
+
+            private func rowHeight(for token: FontToken, padding: CGFloat) -> CGFloat {
+                max(24, token.size + padding)
             }
 
             public static var official: SidebarTypography {
@@ -517,8 +674,8 @@ public extension CodexAgentTheme {
             surfaceSunken: codexHex(0x171717),
             surfaceElevated: codexHex(0x242424),
             textPrimary: codexHex(0xFCFCFC),
-            textSecondary: codexHex(0xFCFCFC).opacity(0.65),
-            textTertiary: codexHex(0xFCFCFC).opacity(0.47),
+            textSecondary: codexHex(0xFCFCFC).opacity(0.68),
+            textTertiary: codexHex(0xFCFCFC).opacity(0.55),
             accent: codexHex(0x7C84FF),
             accentSoft: codexHex(0x242844),
             onAccent: .white,
@@ -668,7 +825,7 @@ public extension View {
     }
 }
 
-public enum CodexAgentThemePreset: String, CaseIterable, Identifiable, Sendable {
+public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, Sendable {
     case officialDark
     case nativeLight
     case midnight
@@ -782,7 +939,7 @@ public struct CodexBrandMark: View {
                 )
             Image(systemName: systemImage)
                 .font(.system(size: size * 0.46, weight: .medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.onAccent)
         }
         .frame(width: size, height: size)
         .shadow(color: theme.colors.accent.opacity(0.32), radius: size * 0.32, y: size * 0.16)
