@@ -46,9 +46,9 @@ public enum CodexWorkspaceToolCatalog {
             CodexWorkspaceToolOption(
                 id: browserID,
                 title: "Browser",
-                detail: "Not available in CodexCore yet",
+                detail: "Browse docs and local previews",
                 systemImage: "globe",
-                isEnabled: false
+                isEnabled: true
             ),
             CodexWorkspaceToolOption(
                 id: filesID,
