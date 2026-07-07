@@ -14,6 +14,7 @@ public final class CodexBrowserSession: ObservableObject, Identifiable {
     @Published public var canGoBack: Bool
     @Published public var canGoForward: Bool
     @Published fileprivate var navigationCommand: CodexBrowserNavigationCommand?
+    @Published fileprivate var closeToken: UUID?
 
     public init(
         id: String = "browser:\(UUID().uuidString)",
@@ -51,6 +52,14 @@ public final class CodexBrowserSession: ObservableObject, Identifiable {
 
     public func reloadOrStop() {
         navigationCommand = CodexBrowserNavigationCommand(action: isLoading ? .stopLoading : .reload)
+    }
+
+    public func close() {
+        navigationCommand = CodexBrowserNavigationCommand(action: .close)
+        closeToken = UUID()
+        isLoading = false
+        canGoBack = false
+        canGoForward = false
     }
 }
 
@@ -133,6 +142,7 @@ private struct CodexBrowserNavigationCommand: Equatable {
         case goForward
         case reload
         case stopLoading
+        case close
     }
 }
 
@@ -250,11 +260,16 @@ private struct CodexBrowserWebView: NSViewRepresentable {
         context.coordinator.performPendingCommand(on: webView)
     }
 
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.close(webView)
+    }
+
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let session: CodexBrowserSession
         private var observations: [NSKeyValueObservation] = []
         private var handledCommandID: UUID?
+        private var handledCloseToken: UUID?
 
         init(session: CodexBrowserSession) {
             self.session = session
@@ -300,7 +315,27 @@ private struct CodexBrowserWebView: NSViewRepresentable {
                 webView.reload()
             case .stopLoading:
                 webView.stopLoading()
+            case .close:
+                close(webView)
             }
+
+            if let closeToken = session.closeToken,
+               closeToken != handledCloseToken {
+                handledCloseToken = closeToken
+                close(webView)
+            }
+        }
+
+        func close(_ webView: WKWebView) {
+            observations.forEach { $0.invalidate() }
+            observations.removeAll()
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            webView.loadHTMLString("", baseURL: nil)
+            session.isLoading = false
+            session.canGoBack = false
+            session.canGoForward = false
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

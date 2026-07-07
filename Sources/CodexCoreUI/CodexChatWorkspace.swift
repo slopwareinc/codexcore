@@ -480,6 +480,7 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func closeBrowserTab(_ id: String) {
+        browserSessions.first { $0.id == id }?.close()
         browserSessions.removeAll { $0.id == id }
         if selectedPanelTabID == id {
             selectedPanelTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? panelTabs.first?.id
