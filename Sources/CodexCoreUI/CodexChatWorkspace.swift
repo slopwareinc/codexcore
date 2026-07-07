@@ -268,7 +268,11 @@ public struct CodexChatWorkspaceView: View {
         isOverviewControlActive: Bool
     ) -> some View {
         ZStack(alignment: .topTrailing) {
-            chatColumn(panelState: panelState, isOverviewControlActive: isOverviewControlActive)
+            chatColumn(
+                panelState: panelState,
+                isOverviewControlActive: isOverviewControlActive,
+                transcriptScrollbarPlacement: isDockedOverviewVisible ? .leading : .trailing
+            )
                 .padding(.trailing, isDockedOverviewVisible ? theme.spacing.summaryPanelWidth + 32 : 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -283,7 +287,11 @@ public struct CodexChatWorkspaceView: View {
         .frame(minWidth: 540)
     }
 
-    private func chatColumn(panelState: CodexWorkspaceResponsivePanelState, isOverviewControlActive: Bool) -> some View {
+    private func chatColumn(
+        panelState: CodexWorkspaceResponsivePanelState,
+        isOverviewControlActive: Bool,
+        transcriptScrollbarPlacement: CodexTranscriptScrollbarPlacement
+    ) -> some View {
         ZStack(alignment: .topTrailing) {
             CodexTranscriptView(
                 messages: messages,
@@ -293,8 +301,9 @@ public struct CodexChatWorkspaceView: View {
                 onCloseMessage: onCloseTranscriptMessage,
                 onOpenMCPDetails: onOpenMCPDetails,
                 onEditUserMessage: { draft = $0 },
+                scrollbarPlacement: transcriptScrollbarPlacement,
                 topContentMargin: 58,
-                bottomContentMargin: 122
+                bottomContentMargin: 150
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
@@ -362,6 +371,9 @@ public struct CodexChatWorkspaceView: View {
                     onAddMenuRoute: onComposerAddMenuRoute,
                     onComposerChipClear: onComposerChipClear
                 )
+                .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 22)
             }
         }
     }

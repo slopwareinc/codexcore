@@ -20,6 +20,18 @@ enum CodexMessageHoverReveal {
     }
 }
 
+public enum CodexTranscriptScrollbarPlacement: Sendable, Equatable {
+    case leading
+    case trailing
+
+    fileprivate var layoutDirection: LayoutDirection {
+        switch self {
+        case .leading: return .rightToLeft
+        case .trailing: return .leftToRight
+        }
+    }
+}
+
 public struct CodexTranscriptView<EmptyContent: View>: View {
     private let messages: [CodexChatMessage]
     private let transcriptID: String?
@@ -30,6 +42,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let onOpenMCPDetails: (() -> Void)?
     private let onEditUserMessage: ((String) -> Void)?
     private let toolCallRenderer: CodexTranscriptToolCallRenderer?
+    private let scrollbarPlacement: CodexTranscriptScrollbarPlacement
     private let topContentMargin: CGFloat
     private let bottomContentMargin: CGFloat
 
@@ -50,6 +63,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         onOpenMCPDetails: (() -> Void)? = nil,
         onEditUserMessage: ((String) -> Void)? = nil,
         toolCallRenderer: CodexTranscriptToolCallRenderer? = nil,
+        scrollbarPlacement: CodexTranscriptScrollbarPlacement = .trailing,
         topContentMargin: CGFloat = 0,
         bottomContentMargin: CGFloat = 0,
         @ViewBuilder emptyContent: () -> EmptyContent
@@ -62,6 +76,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
         self.toolCallRenderer = toolCallRenderer
+        self.scrollbarPlacement = scrollbarPlacement
         self.topContentMargin = topContentMargin
         self.bottomContentMargin = bottomContentMargin
         self.emptyContent = emptyContent()
@@ -84,6 +99,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                     .padding(.horizontal, 28)
                     .padding(.top, topContentMargin)
                     .padding(.bottom, bottomContentMargin)
+                    .environment(\.layoutDirection, .leftToRight)
             } else {
                 LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
                     ForEach(visibleTimelineItems) { item in
@@ -108,8 +124,10 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                 .padding(.bottom, 28 + bottomContentMargin)
                 .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
                 .frame(maxWidth: .infinity)
+                .environment(\.layoutDirection, .leftToRight)
             }
         }
+        .environment(\.layoutDirection, scrollbarPlacement.layoutDirection)
         .scrollPosition($scrollPosition)
         .defaultScrollAnchor(.bottom)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
