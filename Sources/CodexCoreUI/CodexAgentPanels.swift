@@ -605,7 +605,7 @@ private struct CodexAgentPanelContent: View {
     let onInterruptSideChatMessage: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             switch tab {
             case .sideChat(let sideChat):
                 transcriptPanel(
@@ -626,6 +626,8 @@ private struct CodexAgentPanelContent: View {
             }
 
             compactComposer(for: tab)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
         }
     }
 
@@ -694,7 +696,7 @@ private struct CodexAgentPanelContent: View {
             CodexTranscriptView(
                 messages: messages,
                 transcriptID: "agent-panel-\(transcriptID)",
-                bottomContentMargin: 8
+                bottomContentMargin: 96
             ) {
                 emptyText(empty)
             }
@@ -765,53 +767,45 @@ private struct AgentPanelComposer: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            LinearGradient(
-                colors: [.clear, theme.colors.surface],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 24)
-            .allowsHitTesting(false)
+        HStack(spacing: 8) {
+            composerToolButton(systemImage: "plus", help: "Add files to side chat")
 
-            HStack(spacing: 8) {
-                composerToolButton(systemImage: "plus", help: "Add files to side chat")
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(theme.fonts.chat)
+                .foregroundStyle(isEnabled ? theme.colors.textPrimary : theme.colors.textTertiary)
+                .lineLimit(1...4)
+                .focused($focused)
+                .disabled(!isEnabled)
+                .onSubmit(submit)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(minHeight: 38)
+                .background(theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity), in: RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous)
+                        .stroke(theme.colors.border.opacity(0.85), lineWidth: 1)
+                )
 
-                TextField(placeholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(isEnabled ? theme.colors.textPrimary : theme.colors.textTertiary)
-                    .lineLimit(1...4)
-                    .focused($focused)
-                    .disabled(!isEnabled)
-                    .onSubmit(submit)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(minHeight: 44)
-                    .background(theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity), in: RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous)
-                            .stroke(theme.colors.border, lineWidth: 1)
-                    )
+            composerChip("Ask", help: "Side chat approval mode")
+            composerChip("5.5", help: "Side chat model")
+            composerToolButton(systemImage: "mic", help: "Dictate side chat")
 
-                composerChip("Ask", help: "Side chat approval mode")
-                composerChip("5.5", help: "Side chat model")
-                composerToolButton(systemImage: "mic", help: "Dictate side chat")
-
-                Button(action: isSending ? onInterrupt : submit) {
-                    Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .disabled(!isSending && !canSend)
-                .accessibilityLabel(isSending ? CodexComposerAccessibility.stopButtonLabel : CodexComposerAccessibility.sendButtonLabel(isEnabled: canSend))
-                .help(isSending ? "Stop side chat" : "Send side chat message")
+            Button(action: isSending ? onInterrupt : submit) {
+                Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
-            .background(theme.colors.surface)
+            .buttonStyle(.plain)
+            .disabled(!isSending && !canSend)
+            .accessibilityLabel(isSending ? CodexComposerAccessibility.stopButtonLabel : CodexComposerAccessibility.sendButtonLabel(isEnabled: canSend))
+            .help(isSending ? "Stop side chat" : "Send side chat message")
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), interactive: true)
+        .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 18, x: 0, y: 8)
     }
 
     private func composerToolButton(systemImage: String, help: String) -> some View {
