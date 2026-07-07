@@ -268,22 +268,7 @@ public struct CodexAgentSidePanel: View {
         VStack(spacing: 0) {
             tabBar
             Divider().overlay(theme.colors.border)
-            if let terminalSession = selectedTerminalSession {
-                CodexTerminalToolView(session: terminalSession)
-            } else if let browserSession = selectedBrowserSession {
-                CodexBrowserToolView(session: browserSession)
-            } else if let tab = selectedTab {
-                CodexAgentPanelContent(
-                    tab: tab,
-                    sideChatDraft: $sideChatDraft,
-                    isSideChatSending: isSideChatSending,
-                    canSendSideChatMessage: canSendSideChatMessage,
-                    onSendSideChatMessage: onSendSideChatMessage,
-                    onInterruptSideChatMessage: onInterruptSideChatMessage
-                )
-            } else {
-                toolLauncher
-            }
+            panelContent
         }
         .frame(width: panelWidth)
         .frame(maxHeight: .infinity)
@@ -295,6 +280,38 @@ public struct CodexAgentSidePanel: View {
         .animation(nil, value: panelWidth)
         .onAppear(perform: ensureSelection)
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
+    }
+
+    @ViewBuilder
+    private var panelContent: some View {
+        ZStack {
+            ForEach(terminalSessions) { session in
+                CodexTerminalToolView(session: session)
+                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .id(session.id)
+            }
+
+            ForEach(browserSessions) { session in
+                CodexBrowserToolView(session: session)
+                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .id(session.id)
+            }
+
+            if selectedTerminalSession == nil, selectedBrowserSession == nil {
+                if let tab = selectedTab {
+                    CodexAgentPanelContent(
+                        tab: tab,
+                        sideChatDraft: $sideChatDraft,
+                        isSideChatSending: isSideChatSending,
+                        canSendSideChatMessage: canSendSideChatMessage,
+                        onSendSideChatMessage: onSendSideChatMessage,
+                        onInterruptSideChatMessage: onInterruptSideChatMessage
+                    )
+                } else {
+                    toolLauncher
+                }
+            }
+        }
     }
 
     private var panelWidth: CGFloat {
@@ -544,6 +561,15 @@ private struct BrowserPanelTabButton: View {
             closeAction: closeAction,
             action: action
         )
+    }
+}
+
+private extension View {
+    func toolPanelVisibility(isSelected: Bool) -> some View {
+        self
+            .opacity(isSelected ? 1 : 0)
+            .allowsHitTesting(isSelected)
+            .accessibilityHidden(!isSelected)
     }
 }
 
