@@ -184,31 +184,40 @@ public struct CodexAgentSidePanel: View {
     @Binding private var selectedTabID: String?
     @Binding private var sideChatDraft: String
     private let width: Binding<CGFloat>?
+    private let terminalSessions: [CodexTerminalSession]
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
+    private let onOpenTerminal: () -> Void
+    private let onCloseTerminal: (String) -> Void
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
 
     public init(
         tabs: [CodexAgentPanelTab],
         selectedTabID: Binding<String?>,
+        terminalSessions: [CodexTerminalSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
+        onOpenTerminal: @escaping () -> Void = {},
+        onCloseTerminal: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
         self._selectedTabID = selectedTabID
         self._sideChatDraft = sideChatDraft
         self.width = nil
+        self.terminalSessions = terminalSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onOpenTerminal = onOpenTerminal
+        self.onCloseTerminal = onCloseTerminal
         self.onClose = onClose
     }
 
@@ -216,21 +225,27 @@ public struct CodexAgentSidePanel: View {
         tabs: [CodexAgentPanelTab],
         selectedTabID: Binding<String?>,
         width: Binding<CGFloat>,
+        terminalSessions: [CodexTerminalSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
+        onOpenTerminal: @escaping () -> Void = {},
+        onCloseTerminal: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
         self._selectedTabID = selectedTabID
         self._sideChatDraft = sideChatDraft
         self.width = width
+        self.terminalSessions = terminalSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onOpenTerminal = onOpenTerminal
+        self.onCloseTerminal = onCloseTerminal
         self.onClose = onClose
     }
 
@@ -238,7 +253,9 @@ public struct CodexAgentSidePanel: View {
         VStack(spacing: 0) {
             tabBar
             Divider().overlay(theme.colors.border)
-            if let tab = selectedTab {
+            if let terminalSession = selectedTerminalSession {
+                CodexTerminalToolView(session: terminalSession)
+            } else if let tab = selectedTab {
                 CodexAgentPanelContent(
                     tab: tab,
                     sideChatDraft: $sideChatDraft,
@@ -248,7 +265,7 @@ public struct CodexAgentSidePanel: View {
                     onInterruptSideChatMessage: onInterruptSideChatMessage
                 )
             } else {
-                emptyPanel
+                toolLauncher
             }
         }
         .frame(width: panelWidth)
@@ -287,7 +304,7 @@ public struct CodexAgentSidePanel: View {
         .frame(maxHeight: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .gesture(resizeGesture)
-        .help(width == nil ? "Agent panel edge" : "Drag to resize agent panel")
+        .help(width == nil ? "Tools panel edge" : "Drag to resize tools panel")
     }
 
     private var resizeGesture: some Gesture {
@@ -312,17 +329,39 @@ public struct CodexAgentSidePanel: View {
     }
 
     private var selectedTab: CodexAgentPanelTab? {
-        tabs.first { $0.id == selectedTabID } ?? tabs.first
+        guard selectedTerminalSession == nil else { return nil }
+        return tabs.first { $0.id == selectedTabID } ?? tabs.first
+    }
+
+    private var selectedTerminalSession: CodexTerminalSession? {
+        terminalSessions.first { $0.id == selectedTabID }
+    }
+
+    private var hasOpenTabs: Bool {
+        !terminalSessions.isEmpty || !tabs.isEmpty
     }
 
     private var tabBar: some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
+                    ForEach(terminalSessions) { session in
+                        AgentPanelTabButton(
+                            title: session.title,
+                            systemImage: "terminal",
+                            isSelected: session.id == selectedTabID,
+                            closeAction: { onCloseTerminal(session.id) }
+                        ) {
+                            selectedTabID = session.id
+                        }
+                    }
+
                     ForEach(tabs) { tab in
                         AgentPanelTabButton(
                             title: tab.title,
-                            isSelected: tab.id == selectedTab?.id
+                            systemImage: tab.systemImage,
+                            isSelected: tab.id == selectedTab?.id,
+                            closeAction: nil
                         ) {
                             selectedTabID = tab.id
                         }
@@ -330,6 +369,16 @@ public struct CodexAgentSidePanel: View {
                 }
                 .padding(.horizontal, 8)
             }
+
+            Button(action: onOpenTerminal) {
+                Image(systemName: "plus")
+                    .font(theme.fonts.label)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+            }
+            .buttonStyle(.plain)
+            .help("Open terminal")
+            .accessibilityLabel("Open terminal")
 
             Button(action: onClose) {
                 Image(systemName: "sidebar.right")
@@ -344,26 +393,43 @@ public struct CodexAgentSidePanel: View {
         .frame(height: theme.spacing.toolbarHeight)
     }
 
-    private var emptyPanel: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "rectangle.split.2x1")
-                .font(.title2)
-                .foregroundStyle(theme.colors.textTertiary)
-            Text("No agent tab selected")
-                .font(theme.fonts.label)
-                .foregroundStyle(theme.colors.textSecondary)
+    private var toolLauncher: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Open a tool")
+                    .font(theme.fonts.body.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("Run workspace tools beside the current chat.")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+
+            VStack(spacing: 8) {
+                ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
+                    WorkspaceToolLauncherRow(option: option) {
+                        if option.id == CodexWorkspaceToolCatalog.terminalID {
+                            onOpenTerminal()
+                        }
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func ensureSelection() {
-        guard !tabs.isEmpty else {
+        guard hasOpenTabs else {
             selectedTabID = nil
             return
         }
-        if selectedTabID == nil || !tabs.contains(where: { $0.id == selectedTabID }) {
-            selectedTabID = tabs.first?.id
+        if let selectedTabID,
+           terminalSessions.contains(where: { $0.id == selectedTabID }) || tabs.contains(where: { $0.id == selectedTabID }) {
+            return
         }
+        selectedTabID = terminalSessions.first?.id ?? tabs.first?.id
     }
 }
 
@@ -371,23 +437,92 @@ private struct AgentPanelTabButton: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let title: String
+    let systemImage: String
     let isSelected: Bool
+    let closeAction: (() -> Void)?
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(action: action) {
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage)
+                        .font(theme.fonts.caption)
+                    Text(title)
+                        .font(theme.fonts.chat)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                .padding(.leading, 9)
+                .padding(.trailing, closeAction == nil ? 9 : 2)
+                .frame(height: 28)
+            }
+            .buttonStyle(.plain)
+
+            if let closeAction {
+                Button(action: closeAction) {
+                    Image(systemName: "xmark")
+                        .font(theme.fonts.micro.weight(.bold))
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .frame(width: 20, height: 24)
+                }
+                .buttonStyle(.plain)
+                .help("Close \(title)")
+                .accessibilityLabel("Close \(title)")
+                .padding(.trailing, 4)
+            }
+        }
+        .background(
+            isSelected ? theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity) : .clear,
+            in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+        )
+    }
+}
+
+private struct WorkspaceToolLauncherRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let option: CodexWorkspaceToolOption
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(theme.fonts.chat)
-                .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(
-                    isSelected ? theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity) : .clear,
-                    in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                )
+            HStack(spacing: 10) {
+                Image(systemName: option.systemImage)
+                    .font(theme.fonts.label)
+                    .foregroundStyle(option.isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary.opacity(0.7))
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(option.title)
+                        .font(theme.fonts.label)
+                        .foregroundStyle(option.isEnabled ? theme.colors.textPrimary : theme.colors.textTertiary)
+                    Text(option.detail)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                if option.isEnabled {
+                    Image(systemName: "chevron.right")
+                        .font(theme.fonts.caption.weight(.semibold))
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.colors.surfaceElevated.opacity(option.isEnabled ? theme.effects.textDimOpacity : 0.28), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(theme.colors.border.opacity(option.isEnabled ? 1 : 0.5), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
+        .disabled(!option.isEnabled)
+        .accessibilityLabel(option.isEnabled ? "Open \(option.title)" : "\(option.title). \(option.detail)")
     }
 }
 

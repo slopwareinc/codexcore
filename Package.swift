@@ -24,7 +24,9 @@ let package = Package(
             targets: ["CodexCoreApp"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/Lakr233/libghostty-spm.git", from: "1.2.9"),
+    ],
     targets: [
         .target(
             name: "CodexCore",
@@ -35,7 +37,8 @@ let package = Package(
         .target(
             name: "CodexCoreUI",
             dependencies: [
-                "CodexCore"
+                "CodexCore",
+                .product(name: "GhosttyTerminal", package: "libghostty-spm"),
             ],
             path: "Sources/CodexCoreUI",
             swiftSettings: [.swiftLanguageMode(.v6)]

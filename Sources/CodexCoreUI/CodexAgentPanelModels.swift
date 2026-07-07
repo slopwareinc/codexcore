@@ -187,6 +187,14 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
         }
     }
 
+    public var systemImage: String {
+        switch self {
+        case .sideChat: return "rectangle.split.2x1"
+        case .subagent: return "person.wave.2"
+        case .review: return "doc.text.magnifyingglass"
+        }
+    }
+
     public var messages: [CodexChatMessage] {
         switch self {
         case .sideChat(let sideChat): return sideChat.messages

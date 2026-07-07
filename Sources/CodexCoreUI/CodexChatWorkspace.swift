@@ -86,6 +86,8 @@ public struct CodexChatWorkspaceView: View {
     @State private var isCompactSummaryPanelPresented = false
     @State private var selectedPanelTabID: String?
     @State private var agentPanelWidth: CGFloat = CodexAgentTheme.officialDark.spacing.sidePanelWidth
+    @State private var terminalSessions: [CodexTerminalSession] = []
+    @State private var nextTerminalNumber = 1
 
     public init(
         messages: [CodexChatMessage],
@@ -204,7 +206,7 @@ public struct CodexChatWorkspaceView: View {
                     mainColumn(panelState: panelState)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if panelState.usesPersistentSidePanel, isAgentPanelOpen, !panelTabs.isEmpty {
+                    if panelState.usesPersistentSidePanel, isAgentPanelOpen {
                         agentSidePanel(resizable: true)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
@@ -223,7 +225,7 @@ public struct CodexChatWorkspaceView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
                 }
 
-                if panelState.usesOverlaySidePanel, isAgentPanelOpen, !panelTabs.isEmpty {
+                if panelState.usesOverlaySidePanel, isAgentPanelOpen {
                     compactOverlayBackdrop {
                         isAgentPanelOpen = false
                     }
@@ -294,7 +296,7 @@ public struct CodexChatWorkspaceView: View {
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
                     isSummaryPanelOpen: isSummaryPanelOpen,
-                    hasPanelTabs: !panelTabs.isEmpty,
+                    hasPanelTabs: true,
                     isPanelOpen: isAgentPanelOpen,
                     chatActions: workspaceChatActions,
                     onToggleSidebar: onToggleSidebar,
@@ -396,11 +398,14 @@ public struct CodexChatWorkspaceView: View {
             tabs: panelTabs,
             selectedTabID: $selectedPanelTabID,
             width: resizable ? $agentPanelWidth : .constant(theme.spacing.sidePanelWidth),
+            terminalSessions: terminalSessions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
+            onOpenTerminal: openTerminalTab,
+            onCloseTerminal: closeTerminalTab,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { isAgentPanelOpen = false } }
         )
     }
@@ -420,7 +425,9 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func toggleAgentPanel() {
-        if selectedPanelTabID == nil { selectedPanelTabID = panelTabs.first?.id }
+        if selectedPanelTabID == nil {
+            selectedPanelTabID = terminalSessions.first?.id ?? panelTabs.first?.id
+        }
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             isAgentPanelOpen.toggle()
         }
@@ -433,6 +440,25 @@ public struct CodexChatWorkspaceView: View {
             } else {
                 isCompactSummaryPanelPresented.toggle()
             }
+        }
+    }
+
+    private func openTerminalTab() {
+        let terminalNumber = nextTerminalNumber
+        nextTerminalNumber += 1
+        let title = terminalNumber == 1 ? "Terminal" : "Terminal \(terminalNumber)"
+        let session = CodexTerminalSession(title: title, workingDirectory: workspacePath)
+        terminalSessions.append(session)
+        selectedPanelTabID = session.id
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            isAgentPanelOpen = true
+        }
+    }
+
+    private func closeTerminalTab(_ id: String) {
+        terminalSessions.removeAll { $0.id == id }
+        if selectedPanelTabID == id {
+            selectedPanelTabID = terminalSessions.first?.id ?? panelTabs.first?.id
         }
     }
 }
