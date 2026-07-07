@@ -562,7 +562,6 @@ public struct CodexAgentLifecycleBlock: View {
 
 public struct CodexMessageRow: View {
     private let message: CodexChatMessage
-    private let assistantName: String
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
     private let onEditUserMessage: ((String) -> Void)?
@@ -577,7 +576,6 @@ public struct CodexMessageRow: View {
         toolCallRenderer: CodexTranscriptToolCallRenderer? = nil
     ) {
         self.message = message
-        self.assistantName = assistantName
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
@@ -656,7 +654,7 @@ public struct CodexMessageRow: View {
             }
         case .assistant:
             CodexAgentRow(visibility: .hidden) {
-                CodexAssistantMessageView(message: message, assistantName: assistantName)
+                CodexAssistantMessageView(message: message)
                     .accessibilityLabel(CodexTranscriptAccessibility.assistantMessageLabel(prefix: String(message.text.prefix(60))))
             }
         }
@@ -719,14 +717,12 @@ public struct CodexAssistantMessageView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let message: CodexChatMessage
-    private let assistantName: String
     @State private var isHovered = false
     @State private var copied = false
     @State private var hoverTask: Task<Void, Never>?
 
     public init(message: CodexChatMessage, assistantName: String = "Codex") {
         self.message = message
-        self.assistantName = assistantName
     }
 
     public var body: some View {

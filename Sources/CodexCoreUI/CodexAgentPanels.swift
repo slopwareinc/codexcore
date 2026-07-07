@@ -606,33 +606,24 @@ private struct CodexAgentPanelContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    parentChatPill
-
-                    switch tab {
-                    case .sideChat(let sideChat):
-                        panelTranscript(
-                            messages: sideChat.messages,
-                            assistantName: "Codex",
-                            empty: "Side chat is ready for a focused branch of the parent conversation."
-                        )
-                    case .subagent(let subagent):
-                        subagentHeader(subagent)
-                        panelTranscript(
-                            messages: subagent.messages,
-                            assistantName: subagent.name,
-                            empty: "No transcript returned yet."
-                        )
-                    case .review(let session):
-                        CodexGitReviewPanel(session: session)
-                    }
+            switch tab {
+            case .sideChat(let sideChat):
+                transcriptPanel(
+                    messages: sideChat.messages,
+                    transcriptID: sideChat.id,
+                    empty: "Side chat is ready for a focused branch of the parent conversation."
+                )
+            case .subagent(let subagent):
+                transcriptPanel(
+                    messages: subagent.messages,
+                    transcriptID: subagent.id,
+                    empty: "No transcript returned yet."
+                ) {
+                    subagentHeader(subagent)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 130)
+            case .review(let session):
+                reviewPanel(session)
             }
-            .scrollContentBackground(.hidden)
 
             compactComposer(for: tab)
         }
@@ -671,16 +662,57 @@ private struct CodexAgentPanelContent: View {
         }
     }
 
-    private func panelTranscript(messages: [CodexChatMessage], assistantName: String, empty: String) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            if messages.isEmpty {
+    private func transcriptPanel(
+        messages: [CodexChatMessage],
+        transcriptID: String,
+        empty: String
+    ) -> some View {
+        transcriptPanel(
+            messages: messages,
+            transcriptID: transcriptID,
+            empty: empty
+        ) {
+            EmptyView()
+        }
+    }
+
+    private func transcriptPanel<Header: View>(
+        messages: [CodexChatMessage],
+        transcriptID: String,
+        empty: String,
+        @ViewBuilder header: () -> Header
+    ) -> some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                parentChatPill
+                header()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+
+            CodexTranscriptView(
+                messages: messages,
+                transcriptID: "agent-panel-\(transcriptID)",
+                bottomContentMargin: 8
+            ) {
                 emptyText(empty)
-            } else {
-                ForEach(messages) { message in
-                    CodexMessageRow(message: message, assistantName: assistantName)
-                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func reviewPanel(_ session: CodexGitReviewSession) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                parentChatPill
+                CodexGitReviewPanel(session: session)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 130)
+        }
+        .scrollContentBackground(.hidden)
     }
 
     private func emptyText(_ text: String) -> some View {
