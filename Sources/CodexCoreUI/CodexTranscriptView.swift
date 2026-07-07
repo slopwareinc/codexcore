@@ -29,6 +29,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
     private let onEditUserMessage: ((String) -> Void)?
+    private let toolCallRenderer: CodexTranscriptToolCallRenderer?
     private let topContentMargin: CGFloat
     private let bottomContentMargin: CGFloat
 
@@ -48,6 +49,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         onCloseMessage: ((UUID) -> Void)? = nil,
         onOpenMCPDetails: (() -> Void)? = nil,
         onEditUserMessage: ((String) -> Void)? = nil,
+        toolCallRenderer: CodexTranscriptToolCallRenderer? = nil,
         topContentMargin: CGFloat = 0,
         bottomContentMargin: CGFloat = 0,
         @ViewBuilder emptyContent: () -> EmptyContent
@@ -59,6 +61,7 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
+        self.toolCallRenderer = toolCallRenderer
         self.topContentMargin = topContentMargin
         self.bottomContentMargin = bottomContentMargin
         self.emptyContent = emptyContent()
@@ -89,7 +92,8 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
                             message: item.messageID.flatMap { messageLookup[$0] },
                             onCloseMessage: onCloseMessage,
                             onOpenMCPDetails: onOpenMCPDetails,
-                            onEditUserMessage: onEditUserMessage
+                            onEditUserMessage: onEditUserMessage,
+                            toolCallRenderer: toolCallRenderer
                         )
                         .equatable()
                     }
@@ -300,10 +304,12 @@ struct CodexTranscriptTopPrefetchGate: Equatable, Sendable {
 private struct CodexTranscriptRowRenderKey: Equatable {
     let item: CodexTranscriptTimelineItem
     let message: CodexChatMessageRenderKey?
+    let hasToolCallRenderer: Bool
 
-    init(item: CodexTranscriptTimelineItem, message: CodexChatMessage?) {
+    init(item: CodexTranscriptTimelineItem, message: CodexChatMessage?, toolCallRenderer: CodexTranscriptToolCallRenderer?) {
         self.item = item
         self.message = message.map(CodexChatMessageRenderKey.init)
+        self.hasToolCallRenderer = toolCallRenderer != nil
     }
 }
 
@@ -315,6 +321,7 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
     let onCloseMessage: ((UUID) -> Void)?
     let onOpenMCPDetails: (() -> Void)?
     let onEditUserMessage: ((String) -> Void)?
+    let toolCallRenderer: CodexTranscriptToolCallRenderer?
     private let renderKey: CodexTranscriptRowRenderKey
 
     init(
@@ -322,14 +329,16 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
         message: CodexChatMessage?,
         onCloseMessage: ((UUID) -> Void)?,
         onOpenMCPDetails: (() -> Void)?,
-        onEditUserMessage: ((String) -> Void)?
+        onEditUserMessage: ((String) -> Void)?,
+        toolCallRenderer: CodexTranscriptToolCallRenderer?
     ) {
         self.item = item
         self.message = message
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
-        self.renderKey = CodexTranscriptRowRenderKey(item: item, message: message)
+        self.toolCallRenderer = toolCallRenderer
+        self.renderKey = CodexTranscriptRowRenderKey(item: item, message: message, toolCallRenderer: toolCallRenderer)
     }
 
     nonisolated static func == (lhs: CodexTranscriptTimelineRow, rhs: CodexTranscriptTimelineRow) -> Bool {
@@ -344,7 +353,8 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
                     message: message,
                     onCloseMessage: onCloseMessage,
                     onOpenMCPDetails: onOpenMCPDetails,
-                    onEditUserMessage: onEditUserMessage
+                    onEditUserMessage: onEditUserMessage,
+                    toolCallRenderer: toolCallRenderer
                 )
             }
         case .completedWorkTrace(let trace):
@@ -556,19 +566,22 @@ public struct CodexMessageRow: View {
     private let onCloseMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
     private let onEditUserMessage: ((String) -> Void)?
+    private let toolCallRenderer: CodexTranscriptToolCallRenderer?
 
     public init(
         message: CodexChatMessage,
         assistantName: String = "Codex",
         onCloseMessage: ((UUID) -> Void)? = nil,
         onOpenMCPDetails: (() -> Void)? = nil,
-        onEditUserMessage: ((String) -> Void)? = nil
+        onEditUserMessage: ((String) -> Void)? = nil,
+        toolCallRenderer: CodexTranscriptToolCallRenderer? = nil
     ) {
         self.message = message
         self.assistantName = assistantName
         self.onCloseMessage = onCloseMessage
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onEditUserMessage = onEditUserMessage
+        self.toolCallRenderer = toolCallRenderer
     }
 
     public var body: some View {
@@ -603,8 +616,12 @@ public struct CodexMessageRow: View {
         case .tool:
             if let toolCall = message.toolCall {
                 CodexAgentRow {
-                    CodexToolCallCard(toolCall: toolCall)
-                        .accessibilityLabel(CodexTranscriptAccessibility.toolCallLabel(name: toolCall.displayName))
+                    if let customView = toolCallRenderer?.render(toolCall) {
+                        customView
+                    } else {
+                        CodexToolCallCard(toolCall: toolCall)
+                            .accessibilityLabel(CodexTranscriptAccessibility.toolCallLabel(name: toolCall.displayName))
+                    }
                 }
             }
         case .notice:

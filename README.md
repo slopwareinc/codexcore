@@ -81,6 +81,28 @@ CodexChatWorkspaceView(
 .codexAgentTheme(.officialDark)
 ```
 
+Host apps that embed `CodexTranscriptView` can replace selected dynamic or MCP
+tool-call cards with app-specific UI while leaving other tools on the generic
+`CodexToolCallCard` path:
+
+```swift
+let toolCallRenderer = CodexTranscriptToolCallRenderer { toolCall in
+    guard toolCall.displayName.hasPrefix("walkable.") else { return nil }
+    return AnyView(WalkableResearchCard(toolCall: toolCall))
+}
+
+CodexTranscriptView(
+    messages: messages,
+    toolCallRenderer: toolCallRenderer
+) {
+    EmptyView()
+}
+```
+
+Use `item/tool/requestUserInput` with the existing `CodexPrompt` flow for
+blocking questionnaires. Use `CodexTranscriptToolCallRenderer` for non-blocking
+rich progress cards such as research, project, or catalog updates.
+
 ## Run Locally
 
 ```bash
