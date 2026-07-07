@@ -43,22 +43,6 @@ public struct CodexThemeColorValue: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-public enum CodexAppearanceMode: String, CaseIterable, Codable, Identifiable, Sendable {
-    case system
-    case light
-    case dark
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .system: return "System"
-        case .light: return "Light"
-        case .dark: return "Dark"
-        }
-    }
-}
-
 public enum CodexDiffMarkerStyle: String, CaseIterable, Codable, Identifiable, Sendable {
     case color
     case signs
@@ -89,64 +73,26 @@ public enum CodexDockIconVariant: String, CaseIterable, Codable, Identifiable, S
     }
 }
 
-public struct CodexEditableTheme: Codable, Equatable, Sendable {
-    public var accent: CodexThemeColorValue
-    public var background: CodexThemeColorValue
-    public var foreground: CodexThemeColorValue
-    public var uiFontName: String
-    public var translucentSidebar: Bool
-    public var contrast: Double
-
-    public init(
-        accent: CodexThemeColorValue,
-        background: CodexThemeColorValue,
-        foreground: CodexThemeColorValue,
-        uiFontName: String = "-apple-system, BlinkMacSystemFont",
-        translucentSidebar: Bool,
-        contrast: Double
-    ) {
-        self.accent = accent
-        self.background = background
-        self.foreground = foreground
-        self.uiFontName = uiFontName
-        self.translucentSidebar = translucentSidebar
-        self.contrast = min(max(contrast, 0), 100)
-    }
-}
-
 public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     public static let uiFontSizeRange: ClosedRange<Double> = 11...18
-    public static let contrastRange: ClosedRange<Double> = 0...100
 
-    public var mode: CodexAppearanceMode
-    public var lightTheme: CodexEditableTheme
-    public var darkTheme: CodexEditableTheme
-    public var usesPointerCursors: Bool
+    public var preset: CodexAgentThemePreset
     public var reduceMotion: Bool
     public var uiFontSize: Double
     public var diffMarkerStyle: CodexDiffMarkerStyle
-    public var usesFontSmoothing: Bool
     public var dockIconVariant: CodexDockIconVariant
 
     public init(
-        mode: CodexAppearanceMode = .dark,
-        lightTheme: CodexEditableTheme = .officialLight,
-        darkTheme: CodexEditableTheme = .officialDark,
-        usesPointerCursors: Bool = true,
+        preset: CodexAgentThemePreset = .officialDark,
         reduceMotion: Bool = false,
         uiFontSize: Double = 14,
         diffMarkerStyle: CodexDiffMarkerStyle = .color,
-        usesFontSmoothing: Bool = true,
         dockIconVariant: CodexDockIconVariant = .default
     ) {
-        self.mode = mode
-        self.lightTheme = lightTheme
-        self.darkTheme = darkTheme
-        self.usesPointerCursors = usesPointerCursors
+        self.preset = preset
         self.reduceMotion = reduceMotion
         self.uiFontSize = min(max(uiFontSize, Self.uiFontSizeRange.lowerBound), Self.uiFontSizeRange.upperBound)
         self.diffMarkerStyle = diffMarkerStyle
-        self.usesFontSmoothing = usesFontSmoothing
         self.dockIconVariant = dockIconVariant
     }
 
@@ -154,86 +100,9 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         CodexAppearanceSettings()
     }
 
-    public func effectiveTheme(systemIsDark: Bool) -> CodexAgentTheme {
-        let editableTheme: CodexEditableTheme
-        switch mode {
-        case .system:
-            editableTheme = systemIsDark ? darkTheme : lightTheme
-        case .light:
-            editableTheme = lightTheme
-        case .dark:
-            editableTheme = darkTheme
-        }
-
-        return editableTheme.agentTheme(
-            isDark: mode == .dark || (mode == .system && systemIsDark),
-            uiFontSize: uiFontSize,
-            reduceMotion: reduceMotion
-        )
-    }
-}
-
-public extension CodexEditableTheme {
-    /// Returns black/white text color for a given accent hex based on relative
-    /// luminance. Avoids the previous hardcoded `.white` which produced a
-    /// contrast violation for any light custom accent (pastel yellow, etc.).
-    static func onAccent(forAccentHex hex: UInt32) -> Color {
-        let r = Double((hex >> 16) & 0xFF) / 255.0
-        let g = Double((hex >> 8) & 0xFF) / 255.0
-        let b = Double(hex & 0xFF) / 255.0
-        // Per W3C relative luminance.
-        func channel(_ v: Double) -> Double {
-            v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
-        }
-        let lum = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-        return lum > 0.5 ? .black : .white
-    }
-
-    static var officialLight: CodexEditableTheme {
-        CodexEditableTheme(
-            accent: CodexThemeColorValue(rawValue: 0x339CFF),
-            background: CodexThemeColorValue(rawValue: 0xFFFFFF),
-            foreground: CodexThemeColorValue(rawValue: 0x1A1C1F),
-            translucentSidebar: true,
-            contrast: 45
-        )
-    }
-
-    static var officialDark: CodexEditableTheme {
-        CodexEditableTheme(
-            accent: CodexThemeColorValue(rawValue: 0x0EA5E9),
-            background: CodexThemeColorValue(rawValue: 0x111111),
-            foreground: CodexThemeColorValue(rawValue: 0xF7F7F7),
-            translucentSidebar: true,
-            contrast: 60
-        )
-    }
-
-    func agentTheme(isDark: Bool, uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
-        let base = isDark ? CodexAgentTheme.officialDark : CodexAgentTheme.nativeLight
+    public func agentTheme(uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
+        let base = preset.theme
         var theme = base
-        let contrastScale = min(max(contrast / 100, 0), 1)
-        let borderOpacity = isDark ? 0.06 + contrastScale * 0.22 : 0.05 + contrastScale * 0.16
-        let surfaceOpacity = translucentSidebar ? base.effects.surfaceOpacity : 0.98
-        let canvas = background.color
-        let foregroundColor = foreground.color
-
-        theme.colors.canvas = canvas
-        theme.colors.surface = canvas
-        theme.colors.textPrimary = foregroundColor
-        theme.colors.textSecondary = foregroundColor.opacity(isDark ? 0.68 : 0.70)
-        theme.colors.textTertiary = foregroundColor.opacity(isDark ? 0.48 : 0.52)
-        theme.colors.accent = accent.color
-        theme.colors.accentSoft = accent.color.opacity(isDark ? 0.20 : 0.14)
-        theme.colors.onAccent = Self.onAccent(forAccentHex: accent.rawValue)
-        theme.colors.border = foregroundColor.opacity(borderOpacity)
-        theme.colors.borderStrong = foregroundColor.opacity(min(borderOpacity * 1.9, 0.48))
-        theme.colors.userBubble = accent.color.opacity(isDark ? 0.16 : 0.12)
-        theme.colors.userBubbleStroke = accent.color.opacity(isDark ? 0.20 : 0.18)
-        theme.effects.usesLiquidGlass = translucentSidebar
-        theme.effects.surfaceOpacity = surfaceOpacity
-        theme.effects.glassOpacity = translucentSidebar ? 0.72 : 0.92
-        theme.effects.glowOpacity = translucentSidebar ? base.effects.glowOpacity : 0.04
         theme.fonts = .official.scaled(baseTextSize: uiFontSize)
         theme.animations = reduceMotion ? .reduced : .official
         return theme
@@ -257,8 +126,8 @@ private extension CodexAgentTheme.Fonts {
     }
 }
 
-private extension CodexAgentTheme.Animations {
-    static var reduced: CodexAgentTheme.Animations {
+extension CodexAgentTheme.Animations {
+    public static var reduced: CodexAgentTheme.Animations {
         CodexAgentTheme.Animations(defaultDuration: 0.01, snappyDuration: 0.01, springResponse: 0.01, springDamping: 1)
     }
 }
@@ -805,8 +674,8 @@ public extension CodexAgentTheme {
             surfaceSunken: codexHex(0x171717),
             surfaceElevated: codexHex(0x242424),
             textPrimary: codexHex(0xFCFCFC),
-            textSecondary: codexHex(0xFCFCFC).opacity(0.65),
-            textTertiary: codexHex(0xFCFCFC).opacity(0.47),
+            textSecondary: codexHex(0xFCFCFC).opacity(0.68),
+            textTertiary: codexHex(0xFCFCFC).opacity(0.55),
             accent: codexHex(0x7C84FF),
             accentSoft: codexHex(0x242844),
             onAccent: .white,
@@ -956,7 +825,7 @@ public extension View {
     }
 }
 
-public enum CodexAgentThemePreset: String, CaseIterable, Identifiable, Sendable {
+public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, Sendable {
     case officialDark
     case nativeLight
     case midnight

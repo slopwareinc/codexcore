@@ -608,9 +608,7 @@ public struct CodexAppearanceSettingsView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             CodexSettingsPageTitle("Appearance")
-            CodexAppearanceModePicker(mode: $settings.mode)
-            CodexEditableThemePanel(title: "Light theme", editableTheme: $settings.lightTheme)
-            CodexEditableThemePanel(title: "Dark theme", editableTheme: $settings.darkTheme)
+            CodexThemePresetPicker(preset: $settings.preset)
             VStack(spacing: 0) {
                 CodexSettingsSliderRow(
                     title: "UI font size",
@@ -630,150 +628,88 @@ public struct CodexAppearanceSettingsView: View {
                     offTitle: "Off",
                     onTitle: "On"
                 )
-                CodexSettingsDisabledRow(
-                    title: "Dock icon",
-                    detail: "Choose the icon CodexCore uses in the dock",
-                    reason: "Not available in CodexCore yet"
-                )
-                CodexSettingsDisabledRow(
-                    title: "Diff markers",
-                    detail: "Show changes using colors or +/- markers",
-                    reason: "Not wired to the diff renderer yet"
-                )
-                CodexSettingsDisabledRow(
-                    title: "Font smoothing",
-                    detail: "Use native macOS font anti-aliasing",
-                    reason: "Handled by macOS"
-                )
             }
             .settingsPanel(theme: theme)
         }
     }
 }
 
-public struct CodexAppearanceModePicker: View {
-    @Environment(\.codexAgentTheme) private var theme
-    @Binding private var mode: CodexAppearanceMode
-
-    public init(mode: Binding<CodexAppearanceMode>) {
-        self._mode = mode
-    }
-
-    public var body: some View {
-        HStack(spacing: 14) {
-            ForEach(CodexAppearanceMode.allCases) { option in
-                Button {
-                    mode = option
-                } label: {
-                    VStack(spacing: 10) {
-                        CodexThemeModePreview(mode: option, isSelected: mode == option)
-                            .frame(height: 92)
-                        Text(option.displayName)
-                            .font(theme.fonts.caption)
-                            .foregroundStyle(theme.colors.textSecondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(option.displayName)
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
-}
-
-public struct CodexThemeModePreview: View {
+public struct CodexThemePresetPicker: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let mode: CodexAppearanceMode
-    let isSelected: Bool
+    @Binding private var preset: CodexAgentThemePreset
 
-    public init(mode: CodexAppearanceMode, isSelected: Bool) {
-        self.mode = mode
-        self.isSelected = isSelected
-    }
-
-    public var body: some View {
-        ZStack(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(previewBackground)
-            if mode == .system {
-                HStack(spacing: 0) {
-                    Rectangle().fill(Color.white.opacity(0.92))
-                    Rectangle().fill(Color.black.opacity(0.56))
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(previewCard)
-                .frame(height: 52)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-                .overlay(alignment: .bottomLeading) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Capsule().fill(previewLine).frame(width: 58, height: 6)
-                        Capsule().fill(previewLine.opacity(0.75)).frame(width: 88, height: 6)
-                    }
-                    .padding(.leading, 22)
-                    .padding(.bottom, 24)
-                }
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(isSelected ? theme.colors.accent : theme.colors.border, lineWidth: isSelected ? 2 : 1)
-        )
-    }
-
-    private var previewBackground: Color {
-        switch mode {
-        case .system: return .clear
-        case .light: return .white.opacity(0.9)
-        case .dark: return .black.opacity(0.58)
-        }
-    }
-
-    private var previewCard: Color {
-        mode == .dark ? .white.opacity(0.88) : .white.opacity(0.94)
-    }
-
-    private var previewLine: Color {
-        mode == .dark ? .black.opacity(0.20) : .black.opacity(0.12)
-    }
-}
-
-public struct CodexEditableThemePanel: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let title: String
-    @Binding private var editableTheme: CodexEditableTheme
-
-    public init(title: String, editableTheme: Binding<CodexEditableTheme>) {
-        self.title = title
-        self._editableTheme = editableTheme
+    public init(preset: Binding<CodexAgentThemePreset>) {
+        self._preset = preset
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                Text(title)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Theme")
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
-                Spacer()
-            }
-            .padding(.bottom, 10)
 
-            CodexHexColorRow(title: "Accent", value: $editableTheme.accent)
-            CodexHexColorRow(title: "Background", value: $editableTheme.background)
-            CodexHexColorRow(title: "Foreground", value: $editableTheme.foreground)
-            CodexSettingsToggleRow(title: "Translucent sidebar", detail: nil, isOn: $editableTheme.translucentSidebar)
-            CodexSettingsSliderRow(
-                title: "Contrast",
-                detail: nil,
-                value: $editableTheme.contrast,
-                range: CodexAppearanceSettings.contrastRange,
-                suffix: nil
-            )
+                HStack(spacing: 8) {
+                    ForEach(CodexAgentThemePreset.allCases) { option in
+                        Button {
+                            preset = option
+                        } label: {
+                            VStack(spacing: 8) {
+                                CodexPresetSwatch(preset: option, isSelected: preset == option)
+                                Text(option.displayName)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(preset == option ? theme.colors.textPrimary : theme.colors.textTertiary)
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(option.displayName) preset")
+                        .accessibilityAddTraits(preset == option ? .isSelected : [])
+                    }
+                }
+            }
         }
         .settingsPanel(theme: theme)
+    }
+}
+
+public struct CodexPresetSwatch: View {
+    let preset: CodexAgentThemePreset
+    let isSelected: Bool
+
+    public init(preset: CodexAgentThemePreset, isSelected: Bool) {
+        self.preset = preset
+        self.isSelected = isSelected
+    }
+
+    public var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(swatchBackground)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(isSelected ? Color.accentColor : .white.opacity(0.1), lineWidth: isSelected ? 2.2 : 0.8)
+                }
+
+            VStack(spacing: 5) {
+                Circle()
+                    .fill(preset.theme.colors.accent)
+                    .frame(width: 12, height: 12)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(preset.theme.colors.textPrimary.opacity(0.55))
+                    .frame(width: 24, height: 3)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(preset.theme.colors.textSecondary)
+                    .frame(width: 16, height: 3)
+            }
+        }
+        .frame(height: 64)
+    }
+
+    private var swatchBackground: Color {
+        preset.theme.colors.canvas
     }
 }
 
@@ -903,46 +839,6 @@ public struct CodexSidebarFontSizeControl: View {
                 .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 52, alignment: .trailing)
-        }
-        .settingsRowFrame()
-    }
-}
-
-public struct CodexHexColorRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let title: String
-    @Binding private var value: CodexThemeColorValue
-
-    public init(title: String, value: Binding<CodexThemeColorValue>) {
-        self.title = title
-        self._value = value
-    }
-
-    public var body: some View {
-        HStack(spacing: 16) {
-            CodexSettingsRowLabel(title: title, detail: nil, isEnabled: true)
-            Spacer()
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(value.color)
-                    .frame(width: 18, height: 18)
-                    .overlay(Circle().stroke(theme.colors.borderStrong, lineWidth: 1))
-                TextField(
-                    "#RRGGBB",
-                    text: Binding(
-                        get: { value.hexString },
-                        set: { value = CodexThemeColorValue(hex: $0) }
-                    )
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundStyle(theme.colors.textPrimary)
-                .frame(width: 82)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(theme.colors.surfaceSunken.opacity(0.64), in: Capsule())
         }
         .settingsRowFrame()
     }

@@ -53,11 +53,13 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
 
     @objc private func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            let controller = NSHostingController(rootView: CodexSettingsWindowView(model: model))
+            let controller = NSHostingController(rootView: CodexSettingsWindowView(model: model)
+                .frame(minWidth: 700, minHeight: 500))
             let window = NSWindow(contentViewController: controller)
             window.title = "Settings"
-            window.styleMask = [.titled, .closable]
+            window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
             window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 980, height: 760))
             window.center()
             settingsWindow = window
         }
@@ -95,7 +97,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             window.titlebarAppearsTransparent = true
             window.isMovableByWindowBackground = true
             window.backgroundColor = .clear
-            window.minSize = NSSize(width: 940, height: 660)
+            window.minSize = NSSize(width: 600, height: 540)
             window.setContentSize(NSSize(width: 1180, height: 760))
             window.isReleasedWhenClosed = false
             window.center()
@@ -206,7 +208,7 @@ private struct CodexSettingsWindowView: View {
             mcpServers: model.mcpServers,
             isLoadingMCPServers: model.isLoadingMCPServers
         )
-        .frame(width: 980, height: 760, alignment: .topLeading)
+        .frame(minWidth: 700, minHeight: 500, alignment: .topLeading)
         .codexAgentTheme(model.theme)
         .tint(model.theme.colors.accent)
     }

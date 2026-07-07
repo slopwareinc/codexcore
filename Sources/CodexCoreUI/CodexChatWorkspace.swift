@@ -236,10 +236,32 @@ public struct CodexChatWorkspaceView: View {
         }
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isAgentPanelOpen)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
+        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
     }
 
     private func mainColumn(panelState: CodexWorkspaceResponsivePanelState) -> some View {
+        return HStack(spacing: 0) {
+            chatColumn()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if panelState.usesFloatingSummaryPanel, isSummaryPanelOpen, !isAgentPanelOpen {
+                Divider()
+                    .overlay(theme.colors.border)
+                    .padding(.vertical, 12)
+
+                floatingSummaryPanel
+                    .frame(width: theme.spacing.summaryPanelWidth)
+                    .padding(.top, 58)
+                    .padding(.trailing, 16)
+                    .padding(.leading, 4)
+                    .transition(.opacity)
+            }
+        }
+        .frame(minWidth: 540)
+    }
+
+    private func chatColumn() -> some View {
         ZStack(alignment: .topTrailing) {
             CodexTranscriptView(
                 messages: messages,
@@ -271,13 +293,15 @@ public struct CodexChatWorkspaceView: View {
                     workspacePath: workspacePath,
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
-                    isSummaryPanelOpen: panelState.usesFloatingSummaryPanel ? isSummaryPanelOpen : isCompactSummaryPanelPresented,
+                    isSummaryPanelOpen: isSummaryPanelOpen,
                     hasPanelTabs: !panelTabs.isEmpty,
                     isPanelOpen: isAgentPanelOpen,
                     chatActions: workspaceChatActions,
                     onToggleSidebar: onToggleSidebar,
                     onToggleSummaryPanel: {
-                        toggleSummaryPanel(panelState: panelState)
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                            isSummaryPanelOpen.toggle()
+                        }
                     },
                     onTogglePanel: toggleAgentPanel,
                     onDisconnect: onDisconnect
@@ -318,19 +342,8 @@ public struct CodexChatWorkspaceView: View {
                     onAddMenuRoute: onComposerAddMenuRoute,
                     onComposerChipClear: onComposerChipClear
                 )
-                .frame(maxWidth: theme.spacing.composerMaxWidth + 32)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 10)
-            }
-
-            if panelState.usesFloatingSummaryPanel, isSummaryPanelOpen {
-                floatingSummaryPanel
-                .padding(.top, 58)
-                .padding(.trailing, 16)
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
             }
         }
-        .frame(minWidth: 540)
     }
 
     private var activeTurnState: CodexActiveTurnState? {
@@ -430,15 +443,30 @@ public struct CodexThreadLoadingView: View {
     public init() {}
 
     public var body: some View {
-        HStack(spacing: 9) {
-            CodexSpinner(size: .small)
-            Text("Loading chat...")
-                .font(theme.fonts.label)
-                .foregroundStyle(theme.colors.textSecondary)
+        VStack(alignment: .leading, spacing: 16) {
+            Spacer().frame(height: 40)
+            HStack(spacing: 9) {
+                CodexSpinner(size: .small)
+                Text("Loading chat")
+                    .font(theme.fonts.label)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            ForEach(0..<4, id: \.self) { index in
+                skeletonRow(short: index % 2 == 1)
+            }
+            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 28)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Loading chat")
+    }
+
+    private func skeletonRow(short: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(theme.colors.surfaceElevated.opacity(0.55))
+            .frame(width: short ? 180 : nil, height: 14)
+            .frame(maxWidth: short ? nil : (theme.spacing.transcriptMaxWidth - 40), alignment: .leading)
     }
 }
 

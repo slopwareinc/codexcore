@@ -40,10 +40,10 @@ struct CodexCoreAppShell: View {
             GeometryReader { proxy in
                 routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
             }
-            .frame(minWidth: 620)
+            .frame(minWidth: sidebarSnapshot.isCollapsed ? 420 : 620)
             .layoutPriority(1)
         }
-        .frame(minWidth: sidebarSnapshot.isCollapsed ? 760 : 980, minHeight: 620)
+        .frame(minWidth: sidebarSnapshot.isCollapsed ? 600 : 940, minHeight: 540)
         .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {

@@ -575,30 +575,36 @@ public struct CodexMessageRow: View {
         switch message.role {
         case .system:
             CodexSystemMessageView(text: message.text)
+                .accessibilityLabel("System message")
         case .user:
             CodexUserMessageView(message: message, onEdit: onEditUserMessage)
+                .accessibilityLabel(CodexTranscriptAccessibility.userMessageLabel(prefix: String(message.text.prefix(60))))
         case .terminal:
             if let run = message.commandRun {
                 CodexAgentRow {
                     CodexCommandCard(run: run)
+                        .accessibilityLabel("Command: \(run.command.prefix(60))")
                 }
             }
         case .fileChange:
             if let change = message.fileChange {
                 CodexAgentRow {
                     CodexFileChangeCard(change: change)
+                        .accessibilityLabel(CodexTranscriptAccessibility.fileChangeLabel(path: change.displayPath, lines: "+\(change.addedLineCount)/-\(change.removedLineCount)"))
                 }
             }
         case .plan:
             if let plan = message.planUpdate {
                 CodexAgentRow {
                     CodexPlanCard(plan: plan)
+                        .accessibilityLabel(CodexTranscriptAccessibility.planUpdateLabel(detail: plan.summary))
                 }
             }
         case .tool:
             if let toolCall = message.toolCall {
                 CodexAgentRow {
                     CodexToolCallCard(toolCall: toolCall)
+                        .accessibilityLabel(CodexTranscriptAccessibility.toolCallLabel(name: toolCall.displayName))
                 }
             }
         case .notice:
@@ -606,6 +612,7 @@ public struct CodexMessageRow: View {
                 if let model = CodexStatusPanelModel(notice: notice) {
                     CodexAgentRow {
                         CodexStatusPanelCard(model: model, onClose: closeAction)
+                            .accessibilityLabel("Status: \(model.connectionLabel)")
                     }
                 } else if let model = CodexMCPStatusPanelModel(notice: notice) {
                     CodexAgentRow {
@@ -614,10 +621,12 @@ public struct CodexMessageRow: View {
                             onClose: closeAction,
                             onOpenDetails: onOpenMCPDetails
                         )
+                        .accessibilityLabel("MCP status: \(model.title)")
                     }
                 } else {
                     CodexAgentRow {
                         CodexNoticeCard(notice: notice)
+                            .accessibilityLabel("Notice: \(notice.title)")
                     }
                 }
             }
@@ -625,11 +634,13 @@ public struct CodexMessageRow: View {
             if let block = message.reasoningBlock {
                 CodexAgentRow {
                     CodexReasoningCard(block: block)
+                        .accessibilityLabel("Reasoning step")
                 }
             }
         case .assistant:
             CodexAgentRow(visibility: .hidden) {
                 CodexAssistantMessageView(message: message, assistantName: assistantName)
+                    .accessibilityLabel(CodexTranscriptAccessibility.assistantMessageLabel(prefix: String(message.text.prefix(60))))
             }
         }
     }

@@ -154,33 +154,25 @@ final class CodexAgentPanelThemeTests: XCTestCase {
 
     func testAppearanceSettingsCodableAndBuildTheme() throws {
         var settings = CodexAppearanceSettings.official
-        settings.mode = .dark
+        settings.preset = .officialDark
         settings.uiFontSize = 16
         settings.reduceMotion = true
-        settings.darkTheme.accent = CodexThemeColorValue(hex: "#339CFF")
-        settings.darkTheme.background = CodexThemeColorValue(hex: "#111111")
-        settings.darkTheme.foreground = CodexThemeColorValue(hex: "#F7F7F7")
-        settings.darkTheme.translucentSidebar = false
-        settings.darkTheme.contrast = 72
 
         let encoded = try JSONEncoder().encode(settings)
         let decoded = try JSONDecoder().decode(CodexAppearanceSettings.self, from: encoded)
 
         XCTAssertEqual(decoded, settings)
-        XCTAssertEqual(decoded.darkTheme.accent.hexString, "#339CFF")
+        XCTAssertEqual(decoded.preset, .officialDark)
         XCTAssertEqual(decoded.uiFontSize, 16)
+        XCTAssertTrue(decoded.reduceMotion)
 
-        let theme = decoded.effectiveTheme(systemIsDark: false)
-        XCTAssertFalse(theme.effects.usesLiquidGlass)
-        XCTAssertEqual(theme.effects.surfaceOpacity, 0.98)
-        XCTAssertEqual(theme.fonts.sidebar.commandTitle.size, 12)
+        let theme = decoded.agentTheme(uiFontSize: 16, reduceMotion: true)
+        XCTAssertEqual(theme.animations.defaultDuration, 0.01)
     }
 
     func testAppearanceSettingsDefaultToCodexDark() {
         let settings = CodexAppearanceSettings.official
-
-        XCTAssertEqual(settings.mode, .dark)
-        XCTAssertEqual(settings.darkTheme.background.hexString, "#111111")
+        XCTAssertEqual(settings.preset, .officialDark)
     }
 
     func testSettingsRoutesExposeProductionShellPages() {

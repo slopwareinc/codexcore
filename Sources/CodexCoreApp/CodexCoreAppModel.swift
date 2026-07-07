@@ -40,7 +40,7 @@ final class CodexCoreAppModel {
         }
     }
     var theme: CodexAgentTheme {
-        var theme = appearanceSettings.effectiveTheme(systemIsDark: CodexSystemAppearance.isDark)
+        var theme = appearanceSettings.agentTheme(uiFontSize: appearanceSettings.uiFontSize, reduceMotion: appearanceSettings.reduceMotion)
         theme.fonts.sidebar = .official(baseTextSize: sidebarFontSize)
         return theme
     }
@@ -1723,13 +1723,6 @@ enum CodexPinnedThreadStorage {
             }
         }
         return result
-    }
-}
-
-@MainActor
-enum CodexSystemAppearance {
-    static var isDark: Bool {
-        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 }
 
