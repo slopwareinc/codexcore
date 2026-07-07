@@ -54,8 +54,8 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
     @objc private func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
             let controller = NSHostingController(rootView: CodexSettingsView(model: model)
-                .codexAgentTheme(model.themePreset.theme)
-                .tint(model.themePreset.theme.colors.accent))
+                .codexAgentTheme(model.theme)
+                .tint(model.theme.colors.accent))
             let window = NSWindow(contentViewController: controller)
             window.title = "Settings"
             window.styleMask = [.titled, .closable]
@@ -172,8 +172,8 @@ struct CodexCoreAppRootView: View {
             }
             .animation(.spring(response: 0.42, dampingFraction: 0.9), value: flowKey)
         }
-        .codexAgentTheme(model.themePreset.theme)
-        .tint(model.themePreset.theme.colors.accent)
+        .codexAgentTheme(model.theme)
+        .tint(model.theme.colors.accent)
         .task {
             guard !didStartInitialConnection else { return }
             didStartInitialConnection = true
@@ -220,10 +220,15 @@ private struct CodexSettingsView: View {
                 ThemePresetPicker(model: model)
             }
 
+            CodexSidebarFontSizeControl(
+                fontSize: $model.sidebarFontSize,
+                range: CodexSidebarFontSizeStorage.fontSizeRange
+            )
+
             Spacer(minLength: 0)
         }
         .padding(24)
-        .frame(width: 420, height: 220, alignment: .topLeading)
+        .frame(width: 460, height: 280, alignment: .topLeading)
         .background(theme.colors.canvas)
     }
 }

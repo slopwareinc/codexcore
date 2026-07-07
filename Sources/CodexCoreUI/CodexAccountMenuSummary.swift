@@ -73,3 +73,16 @@ public struct CodexAccountMenuSummary: Equatable, Sendable {
         return letters.uppercased()
     }
 }
+
+public enum CodexAccountDetailLog {
+    public static func json(from response: GetAccountResponse) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(response),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return #"{"error":"Unable to encode account/read response"}"#
+        }
+        return string
+    }
+}
