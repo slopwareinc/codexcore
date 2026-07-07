@@ -271,18 +271,9 @@ public struct CodexChatWorkspaceView: View {
             chatColumn(
                 panelState: panelState,
                 isOverviewControlActive: isOverviewControlActive,
-                transcriptScrollbarPlacement: isDockedOverviewVisible ? .leading : .trailing
+                isDockedOverviewVisible: isDockedOverviewVisible
             )
-                .padding(.trailing, isDockedOverviewVisible ? theme.spacing.summaryPanelWidth + 32 : 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if isDockedOverviewVisible {
-                floatingSummaryPanel
-                    .frame(width: theme.spacing.summaryPanelWidth)
-                    .padding(.top, 58)
-                    .padding(.trailing, 16)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
-            }
         }
         .frame(minWidth: 540)
     }
@@ -290,7 +281,7 @@ public struct CodexChatWorkspaceView: View {
     private func chatColumn(
         panelState: CodexWorkspaceResponsivePanelState,
         isOverviewControlActive: Bool,
-        transcriptScrollbarPlacement: CodexTranscriptScrollbarPlacement
+        isDockedOverviewVisible: Bool
     ) -> some View {
         ZStack(alignment: .topTrailing) {
             CodexTranscriptView(
@@ -301,7 +292,6 @@ public struct CodexChatWorkspaceView: View {
                 onCloseMessage: onCloseTranscriptMessage,
                 onOpenMCPDetails: onOpenMCPDetails,
                 onEditUserMessage: { draft = $0 },
-                scrollbarPlacement: transcriptScrollbarPlacement,
                 topContentMargin: 58,
                 bottomContentMargin: 150
             ) {
@@ -316,6 +306,14 @@ public struct CodexChatWorkspaceView: View {
                         }
                     }
                 }
+            }
+
+            if isDockedOverviewVisible {
+                floatingSummaryPanel
+                    .frame(width: theme.spacing.summaryPanelWidth)
+                    .padding(.top, 58)
+                    .padding(.trailing, 28)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
             }
 
             VStack(spacing: 0) {
