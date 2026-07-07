@@ -185,12 +185,15 @@ public struct CodexAgentSidePanel: View {
     @Binding private var sideChatDraft: String
     private let width: Binding<CGFloat>?
     private let terminalSessions: [CodexTerminalSession]
+    private let browserSessions: [CodexBrowserSession]
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
     private let onOpenTerminal: () -> Void
+    private let onOpenBrowser: () -> Void
     private let onCloseTerminal: (String) -> Void
+    private let onCloseBrowser: (String) -> Void
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
 
@@ -198,13 +201,16 @@ public struct CodexAgentSidePanel: View {
         tabs: [CodexAgentPanelTab],
         selectedTabID: Binding<String?>,
         terminalSessions: [CodexTerminalSession] = [],
+        browserSessions: [CodexBrowserSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
+        onOpenBrowser: @escaping () -> Void = {},
         onCloseTerminal: @escaping (String) -> Void = { _ in },
+        onCloseBrowser: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -212,12 +218,15 @@ public struct CodexAgentSidePanel: View {
         self._sideChatDraft = sideChatDraft
         self.width = nil
         self.terminalSessions = terminalSessions
+        self.browserSessions = browserSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
+        self.onOpenBrowser = onOpenBrowser
         self.onCloseTerminal = onCloseTerminal
+        self.onCloseBrowser = onCloseBrowser
         self.onClose = onClose
     }
 
@@ -226,13 +235,16 @@ public struct CodexAgentSidePanel: View {
         selectedTabID: Binding<String?>,
         width: Binding<CGFloat>,
         terminalSessions: [CodexTerminalSession] = [],
+        browserSessions: [CodexBrowserSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
+        onOpenBrowser: @escaping () -> Void = {},
         onCloseTerminal: @escaping (String) -> Void = { _ in },
+        onCloseBrowser: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -240,12 +252,15 @@ public struct CodexAgentSidePanel: View {
         self._sideChatDraft = sideChatDraft
         self.width = width
         self.terminalSessions = terminalSessions
+        self.browserSessions = browserSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
+        self.onOpenBrowser = onOpenBrowser
         self.onCloseTerminal = onCloseTerminal
+        self.onCloseBrowser = onCloseBrowser
         self.onClose = onClose
     }
 
@@ -255,6 +270,8 @@ public struct CodexAgentSidePanel: View {
             Divider().overlay(theme.colors.border)
             if let terminalSession = selectedTerminalSession {
                 CodexTerminalToolView(session: terminalSession)
+            } else if let browserSession = selectedBrowserSession {
+                CodexBrowserToolView(session: browserSession)
             } else if let tab = selectedTab {
                 CodexAgentPanelContent(
                     tab: tab,
@@ -329,7 +346,7 @@ public struct CodexAgentSidePanel: View {
     }
 
     private var selectedTab: CodexAgentPanelTab? {
-        guard selectedTerminalSession == nil else { return nil }
+        guard selectedTerminalSession == nil, selectedBrowserSession == nil else { return nil }
         return tabs.first { $0.id == selectedTabID } ?? tabs.first
     }
 
@@ -337,8 +354,12 @@ public struct CodexAgentSidePanel: View {
         terminalSessions.first { $0.id == selectedTabID }
     }
 
+    private var selectedBrowserSession: CodexBrowserSession? {
+        browserSessions.first { $0.id == selectedTabID }
+    }
+
     private var hasOpenTabs: Bool {
-        !terminalSessions.isEmpty || !tabs.isEmpty
+        !terminalSessions.isEmpty || !browserSessions.isEmpty || !tabs.isEmpty
     }
 
     private var tabBar: some View {
@@ -351,6 +372,16 @@ public struct CodexAgentSidePanel: View {
                             systemImage: "terminal",
                             isSelected: session.id == selectedTabID,
                             closeAction: { onCloseTerminal(session.id) }
+                        ) {
+                            selectedTabID = session.id
+                        }
+                    }
+
+                    ForEach(browserSessions) { session in
+                        BrowserPanelTabButton(
+                            session: session,
+                            isSelected: session.id == selectedTabID,
+                            closeAction: { onCloseBrowser(session.id) }
                         ) {
                             selectedTabID = session.id
                         }
@@ -370,15 +401,23 @@ public struct CodexAgentSidePanel: View {
                 .padding(.horizontal, 8)
             }
 
-            Button(action: onOpenTerminal) {
+            Menu {
+                ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
+                    Button(option.title) {
+                        openTool(option.id)
+                    }
+                    .disabled(!option.isEnabled)
+                }
+            } label: {
                 Image(systemName: "plus")
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
             }
-            .buttonStyle(.plain)
-            .help("Open terminal")
-            .accessibilityLabel("Open terminal")
+            .menuStyle(.borderlessButton)
+            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+            .help("Open tool")
+            .accessibilityLabel("Open tool")
 
             Button(action: onClose) {
                 Image(systemName: "sidebar.right")
@@ -407,9 +446,7 @@ public struct CodexAgentSidePanel: View {
             VStack(spacing: 8) {
                 ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
                     WorkspaceToolLauncherRow(option: option) {
-                        if option.id == CodexWorkspaceToolCatalog.terminalID {
-                            onOpenTerminal()
-                        }
+                        openTool(option.id)
                     }
                 }
             }
@@ -426,10 +463,23 @@ public struct CodexAgentSidePanel: View {
             return
         }
         if let selectedTabID,
-           terminalSessions.contains(where: { $0.id == selectedTabID }) || tabs.contains(where: { $0.id == selectedTabID }) {
+           terminalSessions.contains(where: { $0.id == selectedTabID })
+            || browserSessions.contains(where: { $0.id == selectedTabID })
+            || tabs.contains(where: { $0.id == selectedTabID }) {
             return
         }
-        selectedTabID = terminalSessions.first?.id ?? tabs.first?.id
+        selectedTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? tabs.first?.id
+    }
+
+    private func openTool(_ id: String) {
+        switch id {
+        case CodexWorkspaceToolCatalog.terminalID:
+            onOpenTerminal()
+        case CodexWorkspaceToolCatalog.browserID:
+            onOpenBrowser()
+        default:
+            break
+        }
     }
 }
 
@@ -475,6 +525,24 @@ private struct AgentPanelTabButton: View {
         .background(
             isSelected ? theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity) : .clear,
             in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+        )
+    }
+}
+
+private struct BrowserPanelTabButton: View {
+    @ObservedObject var session: CodexBrowserSession
+
+    let isSelected: Bool
+    let closeAction: () -> Void
+    let action: () -> Void
+
+    var body: some View {
+        AgentPanelTabButton(
+            title: session.title,
+            systemImage: "globe",
+            isSelected: isSelected,
+            closeAction: closeAction,
+            action: action
         )
     }
 }

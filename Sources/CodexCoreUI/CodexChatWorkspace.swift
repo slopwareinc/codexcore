@@ -87,7 +87,9 @@ public struct CodexChatWorkspaceView: View {
     @State private var selectedPanelTabID: String?
     @State private var agentPanelWidth: CGFloat = CodexAgentTheme.officialDark.spacing.sidePanelWidth
     @State private var terminalSessions: [CodexTerminalSession] = []
+    @State private var browserSessions: [CodexBrowserSession] = []
     @State private var nextTerminalNumber = 1
+    @State private var nextBrowserNumber = 1
 
     public init(
         messages: [CodexChatMessage],
@@ -399,13 +401,16 @@ public struct CodexChatWorkspaceView: View {
             selectedTabID: $selectedPanelTabID,
             width: resizable ? $agentPanelWidth : .constant(theme.spacing.sidePanelWidth),
             terminalSessions: terminalSessions,
+            browserSessions: browserSessions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
             onOpenTerminal: openTerminalTab,
+            onOpenBrowser: openBrowserTab,
             onCloseTerminal: closeTerminalTab,
+            onCloseBrowser: closeBrowserTab,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { isAgentPanelOpen = false } }
         )
     }
@@ -426,7 +431,7 @@ public struct CodexChatWorkspaceView: View {
 
     private func toggleAgentPanel() {
         if selectedPanelTabID == nil {
-            selectedPanelTabID = terminalSessions.first?.id ?? panelTabs.first?.id
+            selectedPanelTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? panelTabs.first?.id
         }
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             isAgentPanelOpen.toggle()
@@ -458,7 +463,26 @@ public struct CodexChatWorkspaceView: View {
     private func closeTerminalTab(_ id: String) {
         terminalSessions.removeAll { $0.id == id }
         if selectedPanelTabID == id {
-            selectedPanelTabID = terminalSessions.first?.id ?? panelTabs.first?.id
+            selectedPanelTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? panelTabs.first?.id
+        }
+    }
+
+    private func openBrowserTab() {
+        let browserNumber = nextBrowserNumber
+        nextBrowserNumber += 1
+        let title = browserNumber == 1 ? "Browser" : "Browser \(browserNumber)"
+        let session = CodexBrowserSession(title: title)
+        browserSessions.append(session)
+        selectedPanelTabID = session.id
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            isAgentPanelOpen = true
+        }
+    }
+
+    private func closeBrowserTab(_ id: String) {
+        browserSessions.removeAll { $0.id == id }
+        if selectedPanelTabID == id {
+            selectedPanelTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? panelTabs.first?.id
         }
     }
 }
