@@ -95,7 +95,11 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
-            window.isMovableByWindowBackground = true
+            // Keep window-move confined to the titlebar strip. Dragging the
+            // whole background was hijacking in-content drags (sidebar resize,
+            // selections) and moving the window instead — especially at small
+            // sizes where content sits under the titlebar region.
+            window.isMovableByWindowBackground = false
             window.backgroundColor = .clear
             window.minSize = NSSize(width: 600, height: 540)
             window.setContentSize(NSSize(width: 1180, height: 760))
