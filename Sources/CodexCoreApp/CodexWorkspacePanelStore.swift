@@ -26,6 +26,13 @@ final class CodexWorkspacePanelStore {
         self.defaultPanelWidth = defaultPanelWidth
     }
 
+    /// Every alive chat state that currently hosts tools, most-recently-used
+    /// last. These are the surfaces kept mounted so switching between recent
+    /// chats is a visibility toggle rather than a teardown + rebuild.
+    var mountedToolStates: [CodexWorkspacePanelState] {
+        lruOrder.compactMap { states[$0] }.filter(\.hasOpenTools)
+    }
+
     /// The panel state for a chat, creating it on first access and marking it as
     /// most-recently-used. Evicts the least-recently-used chat past capacity.
     func state(for threadID: String?) -> CodexWorkspacePanelState {

@@ -94,6 +94,7 @@ public struct CodexChatWorkspaceView: View {
     private let onPromptSelected: ((String) -> Void)?
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
     @ObservedObject private var panel: CodexWorkspacePanelState
+    private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
 
@@ -108,6 +109,7 @@ public struct CodexChatWorkspaceView: View {
         chatTitle: String = "Codex",
         currentThreadID: String? = nil,
         panel: CodexWorkspacePanelState = CodexWorkspacePanelState(),
+        mountedPanels: [CodexWorkspacePanelState] = [],
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
@@ -162,6 +164,7 @@ public struct CodexChatWorkspaceView: View {
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
         self._panel = ObservedObject(wrappedValue: panel)
+        self.mountedPanels = mountedPanels
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
@@ -429,6 +432,20 @@ public struct CodexChatWorkspaceView: View {
         )
     }
 
+    // Union of tool sessions across all mounted recent chats, kept in one deck so
+    // switching chats is a visibility toggle instead of remounting surfaces. The
+    // active `panel` is appended last (and always observed) so its sessions stay
+    // current; ids dedupe repeats.
+    private var mountedTerminalSessions: [CodexTerminalSession] {
+        var seen = Set<String>()
+        return (mountedPanels + [panel]).flatMap(\.terminalSessions).filter { seen.insert($0.id).inserted }
+    }
+
+    private var mountedBrowserSessions: [CodexBrowserSession] {
+        var seen = Set<String>()
+        return (mountedPanels + [panel]).flatMap(\.browserSessions).filter { seen.insert($0.id).inserted }
+    }
+
     private func agentSidePanel(resizable: Bool) -> some View {
         CodexAgentSidePanel(
             tabs: panelTabs,
@@ -436,6 +453,8 @@ public struct CodexChatWorkspaceView: View {
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
             terminalSessions: panel.terminalSessions,
             browserSessions: panel.browserSessions,
+            mountedTerminalSessions: mountedTerminalSessions,
+            mountedBrowserSessions: mountedBrowserSessions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,

@@ -54,10 +54,15 @@ public struct CodexTerminalToolView: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var terminalState: TerminalViewState
     private let session: CodexTerminalSession
+    /// Whether this terminal is the one currently shown. Deck terminals for other
+    /// chats stay mounted but inactive; ghostty occludes them so they don't render
+    /// until shown again, and only the active one takes keyboard focus.
+    private let isActive: Bool
 
-    public init(session: CodexTerminalSession) {
+    public init(session: CodexTerminalSession, isActive: Bool = true) {
         self.session = session
         self.terminalState = session.state
+        self.isActive = isActive
     }
 
     public var body: some View {
@@ -67,10 +72,27 @@ public struct CodexTerminalToolView: View {
             CodexTerminalHostView(session: session)
                 .background(theme.colors.surfaceSunken.opacity(0.8))
                 .accessibilityLabel("Terminal")
-                .onAppear { terminalState.adopt(colorScheme: colorScheme) }
+                .onAppear {
+                    terminalState.adopt(colorScheme: colorScheme)
+                    applyActiveState(isActive)
+                }
                 .onChange(of: colorScheme) { _, newValue in
                     terminalState.adopt(colorScheme: newValue)
                 }
+                .onChange(of: isActive) { _, active in
+                    applyActiveState(active)
+                }
+        }
+    }
+
+    private func applyActiveState(_ active: Bool) {
+        session.terminalView.setSurfaceVisible(active)
+        guard active else { return }
+        // Focus only the active terminal, after it has settled into the window.
+        DispatchQueue.main.async {
+            let view = session.terminalView
+            guard let window = view.window, window.firstResponder !== view else { return }
+            window.makeFirstResponder(view)
         }
     }
 
@@ -130,15 +152,9 @@ private struct CodexTerminalHostView: NSViewRepresentable {
     let session: CodexTerminalSession
 
     func makeNSView(context: Context) -> TerminalView {
-        let view = session.terminalView
-        // Focus the terminal once it lands in a window, matching the previous
-        // focus-on-appear behavior without relying on the library's internal
-        // focus callback.
-        DispatchQueue.main.async { [weak view] in
-            guard let view, let window = view.window, window.firstResponder !== view else { return }
-            window.makeFirstResponder(view)
-        }
-        return view
+        // Focus is driven by CodexTerminalToolView.applyActiveState so that only
+        // the active terminal in the deck grabs first responder, never a hidden one.
+        session.terminalView
     }
 
     func updateNSView(_ nsView: TerminalView, context: Context) {}

@@ -30,6 +30,11 @@ extension CodexCoreAppModel {
         workspacePanel.state(for: currentThreadID)
     }
 
+    /// Recent chats whose tool surfaces stay mounted for instant switching.
+    var mountedWorkspacePanels: [CodexWorkspacePanelState] {
+        workspacePanel.mountedToolStates
+    }
+
     var lifecycleEvents: [CodexAgentLifecycleEvent] {
         runtimeSession.lifecycleEvents
     }

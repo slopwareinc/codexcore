@@ -189,6 +189,7 @@ struct CodexCoreAppShell: View {
                 chatTitle: model.currentChatTitle,
                 currentThreadID: model.currentThreadID,
                 panel: model.workspacePanelState,
+                mountedPanels: model.mountedWorkspacePanels,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
                 gitReviewSession: model.gitReviewSession,
