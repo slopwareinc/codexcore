@@ -28,9 +28,6 @@ struct CodexCollabAgentPayload {
         let stateStatuses = states.values.compactMap {
             CodexAgentItemParser.firstString(in: $0, keys: ["status", "state"])?.lowercased()
         }
-        for raw in stateStatuses {
-            if let mapped = CodexAgentItemParser.customSubagentStatusMapping[raw], mapped == .failed { return .failed }
-        }
         // Prefer the canonical synonym table so cancelled/canceled map to .closed
         // (deliberately stopped), matching CodexAgentItemParser.subagentStatus.
         let normalizedStatuses = stateStatuses.compactMap(CodexSubagentState.Status.normalized)
@@ -141,11 +138,8 @@ enum CodexAgentItemParser {
         return []
     }
 
-    nonisolated(unsafe) public static var customSubagentStatusMapping: [String: CodexSubagentState.Status] = [:]
-
     static func subagentStatus(from item: ThreadItem) -> CodexSubagentState.Status {
         let rawStatus = firstString(in: item.raw, keys: ["status", "state", "phase"])?.lowercased() ?? item.phase?.lowercased()
-        if let raw = rawStatus, let mapped = customSubagentStatusMapping[raw] { return mapped }
         // No recognized status but the item exists -> treat as completed.
         return CodexSubagentState.Status.normalized(rawStatus) ?? .completed
     }

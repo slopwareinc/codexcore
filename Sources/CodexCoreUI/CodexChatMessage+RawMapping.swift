@@ -367,13 +367,8 @@ public extension CodexChatMessage {
         )
     }
 
-    nonisolated(unsafe) static var customApprovalActionSummarizers: [String: @Sendable ([String: CodexJSONValue]) -> String?] = [:]
-
     private static func approvalActionSummary(from action: [String: CodexJSONValue]?) -> String {
         guard let action, let type = string(from: action["type"]) else { return "Reviewing requested action" }
-        if let custom = customApprovalActionSummarizers[type]?(action) {
-            return custom
-        }
         switch type {
         case "command":
             return string(from: action["command"]) ?? "Reviewing command"
