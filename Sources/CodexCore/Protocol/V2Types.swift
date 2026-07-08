@@ -1,5 +1,13 @@
 import Foundation
 
+// Hand-maintained app-server v2 protocol types.
+//
+// NOTE: This file is intentionally NOT under Sources/CodexCore/Generated. It is
+// authored by hand — it is not produced by Tools/regenerate.sh and not verified
+// by Tools/check_drift.sh (which only cover AppServerProtocolMethods.swift and
+// AppServerSchemaTypes.swift). Keeping it out of Generated/ avoids the false
+// impression that `regenerate.sh` rebuilds it or that `check_drift.sh` guards it.
+
 public struct EmptyResponse: Codable, Sendable, Equatable {
     public init() {}
 }
