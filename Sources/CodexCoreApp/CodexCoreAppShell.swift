@@ -8,6 +8,8 @@ struct CodexCoreAppShell: View {
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var renameDraft = ""
+    @AppStorage("codex.sidebar.expandedWidth")
+    private var sidebarExpandedWidth: Double = Double(CodexProjectSidebar.defaultExpandedWidth)
 
     var body: some View {
         let sidebarSnapshot = model.sidebarSnapshot
@@ -18,6 +20,8 @@ struct CodexCoreAppShell: View {
                 accountSummary: model.accountMenuSummary,
                 isThreadReady: model.isThreadReady,
                 snapshot: sidebarSnapshot,
+                expandedWidth: CGFloat(sidebarExpandedWidth),
+                onResizeExpandedWidth: { sidebarExpandedWidth = Double($0) },
                 onNewChat: { Task { await model.startNewChat() } },
                 onOpenSearch: { model.selectAppRoute(.search) },
                 onSelectRoute: { model.selectAppRoute($0) },

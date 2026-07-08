@@ -1,13 +1,17 @@
 import SwiftUI
+import AppKit
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var showsOlderProjects = false
+    @State private var dragStartWidth: CGFloat?
 
     let serverName: String?
     let accountSummary: CodexAccountMenuSummary
     let isThreadReady: Bool
     let snapshot: CodexSidebarSnapshot
+    let expandedWidth: CGFloat
+    let onResizeExpandedWidth: ((CGFloat) -> Void)?
     let onNewChat: () -> Void
     let onOpenSearch: () -> Void
     let onSelectRoute: (CodexAppRoute) -> Void
@@ -25,6 +29,8 @@ public struct CodexProjectSidebar: View {
         accountSummary: CodexAccountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available"),
         isThreadReady: Bool,
         snapshot: CodexSidebarSnapshot,
+        expandedWidth: CGFloat = CodexProjectSidebar.defaultExpandedWidth,
+        onResizeExpandedWidth: ((CGFloat) -> Void)? = nil,
         onNewChat: @escaping () -> Void,
         onOpenSearch: @escaping () -> Void,
         onSelectRoute: @escaping (CodexAppRoute) -> Void,
@@ -41,6 +47,8 @@ public struct CodexProjectSidebar: View {
         self.accountSummary = accountSummary
         self.isThreadReady = isThreadReady
         self.snapshot = snapshot
+        self.expandedWidth = expandedWidth
+        self.onResizeExpandedWidth = onResizeExpandedWidth
         self.onNewChat = onNewChat
         self.onOpenSearch = onOpenSearch
         self.onSelectRoute = onSelectRoute
@@ -74,9 +82,9 @@ public struct CodexProjectSidebar: View {
             accountFooter
         }
         .frame(
-            minWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth,
-            idealWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth,
-            maxWidth: snapshot.isCollapsed ? SidebarMetrics.collapsedWidth : SidebarMetrics.expandedWidth
+            minWidth: resolvedWidth,
+            idealWidth: resolvedWidth,
+            maxWidth: resolvedWidth
         )
         .frame(maxHeight: .infinity)
         .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.18))
@@ -85,6 +93,45 @@ public struct CodexProjectSidebar: View {
             Rectangle()
                 .fill(theme.colors.border.opacity(0.45))
                 .frame(width: 1)
+        }
+        .overlay(alignment: .trailing) { resizeHandle }
+    }
+
+    private var resolvedWidth: CGFloat {
+        snapshot.isCollapsed
+            ? SidebarMetrics.collapsedWidth
+            : CodexProjectSidebar.clampExpandedWidth(expandedWidth)
+    }
+
+    /// A thin transparent strip straddling the trailing edge that drag-resizes
+    /// the expanded sidebar. Absent when collapsed or when no resize handler is
+    /// wired, so the plain divider shows through unchanged.
+    @ViewBuilder
+    private var resizeHandle: some View {
+        if !snapshot.isCollapsed, let onResizeExpandedWidth {
+            Color.clear
+                .frame(width: SidebarMetrics.resizeHandleHitWidth)
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    if inside {
+                        NSCursor.resizeLeftRight.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { value in
+                            let base = dragStartWidth ?? resolvedWidth
+                            if dragStartWidth == nil { dragStartWidth = base }
+                            onResizeExpandedWidth(
+                                CodexProjectSidebar.clampExpandedWidth(base + value.translation.width)
+                            )
+                        }
+                        .onEnded { _ in dragStartWidth = nil }
+                )
+                // Straddle the divider so the hit area covers both sides of the edge.
+                .offset(x: SidebarMetrics.resizeHandleHitWidth / 2)
         }
     }
 
@@ -677,4 +724,16 @@ private enum SidebarMetrics {
     static let collapsedWidth: CGFloat = 58
     static let titlebarHeight: CGFloat = 54
     static let trafficLightReserveWidth: CGFloat = 92
+    static let resizeHandleHitWidth: CGFloat = 8
+}
+
+public extension CodexProjectSidebar {
+    /// Default expanded width and the range the resize handle clamps to.
+    static let defaultExpandedWidth: CGFloat = 288
+    static let minExpandedWidth: CGFloat = 220
+    static let maxExpandedWidth: CGFloat = 460
+
+    static func clampExpandedWidth(_ width: CGFloat) -> CGFloat {
+        min(max(width, minExpandedWidth), maxExpandedWidth)
+    }
 }
