@@ -51,7 +51,10 @@ public enum CodexPathFormatter {
 /// individual sites and issue #87).
 public enum CodexJSONCoercion {
     /// Default dictionary key precedence used by `string(from:)`.
-    public static let defaultStringKeys = ["text", "value", "message", "type", "raw"]
+    ///
+    /// Content-bearing keys are preferred over discriminators: a payload that
+    /// carries both `type` and `text` resolves to its `text`, not its type tag.
+    public static let defaultStringKeys = ["text", "value", "message", "type", "raw", "id"]
 
     public static func string(from value: CodexJSONValue?) -> String? {
         string(from: value, dictionaryKeys: defaultStringKeys)

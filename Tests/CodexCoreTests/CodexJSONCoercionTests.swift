@@ -48,15 +48,21 @@ final class CodexJSONCoercionTests: XCTestCase {
         XCTAssertNil(CodexJSONCoercion.string(from: nil))
     }
 
-    func testDefaultDictionaryPrecedenceIsTextValueMessageTypeRaw() {
+    func testDefaultDictionaryPrecedencePrefersContentOverDiscriminators() {
         let object: CodexJSONValue = .dictionary([
             "type": .string("kind"),
             "text": .string("body"),
             "message": .string("msg"),
         ])
-        // Default precedence prefers "text" over "message"/"type".
+        // Default precedence prefers content ("text") over discriminators ("type").
         XCTAssertEqual(CodexJSONCoercion.string(from: object), "body")
-        XCTAssertEqual(CodexJSONCoercion.defaultStringKeys, ["text", "value", "message", "type", "raw"])
+        XCTAssertEqual(CodexJSONCoercion.defaultStringKeys, ["text", "value", "message", "type", "raw", "id"])
+    }
+
+    func testTypeIsOnlyUsedAsFallbackWhenNoContentPresent() {
+        // A payload carrying only a discriminator still resolves to it.
+        let object: CodexJSONValue = .dictionary(["type": .string("kind")])
+        XCTAssertEqual(CodexJSONCoercion.string(from: object), "kind")
     }
 
     func testCustomDictionaryPrecedenceIsHonored() {

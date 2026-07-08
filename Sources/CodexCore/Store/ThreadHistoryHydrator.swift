@@ -382,21 +382,12 @@ public enum CodexThreadHistoryHydrator {
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {
-        switch value {
-        case .string(let string): return string
-        case .int(let int): return String(int)
-        case .double(let double): return String(double)
-        case .bool(let bool): return String(bool)
-        case .dictionary(let object):
-            return string(from: object["message"])
-                ?? string(from: object["text"])
-                ?? string(from: object["value"])
-                ?? string(from: object["id"])
-        case .array(let values):
-            return values.compactMap { string(from: $0) }.joined(separator: "\n").nilIfEmpty
-        case .null, nil:
-            return nil
-        }
+        // Hydrated history joins multi-part values with newlines (diffs, etc.).
+        CodexJSONCoercion.string(
+            from: value,
+            dictionaryKeys: CodexJSONCoercion.defaultStringKeys,
+            separator: "\n"
+        )
     }
 
     private static func stableUniqueReferences(_ values: [CodexChildThreadReference]) -> [CodexChildThreadReference] {

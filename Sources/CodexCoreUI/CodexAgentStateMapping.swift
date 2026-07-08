@@ -753,18 +753,8 @@ public struct CodexAgentStateMapper: Sendable {
 
 private extension CodexSubagentState.Status {
     init?(historyStatus: String?) {
-        switch historyStatus?.lowercased() {
-        case "running", "active", "inprogress", "in_progress":
-            self = .running
-        case "completed", "complete", "done", "success", "succeeded":
-            self = .completed
-        case "closed", "cancelled", "canceled":
-            self = .closed
-        case "failed", "error":
-            self = .failed
-        default:
-            return nil
-        }
+        guard let normalized = CodexSubagentState.Status.normalized(historyStatus) else { return nil }
+        self = normalized
     }
 
     init?(snapshot: CodexThreadSnapshot) {

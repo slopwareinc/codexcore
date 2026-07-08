@@ -1103,21 +1103,7 @@ public actor CodexClient {
             return nil
         }
         func stringValue(_ value: CodexJSONValue?) -> String? {
-            switch value {
-            case .string(let string): return nilIfEmpty(string)
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array(let values):
-                let parts = values.compactMap(stringValue)
-                return nilIfEmpty(parts.joined(separator: " "))
-            case .dictionary(let object):
-                return stringValue(object["type"])
-                    ?? stringValue(object["message"])
-                    ?? stringValue(object["text"])
-            case .null, nil:
-                return nil
-            }
+            CodexJSONCoercion.string(from: value, dictionaryKeys: CodexJSONCoercion.defaultStringKeys, trimScalars: true)
         }
         func fileChangePatch() -> (path: String?, patch: String) {
             guard case .array(let changes)? = params["changes"] else {

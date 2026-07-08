@@ -10,6 +10,9 @@ extension CodexSubagentState.Status {
         self = Self.normalized(rawStatus) ?? fallback
     }
 
+    /// The canonical subagent-status synonym table. A `cancelled`/`canceled`
+    /// subagent normalizes to `.closed` (deliberately stopped, not an error);
+    /// only genuine error states map to `.failed`.
     static func normalized(_ rawStatus: String?) -> Self? {
         switch rawStatus?
             .replacingOccurrences(of: "-", with: "_")
@@ -20,7 +23,7 @@ extension CodexSubagentState.Status {
             return .running
         case "completed", "complete", "done", "success", "succeeded":
             return .completed
-        case "closed", "cancelled", "canceled", "skipped":
+        case "closed", "cancelled", "canceled", "skipped", "archived":
             return .closed
         case "failed", "failure", "error":
             return .failed

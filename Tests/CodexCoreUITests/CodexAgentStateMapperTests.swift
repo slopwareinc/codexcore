@@ -824,6 +824,30 @@ final class CodexAgentStateMapperTests: XCTestCase {
         XCTAssertEqual(payload.status(completed: true), .completed)
         XCTAssertEqual(CodexAgentItemParser.firstString(in: payload.states["thread-one"] ?? [:], keys: ["message"]), "done")
     }
+
+    // MARK: - Canonical status normalization
+
+    func testStatusNormalizationCanonicalTable() {
+        XCTAssertEqual(CodexSubagentState.Status.normalized("running"), .running)
+        XCTAssertEqual(CodexSubagentState.Status.normalized("in-progress"), .running)
+        XCTAssertEqual(CodexSubagentState.Status.normalized("succeeded"), .completed)
+        // A cancelled subagent is deliberately stopped -> .closed, not .failed.
+        XCTAssertEqual(CodexSubagentState.Status.normalized("cancelled"), .closed)
+        XCTAssertEqual(CodexSubagentState.Status.normalized("canceled"), .closed)
+        XCTAssertEqual(CodexSubagentState.Status.normalized("archived"), .closed)
+        XCTAssertEqual(CodexSubagentState.Status.normalized("skipped"), .closed)
+        // Only genuine error states map to .failed.
+        XCTAssertEqual(CodexSubagentState.Status.normalized("error"), .failed)
+        XCTAssertEqual(CodexSubagentState.Status.normalized("failed"), .failed)
+        XCTAssertNil(CodexSubagentState.Status.normalized("bogus"))
+    }
+
+    func testSubagentStatusFallsBackToCompletedForUnknown() throws {
+        let item = try decodeThreadItem(#"""
+        { "id": "s1", "type": "subAgentThreadSpawn", "status": "wat" }
+        """#)
+        XCTAssertEqual(CodexAgentItemParser.subagentStatus(from: item), .completed)
+    }
 }
 
 private func decodeThreadItem(_ json: String) throws -> ThreadItem {
