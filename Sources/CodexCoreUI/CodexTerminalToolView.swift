@@ -1,4 +1,5 @@
 import AppKit
+import CodexCore
 import GhosttyTerminal
 import SwiftUI
 
@@ -162,14 +163,7 @@ private struct CodexTerminalHostView: NSViewRepresentable {
 
 public enum CodexTerminalPathFormatter {
     public static func display(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if path == home {
-            return "~"
-        }
-        if path.hasPrefix(home + "/") {
-            return "~" + path.dropFirst(home.count)
-        }
-        return path
+        CodexPathFormatter.abbreviatingHome(path)
     }
 }
 

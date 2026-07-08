@@ -404,9 +404,3 @@ public enum CodexThreadHistoryHydrator {
         return values.filter { !$0.threadID.isEmpty && seen.insert($0.threadID).inserted }
     }
 }
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-}

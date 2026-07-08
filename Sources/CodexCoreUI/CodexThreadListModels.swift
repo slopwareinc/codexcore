@@ -175,12 +175,7 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
     }
 
     public var shortPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if workspacePath == home { return "~" }
-        if workspacePath.hasPrefix(home + "/") {
-            return "~" + workspacePath.dropFirst(home.count)
-        }
-        return workspacePath
+        CodexPathFormatter.abbreviatingHome(workspacePath)
     }
 
     public static func projects(

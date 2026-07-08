@@ -56,7 +56,7 @@ public extension CodexChatMessage {
             ?? string(from: raw["aggregatedOutput"])
             ?? ""
         let status = string(from: raw["status"]) ?? fallbackStatus
-        let isStreaming = status == "active" || status == "inProgress" || status == "running"
+        let isStreaming = CodexStatusHeuristics.isActiveStreaming(status)
 
         guard path != nil || !diff.isEmpty || !output.isEmpty else { return nil }
         return FileChange(
@@ -142,7 +142,7 @@ public extension CodexChatMessage {
             ?? ""
         let error = errorText(from: raw["error"])
         let duration = int(from: raw["durationMs"]) ?? int(from: raw["durationMilliseconds"])
-        let isStreaming = status == "inProgress" || status == "active" || status == "running"
+        let isStreaming = CodexStatusHeuristics.isActiveStreaming(status)
 
         guard server != nil || tool != "Tool" || !arguments.isEmpty || !result.isEmpty || error != nil || !progress.isEmpty else {
             return nil

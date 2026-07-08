@@ -356,15 +356,9 @@ private func int(_ value: CodexJSONValue?) -> Int? {
 }
 
 private func isActiveStatus(_ status: String) -> Bool {
-    status == "active" || status == "inProgress" || status == "running"
+    CodexStatusHeuristics.isActiveStreaming(status)
 }
 
 private func nilIfEmpty(_ string: String?) -> String? {
     string?.isEmpty == false ? string : nil
-}
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
 }

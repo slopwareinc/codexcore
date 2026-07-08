@@ -780,9 +780,3 @@ private extension CodexSubagentState.Status {
         self = .completed
     }
 }
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-}

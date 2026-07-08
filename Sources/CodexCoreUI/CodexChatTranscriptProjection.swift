@@ -360,7 +360,7 @@ public enum CodexChatTranscriptProjection {
 
     public static func isActiveStatus(_ status: String) -> Bool {
         if let custom = customActiveStatusChecker?(status) { return custom }
-        return status == "active" || status == "inProgress" || status == "running"
+        return CodexStatusHeuristics.isActiveStreaming(status)
     }
 }
 
