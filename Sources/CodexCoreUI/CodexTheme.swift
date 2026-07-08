@@ -81,19 +81,27 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     public var uiFontSize: Double
     public var diffMarkerStyle: CodexDiffMarkerStyle
     public var dockIconVariant: CodexDockIconVariant
+    /// Family name for interface/prose text. `nil` = system (San Francisco).
+    public var textFontFamily: String?
+    /// Family name for monospaced contexts (code, diffs). `nil` = system mono.
+    public var monoFontFamily: String?
 
     public init(
         preset: CodexAgentThemePreset = .officialDark,
         reduceMotion: Bool = false,
         uiFontSize: Double = 14,
         diffMarkerStyle: CodexDiffMarkerStyle = .color,
-        dockIconVariant: CodexDockIconVariant = .default
+        dockIconVariant: CodexDockIconVariant = .default,
+        textFontFamily: String? = nil,
+        monoFontFamily: String? = nil
     ) {
         self.preset = preset
         self.reduceMotion = reduceMotion
         self.uiFontSize = min(max(uiFontSize, Self.uiFontSizeRange.lowerBound), Self.uiFontSizeRange.upperBound)
         self.diffMarkerStyle = diffMarkerStyle
         self.dockIconVariant = dockIconVariant
+        self.textFontFamily = textFontFamily?.nilIfBlank
+        self.monoFontFamily = monoFontFamily?.nilIfBlank
     }
 
     public static var official: CodexAppearanceSettings {
@@ -103,25 +111,105 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     public func agentTheme(uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
         let base = preset.theme
         var theme = base
-        theme.fonts = .official.scaled(baseTextSize: uiFontSize)
+        theme.fonts = .official.scaled(
+            baseTextSize: uiFontSize,
+            textFamily: textFontFamily,
+            monoFamily: monoFontFamily
+        )
         theme.animations = reduceMotion ? .reduced : .official
         return theme
     }
 }
 
+/// Resolves an optional font-family name into SwiftUI `Font` + backing `NSFont`
+/// tokens, falling back to the system font when the family is nil or missing so
+/// the UI never renders in a broken/unavailable typeface.
+struct CodexFontFamily {
+    let family: String?
+    let monospaced: Bool
+
+    static func text(_ family: String?) -> CodexFontFamily { .init(family: family, monospaced: false) }
+    static func mono(_ family: String?) -> CodexFontFamily { .init(family: family, monospaced: true) }
+
+    func nsFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont? {
+        guard let family, !family.isEmpty else { return nil }
+        var attributes: [NSFontDescriptor.AttributeName: Any] = [.family: family]
+        attributes[.traits] = [NSFontDescriptor.TraitKey.weight: weight.rawValue]
+        let descriptor = NSFontDescriptor(fontAttributes: attributes)
+        return NSFont(descriptor: descriptor, size: size)
+    }
+
+    func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        if let nsFont = nsFont(size: size, weight: weight.nsFontWeight) {
+            return Font(nsFont)
+        }
+        return .system(size: size, weight: weight, design: monospaced ? .monospaced : .default)
+    }
+}
+
+private extension Font.Weight {
+    var nsFontWeight: NSFont.Weight {
+        switch self {
+        case .semibold: return .semibold
+        case .bold: return .bold
+        case .medium: return .medium
+        case .light: return .light
+        default: return .regular
+        }
+    }
+}
+
+/// Catalog of installed font families for the settings pickers. Computed once
+/// from the system; the curated lists are the safe, good-looking built-ins.
+public enum CodexSystemFonts {
+    /// Menu label for the "use the system font" choice (a nil family).
+    public static let systemLabel = "System"
+
+    /// All installed families, excluding hidden system fonts (dot-prefixed).
+    public static let allTextFamilies: [String] = NSFontManager.shared.availableFontFamilies
+        .filter { !$0.hasPrefix(".") }
+        .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+
+    /// Fixed-pitch families only, for the monospace picker.
+    public static let monospacedFamilies: [String] = allTextFamilies.filter(isFixedPitch)
+
+    /// Hand-picked interface fonts that ship with macOS and have full weights.
+    public static let curatedText: [String] = intersecting(["New York", "Helvetica Neue", "Avenir Next", "Georgia", "Palatino"])
+
+    /// Hand-picked monospace fonts that ship with macOS.
+    public static let curatedMono: [String] = intersecting(["SF Mono", "Menlo", "Monaco", "Courier New"])
+
+    public static func isFixedPitch(_ family: String) -> Bool {
+        let descriptor = NSFontDescriptor(fontAttributes: [.family: family])
+        return NSFont(descriptor: descriptor, size: 12)?.isFixedPitch ?? false
+    }
+
+    private static func intersecting(_ names: [String]) -> [String] {
+        let available = Set(allTextFamilies)
+        return names.filter(available.contains)
+    }
+}
+
 private extension CodexAgentTheme.Fonts {
-    func scaled(baseTextSize: Double) -> CodexAgentTheme.Fonts {
+    func scaled(baseTextSize: Double, textFamily: String?, monoFamily: String?) -> CodexAgentTheme.Fonts {
         let bodySize = CGFloat(min(max(baseTextSize, CodexAppearanceSettings.uiFontSizeRange.lowerBound), CodexAppearanceSettings.uiFontSizeRange.upperBound))
+        let text = CodexFontFamily.text(textFamily)
+        let mono = CodexFontFamily.mono(monoFamily)
+        let chatSize = bodySize + 1
+        let codeSize = max(10, bodySize - 1)
         return CodexAgentTheme.Fonts(
-            body: .system(size: bodySize),
-            chat: .system(size: bodySize + 1),
-            caption: .system(size: max(9, bodySize - 2)),
-            label: .system(size: max(10, bodySize - 1), weight: .semibold),
-            code: .system(size: max(10, bodySize - 1), design: .monospaced),
-            micro: .system(size: max(8, bodySize - 3), weight: .semibold, design: .monospaced),
+            body: text.font(size: bodySize),
+            chat: text.font(size: chatSize),
+            caption: text.font(size: max(9, bodySize - 2)),
+            label: text.font(size: max(10, bodySize - 1), weight: .semibold),
+            code: mono.font(size: codeSize),
+            micro: mono.font(size: max(8, bodySize - 3), weight: .semibold),
             sidebar: sidebar,
-            chatNSFont: chatNSFont,
-            codeNSFont: codeNSFont
+            // Backing NSFonts drive prose/code markdown styling. Stay nil for the
+            // system font (the prose views fall back to `fonts.chat`), and carry
+            // the resolved family + scaled size for a custom pick.
+            chatNSFont: text.nsFont(size: chatSize),
+            codeNSFont: mono.nsFont(size: codeSize)
         )
     }
 }
