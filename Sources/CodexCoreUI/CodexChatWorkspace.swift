@@ -603,14 +603,42 @@ public struct CodexChatHeader: View {
     }
 
     public var body: some View {
-        HStack(spacing: 7) {
+        ZStack(alignment: .top) {
+            // Fades the transcript out as it scrolls beneath the controls so
+            // text stays legible under the bubbles. Purely visual — hit testing
+            // is off so content below the control row stays interactive.
+            scrim
+                .allowsHitTesting(false)
+
+            controlsRow
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var scrim: some View {
+        LinearGradient(
+            colors: [
+                theme.colors.canvas,
+                theme.colors.canvas.opacity(0.82),
+                theme.colors.canvas.opacity(0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: theme.spacing.toolbarHeight + 46)
+    }
+
+    private var controlsRow: some View {
+        HStack(spacing: 8) {
             if showsSidebarToggle {
-                ToolbarIconButton(
-                    systemImage: "sidebar.left",
-                    isActive: isSidebarVisible,
-                    help: "Toggle sidebar",
-                    action: onToggleSidebar
-                )
+                HeaderBubble {
+                    ToolbarIconButton(
+                        systemImage: "sidebar.leading",
+                        isActive: isSidebarVisible,
+                        help: "Toggle sidebar",
+                        action: onToggleSidebar
+                    )
+                }
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -632,33 +660,57 @@ public struct CodexChatHeader: View {
 
             Spacer(minLength: 12)
 
-            ChatActionsMenu(actions: chatActions, onDisconnect: onDisconnect)
+            HeaderBubble {
+                ChatActionsMenu(actions: chatActions, onDisconnect: onDisconnect)
 
-            ToolbarIconButton(
-                systemImage: "list.bullet.rectangle",
-                isActive: isSummaryPanelOpen,
-                help: "Toggle pinned summary",
-                action: onToggleSummaryPanel
-            )
+                ToolbarIconButton(
+                    systemImage: "list.bullet.rectangle",
+                    isActive: isSummaryPanelOpen,
+                    help: "Toggle pinned summary",
+                    action: onToggleSummaryPanel
+                )
 
-            ToolbarIconButton(
-                systemImage: "sidebar.right",
-                isActive: isPanelOpen,
-                isEnabled: hasPanelTabs,
-                help: "Toggle side panel",
-                action: onTogglePanel
-            )
+                ToolbarIconButton(
+                    systemImage: "sidebar.right",
+                    isActive: isPanelOpen,
+                    isEnabled: hasPanelTabs,
+                    help: "Toggle side panel",
+                    action: onTogglePanel
+                )
+            }
 
-            ToolbarIconButton(systemImage: "xmark", help: "Disconnect", action: onDisconnect)
+            HeaderBubble {
+                ToolbarIconButton(systemImage: "xmark", help: "Disconnect", action: onDisconnect)
+            }
         }
+        .padding(.horizontal, 14)
         .frame(height: theme.spacing.toolbarHeight)
-        .padding(.horizontal, 10)
-        .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.14))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.colors.border.opacity(0.24))
-                .frame(height: 1)
+        .padding(.top, 8)
+        // Window-drag region (isMovableByWindowBackground is off). Buttons and
+        // menus keep their own hit priority, so only empty header area moves
+        // the window. Scoped to the control row so the scrim tail below stays
+        // pass-through to the transcript.
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture())
+        .allowsWindowActivationEvents(true)
+    }
+}
+
+/// A floating glass capsule that groups one or more header controls, à la the
+/// macOS Notes/Reminders toolbar bubbles.
+private struct HeaderBubble<Content: View>: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 2) {
+            content
         }
+        .padding(.horizontal, 4)
+        .frame(height: 34)
+        .codexGlass(Capsule(), tint: theme.colors.surface.opacity(0.42))
+        .overlay(Capsule().stroke(theme.colors.border.opacity(0.4), lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
     }
 }
 
@@ -675,16 +727,26 @@ private struct ToolbarIconButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(theme.fonts.label)
-                .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary.opacity(theme.effects.textFaintOpacity))
+                .foregroundStyle(foreground)
                 .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                // Selection is a concentric accent-tinted fill matching the
+                // round button (Liquid Glass selection), not a squircle chip.
                 .background(
-                    isActive ? theme.colors.surfaceElevated.opacity(theme.effects.textDimOpacity) : .clear,
-                    in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                    isActive ? theme.colors.accent.opacity(0.22) : .clear,
+                    in: Circle()
                 )
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .help(help)
+    }
+
+    private var foreground: Color {
+        if !isEnabled {
+            return theme.colors.textTertiary.opacity(theme.effects.textFaintOpacity)
+        }
+        // Active glyph brightens to the accent; inactive stays secondary.
+        return isActive ? theme.colors.accent : theme.colors.textSecondary
     }
 }
 
@@ -716,6 +778,11 @@ private struct ChatActionsMenu: View {
                 .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
                 .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         }
+        // Strip the default macOS pop-up bezel + disclosure arrow so the glyph
+        // sits cleanly on the glass bubble like the sibling icon buttons,
+        // instead of stacking its own gray chrome (the "hybrid" look).
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Chat actions")
     }
