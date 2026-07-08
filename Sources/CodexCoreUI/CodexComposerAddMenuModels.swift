@@ -196,12 +196,12 @@ public extension CodexComposerPluginLauncher {
         fallbackDetail: CodexPluginRouteDetail.boundary(
             id: "browser",
             title: "Browser",
-            detail: "Control the in-app browser with Codex",
+            detail: "Control the in-app browser",
             description: "Open and control the in-app browser for local development pages and files. Navigate, inspect, click, type, and take screenshots from chat.",
             statusLabel: "Plugin detail",
             prompt: "Browser\nTest my checkout flow on localhost",
             capabilities: ["Interactive", "Read", "Write"],
-            metadata: ["Developer: OpenAI", "Category: Engineering"],
+            metadata: ["Category: Engineering"],
             legalLinks: ["Website", "Privacy Policy", "Terms of Service"]
         )
     )
@@ -214,7 +214,7 @@ public extension CodexComposerPluginLauncher {
         fallbackDetail: CodexPluginRouteDetail.boundary(
             id: "computer-use",
             title: "Computer Use",
-            detail: "Control Mac apps from Codex",
+            detail: "Control Mac apps",
             description: "Computer Use can operate local Mac apps after installation and OS permission approval. Appshot is represented as a packaged capture boundary. This native build shows the install/permission boundary and does not invoke the permission flow.",
             statusLabel: "Install boundary",
             capabilities: ["Mac app control", "Permission required", "Appshot boundary"],

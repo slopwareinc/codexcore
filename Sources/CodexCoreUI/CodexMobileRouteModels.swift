@@ -174,7 +174,7 @@ public struct CodexMobileRouteState: Equatable, Sendable {
     }
 
     public var title: String { "Connect your phone to this Mac" }
-    public var subtitle: String { "Keep working with Codex from your phone, or other device" }
+    public var subtitle: String { "Keep working from your phone, or other device" }
     public var benefits: [String] { ["Pick up where you left off", "Stay in the loop", "Start something new"] }
     public var warning: String { "Codex will access your desktop (files, apps, and browser) to complete tasks you send from your phone. This may have security risks. Only connect devices that you own and trust." }
     public var getStartedTitle: String { "Get started" }
@@ -356,11 +356,11 @@ public struct CodexAboutMetadata: Equatable, Sendable {
     public var serverName: String?
 
     public init(
-        appName: String = "Codex",
+        appName: String = "",
         version: String? = nil,
         build: String? = nil,
         releaseDate: String? = nil,
-        copyright: String = "© OpenAI",
+        copyright: String = "",
         serverName: String? = nil
     ) {
         self.appName = appName
@@ -371,14 +371,26 @@ public struct CodexAboutMetadata: Equatable, Sendable {
         self.serverName = serverName?.nilIfBlank
     }
 
-    public init(bundle: Bundle, serverName: String? = nil) {
+    /// Builds about-metadata from a host bundle. Host apps supply their own
+    /// branding via `fallbackAppName` / `fallbackCopyright` (or the standard
+    /// Info.plist keys); this reusable layer does not hardcode any product name.
+    ///
+    /// - Parameter releaseDateInfoKey: Optional Info.plist key carrying a
+    ///   human-readable release date (there is no standard key for this).
+    public init(
+        bundle: Bundle,
+        serverName: String? = nil,
+        fallbackAppName: String = "",
+        fallbackCopyright: String = "",
+        releaseDateInfoKey: String = "CodexReleaseDate"
+    ) {
         let info = bundle.infoDictionary ?? [:]
         self.init(
-            appName: (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String) ?? "Codex",
+            appName: (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String) ?? fallbackAppName,
             version: info["CFBundleShortVersionString"] as? String,
             build: info["CFBundleVersion"] as? String,
-            releaseDate: info["CodexReleaseDate"] as? String,
-            copyright: (info["NSHumanReadableCopyright"] as? String) ?? "© OpenAI",
+            releaseDate: info[releaseDateInfoKey] as? String,
+            copyright: (info["NSHumanReadableCopyright"] as? String) ?? fallbackCopyright,
             serverName: serverName
         )
     }

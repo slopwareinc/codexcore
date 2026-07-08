@@ -11,7 +11,7 @@ final class CodexMobileRouteModelTests: XCTestCase {
         XCTAssertEqual(activity.title, "Codex Mobile")
         XCTAssertTrue(session.state.isPermissionGatePresented)
         XCTAssertEqual(session.state.title, "Connect your phone to this Mac")
-        XCTAssertEqual(session.state.subtitle, "Keep working with Codex from your phone, or other device")
+        XCTAssertEqual(session.state.subtitle, "Keep working from your phone, or other device")
         XCTAssertEqual(session.state.benefits, ["Pick up where you left off", "Stay in the loop", "Start something new"])
         XCTAssertEqual(session.state.permissionTitle, "Set up Codex Mobile")
         XCTAssertEqual(session.state.permissionQuestion, "Allow devices to control this computer?")
