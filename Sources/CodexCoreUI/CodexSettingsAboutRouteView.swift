@@ -621,6 +621,24 @@ public struct CodexAppearanceSettingsView: View {
                     fontSize: $sidebarFontSize,
                     range: sidebarFontSizeRange
                 )
+                CodexFontFamilyPickerRow(
+                    title: "App font",
+                    detail: "Font for chat, messages, and interface text",
+                    curated: CodexSystemFonts.curatedText,
+                    allFamilies: CodexSystemFonts.allTextFamilies,
+                    family: $settings.textFontFamily
+                )
+                CodexFontFamilyPickerRow(
+                    title: "Monospace font",
+                    detail: "Font for code blocks, diffs, and inline code",
+                    curated: CodexSystemFonts.curatedMono,
+                    allFamilies: CodexSystemFonts.monospacedFamilies,
+                    family: $settings.monoFontFamily
+                )
+                CodexFontPreviewRow(
+                    textFamily: settings.textFontFamily,
+                    monoFamily: settings.monoFontFamily
+                )
                 CodexSettingsEnumRow(
                     title: "Reduce motion",
                     detail: "Reduce animations in CodexCore",
@@ -631,6 +649,86 @@ public struct CodexAppearanceSettingsView: View {
             }
             .settingsPanel(theme: theme)
         }
+    }
+}
+
+public struct CodexFontFamilyPickerRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let title: String
+    let detail: String
+    let curated: [String]
+    let allFamilies: [String]
+    @Binding private var family: String?
+
+    public init(title: String, detail: String, curated: [String], allFamilies: [String], family: Binding<String?>) {
+        self.title = title
+        self.detail = detail
+        self.curated = curated
+        self.allFamilies = allFamilies
+        self._family = family
+    }
+
+    public var body: some View {
+        HStack(spacing: 18) {
+            CodexSettingsRowLabel(title: title, detail: detail, isEnabled: true)
+            Spacer()
+            Menu {
+                choice(nil, label: CodexSystemFonts.systemLabel)
+                if !curated.isEmpty {
+                    Divider()
+                    ForEach(curated, id: \.self) { choice($0, label: $0) }
+                }
+                Divider()
+                Menu("All fonts") {
+                    ForEach(allFamilies, id: \.self) { choice($0, label: $0) }
+                }
+            } label: {
+                Text(family ?? CodexSystemFonts.systemLabel)
+                    .lineLimit(1)
+                    .frame(minWidth: 150, maxWidth: 200, alignment: .leading)
+            }
+            .fixedSize()
+        }
+        .settingsRowFrame()
+    }
+
+    @ViewBuilder
+    private func choice(_ value: String?, label: String) -> some View {
+        Button {
+            family = value
+        } label: {
+            if family == value {
+                Label(label, systemImage: "checkmark")
+            } else {
+                Text(label)
+            }
+        }
+    }
+}
+
+private struct CodexFontPreviewRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let textFamily: String?
+    let monoFamily: String?
+
+    var body: some View {
+        HStack(spacing: 18) {
+            CodexSettingsRowLabel(title: "Preview", detail: "Sample of the selected fonts", isEnabled: true)
+            Spacer()
+            VStack(alignment: .leading, spacing: 4) {
+                Text("The quick brown fox jumps over the lazy dog.")
+                    .font(CodexFontFamily.text(textFamily).font(size: 15))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("let total = items.reduce(0, +)  // 0123456789")
+                    .font(CodexFontFamily.mono(monoFamily).font(size: 13))
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            .lineLimit(1)
+            .frame(maxWidth: 320, alignment: .leading)
+        }
+        .settingsRowFrame()
     }
 }
 
