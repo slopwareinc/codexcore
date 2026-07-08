@@ -1,10 +1,10 @@
 import Foundation
 
-struct MarkdownFence {
-    let language: String
-    let content: String
+public struct MarkdownFence {
+    public let language: String
+    public let content: String
 
-    static func parseAll(in text: String) -> [MarkdownFence] {
+    public static func parseAll(in text: String) -> [MarkdownFence] {
         let lines = text.components(separatedBy: "\n")
         var fences: [MarkdownFence] = []
         var index = 0
@@ -40,7 +40,7 @@ struct MarkdownFence {
         return fences
     }
 
-    static func parseSingle(_ text: String) -> MarkdownFence? {
+    public static func parseSingle(_ text: String) -> MarkdownFence? {
         let lines = text.components(separatedBy: "\n")
         guard let firstLine = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),
               let opening = MarkdownFenceOpening(line: firstLine) else {
@@ -65,12 +65,14 @@ struct MarkdownFence {
     }
 }
 
-struct MarkdownFenceTracker {
+public struct MarkdownFenceTracker {
     private var marker: Character?
     private var length = 0
     private var inFence = false
 
-    mutating func consume(trimmedLine: String) -> Bool {
+    public init() {}
+
+    public mutating func consume(trimmedLine: String) -> Bool {
         if inFence {
             if let marker, Self.isClosing(trimmedLine, marker: marker, minLength: length) {
                 inFence = false
@@ -85,7 +87,7 @@ struct MarkdownFenceTracker {
         return inFence
     }
 
-    static func isClosing(_ line: String, marker: Character, minLength: Int) -> Bool {
+    public static func isClosing(_ line: String, marker: Character, minLength: Int) -> Bool {
         guard line.first == marker else { return false }
         let length = line.prefix(while: { $0 == marker }).count
         guard length >= minLength else { return false }

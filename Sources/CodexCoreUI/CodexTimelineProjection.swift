@@ -1,3 +1,4 @@
+import CodexCore
 import Foundation
 
 // MARK: - Projected Timeline Row Descriptor
