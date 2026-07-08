@@ -253,7 +253,7 @@ public struct CodexChatWorkspaceView: View {
                     }
                     .transition(.opacity)
 
-                    agentSidePanel(resizable: false)
+                    agentSidePanel(resizable: true)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
