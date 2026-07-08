@@ -93,15 +93,10 @@ public struct CodexChatWorkspaceView: View {
     private let onDisconnect: () -> Void
     private let onPromptSelected: ((String) -> Void)?
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
-    @State private var isAgentPanelOpen = false
+    @ObservedObject private var panel: CodexWorkspacePanelState
+    private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
-    @State private var selectedPanelTabID: String?
-    @State private var agentPanelWidth: CGFloat = CodexAgentTheme.officialDark.spacing.sidePanelWidth
-    @State private var terminalSessions: [CodexTerminalSession] = []
-    @State private var browserSessions: [CodexBrowserSession] = []
-    @State private var nextTerminalNumber = 1
-    @State private var nextBrowserNumber = 1
 
     public init(
         messages: [CodexChatMessage],
@@ -113,6 +108,8 @@ public struct CodexChatWorkspaceView: View {
         workspacePath: String,
         chatTitle: String = "Codex",
         currentThreadID: String? = nil,
+        panel: CodexWorkspacePanelState = CodexWorkspacePanelState(),
+        mountedPanels: [CodexWorkspacePanelState] = [],
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
@@ -166,6 +163,8 @@ public struct CodexChatWorkspaceView: View {
         self.workspacePath = workspacePath
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
+        self._panel = ObservedObject(wrappedValue: panel)
+        self.mountedPanels = mountedPanels
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
@@ -214,11 +213,11 @@ public struct CodexChatWorkspaceView: View {
     public var body: some View {
         GeometryReader { proxy in
             let panelState = CodexWorkspaceResponsivePanelState(availableWidth: proxy.size.width)
-            let isDockedOverviewVisible = isSummaryPanelOpen && panelState.supportsDockedOverview(isSidePanelOpen: isAgentPanelOpen)
+            let isDockedOverviewVisible = isSummaryPanelOpen && panelState.supportsDockedOverview(isSidePanelOpen: panel.isAgentPanelOpen)
             let isFloatingOverviewVisible = isCompactSummaryPanelPresented && !isDockedOverviewVisible
             // Float the overview over the main chat column, not the side panel:
             // when the persistent side panel is open, inset past its width.
-            let floatingOverviewTrailingInset = 16 + (panelState.usesPersistentSidePanel && isAgentPanelOpen ? agentPanelWidth : 0)
+            let floatingOverviewTrailingInset = 16 + (panelState.usesPersistentSidePanel && panel.isAgentPanelOpen ? panel.panelWidth : 0)
 
             ZStack(alignment: .trailing) {
                 HStack(spacing: 0) {
@@ -229,7 +228,7 @@ public struct CodexChatWorkspaceView: View {
                     )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if panelState.usesPersistentSidePanel, isAgentPanelOpen {
+                    if panelState.usesPersistentSidePanel, panel.isAgentPanelOpen {
                         agentSidePanel(resizable: true)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
@@ -248,9 +247,9 @@ public struct CodexChatWorkspaceView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
                 }
 
-                if panelState.usesOverlaySidePanel, isAgentPanelOpen {
+                if panelState.usesOverlaySidePanel, panel.isAgentPanelOpen {
                     compactOverlayBackdrop {
-                        isAgentPanelOpen = false
+                        panel.isAgentPanelOpen = false
                     }
                     .transition(.opacity)
 
@@ -259,7 +258,7 @@ public struct CodexChatWorkspaceView: View {
                 }
             }
         }
-        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isAgentPanelOpen)
+        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: panel.isAgentPanelOpen)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
@@ -330,7 +329,7 @@ public struct CodexChatWorkspaceView: View {
                     isSidebarVisible: isSidebarVisible,
                     isSummaryPanelOpen: isOverviewControlActive,
                     hasPanelTabs: true,
-                    isPanelOpen: isAgentPanelOpen,
+                    isPanelOpen: panel.isAgentPanelOpen,
                     chatActions: workspaceChatActions,
                     onToggleSidebar: onToggleSidebar,
                     onToggleSummaryPanel: {
@@ -433,13 +432,29 @@ public struct CodexChatWorkspaceView: View {
         )
     }
 
+    // Union of tool sessions across all mounted recent chats, kept in one deck so
+    // switching chats is a visibility toggle instead of remounting surfaces. The
+    // active `panel` is appended last (and always observed) so its sessions stay
+    // current; ids dedupe repeats.
+    private var mountedTerminalSessions: [CodexTerminalSession] {
+        var seen = Set<String>()
+        return (mountedPanels + [panel]).flatMap(\.terminalSessions).filter { seen.insert($0.id).inserted }
+    }
+
+    private var mountedBrowserSessions: [CodexBrowserSession] {
+        var seen = Set<String>()
+        return (mountedPanels + [panel]).flatMap(\.browserSessions).filter { seen.insert($0.id).inserted }
+    }
+
     private func agentSidePanel(resizable: Bool) -> some View {
         CodexAgentSidePanel(
             tabs: panelTabs,
-            selectedTabID: $selectedPanelTabID,
-            width: resizable ? $agentPanelWidth : .constant(theme.spacing.sidePanelWidth),
-            terminalSessions: terminalSessions,
-            browserSessions: browserSessions,
+            selectedTabID: $panel.selectedTabID,
+            width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
+            terminalSessions: panel.terminalSessions,
+            browserSessions: panel.browserSessions,
+            mountedTerminalSessions: mountedTerminalSessions,
+            mountedBrowserSessions: mountedBrowserSessions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
@@ -449,7 +464,7 @@ public struct CodexChatWorkspaceView: View {
             onOpenBrowser: openBrowserTab,
             onCloseTerminal: closeTerminalTab,
             onCloseBrowser: closeBrowserTab,
-            onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { isAgentPanelOpen = false } }
+            onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
         )
     }
 
@@ -460,25 +475,25 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func openPanelTab(_ id: String) {
-        selectedPanelTabID = id
+        panel.selectedTabID = id
         isCompactSummaryPanelPresented = false
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            isAgentPanelOpen = true
+            panel.isAgentPanelOpen = true
         }
     }
 
     private func toggleAgentPanel() {
-        if selectedPanelTabID == nil {
-            selectedPanelTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? panelTabs.first?.id
+        if panel.selectedTabID == nil {
+            panel.selectedTabID = panel.terminalSessions.first?.id ?? panel.browserSessions.first?.id ?? panelTabs.first?.id
         }
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            isAgentPanelOpen.toggle()
+            panel.isAgentPanelOpen.toggle()
         }
     }
 
     private func toggleSummaryPanel(panelState: CodexWorkspaceResponsivePanelState) {
         withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            if panelState.supportsDockedOverview(isSidePanelOpen: isAgentPanelOpen) {
+            if panelState.supportsDockedOverview(isSidePanelOpen: panel.isAgentPanelOpen) {
                 isCompactSummaryPanelPresented = false
                 isSummaryPanelOpen.toggle()
             } else {
@@ -488,42 +503,25 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func openTerminalTab() {
-        let terminalNumber = nextTerminalNumber
-        nextTerminalNumber += 1
-        let title = terminalNumber == 1 ? "Terminal" : "Terminal \(terminalNumber)"
-        let session = CodexTerminalSession(title: title, workingDirectory: workspacePath)
-        terminalSessions.append(session)
-        selectedPanelTabID = session.id
+        panel.openTerminal(workspacePath: workspacePath)
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            isAgentPanelOpen = true
+            panel.isAgentPanelOpen = true
         }
     }
 
     private func closeTerminalTab(_ id: String) {
-        terminalSessions.removeAll { $0.id == id }
-        if selectedPanelTabID == id {
-            selectedPanelTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? panelTabs.first?.id
-        }
+        panel.closeTerminal(id: id, fallbackTabIDs: panelTabs.map(\.id))
     }
 
     private func openBrowserTab() {
-        let browserNumber = nextBrowserNumber
-        nextBrowserNumber += 1
-        let title = browserNumber == 1 ? "Browser" : "Browser \(browserNumber)"
-        let session = CodexBrowserSession(title: title)
-        browserSessions.append(session)
-        selectedPanelTabID = session.id
+        panel.openBrowser()
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            isAgentPanelOpen = true
+            panel.isAgentPanelOpen = true
         }
     }
 
     private func closeBrowserTab(_ id: String) {
-        browserSessions.first { $0.id == id }?.close()
-        browserSessions.removeAll { $0.id == id }
-        if selectedPanelTabID == id {
-            selectedPanelTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? panelTabs.first?.id
-        }
+        panel.closeBrowser(id: id, fallbackTabIDs: panelTabs.map(\.id))
     }
 }
 

@@ -186,6 +186,8 @@ public struct CodexAgentSidePanel: View {
     private let width: Binding<CGFloat>?
     private let terminalSessions: [CodexTerminalSession]
     private let browserSessions: [CodexBrowserSession]
+    private let mountedTerminalSessions: [CodexTerminalSession]
+    private let mountedBrowserSessions: [CodexBrowserSession]
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
@@ -203,6 +205,8 @@ public struct CodexAgentSidePanel: View {
         selectedTabID: Binding<String?>,
         terminalSessions: [CodexTerminalSession] = [],
         browserSessions: [CodexBrowserSession] = [],
+        mountedTerminalSessions: [CodexTerminalSession] = [],
+        mountedBrowserSessions: [CodexBrowserSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
@@ -220,6 +224,8 @@ public struct CodexAgentSidePanel: View {
         self.width = nil
         self.terminalSessions = terminalSessions
         self.browserSessions = browserSessions
+        self.mountedTerminalSessions = mountedTerminalSessions
+        self.mountedBrowserSessions = mountedBrowserSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
@@ -237,6 +243,8 @@ public struct CodexAgentSidePanel: View {
         width: Binding<CGFloat>,
         terminalSessions: [CodexTerminalSession] = [],
         browserSessions: [CodexBrowserSession] = [],
+        mountedTerminalSessions: [CodexTerminalSession] = [],
+        mountedBrowserSessions: [CodexBrowserSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
@@ -254,6 +262,8 @@ public struct CodexAgentSidePanel: View {
         self.width = width
         self.terminalSessions = terminalSessions
         self.browserSessions = browserSessions
+        self.mountedTerminalSessions = mountedTerminalSessions
+        self.mountedBrowserSessions = mountedBrowserSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
@@ -283,16 +293,27 @@ public struct CodexAgentSidePanel: View {
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
     }
 
+    // The deck keeps every recent chat's tool surfaces mounted at once; only the
+    // session matching the active selection is shown. Falls back to the active
+    // chat's own sessions when no mounted union is supplied.
+    private var deckTerminalSessions: [CodexTerminalSession] {
+        mountedTerminalSessions.isEmpty ? terminalSessions : mountedTerminalSessions
+    }
+
+    private var deckBrowserSessions: [CodexBrowserSession] {
+        mountedBrowserSessions.isEmpty ? browserSessions : mountedBrowserSessions
+    }
+
     @ViewBuilder
     private var panelContent: some View {
         ZStack {
-            ForEach(terminalSessions) { session in
-                CodexTerminalToolView(session: session)
+            ForEach(deckTerminalSessions) { session in
+                CodexTerminalToolView(session: session, isActive: session.id == selectedTabID)
                     .toolPanelVisibility(isSelected: session.id == selectedTabID)
                     .id(session.id)
             }
 
-            ForEach(browserSessions) { session in
+            ForEach(deckBrowserSessions) { session in
                 CodexBrowserToolView(session: session)
                     .toolPanelVisibility(isSelected: session.id == selectedTabID)
                     .id(session.id)

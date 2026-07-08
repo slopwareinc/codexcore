@@ -24,6 +24,17 @@ extension CodexCoreAppModel {
         runtimeSession.messages.filter { structuredPanelDismissalState.isVisible(messageID: $0.id) }
     }
 
+    /// The durable tool-panel state (terminals, browsers, sidebar open/selection)
+    /// for the current chat. Sessions persist across chat switches via the store.
+    var workspacePanelState: CodexWorkspacePanelState {
+        workspacePanel.state(for: currentThreadID)
+    }
+
+    /// Recent chats whose tool surfaces stay mounted for instant switching.
+    var mountedWorkspacePanels: [CodexWorkspacePanelState] {
+        workspacePanel.mountedToolStates
+    }
+
     var lifecycleEvents: [CodexAgentLifecycleEvent] {
         runtimeSession.lifecycleEvents
     }
