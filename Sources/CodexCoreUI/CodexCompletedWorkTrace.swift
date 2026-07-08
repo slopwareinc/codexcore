@@ -38,7 +38,6 @@ public struct CodexCompletedWorkTrace: Equatable, Sendable {
         public var status: String
         public var isFailure: Bool
         public var isCollapsedByDefault: Bool
-        public var isDetailCollapsedByDefault: Bool
         public var message: CodexChatMessage
 
         public init(
@@ -48,7 +47,6 @@ public struct CodexCompletedWorkTrace: Equatable, Sendable {
             status: String,
             isFailure: Bool,
             isCollapsedByDefault: Bool = true,
-            isDetailCollapsedByDefault: Bool = true,
             message: CodexChatMessage
         ) {
             self.id = id
@@ -57,7 +55,6 @@ public struct CodexCompletedWorkTrace: Equatable, Sendable {
             self.status = status
             self.isFailure = isFailure
             self.isCollapsedByDefault = isCollapsedByDefault
-            self.isDetailCollapsedByDefault = isDetailCollapsedByDefault
             self.message = message
         }
     }
