@@ -83,10 +83,15 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         ScrollView {
             if timelineItems.isEmpty {
                 emptyContent
-                    .frame(maxWidth: .infinity, minHeight: 420)
                     .padding(.horizontal, 28)
                     .padding(.top, topContentMargin)
                     .padding(.bottom, bottomContentMargin)
+                    // Cap to the transcript column and center it. Content that
+                    // fills the width (loading skeleton) stays left-aligned like
+                    // messages; intrinsically-narrow content (the prompt hero)
+                    // centers within the column.
+                    .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth)
+                    .frame(maxWidth: .infinity, minHeight: 420)
                     .offset(x: contentHorizontalOffset)
             } else {
                 LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
