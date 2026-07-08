@@ -269,7 +269,7 @@ public struct CodexAgentSidePanel: View {
         VStack(spacing: 0) {
             tabBar
             Divider().overlay(theme.colors.border)
-            resizablePanelContent
+            panelContent
         }
         .frame(width: panelWidth)
         .frame(maxHeight: .infinity)
@@ -281,14 +281,6 @@ public struct CodexAgentSidePanel: View {
         .animation(nil, value: panelWidth)
         .onAppear(perform: ensureSelection)
         .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
-    }
-
-    private var resizablePanelContent: some View {
-        panelContent
-            .frame(width: contentLayoutWidth)
-            .clipped()
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-            .clipped()
     }
 
     @ViewBuilder
@@ -327,10 +319,6 @@ public struct CodexAgentSidePanel: View {
         liveResizeWidth ?? clamped(width?.wrappedValue ?? theme.spacing.sidePanelWidth)
     }
 
-    private var contentLayoutWidth: CGFloat {
-        clamped(width?.wrappedValue ?? theme.spacing.sidePanelWidth)
-    }
-
     private var minPanelWidth: CGFloat { 300 }
     private var maxPanelWidth: CGFloat { 680 }
 
@@ -355,7 +343,7 @@ public struct CodexAgentSidePanel: View {
     }
 
     private var resizeGesture: some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
                 guard width != nil else { return }
                 let start = resizeStartWidth ?? panelWidth
