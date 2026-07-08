@@ -37,7 +37,14 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var timelineItems: [CodexTranscriptTimelineItem] = []
     @State private var messageLookup: [UUID: CodexChatMessage] = [:]
-    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    // The live scroll offset is owned by CodexTranscriptScrollContainer, not
+    // here. `.scrollPosition(_:)` is a two-way binding that SwiftUI writes back
+    // on every scroll frame; keeping it out of the view that builds the row
+    // list stops the whole transcript body from re-evaluating mid-scroll (which
+    // is what starved the NSScroller repaint and made the thumb lag/skip).
+    // We only ever *command* scrolls, via a discrete token'd command.
+    @State private var scrollCommand: CodexTranscriptScrollCommand?
+    @State private var scrollCommandToken = 0
     @State private var scrollMemory = CodexTranscriptScrollMemory()
     @State private var isPinnedToBottom = true
     @State private var windowState = CodexTranscriptWindowState()
@@ -80,58 +87,11 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     public var body: some View {
-        ScrollView {
-            if timelineItems.isEmpty {
-                emptyContent
-                    .padding(.horizontal, 28)
-                    .padding(.top, topContentMargin)
-                    .padding(.bottom, bottomContentMargin)
-                    // Cap to the transcript column and center it. Content that
-                    // fills the width (loading skeleton) stays left-aligned like
-                    // messages; intrinsically-narrow content (the prompt hero)
-                    // centers within the column.
-                    .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth)
-                    .frame(maxWidth: .infinity, minHeight: 420)
-                    .offset(x: contentHorizontalOffset)
-            } else {
-                LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
-                    ForEach(visibleTimelineItems) { item in
-                        CodexTranscriptTimelineRow(
-                            item: item,
-                            message: item.messageID.flatMap { messageLookup[$0] },
-                            onCloseMessage: onCloseMessage,
-                            onOpenMCPDetails: onOpenMCPDetails,
-                            onEditUserMessage: onEditUserMessage,
-                            toolCallRenderer: toolCallRenderer
-                        )
-                        .equatable()
-                    }
-                    if let activeTurn {
-                        CodexActiveTurnRow(state: activeTurn)
-                            .equatable()
-                            .id("active-turn")
-                    }
-                }
-                .padding(.horizontal, 28)
-                .padding(.top, 24 + topContentMargin)
-                .padding(.bottom, 28 + bottomContentMargin)
-                .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .offset(x: contentHorizontalOffset)
-            }
-        }
-        .scrollPosition($scrollPosition)
-        .defaultScrollAnchor(.bottom)
-        .defaultScrollAnchor(.bottom, for: .sizeChanges)
-        .scrollContentBackground(.hidden)
-        .onScrollGeometryChange(for: CodexTranscriptScrollSnapshot.self) { geometry in
-            CodexTranscriptScrollSnapshot(
-                contentOffsetY: geometry.contentOffset.y,
-                contentHeight: geometry.contentSize.height,
-                containerHeight: geometry.containerSize.height
-            )
-        } action: { _, snapshot in
-            updateScrollSnapshot(snapshot)
+        CodexTranscriptScrollContainer(
+            command: scrollCommand,
+            onSnapshot: { snapshot in updateScrollSnapshot(snapshot) }
+        ) {
+            scrollContent
         }
         .overlay(alignment: .bottomTrailing) {
             jumpToBottomButton
@@ -141,6 +101,48 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
         }
         .task(id: transcriptInput) {
             refreshTimeline(for: transcriptInput)
+        }
+    }
+
+    @ViewBuilder
+    private var scrollContent: some View {
+        if timelineItems.isEmpty {
+            emptyContent
+                .padding(.horizontal, 28)
+                .padding(.top, topContentMargin)
+                .padding(.bottom, bottomContentMargin)
+                // Cap to the transcript column and center it. Content that
+                // fills the width (loading skeleton) stays left-aligned like
+                // messages; intrinsically-narrow content (the prompt hero)
+                // centers within the column.
+                .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth)
+                .frame(maxWidth: .infinity, minHeight: 420)
+                .offset(x: contentHorizontalOffset)
+        } else {
+            LazyVStack(alignment: .leading, spacing: theme.spacing.rowGap) {
+                ForEach(visibleTimelineItems) { item in
+                    CodexTranscriptTimelineRow(
+                        item: item,
+                        message: item.messageID.flatMap { messageLookup[$0] },
+                        onCloseMessage: onCloseMessage,
+                        onOpenMCPDetails: onOpenMCPDetails,
+                        onEditUserMessage: onEditUserMessage,
+                        toolCallRenderer: toolCallRenderer
+                    )
+                    .equatable()
+                }
+                if let activeTurn {
+                    CodexActiveTurnRow(state: activeTurn)
+                        .equatable()
+                        .id("active-turn")
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 24 + topContentMargin)
+            .padding(.bottom, 28 + bottomContentMargin)
+            .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .offset(x: contentHorizontalOffset)
         }
     }
 
@@ -213,23 +215,26 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
 
     private func restoreScrollPosition(forKey key: String) {
         guard let snapshot = scrollMemory.snapshots[key] else {
-            scrollPosition = ScrollPosition(edge: .bottom)
+            issueScrollCommand(.bottom)
             isPinnedToBottom = true
             return
         }
 
         isPinnedToBottom = snapshot.isPinnedToBottom
         if snapshot.isPinnedToBottom {
-            scrollPosition = ScrollPosition(edge: .bottom)
+            issueScrollCommand(.bottom)
         } else {
-            var restoredPosition = ScrollPosition(edge: .top)
-            restoredPosition.scrollTo(point: CGPoint(x: 0, y: snapshot.restoredContentOffsetY))
-            scrollPosition = restoredPosition
+            issueScrollCommand(.offset(snapshot.restoredContentOffsetY))
         }
     }
 
     private func scrollToBottom() {
-        scrollPosition.scrollTo(edge: .bottom)
+        issueScrollCommand(.bottom)
+    }
+
+    private func issueScrollCommand(_ target: CodexTranscriptScrollCommand.Target) {
+        scrollCommandToken += 1
+        scrollCommand = CodexTranscriptScrollCommand(token: scrollCommandToken, target: target)
     }
 
     private func scrollStateKey(for transcriptID: String?) -> String {
@@ -237,6 +242,66 @@ public struct CodexTranscriptView<EmptyContent: View>: View {
     }
 
     private static var bottomPinTolerance: CGFloat { 80 }
+}
+
+struct CodexTranscriptScrollCommand: Equatable, Sendable {
+    enum Target: Equatable, Sendable {
+        case bottom
+        case offset(CGFloat)
+    }
+
+    /// Monotonic token so repeated identical targets (e.g. two "scroll to
+    /// bottom" taps) still register as a distinct command via `.onChange`.
+    let token: Int
+    let target: Target
+}
+
+/// Owns the live scroll offset in isolation. `.scrollPosition(_:)` writes the
+/// current offset back into its binding every frame while the user drags; by
+/// hosting that `@State` here — away from the view that builds the row list —
+/// only this lightweight container re-evaluates per frame, so the main thread
+/// stays free for the NSScroller repaint. The parent drives scrolls through the
+/// discrete `command` value instead of a two-way position binding.
+private struct CodexTranscriptScrollContainer<Content: View>: View {
+    let command: CodexTranscriptScrollCommand?
+    let onSnapshot: (CodexTranscriptScrollSnapshot) -> Void
+    @ViewBuilder let content: Content
+
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+
+    var body: some View {
+        ScrollView {
+            content
+        }
+        .scrollPosition($scrollPosition)
+        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        .scrollContentBackground(.hidden)
+        .onScrollGeometryChange(for: CodexTranscriptScrollSnapshot.self) { geometry in
+            CodexTranscriptScrollSnapshot(
+                contentOffsetY: geometry.contentOffset.y,
+                contentHeight: geometry.contentSize.height,
+                containerHeight: geometry.containerSize.height
+            )
+        } action: { _, snapshot in
+            onSnapshot(snapshot)
+        }
+        .onChange(of: command) { _, newCommand in
+            guard let newCommand else { return }
+            apply(newCommand)
+        }
+    }
+
+    private func apply(_ command: CodexTranscriptScrollCommand) {
+        switch command.target {
+        case .bottom:
+            scrollPosition.scrollTo(edge: .bottom)
+        case .offset(let y):
+            var restored = ScrollPosition(edge: .top)
+            restored.scrollTo(point: CGPoint(x: 0, y: y))
+            scrollPosition = restored
+        }
+    }
 }
 
 private final class CodexTranscriptScrollMemory {
