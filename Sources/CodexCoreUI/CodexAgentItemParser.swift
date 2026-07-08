@@ -31,10 +31,12 @@ struct CodexCollabAgentPayload {
         for raw in stateStatuses {
             if let mapped = CodexAgentItemParser.customSubagentStatusMapping[raw], mapped == .failed { return .failed }
         }
-        if stateStatuses.contains(where: { $0 == "failed" || $0 == "error" || $0 == "cancelled" || $0 == "canceled" }) {
-            return .failed
-        }
-        if completed, tool == "wait", stateStatuses.contains(where: { $0 == "completed" }) {
+        // Prefer the canonical synonym table so cancelled/canceled map to .closed
+        // (deliberately stopped), matching CodexAgentItemParser.subagentStatus.
+        let normalizedStatuses = stateStatuses.compactMap(CodexSubagentState.Status.normalized)
+        if normalizedStatuses.contains(.failed) { return .failed }
+        if normalizedStatuses.contains(.closed) { return .closed }
+        if completed, tool == "wait", normalizedStatuses.contains(.completed) {
             return .completed
         }
         if completed, tool == "spawnAgent" {
@@ -144,12 +146,8 @@ enum CodexAgentItemParser {
     static func subagentStatus(from item: ThreadItem) -> CodexSubagentState.Status {
         let rawStatus = firstString(in: item.raw, keys: ["status", "state", "phase"])?.lowercased() ?? item.phase?.lowercased()
         if let raw = rawStatus, let mapped = customSubagentStatusMapping[raw] { return mapped }
-        switch rawStatus {
-        case "running", "active", "inprogress", "in_progress": return .running
-        case "failed", "error", "cancelled", "canceled": return .failed
-        case "closed", "archived": return .closed
-        default: return .completed
-        }
+        // No recognized status but the item exists -> treat as completed.
+        return CodexSubagentState.Status.normalized(rawStatus) ?? .completed
     }
 
     static func lifecycleDetail(for item: ThreadItem, fallback: String) -> String {

@@ -283,22 +283,7 @@ private func commandText(_ value: CodexJSONValue?) -> String? {
 }
 
 private func string(_ value: CodexJSONValue?) -> String? {
-    switch value {
-    case .string(let string):
-        return nilIfEmpty(string)
-    case .int(let int):
-        return String(int)
-    case .double(let double):
-        return String(double)
-    case .bool(let bool):
-        return String(bool)
-    case .array(let values):
-        return values.compactMap(string).joined(separator: " ").nilIfEmpty
-    case .dictionary(let object):
-        return string(object["type"]) ?? string(object["text"]) ?? string(object["value"])
-    case .null, nil:
-        return nil
-    }
+    CodexJSONCoercion.string(from: value, dictionaryKeys: CodexJSONCoercion.defaultStringKeys, trimScalars: true)
 }
 
 private func strings(_ value: CodexJSONValue?) -> [String] {
@@ -312,23 +297,10 @@ private func strings(_ value: CodexJSONValue?) -> [String] {
     }
 }
 
+/// A deliberately minimal coercion: unwraps literal text without falling back
+/// to discriminator keys (`type`/`raw`). Kept distinct from `string(_:)`.
 private func verbatimString(_ value: CodexJSONValue?) -> String? {
-    switch value {
-    case .string(let string):
-        return string.isEmpty ? nil : string
-    case .int(let int):
-        return String(int)
-    case .double(let double):
-        return String(double)
-    case .bool(let bool):
-        return String(bool)
-    case .array(let values):
-        return values.compactMap(verbatimString).joined(separator: " ").nilIfEmpty
-    case .dictionary(let object):
-        return verbatimString(object["text"]) ?? verbatimString(object["value"])
-    case .null, nil:
-        return nil
-    }
+    CodexJSONCoercion.string(from: value, dictionaryKeys: ["text", "value"], trimScalars: true)
 }
 
 private func verbatimStrings(_ value: CodexJSONValue?) -> [String] {
@@ -356,15 +328,9 @@ private func int(_ value: CodexJSONValue?) -> Int? {
 }
 
 private func isActiveStatus(_ status: String) -> Bool {
-    status == "active" || status == "inProgress" || status == "running"
+    CodexStatusHeuristics.isActiveStreaming(status)
 }
 
 private func nilIfEmpty(_ string: String?) -> String? {
     string?.isEmpty == false ? string : nil
-}
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
 }
