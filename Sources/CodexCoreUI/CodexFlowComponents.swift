@@ -1,16 +1,19 @@
 import SwiftUI
-import CodexCoreUI
 
-struct CodexGlassPanel<Content: View>: View {
+// Generic, theme-driven building blocks for onboarding / auth flows. Host-app
+// agnostic (they read only the injected CodexAgentTheme), so they live in
+// CodexCoreUI alongside CodexBrandMark for any host to reuse.
+
+public struct CodexGlassPanel<Content: View>: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    public init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         content
             .padding(34)
             .frame(maxWidth: 540)
@@ -19,16 +22,16 @@ struct CodexGlassPanel<Content: View>: View {
     }
 }
 
-struct CodexErrorBanner: View {
+public struct CodexErrorBanner: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let message: String
 
-    init(message: String) {
+    public init(message: String) {
         self.message = message
     }
 
-    var body: some View {
+    public var body: some View {
         Label {
             Text(message)
                 .font(.system(size: 12))
@@ -43,20 +46,20 @@ struct CodexErrorBanner: View {
     }
 }
 
-struct CodexDeviceCodeCard: View {
+public struct CodexDeviceCodeCard: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let code: String
     private let urlString: String?
     private let openURL: OpenURLAction
 
-    init(code: String, urlString: String?, openURL: OpenURLAction) {
+    public init(code: String, urlString: String?, openURL: OpenURLAction) {
         self.code = code
         self.urlString = urlString
         self.openURL = openURL
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 10) {
             Text("Enter this code in your browser")
                 .font(.system(size: 11.5, weight: .semibold))
