@@ -143,11 +143,8 @@ public struct CodexThreadHistorySnapshot: Sendable {
         return Date(timeIntervalSince1970: seconds)
     }
 
-    nonisolated(unsafe) public static var customFinishedTurnStatusChecker: ((String) -> Bool)?
-
     private static func isFinishedTurnStatus(_ status: String?) -> Bool {
         guard let status = status?.lowercased() else { return false }
-        if let custom = customFinishedTurnStatusChecker?(status) { return custom }
         switch status {
         case "completed", "failed", "interrupted", "cancelled", "canceled":
             return true
