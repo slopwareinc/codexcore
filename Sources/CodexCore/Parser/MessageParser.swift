@@ -17,10 +17,5 @@ public final class MessageParser: Sendable {
         CodeReviewPayloadParser.parse(text: text)
     }
 
-    // MARK: - Tool Calls Parsing
-
-    public func parseToolCalls(text: String) -> [ToolCallCardModel] {
-        ToolCallMarkdownParser().parse(text: text)
-    }
-
+    // Tool-call card parsing moved to CodexCoreUI (CodexToolCallCardParser).
 }

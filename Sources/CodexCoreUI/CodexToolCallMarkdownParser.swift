@@ -1,3 +1,4 @@
+import CodexCore
 import Foundation
 
 final class ToolCallMarkdownParser {

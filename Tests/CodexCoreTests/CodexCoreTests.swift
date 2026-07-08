@@ -560,25 +560,4 @@ final class CodexCoreTests: XCTestCase {
         XCTAssertEqual(fencedPayload?.findings.first?.title, "Fall back to turn/start when queue sync fails")
     }
 
-    func testParseToolCallsMarkdown() throws {
-        let md = """
-        ### Command Execution
-        status: completed
-        duration: 2.3s
-        cwd: /tmp/project
-        command: ```bash
-        swift build
-        ```
-        """
-
-        let cards = MessageContentBridge.parseToolCalls(text: md)
-        XCTAssertEqual(cards.count, 1)
-
-        let card = cards[0]
-        XCTAssertEqual(card.kind, .commandExecution)
-        XCTAssertEqual(card.status, .completed)
-        XCTAssertEqual(card.duration, "2.3s")
-        XCTAssertEqual(card.commandContext?.command, "swift build")
-        XCTAssertEqual(card.commandContext?.directory, "/tmp/project")
-    }
 }
