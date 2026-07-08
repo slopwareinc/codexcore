@@ -13,8 +13,13 @@ public final class CodexBrowserSession: ObservableObject, Identifiable {
     @Published public var isLoading: Bool
     @Published public var canGoBack: Bool
     @Published public var canGoForward: Bool
-    @Published fileprivate var navigationCommand: CodexBrowserNavigationCommand?
-    @Published fileprivate var closeToken: UUID?
+
+    /// The live web view is owned by the session, not by the SwiftUI representable,
+    /// so it survives the panel being hidden or the chat being switched away. Only
+    /// `close()` (explicit tab close or store eviction) tears it down.
+    public let webView: WKWebView
+    private var surface: CodexBrowserSurface!
+    private var isClosed = false
 
     public init(
         id: String = "browser:\(UUID().uuidString)",
@@ -28,6 +33,15 @@ public final class CodexBrowserSession: ObservableObject, Identifiable {
         self.isLoading = false
         self.canGoBack = false
         self.canGoForward = false
+
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.allowsBackForwardNavigationGestures = true
+        webView.underPageBackgroundColor = .clear
+        self.webView = webView
+        self.surface = CodexBrowserSurface(session: self)
+        surface.attach(to: webView)
     }
 
     public var title: String {
@@ -39,24 +53,35 @@ public final class CodexBrowserSession: ObservableObject, Identifiable {
         let url = CodexBrowserNavigationResolver.url(for: addressText)
         addressText = url.absoluteString
         currentURL = url
-        navigationCommand = CodexBrowserNavigationCommand(action: .load(url))
+        guard !isClosed else { return }
+        webView.load(URLRequest(url: url))
     }
 
     public func goBack() {
-        navigationCommand = CodexBrowserNavigationCommand(action: .goBack)
+        guard !isClosed, webView.canGoBack else { return }
+        webView.goBack()
     }
 
     public func goForward() {
-        navigationCommand = CodexBrowserNavigationCommand(action: .goForward)
+        guard !isClosed, webView.canGoForward else { return }
+        webView.goForward()
     }
 
     public func reloadOrStop() {
-        navigationCommand = CodexBrowserNavigationCommand(action: isLoading ? .stopLoading : .reload)
+        guard !isClosed else { return }
+        if isLoading {
+            webView.stopLoading()
+        } else {
+            webView.reload()
+        }
     }
 
     public func close() {
-        navigationCommand = CodexBrowserNavigationCommand(action: .close)
-        closeToken = UUID()
+        guard !isClosed else { return }
+        isClosed = true
+        surface.detach(from: webView)
+        webView.stopLoading()
+        webView.loadHTMLString("", baseURL: nil)
         isLoading = false
         canGoBack = false
         canGoForward = false
@@ -129,20 +154,6 @@ public enum CodexBrowserNavigationResolver {
         host == "localhost"
             || host.contains(".")
             || host.allSatisfy { $0.isNumber || $0 == "." }
-    }
-}
-
-private struct CodexBrowserNavigationCommand: Equatable {
-    var id = UUID()
-    var action: Action
-
-    enum Action: Equatable {
-        case load(URL)
-        case goBack
-        case goForward
-        case reload
-        case stopLoading
-        case close
     }
 }
 
@@ -239,143 +250,93 @@ public struct CodexBrowserToolView: View {
 }
 
 private struct CodexBrowserWebView: NSViewRepresentable {
-    @ObservedObject var session: CodexBrowserSession
+    let session: CodexBrowserSession
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(session: session)
-    }
-
+    // Host the session-owned web view. It is intentionally not created or torn
+    // down here so it survives the representable being dismantled (panel hidden,
+    // chat switched). Lifetime is owned by CodexBrowserSession.
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.allowsBackForwardNavigationGestures = true
-        webView.underPageBackgroundColor = .clear
-        context.coordinator.attach(to: webView)
-        return webView
+        session.webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.performPendingCommand(on: webView)
+    func updateNSView(_ webView: WKWebView, context: Context) {}
+}
+
+@MainActor
+final class CodexBrowserSurface: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private weak var session: CodexBrowserSession?
+    private var observations: [NSKeyValueObservation] = []
+
+    init(session: CodexBrowserSession) {
+        self.session = session
     }
 
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        coordinator.close(webView)
+    func attach(to webView: WKWebView) {
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        observations = [
+            webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] webView, _ in
+                Task { @MainActor in self?.session?.canGoBack = webView.canGoBack }
+            },
+            webView.observe(\.canGoForward, options: [.initial, .new]) { [weak self] webView, _ in
+                Task { @MainActor in self?.session?.canGoForward = webView.canGoForward }
+            },
+            webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] webView, _ in
+                Task { @MainActor in self?.session?.isLoading = webView.isLoading }
+            },
+            webView.observe(\.title, options: [.initial, .new]) { [weak self] webView, _ in
+                Task { @MainActor in self?.session?.pageTitle = webView.title ?? "" }
+            },
+            webView.observe(\.url, options: [.initial, .new]) { [weak self] webView, _ in
+                Task { @MainActor in self?.updateURL(webView.url) }
+            },
+        ]
     }
 
-    @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        private let session: CodexBrowserSession
-        private var observations: [NSKeyValueObservation] = []
-        private var handledCommandID: UUID?
-        private var handledCloseToken: UUID?
+    func detach(from webView: WKWebView) {
+        observations.forEach { $0.invalidate() }
+        observations.removeAll()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+    }
 
-        init(session: CodexBrowserSession) {
-            self.session = session
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        updateURL(webView.url)
+        session?.isLoading = webView.isLoading
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        updateURL(webView.url)
+        session?.pageTitle = webView.title ?? ""
+        session?.isLoading = webView.isLoading
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        updateURL(webView.url)
+        session?.isLoading = webView.isLoading
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        updateURL(webView.url)
+        session?.isLoading = webView.isLoading
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if navigationAction.targetFrame == nil {
+            webView.load(navigationAction.request)
         }
+        return nil
+    }
 
-        func attach(to webView: WKWebView) {
-            webView.navigationDelegate = self
-            webView.uiDelegate = self
-            observations = [
-                webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] webView, _ in
-                    Task { @MainActor in self?.session.canGoBack = webView.canGoBack }
-                },
-                webView.observe(\.canGoForward, options: [.initial, .new]) { [weak self] webView, _ in
-                    Task { @MainActor in self?.session.canGoForward = webView.canGoForward }
-                },
-                webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] webView, _ in
-                    Task { @MainActor in self?.session.isLoading = webView.isLoading }
-                },
-                webView.observe(\.title, options: [.initial, .new]) { [weak self] webView, _ in
-                    Task { @MainActor in self?.session.pageTitle = webView.title ?? "" }
-                },
-                webView.observe(\.url, options: [.initial, .new]) { [weak self] webView, _ in
-                    Task { @MainActor in self?.updateURL(webView.url) }
-                },
-            ]
-        }
-
-        func performPendingCommand(on webView: WKWebView) {
-            guard let command = session.navigationCommand,
-                  command.id != handledCommandID else {
-                return
-            }
-
-            handledCommandID = command.id
-            switch command.action {
-            case .load(let url):
-                webView.load(URLRequest(url: url))
-            case .goBack:
-                if webView.canGoBack { webView.goBack() }
-            case .goForward:
-                if webView.canGoForward { webView.goForward() }
-            case .reload:
-                webView.reload()
-            case .stopLoading:
-                webView.stopLoading()
-            case .close:
-                close(webView)
-            }
-
-            if let closeToken = session.closeToken,
-               closeToken != handledCloseToken {
-                handledCloseToken = closeToken
-                close(webView)
-            }
-        }
-
-        func close(_ webView: WKWebView) {
-            observations.forEach { $0.invalidate() }
-            observations.removeAll()
-            webView.stopLoading()
-            webView.navigationDelegate = nil
-            webView.uiDelegate = nil
-            webView.loadHTMLString("", baseURL: nil)
-            session.isLoading = false
-            session.canGoBack = false
-            session.canGoForward = false
-        }
-
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            updateURL(webView.url)
-            session.isLoading = webView.isLoading
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            updateURL(webView.url)
-            session.pageTitle = webView.title ?? ""
-            session.isLoading = webView.isLoading
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            updateURL(webView.url)
-            session.isLoading = webView.isLoading
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            updateURL(webView.url)
-            session.isLoading = webView.isLoading
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            createWebViewWith configuration: WKWebViewConfiguration,
-            for navigationAction: WKNavigationAction,
-            windowFeatures: WKWindowFeatures
-        ) -> WKWebView? {
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
-            }
-            return nil
-        }
-
-        private func updateURL(_ url: URL?) {
-            session.currentURL = url
-            if let url {
-                session.addressText = url.absoluteString
-            }
+    private func updateURL(_ url: URL?) {
+        session?.currentURL = url
+        if let url {
+            session?.addressText = url.absoluteString
         }
     }
 }

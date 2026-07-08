@@ -22,6 +22,60 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testPanelStateOpensNumberedToolsAndSelectsLatest() {
+        let panel = CodexWorkspacePanelState()
+
+        let firstTerminal = panel.openTerminal(workspacePath: "/tmp")
+        let firstBrowser = panel.openBrowser()
+
+        XCTAssertEqual(panel.terminalSessions.count, 1)
+        XCTAssertEqual(panel.browserSessions.count, 1)
+        XCTAssertEqual(panel.terminalSessions.first?.title, "Terminal")
+        XCTAssertEqual(panel.browserSessions.first?.title, "Browser")
+        // The most-recently opened tool becomes selected.
+        XCTAssertEqual(panel.selectedTabID, firstBrowser)
+
+        let secondTerminal = panel.openTerminal(workspacePath: "/tmp")
+        XCTAssertEqual(panel.terminalSessions.last?.title, "Terminal 2")
+        XCTAssertEqual(panel.selectedTabID, secondTerminal)
+        XCTAssertNotEqual(firstTerminal, secondTerminal)
+        XCTAssertTrue(panel.hasOpenTools)
+    }
+
+    @MainActor
+    func testPanelStateCloseFallsBackToRemainingTabThenProvidedTabs() {
+        let panel = CodexWorkspacePanelState()
+        let terminal = panel.openTerminal(workspacePath: "/tmp")
+        let browser = panel.openBrowser()
+
+        // Closing the selected browser falls back to the surviving terminal.
+        panel.closeBrowser(id: browser, fallbackTabIDs: ["review-tab"])
+        XCTAssertTrue(panel.browserSessions.isEmpty)
+        XCTAssertEqual(panel.selectedTabID, terminal)
+
+        // Closing the last tool falls back to a provided panel tab id.
+        panel.closeTerminal(id: terminal, fallbackTabIDs: ["review-tab"])
+        XCTAssertTrue(panel.terminalSessions.isEmpty)
+        XCTAssertEqual(panel.selectedTabID, "review-tab")
+        XCTAssertFalse(panel.hasOpenTools)
+    }
+
+    @MainActor
+    func testPanelStatePurgeClearsSessionsAndClosesPanel() {
+        let panel = CodexWorkspacePanelState()
+        panel.openTerminal(workspacePath: "/tmp")
+        panel.openBrowser()
+        panel.isAgentPanelOpen = true
+
+        panel.purge()
+
+        XCTAssertTrue(panel.terminalSessions.isEmpty)
+        XCTAssertTrue(panel.browserSessions.isEmpty)
+        XCTAssertNil(panel.selectedTabID)
+        XCTAssertFalse(panel.isAgentPanelOpen)
+    }
+
+    @MainActor
     func testTerminalSessionUsesGhosttyExecBackendAndWorkspaceDirectory() {
         let workspace = FileManager.default.temporaryDirectory.path
         let session = CodexTerminalSession(workingDirectory: workspace, fontSize: 12)

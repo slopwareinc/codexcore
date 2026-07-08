@@ -64,6 +64,7 @@ final class CodexCoreAppModel {
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
+    let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     private var chatSelectionGeneration = 0
     var isThreadLoading = false
     var pluginLauncherTarget: CodexComposerPluginLauncher?
@@ -178,6 +179,7 @@ final class CodexCoreAppModel {
         loginTask = nil
         threadSession.reset()
         threadHistoryCache.removeAll()
+        workspacePanel.removeAll()
         accountRateLimitsSnapshot = nil
         gitBranch = nil
         let codex = self.codex
@@ -1017,6 +1019,7 @@ final class CodexCoreAppModel {
         )
         syncComposerThreadID()
         if result.didStart {
+            workspacePanel.migrateUnassigned(to: result.thread.id)
             await refreshGoal(for: result.thread)
             appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
         }
@@ -1593,6 +1596,7 @@ final class CodexCoreAppModel {
     }
 
     private func removeChatFromSidebar(_ threadID: String) {
+        workspacePanel.purge(threadID: threadID)
         var session = threadListSession
         session.removeThread(id: threadID, currentWorkspacePath: workspacePath)
         threadListSession = session
