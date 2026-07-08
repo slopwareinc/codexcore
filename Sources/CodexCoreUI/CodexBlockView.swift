@@ -195,6 +195,7 @@ struct CodexBlockView: View, Equatable {
             },
             theme: theme
         ))
+        .font(.system(size: size, weight: .semibold))
         .foregroundStyle(theme.colors.textPrimary)
     }
 
@@ -214,6 +215,7 @@ struct CodexBlockView: View, Equatable {
                         baseNSFont: theme.fonts.chatNSFont,
                         theme: theme
                     ))
+                    .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
                 }
                 .padding(.leading, CGFloat(item.depth) * 16)
@@ -238,6 +240,10 @@ struct CodexProseBlock: View, Equatable {
             baseNSFont: theme.fonts.chatNSFont,
             theme: theme
         ))
+        // Base size for the markdown. Without a chatNSFont, styledAttributedString
+        // returns the parsed runs unstyled, so this modifier is what keeps prose
+        // at the chat size (matching the user bubble) instead of default .body.
+        .font(theme.fonts.chat)
         .foregroundStyle(theme.colors.textPrimary)
         .lineSpacing(theme.spacing.chatLineSpacing)
     }
