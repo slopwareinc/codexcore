@@ -160,7 +160,12 @@ struct CodexCoreAppShell: View {
                 .codexAgentTheme(model.theme)
         case .settingsAbout:
             CodexSettingsAboutRouteView(
-                metadata: CodexAboutMetadata(bundle: .main, serverName: model.serverName),
+                metadata: CodexAboutMetadata(
+                    bundle: .main,
+                    serverName: model.serverName,
+                    fallbackAppName: "Codex",
+                    fallbackCopyright: "© OpenAI"
+                ),
                 accountSummary: model.accountMenuSummary,
                 appearanceSettings: $model.appearanceSettings,
                 sidebarFontSize: $model.sidebarFontSize,

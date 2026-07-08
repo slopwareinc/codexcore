@@ -116,5 +116,5 @@ swift run codex-core-app
 ## Requirements
 
 - Swift 6
-- macOS 26+ or iOS 17+
+- macOS 26+
 - Codex runtime installed locally for live app use

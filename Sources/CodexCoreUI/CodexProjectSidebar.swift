@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -113,11 +115,13 @@ public struct CodexProjectSidebar: View {
                 .frame(width: SidebarMetrics.resizeHandleHitWidth)
                 .contentShape(Rectangle())
                 .onHover { inside in
+                    #if canImport(AppKit)
                     if inside {
                         NSCursor.resizeLeftRight.push()
                     } else {
                         NSCursor.pop()
                     }
+                    #endif
                 }
                 .gesture(
                     DragGesture(minimumDistance: 1, coordinateSpace: .global)

@@ -464,7 +464,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let detail = try XCTUnwrap(state.selectedDetail)
 
         XCTAssertEqual(detail.title, "Computer Use")
-        XCTAssertEqual(detail.detail, "Control Mac apps from Codex")
+        XCTAssertEqual(detail.detail, "Control Mac apps")
         XCTAssertEqual(detail.statusLabel, "Install boundary")
         XCTAssertEqual(detail.boundaryActionTitle, "Add")
         XCTAssertNil(detail.primaryAction)
