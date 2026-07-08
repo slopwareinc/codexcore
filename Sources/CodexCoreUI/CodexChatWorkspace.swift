@@ -216,6 +216,9 @@ public struct CodexChatWorkspaceView: View {
             let panelState = CodexWorkspaceResponsivePanelState(availableWidth: proxy.size.width)
             let isDockedOverviewVisible = isSummaryPanelOpen && panelState.supportsDockedOverview(isSidePanelOpen: isAgentPanelOpen)
             let isFloatingOverviewVisible = isCompactSummaryPanelPresented && !isDockedOverviewVisible
+            // Float the overview over the main chat column, not the side panel:
+            // when the persistent side panel is open, inset past its width.
+            let floatingOverviewTrailingInset = 16 + (panelState.usesPersistentSidePanel && isAgentPanelOpen ? agentPanelWidth : 0)
 
             ZStack(alignment: .trailing) {
                 HStack(spacing: 0) {
@@ -240,7 +243,7 @@ public struct CodexChatWorkspaceView: View {
 
                     floatingSummaryPanel
                         .padding(.top, 58)
-                        .padding(.trailing, 16)
+                        .padding(.trailing, floatingOverviewTrailingInset)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
                 }
