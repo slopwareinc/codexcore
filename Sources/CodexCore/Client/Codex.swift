@@ -487,6 +487,19 @@ public final class Codex: @unchecked Sendable {
         try await client.reviewStart(threadID: threadID, target: target, delivery: delivery)
     }
 
+    /// Starts a review targeting specific timeline item IDs, without callers
+    /// having to hand-assemble the review-target JSON payload.
+    public func startReview(
+        threadID: String,
+        itemIDs: [String],
+        delivery: CodexSchemaReviewDelivery? = nil
+    ) async throws -> CodexSchemaReviewStartResponse {
+        let target = CodexSchemaReviewTarget(
+            .dictionary(["itemIds": .array(itemIDs.map(CodexJSONValue.string))])
+        )
+        return try await startReview(threadID: threadID, target: target, delivery: delivery)
+    }
+
     /// Fuzzy-searches file names under the given roots (used for @-mentions).
     public func fuzzyFileSearch(
         query: String,
