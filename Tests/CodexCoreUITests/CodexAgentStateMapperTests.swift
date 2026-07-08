@@ -825,6 +825,40 @@ final class CodexAgentStateMapperTests: XCTestCase {
         XCTAssertEqual(CodexAgentItemParser.firstString(in: payload.states["thread-one"] ?? [:], keys: ["message"]), "done")
     }
 
+    func testCollabPayloadCancelledStatusMapsToClosed() throws {
+        let item = try decodeThreadItem(#"""
+        {
+          "id": "call_wait_cancelled",
+          "type": "collabAgentToolCall",
+          "tool": "wait",
+          "agentsStates": {
+            "thread-one": { "status": "cancelled" },
+            "thread-two": { "status": "canceled" }
+          }
+        }
+        """#)
+
+        let payload = try XCTUnwrap(CodexAgentItemParser.collabPayload(from: item))
+        XCTAssertEqual(payload.status(completed: true), .closed)
+        XCTAssertEqual(payload.status(completed: false), .closed)
+    }
+
+    func testCollabPayloadFailedStatusStillMapsToFailed() throws {
+        let item = try decodeThreadItem(#"""
+        {
+          "id": "call_wait_failed",
+          "type": "collabAgentToolCall",
+          "tool": "wait",
+          "agentsStates": {
+            "thread-one": { "status": "error" }
+          }
+        }
+        """#)
+
+        let payload = try XCTUnwrap(CodexAgentItemParser.collabPayload(from: item))
+        XCTAssertEqual(payload.status(completed: true), .failed)
+    }
+
     // MARK: - Canonical status normalization
 
     func testStatusNormalizationCanonicalTable() {

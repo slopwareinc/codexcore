@@ -31,10 +31,12 @@ struct CodexCollabAgentPayload {
         for raw in stateStatuses {
             if let mapped = CodexAgentItemParser.customSubagentStatusMapping[raw], mapped == .failed { return .failed }
         }
-        if stateStatuses.contains(where: { $0 == "failed" || $0 == "error" || $0 == "cancelled" || $0 == "canceled" }) {
-            return .failed
-        }
-        if completed, tool == "wait", stateStatuses.contains(where: { $0 == "completed" }) {
+        // Prefer the canonical synonym table so cancelled/canceled map to .closed
+        // (deliberately stopped), matching CodexAgentItemParser.subagentStatus.
+        let normalizedStatuses = stateStatuses.compactMap(CodexSubagentState.Status.normalized)
+        if normalizedStatuses.contains(.failed) { return .failed }
+        if normalizedStatuses.contains(.closed) { return .closed }
+        if completed, tool == "wait", normalizedStatuses.contains(.completed) {
             return .completed
         }
         if completed, tool == "spawnAgent" {
