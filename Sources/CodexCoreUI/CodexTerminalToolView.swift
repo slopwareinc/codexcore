@@ -1,3 +1,4 @@
+import AppKit
 import GhosttyTerminal
 import SwiftUI
 
@@ -7,6 +8,13 @@ public final class CodexTerminalSession: Identifiable {
     public let title: String
     public let initialWorkingDirectory: String
     public let state: TerminalViewState
+
+    /// The ghostty AppKit view (and therefore the live surface/PTY) is owned by
+    /// the session, not by the SwiftUI representable that shows it. Ghostty frees
+    /// the surface only when this view deallocates, so keeping the same view
+    /// instance across panel-hide and chat-switch keeps the shell alive; only the
+    /// view's window attachment recycles.
+    let terminalView: TerminalView
 
     public init(
         id: String = "terminal:\(UUID().uuidString)",
@@ -32,14 +40,20 @@ public final class CodexTerminalSession: Identifiable {
             workingDirectory: workingDirectory,
             context: .window
         )
+
+        let view = TerminalView(frame: .zero)
+        view.delegate = state
+        view.controller = state.controller
+        view.configuration = state.configuration
+        self.terminalView = view
     }
 }
 
 public struct CodexTerminalToolView: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var terminalState: TerminalViewState
     private let session: CodexTerminalSession
-    @FocusState private var isTerminalFocused: Bool
 
     public init(session: CodexTerminalSession) {
         self.session = session
@@ -50,10 +64,13 @@ public struct CodexTerminalToolView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(theme.colors.border)
-            TerminalSurfaceView(context: terminalState)
-                .terminalFocusOnAppear($isTerminalFocused)
+            CodexTerminalHostView(session: session)
                 .background(theme.colors.surfaceSunken.opacity(0.8))
                 .accessibilityLabel("Terminal")
+                .onAppear { terminalState.adopt(colorScheme: colorScheme) }
+                .onChange(of: colorScheme) { _, newValue in
+                    terminalState.adopt(colorScheme: newValue)
+                }
         }
     }
 
@@ -104,6 +121,27 @@ public struct CodexTerminalToolView: View {
     private var displayWorkingDirectory: String {
         CodexTerminalPathFormatter.display(terminalState.workingDirectory ?? session.initialWorkingDirectory)
     }
+}
+
+/// Hosts the session-owned ghostty view. It never creates or tears down the
+/// view, so the surface survives the representable being dismantled (panel
+/// hidden, chat switched). Lifetime is owned by CodexTerminalSession.
+private struct CodexTerminalHostView: NSViewRepresentable {
+    let session: CodexTerminalSession
+
+    func makeNSView(context: Context) -> TerminalView {
+        let view = session.terminalView
+        // Focus the terminal once it lands in a window, matching the previous
+        // focus-on-appear behavior without relying on the library's internal
+        // focus callback.
+        DispatchQueue.main.async { [weak view] in
+            guard let view, let window = view.window, window.firstResponder !== view else { return }
+            window.makeFirstResponder(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: TerminalView, context: Context) {}
 }
 
 public enum CodexTerminalPathFormatter {
