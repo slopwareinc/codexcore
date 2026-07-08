@@ -147,12 +147,10 @@ private struct CodexCompletedWorkOperationView: View {
 
     let operation: CodexCompletedWorkTrace.Operation
     @State private var isExpanded: Bool
-    @State private var isDetailExpanded: Bool
 
     init(operation: CodexCompletedWorkTrace.Operation) {
         self.operation = operation
         self._isExpanded = State(initialValue: !operation.isCollapsedByDefault)
-        self._isDetailExpanded = State(initialValue: !operation.isDetailCollapsedByDefault)
     }
 
     var body: some View {
@@ -195,66 +193,23 @@ private struct CodexCompletedWorkOperationView: View {
             }
             .buttonStyle(.plain)
 
+            // Opening the operation reveals its detail directly — no extra
+            // nested "diff" / "stdout" disclosure to click through.
             if isExpanded, let detail = operation.detail {
-                VStack(alignment: .leading, spacing: 0) {
-                    Button {
-                        withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
-                            isDetailExpanded.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            Text(rawDetailTitle)
-                                .font(theme.fonts.micro)
-                                .foregroundStyle(theme.colors.textTertiary)
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(theme.fonts.micro)
-                                .foregroundStyle(theme.colors.textTertiary)
-                                .rotationEffect(.degrees(isDetailExpanded ? 90 : 0))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    if isDetailExpanded {
-                        ScrollView(.vertical, showsIndicators: true) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                Text(detail)
-                                    .font(theme.fonts.code)
-                                    .foregroundStyle(operation.isFailure ? theme.colors.danger : theme.colors.codeText)
-                                    .padding(8)
-                                    .fixedSize(horizontal: true, vertical: true)
-                            }
-                        }
-                        .frame(maxHeight: 220)
-                        .background(theme.colors.codeBackground)
+                ScrollView(.vertical, showsIndicators: true) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(detail)
+                            .font(theme.fonts.code)
+                            .foregroundStyle(operation.isFailure ? theme.colors.danger : theme.colors.codeText)
+                            .padding(8)
+                            .fixedSize(horizontal: true, vertical: true)
                     }
                 }
-                .background(theme.colors.surface.opacity(0.36), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+                .frame(maxHeight: 220)
+                .background(theme.colors.codeBackground, in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
             }
-        }
-    }
-
-    private var rawDetailTitle: String {
-        switch operation.message.role {
-        case .terminal:
-            return "stdout / stderr"
-        case .fileChange:
-            return "diff"
-        case .tool:
-            return "tool details"
-        case .plan:
-            return "plan details"
-        case .reasoning:
-            return "reasoning"
-        case .notice:
-            return "notice details"
-        case .assistant, .user, .system:
-            return "details"
         }
     }
 }

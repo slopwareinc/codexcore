@@ -47,7 +47,6 @@ final class CodexChatTranscriptTests: XCTestCase {
             "README.md"
         ])
         XCTAssertTrue(trace.groups.flatMap(\.operations).allSatisfy(\.isCollapsedByDefault))
-        XCTAssertTrue(trace.groups.flatMap(\.operations).allSatisfy(\.isDetailCollapsedByDefault))
     }
 
     func testCompletedTranscriptTimelineReplacesVisibleOperationCardsWithTraceBeforeFinalAnswer() throws {
