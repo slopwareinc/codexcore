@@ -451,6 +451,11 @@ public struct CodexChatWorkspaceView: View {
         return (mountedPanels + [panel]).compactMap(\.filesSession).filter { seen.insert($0.id).inserted }
     }
 
+    private var mountedFilePreviewSessions: [CodexFilePreviewSession] {
+        var seen = Set<String>()
+        return (mountedPanels + [panel]).flatMap(\.filePreviewSessions).filter { seen.insert($0.id).inserted }
+    }
+
     private func agentSidePanel(resizable: Bool) -> some View {
         CodexAgentSidePanel(
             tabs: panelTabs,
@@ -459,9 +464,11 @@ public struct CodexChatWorkspaceView: View {
             terminalSessions: panel.terminalSessions,
             browserSessions: panel.browserSessions,
             filesSessions: panel.filesSession.map { [$0] } ?? [],
+            filePreviewSessions: panel.filePreviewSessions,
             mountedTerminalSessions: mountedTerminalSessions,
             mountedBrowserSessions: mountedBrowserSessions,
             mountedFilesSessions: mountedFilesSessions,
+            mountedFilePreviewSessions: mountedFilePreviewSessions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
@@ -470,9 +477,11 @@ public struct CodexChatWorkspaceView: View {
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
+            onOpenFilePreview: openFilePreviewTab,
             onCloseTerminal: closeTerminalTab,
             onCloseBrowser: closeBrowserTab,
             onCloseFiles: closeFilesTab,
+            onCloseFilePreview: closeFilePreviewTab,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
         )
     }
@@ -545,6 +554,17 @@ public struct CodexChatWorkspaceView: View {
 
     private func closeFilesTab(_ id: String) {
         panel.closeFiles(id: id, fallbackTabIDs: panelTabs.map(\.id))
+    }
+
+    private func openFilePreviewTab(_ fileURL: URL) {
+        panel.openFilePreview(fileURL: fileURL)
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            panel.isAgentPanelOpen = true
+        }
+    }
+
+    private func closeFilePreviewTab(_ id: String) {
+        panel.closeFilePreview(id: id, fallbackTabIDs: panelTabs.map(\.id))
     }
 }
 

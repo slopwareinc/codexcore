@@ -155,23 +155,40 @@ public final class CodexFilesSession: ObservableObject, Identifiable {
 public struct CodexFilesToolView: View {
     @Environment(\.codexAgentTheme) private var theme
     @ObservedObject private var session: CodexFilesSession
+    private let onOpenFile: (URL) -> Void
 
-    public init(session: CodexFilesSession) {
+    public init(session: CodexFilesSession, onOpenFile: @escaping (URL) -> Void = { _ in }) {
         self.session = session
+        self.onOpenFile = onOpenFile
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             header
             Divider().overlay(theme.colors.border)
-            CodexFilesOutlineView(
-                rootNode: session.rootNode,
-                selectedURL: $session.selectedURL,
-                refreshIdentity: session.refreshIdentity
-            )
-            .background(theme.colors.surfaceSunken.opacity(0.8))
-            .accessibilityLabel("Files")
+            outline
         }
+        // Selecting a file opens it as an independent preview tab in the deck.
+        .onChange(of: session.selectedURL) { _, newValue in
+            guard let url = newValue, isPreviewableFile(url) else { return }
+            onOpenFile(url)
+        }
+    }
+
+    private var outline: some View {
+        CodexFilesOutlineView(
+            rootNode: session.rootNode,
+            selectedURL: $session.selectedURL,
+            refreshIdentity: session.refreshIdentity
+        )
+        .background(theme.colors.surfaceSunken.opacity(0.8))
+        .accessibilityLabel("Files")
+    }
+
+    /// Whether `url` points at a regular file worth opening in a preview tab.
+    private func isPreviewableFile(_ url: URL) -> Bool {
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        return !isDirectory
     }
 
     private var header: some View {
