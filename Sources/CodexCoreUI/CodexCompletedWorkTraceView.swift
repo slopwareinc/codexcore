@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// Official-style **Worked for …** disclosure.
+/// Expanded body is chronological: normal assistant prose + lean activity lines
+/// (Created / Closed / commands) — not nested "Updates / Update done" cards.
 public struct CodexCompletedWorkTraceView: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -12,221 +15,138 @@ public struct CodexCompletedWorkTraceView: View {
     }
 
     public var body: some View {
-        CodexCollapsibleCard(
-            isExpanded: $isExpanded,
-            background: theme.colors.surface.opacity(0.42),
-            border: trace.hasFailure ? theme.colors.danger.opacity(0.38) : theme.colors.border.opacity(0.58),
-            maxWidth: theme.spacing.cardMaxWidth
-        ) { isExpanded, toggle in
-            Button(action: toggle) {
-                HStack(spacing: 9) {
-                    Image(systemName: trace.hasFailure ? "exclamationmark.triangle" : "clock")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(trace.hasFailure ? theme.colors.danger : theme.colors.textTertiary)
-                        .frame(width: 16, height: 16)
-
-                    Text(trace.title)
-                        .font(theme.fonts.label)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    Text(trace.countLabel)
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
-
-                    Image(systemName: "chevron.right")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        } body: {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(trace.groups) { group in
-                    CodexCompletedWorkGroupView(group: group)
-                }
-            }
-            .padding(8)
-        }
-        .accessibilityLabel("\(trace.title), \(trace.countLabel)")
-    }
-}
-
-private struct CodexCompletedWorkGroupView: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let group: CodexCompletedWorkTrace.Group
-    @State private var isExpanded: Bool
-
-    init(group: CodexCompletedWorkTrace.Group) {
-        self.group = group
-        self._isExpanded = State(initialValue: !group.isCollapsedByDefault)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             Button {
                 withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: iconName)
+                HStack(spacing: 4) {
+                    Text(trace.title)
                         .font(theme.fonts.caption)
-                        .foregroundStyle(group.hasFailure ? theme.colors.danger : theme.colors.textTertiary)
-                        .frame(width: 16, height: 16)
-
-                    Text(group.title)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
+                        .foregroundStyle(
+                            trace.hasFailure
+                                ? theme.colors.danger.opacity(0.9)
+                                : theme.colors.textTertiary
+                        )
                         .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    Text(group.operations.count == 1 ? "1 item" : "\(group.operations.count) items")
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
 
                     Image(systemName: "chevron.right")
                         .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
+                        .foregroundStyle(theme.colors.textTertiary.opacity(0.75))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
+                .padding(.vertical, 2)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(group.operations) { operation in
-                        CodexCompletedWorkOperationView(operation: operation)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(displayEntries) { entry in
+                        entryView(entry)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
             }
         }
-        .background(theme.colors.surfaceElevated.opacity(0.18), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.42), lineWidth: 1)
-        )
+        .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+        .accessibilityLabel(trace.title)
+        .accessibilityAddTraits(.isButton)
     }
 
-    private var iconName: String {
-        switch group.kind {
-        case .command:
-            return "terminal"
-        case .read:
-            return "doc.text.magnifyingglass"
-        case .edit:
-            return "square.and.pencil"
-        case .tool:
-            return "wrench.and.screwdriver"
-        case .plan:
-            return "checklist"
-        case .reasoning:
-            return "brain.head.profile"
-        case .notice:
-            return "exclamationmark.circle"
+    /// Prefer chronological entries; fall back to flattened legacy groups.
+    private var displayEntries: [CodexCompletedWorkTrace.Entry] {
+        if !trace.entries.isEmpty { return trace.entries }
+        return trace.groups.flatMap { group -> [CodexCompletedWorkTrace.Entry] in
+            group.operations.map { op in
+                CodexCompletedWorkTrace.Entry(
+                    id: op.id,
+                    kind: .activity(
+                        title: op.title,
+                        detail: op.detail,
+                        style: style(for: group.kind)
+                    ),
+                    createdAt: trace.createdAt
+                )
+            }
         }
     }
-}
 
-private struct CodexCompletedWorkOperationView: View {
-    @Environment(\.codexAgentTheme) private var theme
+    @ViewBuilder
+    private func entryView(_ entry: CodexCompletedWorkTrace.Entry) -> some View {
+        switch entry.kind {
+        case .narrative(let text):
+            // Same rendering path as live assistant prose — no "Update done" chrome.
+            CodexAssistantContentView(
+                text: text,
+                isStreaming: false,
+                cacheNamespace: entry.id
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-    let operation: CodexCompletedWorkTrace.Operation
-    @State private var isExpanded: Bool
-
-    init(operation: CodexCompletedWorkTrace.Operation) {
-        self.operation = operation
-        self._isExpanded = State(initialValue: !operation.isCollapsedByDefault)
+        case .activity(let title, let detail, let style):
+            activityLine(title: title, detail: detail, style: style)
+        }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                guard operation.detail != nil else { return }
-                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(operation.isFailure ? theme.colors.danger : theme.colors.textTertiary.opacity(0.58))
-                        .frame(width: 5, height: 5)
-
-                    Text(operation.title)
-                        .font(theme.fonts.code)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    Spacer(minLength: 8)
-
-                    if operation.isFailure || !operation.status.isEmpty {
-                        Text(operation.status)
-                            .font(theme.fonts.micro)
-                            .foregroundStyle(operation.isFailure ? theme.colors.danger : theme.colors.textTertiary)
-                            .lineLimit(1)
-                    }
-
-                    Image(systemName: "chevron.right")
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .opacity(operation.detail == nil ? 0.22 : 1)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+    private func activityLine(
+        title: String,
+        detail: String?,
+        style: CodexCompletedWorkTrace.Entry.ActivityStyle
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if style == .createdAgents || style == .closedAgents {
+                Image(systemName: "person")
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.textTertiary)
             }
-            .buttonStyle(.plain)
 
-            // Opening the operation reveals its detail directly — no extra
-            // nested "diff" / "stdout" disclosure to click through.
-            if isExpanded, let detail = operation.detail {
-                ScrollView(.vertical, showsIndicators: true) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        Text(detail)
-                            .font(theme.fonts.code)
-                            .foregroundStyle(operation.isFailure ? theme.colors.danger : theme.colors.codeText)
-                            .padding(8)
-                            .fixedSize(horizontal: true, vertical: true)
-                    }
-                }
-                .frame(maxHeight: 220)
-                .background(theme.colors.codeBackground, in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+            Text(title)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+                .lineLimit(2)
+
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.textTertiary.opacity(0.8))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 1)
+    }
+
+    private func style(for kind: CodexCompletedWorkTrace.Group.Kind) -> CodexCompletedWorkTrace.Entry.ActivityStyle {
+        switch kind {
+        case .createdAgents: return .createdAgents
+        case .closedAgents: return .closedAgents
+        case .command: return .command
+        case .read: return .read
+        case .edit: return .edit
+        case .tool: return .tool
+        case .plan: return .plan
+        case .reasoning: return .reasoning
+        case .notice: return .notice
+        case .update: return .other
         }
     }
 }
 
 private extension CodexCompletedWorkTrace {
     var hasFailure: Bool {
-        groups.contains(where: \.hasFailure)
-    }
-
-    var countLabel: String {
-        let count = groups.reduce(0) { $0 + $1.operations.count }
-        return count == 1 ? "1 item" : "\(count) items"
-    }
-}
-
-private extension CodexCompletedWorkTrace.Group {
-    var hasFailure: Bool {
-        operations.contains(where: \.isFailure)
+        if entries.contains(where: { entry in
+            if case .activity(_, _, let style) = entry.kind {
+                return style == .notice // soft; real failures still in groups
+            }
+            return false
+        }) {
+            // fall through
+        }
+        return groups.contains { group in
+            group.operations.contains(where: \.isFailure)
+        }
     }
 }

@@ -4,7 +4,7 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexWorkspaceToolsTests: XCTestCase {
-    func testLauncherOptionsEnableTerminalAndBrowserAndDisableFutureTools() {
+    func testLauncherOptionsEnableTerminalBrowserAndFilesAndDisableFutureTools() {
         let options = CodexWorkspaceToolCatalog.launcherOptions
 
         XCTAssertEqual(options.first?.id, CodexWorkspaceToolCatalog.terminalID)
@@ -16,7 +16,18 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(browser?.isEnabled, true)
         XCTAssertEqual(browser?.detail, "Browse docs and local previews")
 
-        let disabledOptions = options.filter { ![CodexWorkspaceToolCatalog.terminalID, CodexWorkspaceToolCatalog.browserID].contains($0.id) }
+        let files = options.first { $0.id == CodexWorkspaceToolCatalog.filesID }
+        XCTAssertEqual(files?.title, "Files")
+        XCTAssertEqual(files?.isEnabled, true)
+        XCTAssertEqual(files?.detail, "Browse this workspace")
+
+        let disabledOptions = options.filter {
+            ![
+                CodexWorkspaceToolCatalog.terminalID,
+                CodexWorkspaceToolCatalog.browserID,
+                CodexWorkspaceToolCatalog.filesID,
+            ].contains($0.id)
+        }
         XCTAssertTrue(disabledOptions.allSatisfy { !$0.isEnabled })
         XCTAssertTrue(disabledOptions.allSatisfy { $0.detail.contains("Not available") })
     }
@@ -43,12 +54,31 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testPanelStateOpensSingleFilesSessionAndReselectsExisting() {
+        let panel = CodexWorkspacePanelState()
+        let first = panel.openFiles(workspacePath: "/tmp/workspace")
+        let second = panel.openFiles(workspacePath: "/tmp/other")
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(panel.filesSession?.id, first)
+        XCTAssertEqual(panel.selectedTabID, first)
+        XCTAssertEqual(panel.filesSession?.rootURL.path, "/tmp/workspace")
+        XCTAssertTrue(panel.hasOpenTools)
+    }
+
+    @MainActor
     func testPanelStateCloseFallsBackToRemainingTabThenProvidedTabs() {
         let panel = CodexWorkspacePanelState()
         let terminal = panel.openTerminal(workspacePath: "/tmp")
         let browser = panel.openBrowser()
+        let files = panel.openFiles(workspacePath: "/tmp")
 
-        // Closing the selected browser falls back to the surviving terminal.
+        // Closing the selected files tab falls back to the first surviving tool (terminal).
+        panel.closeFiles(id: files, fallbackTabIDs: ["review-tab"])
+        XCTAssertNil(panel.filesSession)
+        XCTAssertEqual(panel.selectedTabID, terminal)
+
+        panel.selectedTabID = browser
         panel.closeBrowser(id: browser, fallbackTabIDs: ["review-tab"])
         XCTAssertTrue(panel.browserSessions.isEmpty)
         XCTAssertEqual(panel.selectedTabID, terminal)
@@ -65,12 +95,14 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         let panel = CodexWorkspacePanelState()
         panel.openTerminal(workspacePath: "/tmp")
         panel.openBrowser()
+        panel.openFiles(workspacePath: "/tmp")
         panel.isAgentPanelOpen = true
 
         panel.purge()
 
         XCTAssertTrue(panel.terminalSessions.isEmpty)
         XCTAssertTrue(panel.browserSessions.isEmpty)
+        XCTAssertNil(panel.filesSession)
         XCTAssertNil(panel.selectedTabID)
         XCTAssertFalse(panel.isAgentPanelOpen)
     }
@@ -97,6 +129,82 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(CodexTerminalPathFormatter.display(home), "~")
         XCTAssertEqual(CodexTerminalPathFormatter.display(home + "/Projects/CodexCore"), "~/Projects/CodexCore")
         XCTAssertEqual(CodexTerminalPathFormatter.display("/tmp/CodexCore"), "/tmp/CodexCore")
+    }
+
+    func testFileTreeLoaderSortsDirectoriesBeforeFilesByLocalizedName() throws {
+        let workspace = try makeTemporaryWorkspace()
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("zeta"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("Alpha"), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: workspace.appendingPathComponent("beta.txt").path, contents: Data())
+        FileManager.default.createFile(atPath: workspace.appendingPathComponent("aardvark.txt").path, contents: Data())
+
+        let children = CodexFileTreeLoader().children(of: workspace)
+
+        XCTAssertEqual(children.map(\.name), ["Alpha", "zeta", "aardvark.txt", "beta.txt"])
+        XCTAssertEqual(children.map(\.kind), [.directory, .directory, .file, .file])
+    }
+
+    func testFileTreeLoaderFiltersNoisyFoldersButKeepsOtherDotfiles() throws {
+        let workspace = try makeTemporaryWorkspace()
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent(".config"), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: workspace.appendingPathComponent(".env").path, contents: Data())
+
+        let children = CodexFileTreeLoader().children(of: workspace)
+
+        XCTAssertEqual(children.map(\.name), [".config", ".env"])
+    }
+
+    func testFileTreeNodeLoadsChildrenLazilyOneLevelAtATime() throws {
+        let workspace = try makeTemporaryWorkspace()
+        let childDirectory = workspace.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: childDirectory.appendingPathComponent("grandchild"), withIntermediateDirectories: true)
+
+        let root = CodexFileTreeLoader().rootNode(for: workspace)
+        XCTAssertFalse(root.areChildrenLoaded)
+
+        let children = root.loadChildren()
+
+        XCTAssertTrue(root.areChildrenLoaded)
+        XCTAssertEqual(children.map(\.name), ["child"])
+        XCTAssertFalse(children[0].areChildrenLoaded)
+    }
+
+    func testFileTreeLoaderTreatsSymlinkDirectoryAsLeaf() throws {
+        let workspace = try makeTemporaryWorkspace()
+        let target = workspace.appendingPathComponent("target")
+        let link = workspace.appendingPathComponent("linked-target")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let linkedNode = CodexFileTreeLoader().children(of: workspace).first { $0.name == "linked-target" }
+
+        XCTAssertEqual(linkedNode?.kind, .symbolicLink)
+        XCTAssertEqual(linkedNode?.isExpandable, false)
+    }
+
+    func testFilesPathFormatterCompactsHomeDirectoryAndUsesRootName() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+
+        XCTAssertEqual(CodexFilesPathFormatter.display(home), "~")
+        XCTAssertEqual(CodexFilesPathFormatter.display(home.appendingPathComponent("Projects/CodexCore")), "~/Projects/CodexCore")
+        XCTAssertEqual(CodexFilesPathFormatter.display(URL(fileURLWithPath: "/tmp/CodexCore")), "/tmp/CodexCore")
+        XCTAssertEqual(CodexFilesPathFormatter.rootName(for: URL(fileURLWithPath: "/tmp/CodexCore")), "CodexCore")
+    }
+
+    @MainActor
+    func testFilesSessionRefreshReplacesRootNodeAndKeepsSelection() throws {
+        let workspace = try makeTemporaryWorkspace()
+        let selected = workspace.appendingPathComponent("Package.swift")
+        let session = CodexFilesSession(rootURL: workspace)
+        session.selectedURL = selected
+        let originalRoot = session.rootNode
+
+        session.refresh()
+
+        XCTAssertFalse(session.rootNode === originalRoot)
+        XCTAssertEqual(session.selectedURL, selected)
     }
 
     func testBrowserNavigationResolverKeepsFullURLs() {
@@ -160,5 +268,16 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
         XCTAssertEqual(session.addressText, "https://example.com")
         XCTAssertEqual(session.currentURL?.absoluteString, "https://example.com")
+    }
+
+    private func makeTemporaryWorkspace() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexWorkspaceToolsTests")
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return url
     }
 }

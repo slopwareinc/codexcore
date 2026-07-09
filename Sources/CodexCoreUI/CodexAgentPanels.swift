@@ -186,16 +186,20 @@ public struct CodexAgentSidePanel: View {
     private let width: Binding<CGFloat>?
     private let terminalSessions: [CodexTerminalSession]
     private let browserSessions: [CodexBrowserSession]
+    private let filesSessions: [CodexFilesSession]
     private let mountedTerminalSessions: [CodexTerminalSession]
     private let mountedBrowserSessions: [CodexBrowserSession]
+    private let mountedFilesSessions: [CodexFilesSession]
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
     private let onOpenTerminal: () -> Void
     private let onOpenBrowser: () -> Void
+    private let onOpenFiles: () -> Void
     private let onCloseTerminal: (String) -> Void
     private let onCloseBrowser: (String) -> Void
+    private let onCloseFiles: (String) -> Void
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
     @State private var liveResizeWidth: CGFloat?
@@ -205,8 +209,10 @@ public struct CodexAgentSidePanel: View {
         selectedTabID: Binding<String?>,
         terminalSessions: [CodexTerminalSession] = [],
         browserSessions: [CodexBrowserSession] = [],
+        filesSessions: [CodexFilesSession] = [],
         mountedTerminalSessions: [CodexTerminalSession] = [],
         mountedBrowserSessions: [CodexBrowserSession] = [],
+        mountedFilesSessions: [CodexFilesSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
@@ -214,8 +220,10 @@ public struct CodexAgentSidePanel: View {
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
+        onOpenFiles: @escaping () -> Void = {},
         onCloseTerminal: @escaping (String) -> Void = { _ in },
         onCloseBrowser: @escaping (String) -> Void = { _ in },
+        onCloseFiles: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -224,16 +232,20 @@ public struct CodexAgentSidePanel: View {
         self.width = nil
         self.terminalSessions = terminalSessions
         self.browserSessions = browserSessions
+        self.filesSessions = filesSessions
         self.mountedTerminalSessions = mountedTerminalSessions
         self.mountedBrowserSessions = mountedBrowserSessions
+        self.mountedFilesSessions = mountedFilesSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
+        self.onOpenFiles = onOpenFiles
         self.onCloseTerminal = onCloseTerminal
         self.onCloseBrowser = onCloseBrowser
+        self.onCloseFiles = onCloseFiles
         self.onClose = onClose
     }
 
@@ -243,8 +255,10 @@ public struct CodexAgentSidePanel: View {
         width: Binding<CGFloat>,
         terminalSessions: [CodexTerminalSession] = [],
         browserSessions: [CodexBrowserSession] = [],
+        filesSessions: [CodexFilesSession] = [],
         mountedTerminalSessions: [CodexTerminalSession] = [],
         mountedBrowserSessions: [CodexBrowserSession] = [],
+        mountedFilesSessions: [CodexFilesSession] = [],
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
@@ -252,8 +266,10 @@ public struct CodexAgentSidePanel: View {
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
+        onOpenFiles: @escaping () -> Void = {},
         onCloseTerminal: @escaping (String) -> Void = { _ in },
         onCloseBrowser: @escaping (String) -> Void = { _ in },
+        onCloseFiles: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -262,16 +278,20 @@ public struct CodexAgentSidePanel: View {
         self.width = width
         self.terminalSessions = terminalSessions
         self.browserSessions = browserSessions
+        self.filesSessions = filesSessions
         self.mountedTerminalSessions = mountedTerminalSessions
         self.mountedBrowserSessions = mountedBrowserSessions
+        self.mountedFilesSessions = mountedFilesSessions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
+        self.onOpenFiles = onOpenFiles
         self.onCloseTerminal = onCloseTerminal
         self.onCloseBrowser = onCloseBrowser
+        self.onCloseFiles = onCloseFiles
         self.onClose = onClose
     }
 
@@ -304,6 +324,10 @@ public struct CodexAgentSidePanel: View {
         mountedBrowserSessions.isEmpty ? browserSessions : mountedBrowserSessions
     }
 
+    private var deckFilesSessions: [CodexFilesSession] {
+        mountedFilesSessions.isEmpty ? filesSessions : mountedFilesSessions
+    }
+
     @ViewBuilder
     private var panelContent: some View {
         ZStack {
@@ -319,7 +343,13 @@ public struct CodexAgentSidePanel: View {
                     .id(session.id)
             }
 
-            if selectedTerminalSession == nil, selectedBrowserSession == nil {
+            ForEach(deckFilesSessions) { session in
+                CodexFilesToolView(session: session)
+                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .id(session.id)
+            }
+
+            if selectedTerminalSession == nil, selectedBrowserSession == nil, selectedFilesSession == nil {
                 if let tab = selectedTab {
                     CodexAgentPanelContent(
                         tab: tab,
@@ -390,7 +420,7 @@ public struct CodexAgentSidePanel: View {
     }
 
     private var selectedTab: CodexAgentPanelTab? {
-        guard selectedTerminalSession == nil, selectedBrowserSession == nil else { return nil }
+        guard selectedTerminalSession == nil, selectedBrowserSession == nil, selectedFilesSession == nil else { return nil }
         return tabs.first { $0.id == selectedTabID } ?? tabs.first
     }
 
@@ -402,8 +432,12 @@ public struct CodexAgentSidePanel: View {
         browserSessions.first { $0.id == selectedTabID }
     }
 
+    private var selectedFilesSession: CodexFilesSession? {
+        filesSessions.first { $0.id == selectedTabID }
+    }
+
     private var hasOpenTabs: Bool {
-        !terminalSessions.isEmpty || !browserSessions.isEmpty || !tabs.isEmpty
+        !terminalSessions.isEmpty || !browserSessions.isEmpty || !filesSessions.isEmpty || !tabs.isEmpty
     }
 
     private var tabBar: some View {
@@ -431,6 +465,17 @@ public struct CodexAgentSidePanel: View {
                         }
                     }
 
+                    ForEach(filesSessions) { session in
+                        AgentPanelTabButton(
+                            title: session.title,
+                            systemImage: "folder",
+                            isSelected: session.id == selectedTabID,
+                            closeAction: { onCloseFiles(session.id) }
+                        ) {
+                            selectedTabID = session.id
+                        }
+                    }
+
                     ForEach(tabs) { tab in
                         AgentPanelTabButton(
                             title: tab.title,
@@ -447,8 +492,10 @@ public struct CodexAgentSidePanel: View {
 
             Menu {
                 ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
-                    Button(option.title) {
+                    Button {
                         openTool(option.id)
+                    } label: {
+                        Label(option.title, systemImage: option.systemImage)
                     }
                     .disabled(!option.isEnabled)
                 }
@@ -457,9 +504,15 @@ public struct CodexAgentSidePanel: View {
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                    .contentShape(Circle())
             }
+            // Strip the default macOS pop-up bezel + disclosure arrow so the
+            // glyph sits cleanly on the liquid-glass bubble like the close control.
             .menuStyle(.borderlessButton)
-            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .buttonStyle(.plain)
+            .codexGlass(Circle(), interactive: true)
             .help("Open tool")
             .accessibilityLabel("Open tool")
 
@@ -509,10 +562,14 @@ public struct CodexAgentSidePanel: View {
         if let selectedTabID,
            terminalSessions.contains(where: { $0.id == selectedTabID })
             || browserSessions.contains(where: { $0.id == selectedTabID })
+            || filesSessions.contains(where: { $0.id == selectedTabID })
             || tabs.contains(where: { $0.id == selectedTabID }) {
             return
         }
-        selectedTabID = terminalSessions.first?.id ?? browserSessions.first?.id ?? tabs.first?.id
+        selectedTabID = terminalSessions.first?.id
+            ?? browserSessions.first?.id
+            ?? filesSessions.first?.id
+            ?? tabs.first?.id
     }
 
     private func openTool(_ id: String) {
@@ -521,6 +578,8 @@ public struct CodexAgentSidePanel: View {
             onOpenTerminal()
         case CodexWorkspaceToolCatalog.browserID:
             onOpenBrowser()
+        case CodexWorkspaceToolCatalog.filesID:
+            onOpenFiles()
         default:
             break
         }

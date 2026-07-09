@@ -433,11 +433,11 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
                 )
             }
         case .completedWorkTrace(let trace):
-            CodexAgentRow(visibility: .hidden) {
+            CodexAgentRow {
                 CodexCompletedWorkTraceView(trace: trace)
             }
         case .operationAggregate(let rows):
-            CodexAgentRow(visibility: .hidden) {
+            CodexAgentRow {
                 CodexOperationSummaryCard(rows: rows)
             }
         case .fileChangeAggregate(let changes):
@@ -445,16 +445,16 @@ private struct CodexTranscriptTimelineRow: View, Equatable {
                 CodexAggregateFileChangeCard(changes: changes)
             }
         case .assistantLifecycle(let events):
-            CodexAgentRow(visibility: .hidden) {
+            CodexAgentRow {
                 CodexSubagentRunInlineView(events: events)
             }
         case .assistantBlock(let block):
-            CodexAgentRow(visibility: .hidden) {
+            CodexAgentRow {
                 CodexBlockView(block: block)
                     .equatable()
             }
         case .assistantStreamingWorking(let text, let isEmpty):
-            CodexAgentRow(visibility: .hidden) {
+            CodexAgentRow {
                 HStack(alignment: .bottom, spacing: 9) {
                     if isEmpty {
                         CodexThinkingShimmer()
@@ -499,7 +499,7 @@ public struct CodexAgentLifecycleBlock: View {
     }
 
     public var body: some View {
-        CodexAgentRow(showAvatar: false) {
+        CodexAgentRow {
             VStack(alignment: .leading, spacing: 9) {
                 Button {
                     guard isCollapsible else { return }
@@ -580,16 +580,9 @@ public struct CodexAgentLifecycleBlock: View {
                             }
                         }
                     }
-                    .padding(.leading, 25)
+                    .padding(.leading, 2)
                 }
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 10)
-            .background(theme.colors.surface.opacity(theme.effects.glassOpacity), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                    .stroke(theme.colors.border, lineWidth: 1)
-            )
             .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
         }
     }
@@ -728,7 +721,7 @@ public struct CodexMessageRow: View {
                 }
             }
         case .assistant:
-            CodexAgentRow(visibility: .hidden) {
+            CodexAgentRow {
                 CodexAssistantMessageView(message: message)
                     .accessibilityLabel(CodexTranscriptAccessibility.assistantMessageLabel(prefix: String(message.text.prefix(60))))
             }
@@ -741,51 +734,35 @@ public struct CodexMessageRow: View {
     }
 }
 
-public enum CodexAgentAvatarVisibility {
-    case visible
-    case placeholder
-    case hidden
-}
-
-/// Left-aligned agent row with the Codex avatar.
+/// Transcript content row — full width, no side avatar/brand mark.
 public struct CodexAgentRow<Content: View>: View {
-    @Environment(\.codexAgentTheme) private var theme
-
     private let content: Content
-    private let visibility: CodexAgentAvatarVisibility
 
-    public init(visibility: CodexAgentAvatarVisibility = .visible, @ViewBuilder content: () -> Content) {
-        self.visibility = visibility
+    public init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
+    /// Kept for call-site compatibility; avatars are never shown.
+    public init(visibility: CodexAgentAvatarVisibility, @ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    /// Kept for call-site compatibility; avatars are never shown.
     public init(showAvatar: Bool, @ViewBuilder content: () -> Content) {
-        self.visibility = showAvatar ? .visible : .placeholder
         self.content = content()
     }
 
     public var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            switch visibility {
-            case .visible:
-                CodexBrandMark(size: 28)
-                    .padding(.top, 2)
-            case .placeholder:
-                Circle()
-                    .fill(theme.colors.surfaceElevated)
-                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                    .overlay(Image(systemName: "point.3.connected.trianglepath.dotted").font(theme.fonts.caption))
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .padding(.top, 2)
-            case .hidden:
-                Color.clear
-                    .frame(width: 28, height: 28)
-                    .padding(.top, 2)
-            }
-            content
-            Spacer(minLength: 32)
-        }
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+/// Deprecated: avatars were removed from transcript rows.
+public enum CodexAgentAvatarVisibility {
+    case visible
+    case placeholder
+    case hidden
 }
 
 public struct CodexAssistantMessageView: View {

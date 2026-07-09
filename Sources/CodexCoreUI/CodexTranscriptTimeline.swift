@@ -90,6 +90,8 @@ private enum CodexTranscriptTimelineBuildItem: Equatable {
 }
 
 enum CodexTranscriptTimelineBuilder {
+    /// Live streaming only keeps a short open assistant group; completed turns
+    /// are collapsed via `insertingCompletedWorkTraces` instead.
     static let maxGroupedAssistantMessages = 1
     static let maxGroupedLifecycleEvents = 12
 
@@ -239,46 +241,126 @@ enum CodexTranscriptTimelineBuilder {
 }
 
 private extension Array where Element == CodexTranscriptTimelineBuildItem {
+    /// Collapse a finished turn's intermediate work under a single
+    /// **"Worked for …"** disclosure (official Codex behavior).
+    ///
+    /// A turn segment runs from a user message (or start) until the next user
+    /// message. If nothing in the segment is still streaming, intermediate
+    /// tool/collab/lifecycle rows + intermediate assistant notes are absorbed
+    /// into one trace; only the final assistant answer stays expanded.
     func insertingCompletedWorkTraces() -> [CodexTranscriptTimelineBuildItem] {
         var result: [CodexTranscriptTimelineBuildItem] = []
-        var pendingWorkMessages: [CodexChatMessage] = []
+        var segment: [CodexTranscriptTimelineBuildItem] = []
 
-        func flushPendingWork() {
-            guard !pendingWorkMessages.isEmpty else { return }
-            result.append(contentsOf: pendingWorkMessages.map(CodexTranscriptTimelineBuildItem.message))
-            pendingWorkMessages = []
-        }
-
-        func appendTrace(before assistantMessage: CodexChatMessage) -> Bool {
-            guard !pendingWorkMessages.isEmpty,
-                  let trace = CodexCompletedWorkTrace.project(from: pendingWorkMessages + [assistantMessage]) else {
-                return false
-            }
-            result.append(.completedWorkTrace(id: trace.id, trace: trace))
-            pendingWorkMessages = []
-            return true
+        func flushSegment() {
+            guard !segment.isEmpty else { return }
+            result.append(contentsOf: segment.projectedCompletedTurn())
+            segment = []
         }
 
         for item in self {
+            if case .message(let message) = item, message.role == .user {
+                flushSegment()
+                segment.append(item)
+            } else {
+                segment.append(item)
+            }
+        }
+        flushSegment()
+        return result
+    }
+
+    fileprivate func projectedCompletedTurn() -> [CodexTranscriptTimelineBuildItem] {
+        var messages: [CodexChatMessage] = []
+        var lifecycleEvents: [CodexAgentLifecycleEvent] = []
+        for item in self {
             switch item {
-            case .message(let message) where message.isCompletedWorkTraceInput:
-                pendingWorkMessages.append(message)
-
-            case .message(let message) where message.role == .assistant && !message.isStreaming:
-                _ = appendTrace(before: message)
-                result.append(item)
-
-            case .lifecycle:
-                result.append(item)
-
+            case .message(let message):
+                messages.append(message)
+            case .lifecycle(let event):
+                lifecycleEvents.append(event)
             default:
-                flushPendingWork()
-                result.append(item)
+                break
             }
         }
 
-        flushPendingWork()
-        return result
+        // Only message streaming blocks collapse. Historical lifecycle rows often
+        // retain a mid-turn `.running` status even after the assistant finished.
+        if messages.contains(where: \.isStreaming) {
+            return Array(self)
+        }
+
+        let userMessages = messages.filter { $0.role == .user }
+        let bodyMessages = messages.filter { $0.role != .user }
+        guard !bodyMessages.isEmpty || !lifecycleEvents.isEmpty else {
+            return Array(self)
+        }
+
+        let markedFinal = bodyMessages.last(where: \.isTurnFinalAssistant)
+        let lastAssistant = bodyMessages.last(where: { $0.role == .assistant && !$0.isStreaming })
+        let lastAssistantAt = lastAssistant?.createdAt
+        // Still waiting on collab if a spawn/run lifecycle is at/after the latest assistant note.
+        let hasOpenCollab = lifecycleEvents.contains { event in
+            guard event.status == .spawning || event.status == .running else { return false }
+            guard let lastAssistantAt else { return true }
+            return event.createdAt >= lastAssistantAt
+        }
+        let finalAssistant = markedFinal ?? (hasOpenCollab ? nil : lastAssistant)
+        let intermediateAssistants = bodyMessages.filter { message in
+            message.role == .assistant
+                && !message.isStreaming
+                && message.id != finalAssistant?.id
+        }
+        let workMessages = bodyMessages.filter { $0.isCompletedWorkTraceInput && !$0.isStreaming }
+        let collabLifecycle = lifecycleEvents.filter(\.isCollabActivityEvent)
+
+        // Only collapse when there is real intermediate work AND a finished answer.
+        // Pure multi-assistant / lifecycle chat history stays expanded for scrolling.
+        // Tool-only segments without a completed assistant stay expanded (live-ish history).
+        let hasOperationalWork = !workMessages.isEmpty || !collabLifecycle.isEmpty
+        guard hasOperationalWork, finalAssistant != nil else {
+            return Array(self)
+        }
+
+        let startedAt = userMessages.first?.createdAt
+            ?? ([workMessages, intermediateAssistants].flatMap { $0 }.map(\.createdAt)
+                + lifecycleEvents.map(\.createdAt)).min()
+        let endedAt = finalAssistant?.createdAt
+            ?? ([workMessages, intermediateAssistants].flatMap { $0 }.map(\.createdAt)
+                + lifecycleEvents.map(\.createdAt)).max()
+
+        let trace = CodexCompletedWorkTrace.project(
+            intermediateMessages: workMessages,
+            intermediateAssistants: intermediateAssistants,
+            lifecycleEvents: lifecycleEvents,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+
+        // Nothing to collapse — fall back to original segment items.
+        guard let trace else {
+            return Array(self)
+        }
+
+        var projected: [CodexTranscriptTimelineBuildItem] = []
+        for message in userMessages {
+            projected.append(.message(message))
+        }
+        projected.append(.completedWorkTrace(id: trace.id, trace: trace))
+        if let finalAssistant {
+            projected.append(.message(finalAssistant))
+        }
+
+        // Preserve non-message/non-lifecycle build items that might appear later.
+        for item in self {
+            switch item {
+            case .message, .lifecycle, .completedWorkTrace:
+                continue
+            default:
+                projected.append(item)
+            }
+        }
+        return projected
     }
 
     func insertingOperationAggregateRows() -> [CodexTranscriptTimelineBuildItem] {
@@ -341,25 +423,6 @@ private extension Array where Element == CodexTranscriptTimelineBuildItem {
 }
 
 private extension CodexChatMessage {
-    var isCompletedWorkTraceInput: Bool {
-        switch role {
-        case .terminal:
-            return commandRun != nil && !isStreaming
-        case .tool:
-            return toolCall != nil && !isStreaming
-        case .fileChange:
-            return fileChange != nil && !isStreaming
-        case .plan:
-            return planUpdate != nil && !isStreaming
-        case .notice:
-            return notice != nil && !isStreaming
-        case .reasoning:
-            return reasoningBlock != nil && !isStreaming
-        case .assistant, .user, .system:
-            return false
-        }
-    }
-
     var isOperationSummaryInput: Bool {
         switch role {
         case .terminal:
@@ -371,5 +434,20 @@ private extension CodexChatMessage {
         case .assistant, .user, .system, .plan, .notice, .reasoning:
             return false
         }
+    }
+}
+
+private extension CodexAgentLifecycleEvent {
+    /// Lifecycle rows that belong under Created/Closed/wait in the Worked-for trace.
+    var isCollabActivityEvent: Bool {
+        let title = title.lowercased()
+        return title.contains("spawn")
+            || title.contains("created")
+            || title.contains("closed")
+            || title.contains("closing")
+            || title.contains("wait")
+            || title.contains("subagent")
+            || title.contains("agent")
+            || !agentNames.isEmpty
     }
 }

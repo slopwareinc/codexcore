@@ -1,5 +1,8 @@
 import Foundation
 import CodexCore
+import os
+
+private let collabLog = Logger(subsystem: "CodexCoreUI", category: "CollabAgents")
 
 public struct CodexAgentItemUpdate: Equatable, Sendable {
     public var activityTitle: String
@@ -20,6 +23,9 @@ public struct CodexAgentStateMapper: Sendable {
     private var subagentMetadataByID: [String: CodexSubagentMetadata]
     private var subagentTranscriptsByID: [String: CodexChatTranscriptState]
     private var completedCollabToolCallIDs: Set<String>
+    /// Tool-call item IDs that already contributed a lifecycle row for a given phase.
+    /// Prevents spawn/close double-count from item/started + item/completed.
+    private var collabLifecycleKeys: Set<String>
 
     public init(
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
@@ -35,6 +41,7 @@ public struct CodexAgentStateMapper: Sendable {
             (subagent.id, CodexChatTranscriptState(messages: subagent.messages))
         })
         self.completedCollabToolCallIDs = []
+        self.collabLifecycleKeys = []
     }
 
     public mutating func reset() {
@@ -45,6 +52,7 @@ public struct CodexAgentStateMapper: Sendable {
         subagentMetadataByID = [:]
         subagentTranscriptsByID = [:]
         completedCollabToolCallIDs = []
+        collabLifecycleKeys = []
     }
 
     @discardableResult
@@ -524,17 +532,37 @@ public struct CodexAgentStateMapper: Sendable {
     private mutating func applyCollabAgentToolCall(_ item: ThreadItem, completed: Bool) -> CodexAgentItemUpdate? {
         guard let payload = CodexAgentItemParser.collabPayload(from: item) else { return nil }
 
+        collabLog.debug(
+            """
+            collab tool phase=\(completed ? "completed" : "started", privacy: .public) \
+            itemId=\(item.id, privacy: .public) tool=\(payload.tool, privacy: .public) \
+            receivers=\(payload.receiverThreadIDs.count) \
+            receiverIds=\(payload.receiverThreadIDs.joined(separator: ","), privacy: .public) \
+            stateKeys=\(payload.states.keys.sorted().joined(separator: ","), privacy: .public)
+            """
+        )
+
         if payload.tool == "spawnAgent", !completed, payload.receiverThreadIDs.isEmpty {
-            lifecycleEvents.append(CodexAgentLifecycleEvent(
-                status: .spawning,
-                title: "Spawning agent",
-                detail: payload.prompt == "Subagent task" ? "Starting delegated agent." : payload.prompt
-            ))
+            // Early spawn ack before thread IDs exist — do not count as Created.
+            let key = "\(item.id)|spawnAgent|pending"
+            if collabLifecycleKeys.insert(key).inserted {
+                collabLog.debug("lifecycle emit key=\(key, privacy: .public) title=Spawning agent (pending receivers)")
+                lifecycleEvents.append(CodexAgentLifecycleEvent(
+                    status: .spawning,
+                    title: "Spawning agent",
+                    detail: payload.prompt == "Subagent task" ? "Starting delegated agent." : payload.prompt
+                ))
+            } else {
+                collabLog.debug("lifecycle skip duplicate key=\(key, privacy: .public)")
+            }
             ensureSideChat()
             return CodexAgentItemUpdate(activityTitle: "Subagent spawning", activityDetail: CodexAgentItemParser.previewText(payload.prompt))
         }
 
         guard !payload.receiverThreadIDs.isEmpty else {
+            collabLog.debug(
+                "collab skip lifecycle (no receivers) tool=\(payload.tool, privacy: .public) completed=\(completed)"
+            )
             ensureSideChat()
             return CodexAgentItemUpdate(
                 activityTitle: CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed),
@@ -565,16 +593,81 @@ public struct CodexAgentStateMapper: Sendable {
             )
         }
 
-        let lifecycleStatus = lifecycleStatus(from: status)
-        lifecycleEvents.append(CodexAgentLifecycleEvent(
-            status: lifecycleStatus,
-            title: CodexAgentItemParser.collabLifecycleTitle(tool: payload.tool, completed: completed, status: status, names: names),
-            detail: resultText ?? (payload.prompt == "Subagent task" ? CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed) : payload.prompt),
-            agentNames: names,
-            createdAt: now
-        ))
+        // Spawn/close: emit lifecycle once (prefer completed). item/started + item/completed
+        // both used to append, which 2× "Created N agents" / "Closed N agents".
+        // Wait: emit both start and finish — they are distinct UI moments.
+        let lifecyclePhase: String? = {
+            switch payload.tool {
+            case "spawnAgent":
+                return completed ? "spawn" : nil
+            case "closeAgent":
+                return completed ? "close" : nil
+            case "wait":
+                return completed ? "wait-done" : "wait-start"
+            default:
+                return completed ? "done" : "start"
+            }
+        }()
+
+        if let lifecyclePhase {
+            let key = "\(item.id)|\(payload.tool)|\(lifecyclePhase)"
+            if collabLifecycleKeys.insert(key).inserted {
+                let lifecycleStatus = lifecycleStatus(from: status)
+                let title = CodexAgentItemParser.collabLifecycleTitle(
+                    tool: payload.tool,
+                    completed: completed,
+                    status: status,
+                    names: names
+                )
+                // Never put wait result payloads (full counter dumps) into lifecycle detail.
+                let detail: String = {
+                    switch payload.tool {
+                    case "wait":
+                        return ""
+                    case "spawnAgent":
+                        return payload.prompt == "Subagent task"
+                            ? ""
+                            : CodexAgentItemParser.previewText(payload.prompt)
+                    case "closeAgent":
+                        return ""
+                    default:
+                        return resultText.map { CodexAgentItemParser.previewText($0) }
+                            ?? CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed)
+                    }
+                }()
+
+                let nextLifecycleTotal = lifecycleEvents.count + 1
+                collabLog.debug(
+                    """
+                    lifecycle emit key=\(key, privacy: .public) title=\(title, privacy: .public) \
+                    names=\(names.joined(separator: ","), privacy: .public) nameCount=\(names.count) \
+                    uniqueNames=\(Set(names).count) lifecycleTotal=\(nextLifecycleTotal)
+                    """
+                )
+
+                lifecycleEvents.append(CodexAgentLifecycleEvent(
+                    status: lifecycleStatus,
+                    title: title,
+                    detail: detail,
+                    agentNames: names,
+                    createdAt: now
+                ))
+            } else {
+                collabLog.debug(
+                    "lifecycle skip duplicate key=\(key, privacy: .public) names=\(names.joined(separator: ","), privacy: .public)"
+                )
+            }
+        } else {
+            collabLog.debug(
+                "lifecycle suppressed tool=\(payload.tool, privacy: .public) completed=\(completed) (state upsert only)"
+            )
+        }
+
         ensureSideChat()
-        return CodexAgentItemUpdate(activityTitle: CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed), activityDetail: names.joined(separator: ", "))
+        return CodexAgentItemUpdate(
+            activityTitle: CodexAgentItemParser.humanCollabToolTitle(payload.tool, completed: completed),
+            activityDetail: names.joined(separator: ", ")
+        )
     }
 
     private func subagentDescriptors(from item: ThreadItem) -> [CodexSubagentDescriptor] {
