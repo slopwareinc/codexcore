@@ -306,28 +306,24 @@ public enum CodexLiveTurnModel {
     }
 
     private static func durationLabel(seconds: Int) -> String {
-        if seconds < 60 { return "\(seconds)s" }
-        let minutes = seconds / 60
-        let remainder = seconds % 60
-        if minutes < 60 {
-            return "\(minutes)m " + String(format: "%02ds", remainder)
-        }
-        let hours = minutes / 60
-        return "\(hours)h " + String(format: "%02dm %02ds", minutes % 60, remainder)
+        // Match official app + completed work traces: `1m 8s` (no zero-pad).
+        CodexCompletedWorkTrace.durationLabel(seconds: seconds)
     }
 
     private static func liveStatusPresentation(activity: CodexActivity?, isActive: Bool) -> (title: String, detail: String?) {
+        // Official app: a single chrome line "Working for 23s" while the turn is live.
+        // Activity detail (spawn/wait/etc.) is optional secondary text, not the primary title.
         guard isActive else { return ("Worked", nil) }
-        guard let activity else { return ("Thinking", nil) }
+        guard let activity else { return ("Working", nil) }
 
         let rawTitle = activity.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let rawDetail = activity.detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = normalizedLiveStatusTitle(rawTitle)
-        let detail = liveStatusDetail(rawDetail, title: title)
-        return (title, detail)
+        let detail = liveStatusDetail(rawDetail.isEmpty ? rawTitle : rawDetail, title: "Working")
+        return ("Working", detail)
     }
 
     private static func normalizedLiveStatusTitle(_ title: String) -> String {
+        // Kept for tests / callers that still normalize discrete activity titles.
         switch title {
         case "", "Codex is working", "You asked Codex", "Pursuing goal", "Follow-up queued", "Sending queued follow-up", "Steering turn":
             return "Thinking"

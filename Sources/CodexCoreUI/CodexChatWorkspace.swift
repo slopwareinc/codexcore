@@ -446,6 +446,11 @@ public struct CodexChatWorkspaceView: View {
         return (mountedPanels + [panel]).flatMap(\.browserSessions).filter { seen.insert($0.id).inserted }
     }
 
+    private var mountedFilesSessions: [CodexFilesSession] {
+        var seen = Set<String>()
+        return (mountedPanels + [panel]).compactMap(\.filesSession).filter { seen.insert($0.id).inserted }
+    }
+
     private func agentSidePanel(resizable: Bool) -> some View {
         CodexAgentSidePanel(
             tabs: panelTabs,
@@ -453,8 +458,10 @@ public struct CodexChatWorkspaceView: View {
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
             terminalSessions: panel.terminalSessions,
             browserSessions: panel.browserSessions,
+            filesSessions: panel.filesSession.map { [$0] } ?? [],
             mountedTerminalSessions: mountedTerminalSessions,
             mountedBrowserSessions: mountedBrowserSessions,
+            mountedFilesSessions: mountedFilesSessions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
@@ -462,8 +469,10 @@ public struct CodexChatWorkspaceView: View {
             onInterruptSideChatMessage: onInterruptSideChatMessage,
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
+            onOpenFiles: openFilesTab,
             onCloseTerminal: closeTerminalTab,
             onCloseBrowser: closeBrowserTab,
+            onCloseFiles: closeFilesTab,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
         )
     }
@@ -484,7 +493,10 @@ public struct CodexChatWorkspaceView: View {
 
     private func toggleAgentPanel() {
         if panel.selectedTabID == nil {
-            panel.selectedTabID = panel.terminalSessions.first?.id ?? panel.browserSessions.first?.id ?? panelTabs.first?.id
+            panel.selectedTabID = panel.terminalSessions.first?.id
+                ?? panel.browserSessions.first?.id
+                ?? panel.filesSession?.id
+                ?? panelTabs.first?.id
         }
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen.toggle()
@@ -522,6 +534,17 @@ public struct CodexChatWorkspaceView: View {
 
     private func closeBrowserTab(_ id: String) {
         panel.closeBrowser(id: id, fallbackTabIDs: panelTabs.map(\.id))
+    }
+
+    private func openFilesTab() {
+        panel.openFiles(workspacePath: workspacePath)
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            panel.isAgentPanelOpen = true
+        }
+    }
+
+    private func closeFilesTab(_ id: String) {
+        panel.closeFiles(id: id, fallbackTabIDs: panelTabs.map(\.id))
     }
 }
 

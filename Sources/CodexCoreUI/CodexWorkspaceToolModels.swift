@@ -53,9 +53,9 @@ public enum CodexWorkspaceToolCatalog {
             CodexWorkspaceToolOption(
                 id: filesID,
                 title: "Files",
-                detail: "Not available in CodexCore yet",
+                detail: "Browse this workspace",
                 systemImage: "folder",
-                isEnabled: false
+                isEnabled: true
             ),
             CodexWorkspaceToolOption(
                 id: gitID,

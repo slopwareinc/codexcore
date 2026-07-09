@@ -106,79 +106,66 @@ public struct CodexCommandCard: View {
     }
 
     public var body: some View {
-        CodexCollapsibleCard(
-            isExpanded: $expanded,
-            background: theme.colors.codeBackground,
-            border: theme.colors.border,
-            maxWidth: theme.spacing.cardMaxWidth
-        ) { isExpanded, toggle in
+        VStack(alignment: .leading, spacing: 0) {
             Button {
-                toggle()
+                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
+                    expanded.toggle()
+                }
             } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "terminal.fill")
-                        .font(theme.fonts.label)
-                        .foregroundStyle(theme.colors.codeFaint)
-
-                    Text(run.command)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    // Command only — no "Ran"/"Running" title chrome.
+                    Text(commandText)
                         .font(theme.fonts.code)
-                        .foregroundStyle(theme.colors.codeText)
+                        .foregroundStyle(theme.colors.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    Spacer(minLength: 8)
-
-                    if !isExpanded && hasOutput {
-                        Text(outputSummary)
+                    if let meta = headerMeta {
+                        Text(meta)
                             .font(theme.fonts.micro)
-                            .foregroundStyle(theme.colors.codeFaint)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(theme.colors.surfaceElevated.opacity(0.45), in: Capsule())
+                            .foregroundStyle(statusColor)
+                            .lineLimit(1)
                     }
 
-                    CodexCommandStatusChip(run: run)
+                    Spacer(minLength: 8)
 
                     Image(systemName: "chevron.right")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.codeFaint)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(theme.colors.textTertiary.opacity(0.7))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(theme.colors.codeHeader)
+                .padding(.vertical, 3)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-        } body: {
-            ScrollView(.vertical, showsIndicators: true) {
-                ScrollView(.horizontal, showsIndicators: false) {
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(outputText)
                         .font(theme.fonts.code)
-                        .foregroundStyle(hasOutput ? theme.colors.codeText : theme.colors.codeFaint)
-                        .padding(12)
+                        .foregroundStyle(hasOutput ? theme.colors.textSecondary : theme.colors.textTertiary)
+                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .frame(maxHeight: 240)
 
-            if hasOutput {
-                HStack {
-                    if let cwd = run.cwd, !cwd.isEmpty {
-                        Text(cwd)
-                            .font(theme.fonts.micro)
-                            .foregroundStyle(theme.colors.codeFaint)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                    HStack(spacing: 8) {
+                        if let cwd = run.cwd, !cwd.isEmpty {
+                            Text(cwd)
+                                .font(theme.fonts.micro)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer(minLength: 0)
+                        if hasOutput {
+                            CodexCopyButton(copied: $copied, copyText: run.output)
+                        }
                     }
-                    Spacer()
-                    CodexCopyButton(copied: $copied, copyText: run.output)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(theme.colors.codeHeader)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
             }
         }
+        .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
         .onAppear {
             if run.isStreaming { expanded = true }
         }
@@ -189,6 +176,28 @@ public struct CodexCommandCard: View {
                 expanded = isStreaming
             }
         }
+        .accessibilityLabel(commandText)
+    }
+
+    private var commandText: String {
+        let command = run.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return command.isEmpty ? "command" : command
+    }
+
+    private var headerMeta: String? {
+        if run.isStreaming { return "…" }
+        if let exit = run.exitCode {
+            return exit == 0 ? "exit 0" : "exit \(exit)"
+        }
+        if !run.status.isEmpty { return run.status }
+        return hasOutput ? outputSummary : nil
+    }
+
+    private var statusColor: Color {
+        if run.isStreaming { return theme.colors.running }
+        if let exit = run.exitCode, exit != 0 { return theme.colors.danger }
+        if run.status.localizedCaseInsensitiveContains("fail") { return theme.colors.danger }
+        return theme.colors.textTertiary
     }
 
     private var hasOutput: Bool {
@@ -197,13 +206,13 @@ public struct CodexCommandCard: View {
 
     private var outputText: String {
         if hasOutput { return run.output }
-        return run.isStreaming ? "Running..." : "No output"
+        return run.isStreaming ? "Running…" : "No output"
     }
 
     private var outputSummary: String {
         let lines = run.output.split(whereSeparator: \.isNewline).count
         if lines > 0 { return lines == 1 ? "1 line" : "\(lines) lines" }
-        return run.output.count == 1 ? "1 char" : "\(run.output.count) chars"
+        return "\(run.output.count) chars"
     }
 }
 

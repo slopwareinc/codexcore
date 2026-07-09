@@ -10,62 +10,54 @@ struct CodexTurnWorkingBlock: View {
         TimelineView(.periodic(from: state.startedAt, by: 1)) { timeline in
             let phase = CodexLiveTurnModel.phaseState(for: state, now: timeline.date)
 
-            HStack(spacing: 8) {
+            // Same leading edge as assistant text / Worked-for (no old avatar offset).
+            HStack(alignment: .center, spacing: 6) {
                 Circle()
                     .fill(theme.colors.running)
-                    .frame(width: 7, height: 7)
-                    .frame(width: 14, height: 14)
+                    .frame(width: 6, height: 6)
 
-                Text(phase.title)
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textSecondary)
+                // Official app chrome: "Working for 23s" as one muted phrase.
+                Text("\(phase.title) for \(phase.elapsedLabel)")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
                     .lineLimit(1)
+                    .monospacedDigit()
 
                 if let detail = phase.detail {
                     Text(detail)
                         .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
+                        .foregroundStyle(theme.colors.textTertiary.opacity(0.85))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
 
-                Text(phase.elapsedLabel)
-                    .font(theme.fonts.caption.monospacedDigit())
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
-                    .accessibilityLabel("Elapsed \(phase.elapsedLabel)")
-
                 if let stopTitle = phase.stopTitle {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Text(stopTitle)
                         if let shortcut = phase.stopShortcut {
                             Text(shortcut)
                                 .foregroundStyle(theme.colors.textTertiary)
                         }
                     }
-                    .font(theme.fonts.caption)
+                    .font(theme.fonts.micro)
                     .foregroundStyle(theme.colors.textSecondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
                     .background(theme.colors.surfaceElevated.opacity(theme.effects.textFaintOpacity), in: Capsule())
                 }
 
-                Image(systemName: "chevron.right")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary.opacity(0.72))
+                Spacer(minLength: 0)
             }
-            .padding(.leading, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(accessibilityLabel(for: phase))
         }
     }
 
     private func accessibilityLabel(for phase: CodexLiveTurnPhaseState) -> String {
-        var parts = [phase.title]
+        var parts = ["\(phase.title) for \(phase.elapsedLabel)"]
         if let detail = phase.detail {
             parts.append(detail)
         }
-        parts.append("elapsed \(phase.elapsedLabel)")
         if let stopTitle = phase.stopTitle {
             parts.append([stopTitle, phase.stopShortcut].compactMap(\.self).joined(separator: " "))
         }

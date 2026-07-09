@@ -2,6 +2,8 @@ import Foundation
 import SwiftUI
 import CodexCore
 
+/// Lean tool-call row matching the official Codex activity style:
+/// one muted summary line, expand only for payload detail.
 public struct CodexToolCallCard: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -9,175 +11,110 @@ public struct CodexToolCallCard: View {
 
     @State private var expanded = false
     @State private var copied = false
-    @State private var wrapsOutput = false
 
     public init(toolCall: CodexChatMessage.ToolCall) {
         self.toolCall = toolCall
     }
 
     public var body: some View {
-        CodexCollapsibleCard(
-            isExpanded: $expanded,
-            background: theme.colors.surface.opacity(theme.effects.glassOpacity),
-            border: theme.colors.border.opacity(0.74),
-            maxWidth: theme.spacing.cardMaxWidth
-        ) { isExpanded, toggle in
+        VStack(alignment: .leading, spacing: 0) {
             Button {
-                toggle()
+                guard hasExpandableDetail else { return }
+                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
+                    expanded.toggle()
+                }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: toolCall.isStreaming ? "play.circle" : "checkmark.circle")
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(headerTitle)
                         .font(theme.fonts.caption)
-                        .foregroundStyle(statusColor)
-                        .frame(width: 16, height: 16)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(toolCall.displayName)
-                            .font(theme.fonts.code)
-                            .foregroundStyle(theme.colors.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text(headerSummary)
-                            .font(theme.fonts.caption)
+                    if let subtitle = headerSubtitle {
+                        Text(subtitle)
+                            .font(theme.fonts.micro)
                             .foregroundStyle(theme.colors.textTertiary)
                             .lineLimit(1)
-                            .truncationMode(.tail)
                     }
 
                     Spacer(minLength: 8)
 
-                    Text(timingLabel)
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
-
-                    Image(systemName: "chevron.right")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    if hasExpandableDetail {
+                        Image(systemName: "chevron.right")
+                            .font(theme.fonts.micro)
+                            .foregroundStyle(theme.colors.textTertiary.opacity(0.7))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                    }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(theme.colors.surfaceElevated.opacity(0.28))
+                .padding(.vertical, 3)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-        } body: {
-            VStack(alignment: .leading, spacing: 8) {
-                if !toolCall.arguments.isEmpty {
-                    detailBlock(title: "arguments", text: toolCall.arguments)
-                }
-                if !toolCall.progress.isEmpty {
-                    detailBlock(title: "progress", text: toolCall.progress.joined(separator: "\n"))
-                }
-                if !toolCall.result.isEmpty {
-                    detailBlock(title: "result", text: toolCall.result)
-                }
-                if let error = toolCall.error, !error.isEmpty {
-                    detailBlock(title: "error", text: error, isError: true)
-                }
-                if toolCall.copyText.isEmpty {
-                    Text(toolCall.isStreaming ? "Waiting for tool output..." : "No output")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(theme.colors.codeBackground)
-                }
-            }
-            .padding(8)
-            .background(theme.colors.codeBackground)
+            .disabled(!hasExpandableDetail)
 
-            if !toolCall.copyText.isEmpty {
-                HStack(spacing: 10) {
-                    Text(statusText)
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(statusColor)
-                    Spacer()
-                    Button {
-                        wrapsOutput.toggle()
-                    } label: {
-                        Image(systemName: wrapsOutput ? "text.line.first.and.arrowtriangle.forward" : "text.alignleft")
-                            .font(theme.fonts.caption)
-                            .foregroundStyle(theme.colors.codeFaint)
+            if expanded, hasExpandableDetail {
+                VStack(alignment: .leading, spacing: 6) {
+                    if !toolCall.arguments.isEmpty {
+                        leanDetail(label: "args", text: toolCall.arguments)
                     }
-                    .buttonStyle(.plain)
-                    .help(wrapsOutput ? "Disable wrapping" : "Wrap output")
-                    CodexCopyButton(copied: $copied, copyText: toolCall.copyText)
+                    if !toolCall.progress.isEmpty {
+                        leanDetail(label: "progress", text: toolCall.progress.joined(separator: "\n"))
+                    }
+                    if !toolCall.result.isEmpty {
+                        leanDetail(label: "result", text: toolCall.result)
+                    }
+                    if let error = toolCall.error, !error.isEmpty {
+                        leanDetail(label: "error", text: error, isError: true)
+                    }
+                    if !toolCall.copyText.isEmpty {
+                        HStack {
+                            Spacer(minLength: 0)
+                            CodexCopyButton(copied: $copied, copyText: toolCall.copyText)
+                        }
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(theme.colors.codeHeader)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
             }
         }
+        .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+        .accessibilityLabel(headerTitle)
     }
 
-    private func detailBlock(title: String, text: String, isError: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(title)
-                    .font(theme.fonts.micro)
-                    .foregroundStyle(isError ? theme.colors.danger : theme.colors.codeFaint)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(theme.colors.codeHeader)
-
-            outputText(text, isError: isError)
-        }
-        .background(theme.colors.codeBackground)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.72), lineWidth: 1)
-        )
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private var headerTitle: String {
+        // Tool name only — no "Ran"/"Running" title chrome.
+        let name = toolCall.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return toolCall.isStreaming ? "tool" : "tool" }
+        return name
     }
 
-    @ViewBuilder
-    private func outputText(_ text: String, isError: Bool) -> some View {
-        if wrapsOutput {
+    private var headerSubtitle: String? {
+        if toolCall.isStreaming { return "…" }
+        if toolCall.error != nil { return "failed" }
+        if let duration = formattedDuration { return duration }
+        return nil
+    }
+
+    private var hasExpandableDetail: Bool {
+        !toolCall.arguments.isEmpty
+            || !toolCall.progress.isEmpty
+            || !toolCall.result.isEmpty
+            || !(toolCall.error ?? "").isEmpty
+    }
+
+    private func leanDetail(label: String, text: String, isError: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(theme.fonts.micro)
+                .foregroundStyle(isError ? theme.colors.danger : theme.colors.textTertiary)
             Text(text)
                 .font(theme.fonts.code)
-                .foregroundStyle(isError ? theme.colors.danger : theme.colors.codeText)
-                .padding(10)
+                .foregroundStyle(isError ? theme.colors.danger : theme.colors.textSecondary)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(text)
-                    .font(theme.fonts.code)
-                    .foregroundStyle(isError ? theme.colors.danger : theme.colors.codeText)
-                    .padding(10)
-                    .fixedSize(horizontal: true, vertical: true)
-            }
         }
-    }
-
-    private var headerSummary: String {
-        if toolCall.isStreaming { return "Running \(toolCall.displayName)" }
-        if toolCall.error != nil { return "Tool call failed" }
-        return "Ran \(toolCall.displayName)"
-    }
-
-    private var timingLabel: String {
-        if let duration = formattedDuration {
-            return toolCall.isStreaming ? "Running for \(duration)" : "Ran for \(duration)"
-        }
-        return toolCall.isStreaming ? "Running" : "Ran"
-    }
-
-    private var statusText: String {
-        if toolCall.isStreaming { return "running" }
-        if toolCall.error != nil { return "failed" }
-        return toolCall.status.isEmpty ? "done" : toolCall.status
-    }
-
-    private var statusColor: Color {
-        if toolCall.isStreaming { return theme.colors.running }
-        if toolCall.error != nil || toolCall.status.localizedCaseInsensitiveContains("fail") { return theme.colors.danger }
-        return theme.colors.success
+        .padding(.vertical, 4)
     }
 
     private var formattedDuration: String? {

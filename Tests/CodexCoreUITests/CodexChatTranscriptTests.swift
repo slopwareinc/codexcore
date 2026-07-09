@@ -32,7 +32,8 @@ final class CodexChatTranscriptTests: XCTestCase {
 
         let trace = try XCTUnwrap(CodexCompletedWorkTrace.project(from: messages))
 
-        XCTAssertEqual(trace.title, "Worked for 4s")
+        // Duration is turn-scoped: user/start → final answer (official app stopwatch).
+        XCTAssertEqual(trace.title, "Worked for 5s")
         XCTAssertTrue(trace.isCollapsedByDefault)
         XCTAssertEqual(trace.groups.map(\.title), [
             "Ran commands",
@@ -77,7 +78,7 @@ final class CodexChatTranscriptTests: XCTestCase {
             isMessageRef(item, role: .assistant, in: messages)
         })
 
-        XCTAssertEqual(trace.title, "Worked for 4s")
+        XCTAssertEqual(trace.title, "Worked for 5s")
         XCTAssertTrue(trace.isCollapsedByDefault)
         XCTAssertTrue(visibleOperationMessages.isEmpty)
         XCTAssertLessThan(traceIndex, assistantMessageIndex)
@@ -401,12 +402,13 @@ final class CodexChatTranscriptTests: XCTestCase {
         XCTAssertEqual(fixture.lifecycleEvents.count, 240)
         XCTAssertEqual(Set(assistantMessages.map(\.id)).count, fixture.turnCount)
         XCTAssertEqual(assistantMessages.count, fixture.turnCount)
+        // Completed turns collapse tools + collab lifecycle under Worked-for traces.
         XCTAssertEqual(operationAggregates.count, 0)
         XCTAssertEqual(fileChangeAggregates.count, 0)
         XCTAssertEqual(completedWorkTraces.count, fixture.turnCount)
+        // user + final assistant only (ops/lifecycle absorbed into traces)
         XCTAssertEqual(detailedMessages.count, fixture.turnCount * 2)
-        XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, fixture.lifecycleEvents.count)
-        XCTAssertTrue(lifecycleGroups.allSatisfy { $0.count <= CodexTranscriptTimelineBuilder.maxGroupedLifecycleEvents })
+        XCTAssertEqual(lifecycleGroups.reduce(0) { $0 + $1.count }, 0)
         XCTAssertLessThanOrEqual(timeline.count, fixture.messages.count + fixture.lifecycleEvents.count)
     }
 
