@@ -13,6 +13,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
     @Published public var terminalSessions: [CodexTerminalSession] = []
     @Published public var browserSessions: [CodexBrowserSession] = []
     @Published public var filesSession: CodexFilesSession?
+    @Published public var filePreviewSessions: [CodexFilePreviewSession] = []
     @Published public var isAgentPanelOpen: Bool = false
     @Published public var selectedTabID: String?
     @Published public var panelWidth: CGFloat
@@ -26,6 +27,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
 
     public var hasOpenTools: Bool {
         !terminalSessions.isEmpty || !browserSessions.isEmpty || filesSession != nil
+            || !filePreviewSessions.isEmpty
     }
 
     // MARK: - Tool lifecycle
@@ -88,6 +90,29 @@ public final class CodexWorkspacePanelState: ObservableObject {
         }
     }
 
+    /// Opens a file (optionally at a ref) as its own preview tab, or reselects
+    /// the existing tab for that file/ref combination.
+    @discardableResult
+    public func openFilePreview(fileURL: URL, ref: String? = nil) -> String {
+        let id = CodexFilePreviewSession.identity(fileURL: fileURL, ref: ref)
+        if let existing = filePreviewSessions.first(where: { $0.id == id }) {
+            selectedTabID = existing.id
+            return existing.id
+        }
+        let session = CodexFilePreviewSession(fileURL: fileURL, ref: ref)
+        filePreviewSessions.append(session)
+        selectedTabID = session.id
+        return session.id
+    }
+
+    public func closeFilePreview(id: String, fallbackTabIDs: [String]) {
+        guard let index = filePreviewSessions.firstIndex(where: { $0.id == id }) else { return }
+        filePreviewSessions.remove(at: index)
+        if selectedTabID == id {
+            selectedTabID = firstAvailableTabID(fallbackTabIDs)
+        }
+    }
+
     /// Tear down every live session. Called when the store evicts this chat or
     /// the chat is closed/deleted.
     public func purge() {
@@ -95,6 +120,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
         browserSessions.removeAll()
         terminalSessions.removeAll()
         filesSession = nil
+        filePreviewSessions.removeAll()
         selectedTabID = nil
         isAgentPanelOpen = false
     }
@@ -103,6 +129,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
         terminalSessions.first?.id
             ?? browserSessions.first?.id
             ?? filesSession?.id
+            ?? filePreviewSessions.first?.id
             ?? fallbackTabIDs.first
     }
 }
