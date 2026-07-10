@@ -64,6 +64,7 @@ final class CodexCoreAppModel {
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
+    private(set) var threadHistoryPaginationState: CodexThreadHistoryPaginationState = .idle
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     private var chatSelectionGeneration = 0
     var isThreadLoading = false
@@ -1073,6 +1074,7 @@ final class CodexCoreAppModel {
         shouldApply: () -> Bool = { true }
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
+        threadHistoryPaginationState = .loading
         do {
             let result = try await CodexThreadHistorySession.load(
                 threadID: thread.id,
@@ -1088,6 +1090,10 @@ final class CodexCoreAppModel {
             span?.end(metadata: metadata)
             return result
         } catch {
+            threadHistoryPaginationState = CodexThreadHistoryPaginationState(
+                phase: .failed,
+                errorMessage: friendlyError(error)
+            )
             span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
             return nil
@@ -1102,6 +1108,7 @@ final class CodexCoreAppModel {
         shouldApply: () -> Bool = { true }
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
+        threadHistoryPaginationState = .loading
         do {
             let parentRaw = try resume.rawResponse()
             let result = await CodexThreadHistorySession.load(
@@ -1118,6 +1125,10 @@ final class CodexCoreAppModel {
             span?.end(metadata: metadata)
             return result
         } catch {
+            threadHistoryPaginationState = CodexThreadHistoryPaginationState(
+                phase: .failed,
+                errorMessage: friendlyError(error)
+            )
             span?.end(metadata: ["threadID": resume.thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
             return nil
@@ -1201,6 +1212,7 @@ final class CodexCoreAppModel {
         _ result: CodexThreadHistoryRestoreResult,
         trace: CodexPerformanceTrace?
     ) -> [String: String] {
+        threadHistoryPaginationState = result.paginationState
         let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
         let activity = runtimeSession.applyHistoryRestore(result)
         appendActivity(activity.kind, title: activity.title, detail: activity.detail)

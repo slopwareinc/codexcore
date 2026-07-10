@@ -1,19 +1,55 @@
 import Foundation
 import CodexCore
 
+public struct CodexThreadHistoryPaginationState: Sendable, Equatable {
+    public enum Phase: Sendable, Equatable {
+        case idle
+        case loading
+        case loaded
+        case unavailable
+        case failed
+    }
+
+    public var phase: Phase
+    public var nextCursorByTurnID: [String: String]
+    public var loadedItemCount: Int
+    public var errorMessage: String?
+
+    public init(
+        phase: Phase = .idle,
+        nextCursorByTurnID: [String: String] = [:],
+        loadedItemCount: Int = 0,
+        errorMessage: String? = nil
+    ) {
+        self.phase = phase
+        self.nextCursorByTurnID = nextCursorByTurnID
+        self.loadedItemCount = loadedItemCount
+        self.errorMessage = errorMessage
+    }
+
+    public var isLoading: Bool { phase == .loading }
+    public var hasMore: Bool { !nextCursorByTurnID.isEmpty }
+
+    public static let idle = CodexThreadHistoryPaginationState()
+    public static let loading = CodexThreadHistoryPaginationState(phase: .loading)
+}
+
 public struct CodexThreadHistoryRestoreResult: Sendable {
     public var snapshot: CodexThreadHistorySnapshot
     public var hydration: CodexThreadHistoryHydrationResult
     public var restoredChildThreadCount: Int
+    public var paginationState: CodexThreadHistoryPaginationState
 
     public init(
         snapshot: CodexThreadHistorySnapshot,
         hydration: CodexThreadHistoryHydrationResult,
-        restoredChildThreadCount: Int = 0
+        restoredChildThreadCount: Int = 0,
+        paginationState: CodexThreadHistoryPaginationState = .idle
     ) {
         self.snapshot = snapshot
         self.hydration = hydration
         self.restoredChildThreadCount = restoredChildThreadCount
+        self.paginationState = paginationState
     }
 
     public var messageCount: Int {
@@ -138,9 +174,11 @@ public enum CodexThreadHistorySession {
         trace: CodexPerformanceTrace? = nil,
         activateParent: Bool = true
     ) async -> CodexThreadHistoryRestoreResult {
-        let result = await restore(parentRaw: parentRaw, trace: trace) { childThreadID in
+        let pagination = await paginatedParentRaw(parentRaw, using: codex, trace: trace)
+        var result = await restore(parentRaw: pagination.raw, trace: trace) { childThreadID in
             try await readThreadRaw(threadID: childThreadID, using: codex)
         }
+        result.paginationState = pagination.state
         return await hydrateStore(result, using: codex, trace: trace, activateParent: activateParent)
     }
 
@@ -191,6 +229,114 @@ public enum CodexThreadHistorySession {
 
     private static func readThreadRaw(threadID: String, using codex: Codex) async throws -> CodexJSONValue {
         try CodexJSONValue(encoding: await codex.threadReadSchema(threadID, includeTurns: true))
+    }
+
+    private static func paginatedParentRaw(
+        _ parentRaw: CodexJSONValue,
+        using codex: Codex,
+        trace: CodexPerformanceTrace?
+    ) async -> (raw: CodexJSONValue, state: CodexThreadHistoryPaginationState) {
+        await paginate(parentRaw: parentRaw, trace: trace) { threadID, turnID, cursor in
+            try await codex.threadItemsList(
+                threadId: threadID,
+                turnId: turnID,
+                cursor: cursor,
+                limit: 100,
+                sortDirection: .asc
+            )
+        }
+    }
+
+    static func paginate(
+        parentRaw: CodexJSONValue,
+        trace: CodexPerformanceTrace? = nil,
+        loadPage: (String, String, String?) async throws -> CodexSchemaThreadItemsListResponse
+    ) async -> (raw: CodexJSONValue, state: CodexThreadHistoryPaginationState) {
+        guard case .dictionary(var response) = parentRaw else { return (parentRaw, .idle) }
+        let wrapsThread = response["thread"] != nil
+        guard case .dictionary(var thread) = wrapsThread ? response["thread"] : parentRaw,
+              Self.string(thread["historyMode"]) == "paginated",
+              let threadID = Self.string(thread["id"]),
+              case .array(var turns)? = thread["turns"] else {
+            return (parentRaw, .idle)
+        }
+
+        let span = trace?.begin("threadHistory.items.paginate", metadata: ["threadID": threadID])
+        var loadedItemCount = 0
+        var nextCursorByTurnID: [String: String] = [:]
+
+        do {
+            for turnIndex in turns.indices {
+                guard case .dictionary(var turn) = turns[turnIndex],
+                      let turnID = Self.string(turn["id"]) else { continue }
+                let existingItems: [CodexJSONValue]
+                if case .array(let items)? = turn["items"] { existingItems = items } else { existingItems = [] }
+
+                var pagedItems: [CodexJSONValue] = []
+                var cursor: String?
+                var seenCursors: Set<String> = []
+                repeat {
+                    let page = try await loadPage(threadID, turnID, cursor)
+                    pagedItems.append(contentsOf: page.data.map(\.rawValue))
+                    loadedItemCount += page.data.count
+                    cursor = page.nextCursor
+                    if let cursor {
+                        guard seenCursors.insert(cursor).inserted else {
+                            throw CodexSDKError.invalidResponse(
+                                method: CodexAppServerClientMethod.threadItemsList.rawValue,
+                                value: .string("repeated cursor \(cursor)")
+                            )
+                        }
+                        nextCursorByTurnID[turnID] = cursor
+                    } else {
+                        nextCursorByTurnID.removeValue(forKey: turnID)
+                    }
+                } while cursor != nil
+
+                turn["items"] = .array(mergeItems(pagedItems, with: existingItems))
+                turn["itemsView"] = .string("full")
+                turns[turnIndex] = .dictionary(turn)
+            }
+        } catch {
+            let message = String(describing: error)
+            span?.end(metadata: ["threadID": threadID, "outcome": "fallback", "error": message])
+            let phase: CodexThreadHistoryPaginationState.Phase = isMethodUnavailable(error) ? .unavailable : .failed
+            return (
+                parentRaw,
+                CodexThreadHistoryPaginationState(
+                    phase: phase,
+                    nextCursorByTurnID: nextCursorByTurnID,
+                    loadedItemCount: 0,
+                    errorMessage: message
+                )
+            )
+        }
+
+        thread["turns"] = .array(turns)
+        if wrapsThread { response["thread"] = .dictionary(thread) } else { response = thread }
+        span?.end(metadata: ["threadID": threadID, "outcome": "success", "itemCount": "\(loadedItemCount)"])
+        return (
+            .dictionary(response),
+            CodexThreadHistoryPaginationState(phase: .loaded, loadedItemCount: loadedItemCount)
+        )
+    }
+
+    private static func mergeItems(_ pagedItems: [CodexJSONValue], with existingItems: [CodexJSONValue]) -> [CodexJSONValue] {
+        var seenIDs: Set<String> = []
+        return (pagedItems + existingItems).filter { item in
+            guard case .dictionary(let object) = item, let id = string(object["id"]) else { return true }
+            return seenIDs.insert(id).inserted
+        }
+    }
+
+    private static func string(_ value: CodexJSONValue?) -> String? {
+        guard case .string(let value)? = value else { return nil }
+        return value
+    }
+
+    private static func isMethodUnavailable(_ error: Error) -> Bool {
+        let description = String(describing: error).lowercased()
+        return description.contains("method not found") || description.contains("-32601")
     }
 
     private static func metadata(for result: CodexThreadHistoryRestoreResult) -> [String: String] {
