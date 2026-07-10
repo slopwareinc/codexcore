@@ -145,6 +145,32 @@ public enum CodexApprovalKind: String, Codable, Sendable {
     case permissions
 }
 
+public struct CodexCommandAction: Codable, Sendable, Equatable {
+    public let type: String
+    public let command: String
+    public let name: String?
+    public let path: String?
+    public let query: String?
+
+    public init(type: String, command: String, name: String? = nil, path: String? = nil, query: String? = nil) {
+        self.type = type
+        self.command = command
+        self.name = name
+        self.path = path
+        self.query = query
+    }
+}
+
+public struct CodexNetworkApprovalContext: Codable, Sendable, Equatable {
+    public let host: String
+    public let `protocol`: String
+
+    public init(host: String, protocol: String) {
+        self.host = host
+        self.protocol = `protocol`
+    }
+}
+
 public struct CodexApprovalRequest: Codable, Sendable, Identifiable, Equatable {
     public var id: String { requestId.description }
     public let requestId: CodexJSONValue
@@ -152,11 +178,22 @@ public struct CodexApprovalRequest: Codable, Sendable, Identifiable, Equatable {
     public let threadId: String
     public let turnId: String
     public let itemId: String
+    public let approvalId: String?
     public let command: String?
     public let path: String?
     public let grantRoot: String?
     public let cwd: String?
     public let reason: String?
+    public let startedAtMs: Int?
+    public let environmentId: String?
+    public let availableDecisions: [CodexCommandApprovalDecision]?
+    public let commandActions: [CodexCommandAction]?
+    /// Experimental per-command sandbox access requested by the server. Kept
+    /// losslessly as JSON because this upstream profile is still evolving.
+    public let additionalPermissions: CodexJSONValue?
+    public let networkApprovalContext: CodexNetworkApprovalContext?
+    public let proposedExecpolicyAmendment: [String]?
+    public let proposedNetworkPolicyAmendments: [CodexNetworkPolicyAmendment]?
 
     public init(
         requestId: CodexJSONValue,
@@ -164,22 +201,40 @@ public struct CodexApprovalRequest: Codable, Sendable, Identifiable, Equatable {
         threadId: String,
         turnId: String,
         itemId: String,
+        approvalId: String? = nil,
         command: String? = nil,
         path: String? = nil,
         grantRoot: String? = nil,
         cwd: String? = nil,
-        reason: String? = nil
+        reason: String? = nil,
+        startedAtMs: Int? = nil,
+        environmentId: String? = nil,
+        availableDecisions: [CodexCommandApprovalDecision]? = nil,
+        commandActions: [CodexCommandAction]? = nil,
+        additionalPermissions: CodexJSONValue? = nil,
+        networkApprovalContext: CodexNetworkApprovalContext? = nil,
+        proposedExecpolicyAmendment: [String]? = nil,
+        proposedNetworkPolicyAmendments: [CodexNetworkPolicyAmendment]? = nil
     ) {
         self.requestId = requestId
         self.kind = kind
         self.threadId = threadId
         self.turnId = turnId
         self.itemId = itemId
+        self.approvalId = approvalId
         self.command = command
         self.path = path
         self.grantRoot = grantRoot
         self.cwd = cwd
         self.reason = reason
+        self.startedAtMs = startedAtMs
+        self.environmentId = environmentId
+        self.availableDecisions = availableDecisions
+        self.commandActions = commandActions
+        self.additionalPermissions = additionalPermissions
+        self.networkApprovalContext = networkApprovalContext
+        self.proposedExecpolicyAmendment = proposedExecpolicyAmendment
+        self.proposedNetworkPolicyAmendments = proposedNetworkPolicyAmendments
     }
 }
 

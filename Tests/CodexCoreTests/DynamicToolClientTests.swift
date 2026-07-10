@@ -60,7 +60,7 @@ final class DynamicToolClientTests: XCTestCase {
             "params": {
                 "threadId": "thread-mock",
                 "turnId": "turn-mock",
-                "itemId": "item-tool",
+                "callId": "call-tool",
                 "tool": "record_project_event",
                 "arguments": { "title": "Started" }
             }

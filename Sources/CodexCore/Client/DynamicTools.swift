@@ -28,7 +28,11 @@ public struct CodexDynamicToolCall: Sendable, Equatable {
     public var requestID: CodexJSONValue
     public var threadID: String?
     public var turnID: String?
-    public var itemID: String?
+    public var callID: String
+    /// Compatibility alias for clients built against the former SDK model.
+    /// Current `item/tool/call` wire payloads identify the call with `callId`.
+    @available(*, deprecated, renamed: "callID", message: "Current item/tool/call payloads use callId.")
+    public var itemID: String? { callID }
     public var tool: String
     public var arguments: CodexJSONValue?
     public var params: [String: CodexJSONValue]
@@ -44,7 +48,10 @@ public struct CodexDynamicToolCall: Sendable, Equatable {
         self.requestID = serverRequest.id
         self.threadID = Self.stringValue(serverRequest.params["threadId"])
         self.turnID = Self.stringValue(serverRequest.params["turnId"])
-        self.itemID = Self.stringValue(serverRequest.params["itemId"])
+        guard let callID = Self.stringValue(serverRequest.params["callId"]) else {
+            return nil
+        }
+        self.callID = callID
         self.tool = tool
         self.arguments = serverRequest.params["arguments"]
         self.params = serverRequest.params

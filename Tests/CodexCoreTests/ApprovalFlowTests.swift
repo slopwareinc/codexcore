@@ -29,9 +29,30 @@ final class ApprovalFlowTests: XCTestCase {
                 "threadId": "thread-mock",
                 "turnId": "turn-mock",
                 "itemId": "item-1",
+                "approvalId": "approval-1",
+                "startedAtMs": 1700000000123,
+                "environmentId": "environment-1",
                 "command": "rm -rf /tmp/scratch",
                 "cwd": "/tmp",
-                "reason": "cleanup"
+                "reason": "cleanup",
+                "commandActions": [
+                    {"type": "unknown", "command": "rm -rf /tmp/scratch"}
+                ],
+                "additionalPermissions": {
+                    "network": {"enabled": true},
+                    "fileSystem": {"write": ["/tmp/scratch"]}
+                },
+                "networkApprovalContext": {"host": "example.com", "protocol": "https"},
+                "proposedExecpolicyAmendment": ["rm", "-rf", "/tmp/scratch"],
+                "proposedNetworkPolicyAmendments": [
+                    {"action": "allow", "host": "example.com"}
+                ],
+                "availableDecisions": [
+                    "accept",
+                    {"acceptWithExecpolicyAmendment": {"execpolicy_amendment": ["rm", "-rf"]}},
+                    {"applyNetworkPolicyAmendment": {"network_policy_amendment": {"action": "allow", "host": "example.com"}}},
+                    "decline"
+                ]
             }
         }
         """
@@ -105,6 +126,28 @@ final class ApprovalFlowTests: XCTestCase {
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending.first?.kind, .command)
         XCTAssertEqual(pending.first?.command, "rm -rf /tmp/scratch")
+        XCTAssertEqual(pending.first?.itemId, "item-1")
+        XCTAssertEqual(pending.first?.approvalId, "approval-1")
+        XCTAssertEqual(pending.first?.startedAtMs, 1_700_000_000_123)
+        XCTAssertEqual(pending.first?.environmentId, "environment-1")
+        XCTAssertEqual(pending.first?.commandActions, [
+            CodexCommandAction(type: "unknown", command: "rm -rf /tmp/scratch")
+        ])
+        XCTAssertEqual(pending.first?.networkApprovalContext, .init(host: "example.com", protocol: "https"))
+        XCTAssertEqual(pending.first?.proposedExecpolicyAmendment, ["rm", "-rf", "/tmp/scratch"])
+        XCTAssertEqual(pending.first?.proposedNetworkPolicyAmendments, [
+            .init(action: .allow, host: "example.com")
+        ])
+        XCTAssertEqual(pending.first?.availableDecisions, [
+            .accept,
+            .acceptWithExecpolicyAmendment(["rm", "-rf"]),
+            .applyNetworkPolicyAmendment(.init(action: .allow, host: "example.com")),
+            .decline
+        ])
+        XCTAssertEqual(pending.first?.additionalPermissions, .dictionary([
+            "network": .dictionary(["enabled": .bool(true)]),
+            "fileSystem": .dictionary(["write": .array([.string("/tmp/scratch")])])
+        ]))
 
         // ...and no reply may be sent while the decision is outstanding.
         try? await Task.sleep(for: .milliseconds(100))
@@ -120,6 +163,70 @@ final class ApprovalFlowTests: XCTestCase {
 
         let remaining = await store.pendingApprovals
         XCTAssertTrue(remaining.isEmpty, "resolved approvals must clear from the store")
+    }
+
+    func testAskPolicyReturnsStructuredCommandApprovalDecision() async throws {
+        let (client, store, transport) = try await makeClient(policy: .ask)
+        await injectCommandApproval(transport, requestId: 100)
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while await store.pendingApprovals.isEmpty, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let pendingApprovals = await store.pendingApprovals
+        let pending = try XCTUnwrap(pendingApprovals.first)
+        let resolved = await client.resolveCommandApproval(
+            requestId: pending.id,
+            decision: .applyNetworkPolicyAmendment(.init(action: .allow, host: "example.com"))
+        )
+        XCTAssertTrue(resolved)
+
+        let response = await waitForReply(in: transport, requestId: 100)
+        guard case .dictionary(let result)? = response?["result"] else {
+            return XCTFail("unexpected approval response: \(String(describing: response))")
+        }
+        XCTAssertEqual(result["decision"], .dictionary([
+            "applyNetworkPolicyAmendment": .dictionary([
+                "network_policy_amendment": .dictionary([
+                    "action": .string("allow"),
+                    "host": .string("example.com")
+                ])
+            ])
+        ]))
+    }
+
+    func testHighLevelCodexFacadeReturnsStructuredCommandApprovalDecision() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let codex = try await Codex(
+            transport: transport,
+            store: store,
+            config: CodexConfig(approvalPolicy: .ask)
+        )
+        await injectCommandApproval(transport, requestId: 101)
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while await store.pendingApprovals.isEmpty, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let pendingApprovals = await store.pendingApprovals
+        let pending = try XCTUnwrap(pendingApprovals.first)
+        let resolved = await codex.respondToCommandApproval(
+            id: pending.id,
+            decision: .acceptWithExecpolicyAmendment(["rm", "-rf"])
+        )
+        XCTAssertTrue(resolved)
+
+        let response = await waitForReply(in: transport, requestId: 101)
+        guard case .dictionary(let result)? = response?["result"] else {
+            return XCTFail("unexpected approval response: \(String(describing: response))")
+        }
+        XCTAssertEqual(result["decision"], .dictionary([
+            "acceptWithExecpolicyAmendment": .dictionary([
+                "execpolicy_amendment": .array([.string("rm"), .string("-rf")])
+            ])
+        ]))
+        await codex.close()
     }
 
     func testAskPolicyUserInputRoundTrip() async throws {
