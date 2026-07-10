@@ -72,7 +72,8 @@ public actor CodexClient {
         clientName: String = "CodexCoreSwift",
         clientTitle: String = "Codex Core Swift Native SDK",
         clientVersion: String = "1.0.0",
-        experimentalAPI: Bool = true
+        experimentalAPI: Bool = true,
+        capabilities: InitializeCapabilities? = nil
     ) async throws -> InitializeResponse {
         stopNotificationConsumer()
 
@@ -89,6 +90,7 @@ public actor CodexClient {
             clientTitle: clientTitle,
             clientVersion: clientVersion,
             experimentalAPI: experimentalAPI,
+            capabilities: capabilities,
             onNotification: { notification in
                 continuation.yield(notification)
             },
@@ -288,6 +290,34 @@ public actor CodexClient {
             method: CodexAppServerClientMethod.threadList.rawValue,
             params: params,
             response: CodexSchemaThreadListResponse.self
+        )
+    }
+
+    public func threadItemsList(
+        threadId: String,
+        turnId: String? = nil,
+        cursor: String? = nil,
+        limit: Int? = nil,
+        sortDirection: CodexSchemaSortDirection? = nil
+    ) async throws -> CodexSchemaThreadItemsListResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.threadItemsList.rawValue,
+            params: CodexSchemaThreadItemsListParams(
+                cursor: cursor,
+                limit: limit,
+                sortDirection: sortDirection,
+                threadID: threadId,
+                turnID: turnId
+            ),
+            response: CodexSchemaThreadItemsListResponse.self
+        )
+    }
+
+    public func environmentInfo(environmentId: String) async throws -> CodexSchemaEnvironmentInfoResponse {
+        try await connection.request(
+            method: CodexAppServerClientMethod.environmentInfo.rawValue,
+            params: CodexSchemaEnvironmentInfoParams(environmentID: environmentId),
+            response: CodexSchemaEnvironmentInfoResponse.self
         )
     }
 

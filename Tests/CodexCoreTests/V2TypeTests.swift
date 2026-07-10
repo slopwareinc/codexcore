@@ -2,6 +2,50 @@ import XCTest
 @testable import CodexCore
 
 final class V2TypeTests: XCTestCase {
+    func testCurrentThreadAndTurnOptionsEncodeWithWireNames() throws {
+        let start = ThreadStartParams(
+            cwd: "/tmp/project",
+            allowProviderModelFallback: true,
+            historyMode: .paginated,
+            permissions: "workspace",
+            runtimeWorkspaceRoots: ["/tmp/project"]
+        )
+        let startValue = try CodexJSONValue(encoding: start)
+        let startObject = try XCTUnwrap(startValue.objectValue)
+        XCTAssertEqual(startObject["allowProviderModelFallback"], CodexJSONValue.bool(true))
+        XCTAssertEqual(startObject["historyMode"], CodexJSONValue.string("paginated"))
+        XCTAssertEqual(startObject["permissions"], CodexJSONValue.string("workspace"))
+        XCTAssertEqual(startObject["runtimeWorkspaceRoots"], CodexJSONValue.array([.string("/tmp/project")]))
+
+        let list = ThreadListParams(ancestorThreadId: "ancestor", parentThreadId: nil)
+        let listValue = try CodexJSONValue(encoding: list)
+        XCTAssertEqual(try XCTUnwrap(listValue.objectValue)["ancestorThreadId"], CodexJSONValue.string("ancestor"))
+
+        let turn = TurnStartParams(
+            threadId: "thread-1",
+            input: [.text("hello")],
+            clientUserMessageId: "message-1",
+            permissions: "workspace",
+            runtimeWorkspaceRoots: ["/tmp/project"]
+        )
+        let turnValue = try CodexJSONValue(encoding: turn)
+        let turnObject = try XCTUnwrap(turnValue.objectValue)
+        XCTAssertEqual(turnObject["clientUserMessageId"], CodexJSONValue.string("message-1"))
+        XCTAssertEqual(turnObject["permissions"], CodexJSONValue.string("workspace"))
+        XCTAssertEqual(turnObject["runtimeWorkspaceRoots"], CodexJSONValue.array([.string("/tmp/project")]))
+    }
+
+    func testInitializeResponseDecodesCodexHome() throws {
+        let response = try CodexJSONValue.dictionary([
+            "codexHome": .string("/tmp/codex-home"),
+            "platformFamily": .string("unix"),
+            "platformOs": .string("macos"),
+            "userAgent": .string("codex-cli/0.144.1")
+        ]).decode(InitializeResponse.self)
+
+        XCTAssertEqual(response.codexHome, "/tmp/codex-home")
+    }
+
     func testInputWireMappingMatchesPythonSDK() {
         XCTAssertEqual(CodexInput.text("hi").jsonValue, .dictionary(["type": .string("text"), "text": .string("hi")]))
         XCTAssertEqual(CodexInput.image(url: "https://example.com/a.png").jsonValue, .dictionary(["type": .string("image"), "url": .string("https://example.com/a.png")]))

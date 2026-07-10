@@ -27,12 +27,40 @@ public struct InitializeResponse: Codable, Sendable, Equatable {
     public var userAgent: String?
     public var platformFamily: String?
     public var platformOs: String?
+    public var codexHome: String?
 
-    public init(serverInfo: ServerInfo? = nil, userAgent: String? = nil, platformFamily: String? = nil, platformOs: String? = nil) {
+    public init(serverInfo: ServerInfo? = nil, userAgent: String? = nil, platformFamily: String? = nil, platformOs: String? = nil, codexHome: String? = nil) {
         self.serverInfo = serverInfo
         self.userAgent = userAgent
         self.platformFamily = platformFamily
         self.platformOs = platformOs
+        self.codexHome = codexHome
+    }
+}
+
+public struct InitializeCapabilities: Codable, Sendable, Equatable {
+    public var experimentalAPI: Bool?
+    public var mcpServerOpenAIFormElicitation: Bool?
+    public var optOutNotificationMethods: [String]?
+    public var requestAttestation: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case experimentalAPI = "experimentalApi"
+        case mcpServerOpenAIFormElicitation = "mcpServerOpenaiFormElicitation"
+        case optOutNotificationMethods
+        case requestAttestation
+    }
+
+    public init(
+        experimentalAPI: Bool? = nil,
+        mcpServerOpenAIFormElicitation: Bool? = nil,
+        optOutNotificationMethods: [String]? = nil,
+        requestAttestation: Bool? = nil
+    ) {
+        self.experimentalAPI = experimentalAPI
+        self.mcpServerOpenAIFormElicitation = mcpServerOpenAIFormElicitation
+        self.optOutNotificationMethods = optOutNotificationMethods
+        self.requestAttestation = requestAttestation
     }
 }
 
@@ -86,6 +114,7 @@ public enum ReasoningEffort: String, Codable, Sendable, Equatable {
     case medium
     case high
     case xhigh
+    case ultra
 }
 
 public enum ReasoningSummary: String, Codable, Sendable, Equatable {
@@ -160,6 +189,11 @@ public enum ThreadStartSource: String, Codable, Sendable, Equatable {
     case clear
 }
 
+public enum ThreadHistoryMode: String, Codable, Sendable, Equatable {
+    case legacy
+    case paginated
+}
+
 public enum CodexInput: Sendable, Equatable {
     case text(String)
     case image(url: String)
@@ -189,6 +223,7 @@ public enum CodexInput: Sendable, Equatable {
 public typealias CodexRunInput = [CodexInput]
 
 public struct ThreadStartParams: Codable, Sendable, Equatable {
+    public var allowProviderModelFallback: Bool?
     public var approvalPolicy: AskForApproval?
     public var approvalsReviewer: ApprovalsReviewer?
     public var baseInstructions: String?
@@ -196,11 +231,18 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
     public var cwd: String?
     public var developerInstructions: String?
     public var dynamicTools: [CodexDynamicToolSpec]?
+    public var environments: [CodexSchemaTurnEnvironmentParams]?
     public var ephemeral: Bool?
+    public var experimentalRawEvents: Bool?
+    public var historyMode: ThreadHistoryMode?
     public var model: String?
     public var modelProvider: String?
+    public var multiAgentMode: CodexSchemaMultiAgentMode?
+    public var permissions: String?
     public var personality: Personality?
+    public var runtimeWorkspaceRoots: [String]?
     public var sandbox: SandboxMode?
+    public var selectedCapabilityRoots: [CodexSchemaSelectedCapabilityRoot]?
     public var serviceName: String?
     public var serviceTier: String?
     public var sessionStartSource: ThreadStartSource?
@@ -222,8 +264,17 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
         serviceName: String? = nil,
         serviceTier: String? = nil,
         sessionStartSource: ThreadStartSource? = nil,
-        threadSource: ThreadSource? = nil
+        threadSource: ThreadSource? = nil,
+        allowProviderModelFallback: Bool? = nil,
+        environments: [CodexSchemaTurnEnvironmentParams]? = nil,
+        experimentalRawEvents: Bool? = nil,
+        historyMode: ThreadHistoryMode? = nil,
+        multiAgentMode: CodexSchemaMultiAgentMode? = nil,
+        permissions: String? = nil,
+        runtimeWorkspaceRoots: [String]? = nil,
+        selectedCapabilityRoots: [CodexSchemaSelectedCapabilityRoot]? = nil
     ) {
+        self.allowProviderModelFallback = allowProviderModelFallback
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.baseInstructions = baseInstructions
@@ -231,11 +282,18 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
         self.cwd = cwd
         self.developerInstructions = developerInstructions
         self.dynamicTools = dynamicTools
+        self.environments = environments
         self.ephemeral = ephemeral
+        self.experimentalRawEvents = experimentalRawEvents
+        self.historyMode = historyMode
         self.model = model
         self.modelProvider = modelProvider
+        self.multiAgentMode = multiAgentMode
+        self.permissions = permissions
         self.personality = personality
+        self.runtimeWorkspaceRoots = runtimeWorkspaceRoots
         self.sandbox = sandbox
+        self.selectedCapabilityRoots = selectedCapabilityRoots
         self.serviceName = serviceName
         self.serviceTier = serviceTier
         self.sessionStartSource = sessionStartSource
@@ -251,14 +309,34 @@ public struct ThreadResumeParams: Codable, Sendable, Equatable {
     public var config: [String: CodexJSONValue]?
     public var cwd: String?
     public var developerInstructions: String?
+    public var excludeTurns: Bool?
+    public var history: [CodexJSONValue]?
+    public var initialTurnsPage: CodexSchemaThreadResumeInitialTurnsPageParams?
     public var model: String?
     public var modelProvider: String?
+    public var path: String?
+    public var permissions: String?
     public var personality: Personality?
+    public var runtimeWorkspaceRoots: [String]?
     public var sandbox: SandboxMode?
     public var serviceTier: String?
 
-    public init(threadId: String? = nil) {
+    public init(
+        threadId: String? = nil,
+        excludeTurns: Bool? = nil,
+        history: [CodexJSONValue]? = nil,
+        initialTurnsPage: CodexSchemaThreadResumeInitialTurnsPageParams? = nil,
+        path: String? = nil,
+        permissions: String? = nil,
+        runtimeWorkspaceRoots: [String]? = nil
+    ) {
         self.threadId = threadId
+        self.excludeTurns = excludeTurns
+        self.history = history
+        self.initialTurnsPage = initialTurnsPage
+        self.path = path
+        self.permissions = permissions
+        self.runtimeWorkspaceRoots = runtimeWorkspaceRoots
     }
 }
 
@@ -271,14 +349,31 @@ public struct ThreadForkParams: Codable, Sendable, Equatable {
     public var cwd: String?
     public var developerInstructions: String?
     public var ephemeral: Bool?
+    public var excludeTurns: Bool?
+    public var lastTurnId: String?
     public var model: String?
     public var modelProvider: String?
+    public var path: String?
+    public var permissions: String?
+    public var runtimeWorkspaceRoots: [String]?
     public var sandbox: SandboxMode?
     public var serviceTier: String?
     public var threadSource: ThreadSource?
 
-    public init(threadId: String? = nil) {
+    public init(
+        threadId: String? = nil,
+        excludeTurns: Bool? = nil,
+        lastTurnId: String? = nil,
+        path: String? = nil,
+        permissions: String? = nil,
+        runtimeWorkspaceRoots: [String]? = nil
+    ) {
         self.threadId = threadId
+        self.excludeTurns = excludeTurns
+        self.lastTurnId = lastTurnId
+        self.path = path
+        self.permissions = permissions
+        self.runtimeWorkspaceRoots = runtimeWorkspaceRoots
     }
 }
 
@@ -304,11 +399,13 @@ public enum ThreadListCwdFilter: Codable, Sendable, Equatable {
 }
 
 public struct ThreadListParams: Codable, Sendable, Equatable {
+    public var ancestorThreadId: String?
     public var archived: Bool?
     public var cursor: String?
     public var cwd: ThreadListCwdFilter?
     public var limit: Int?
     public var modelProviders: [String]?
+    public var parentThreadId: String?
     public var searchTerm: String?
     public var sortDirection: SortDirection?
     public var sortKey: ThreadSortKey?
@@ -317,10 +414,12 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case archived
+        case ancestorThreadId
         case cursor
         case cwd
         case limit
         case modelProviders
+        case parentThreadId
         case searchTerm
         case sortDirection
         case sortKey
@@ -338,13 +437,17 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
         sortDirection: SortDirection? = nil,
         sortKey: ThreadSortKey? = nil,
         sourceKinds: [ThreadSourceKind]? = nil,
-        useStateDBOnly: Bool? = nil
+        useStateDBOnly: Bool? = nil,
+        ancestorThreadId: String? = nil,
+        parentThreadId: String? = nil
     ) {
+        self.ancestorThreadId = ancestorThreadId
         self.archived = archived
         self.cursor = cursor
         self.cwd = cwd
         self.limit = limit
         self.modelProviders = modelProviders
+        self.parentThreadId = parentThreadId
         self.searchTerm = searchTerm
         self.sortDirection = sortDirection
         self.sortKey = sortKey
@@ -354,22 +457,49 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
 }
 
 public struct TurnStartParams: Codable, Sendable, Equatable {
+    public var additionalContext: [String: CodexSchemaAdditionalContextEntry]?
     public var threadId: String
     public var input: [CodexJSONValue]
     public var approvalPolicy: AskForApproval?
     public var approvalsReviewer: ApprovalsReviewer?
+    public var clientUserMessageId: String?
+    public var collaborationMode: CodexSchemaCollaborationMode?
     public var cwd: String?
     public var effort: ReasoningEffort?
+    public var environments: [CodexSchemaTurnEnvironmentParams]?
     public var model: String?
+    public var multiAgentMode: CodexSchemaMultiAgentMode?
     public var outputSchema: CodexJSONValue?
+    public var permissions: String?
     public var personality: Personality?
+    public var responsesapiClientMetadata: [String: String]?
+    public var runtimeWorkspaceRoots: [String]?
     public var sandboxPolicy: CodexJSONValue?
     public var serviceTier: String?
     public var summary: ReasoningSummary?
 
-    public init(threadId: String, input: [CodexInput]) {
+    public init(
+        threadId: String,
+        input: [CodexInput],
+        additionalContext: [String: CodexSchemaAdditionalContextEntry]? = nil,
+        clientUserMessageId: String? = nil,
+        collaborationMode: CodexSchemaCollaborationMode? = nil,
+        environments: [CodexSchemaTurnEnvironmentParams]? = nil,
+        multiAgentMode: CodexSchemaMultiAgentMode? = nil,
+        permissions: String? = nil,
+        responsesapiClientMetadata: [String: String]? = nil,
+        runtimeWorkspaceRoots: [String]? = nil
+    ) {
         self.threadId = threadId
         self.input = input.map(\.jsonValue)
+        self.additionalContext = additionalContext
+        self.clientUserMessageId = clientUserMessageId
+        self.collaborationMode = collaborationMode
+        self.environments = environments
+        self.multiAgentMode = multiAgentMode
+        self.permissions = permissions
+        self.responsesapiClientMetadata = responsesapiClientMetadata
+        self.runtimeWorkspaceRoots = runtimeWorkspaceRoots
     }
 }
 
