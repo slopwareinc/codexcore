@@ -47,6 +47,7 @@ final class CodexCoreAppModel {
     private(set) var gitBranch: String?
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
     private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
+    private(set) var environmentInfoState: CodexEnvironmentInfoState = .unavailable
 
     private var codex: Codex?
     var authSession = CodexAuthSession()
@@ -122,7 +123,10 @@ final class CodexCoreAppModel {
                 clientName: "codex_core_app",
                 clientTitle: "CodexCore App",
                 clientVersion: "1.0.0",
-                approvalPolicy: .ask
+                approvalPolicy: .ask,
+                initializeCapabilities: InitializeCapabilities(
+                    mcpServerOpenAIFormElicitation: true
+                )
             )
             let codex = try await Codex(config: config, serverRequestHandler: { [weak self] request in
                 // MCP elicitations are not covered by the approval policy;
@@ -141,7 +145,9 @@ final class CodexCoreAppModel {
             runtimeSession.consumeGlobalNotifications(from: codex)
             bindApprovalStore(from: codex.store)
             let server = codex.metadata.serverInfo?.name ?? "Codex"
-            authSession.connected(server: server)
+            // Codex construction does not return until initialize + initialized
+            // complete, so ready is never exposed during the wire handshake.
+            authSession.connectedAfterHandshake(server: server)
             accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
 
             do {
@@ -183,6 +189,7 @@ final class CodexCoreAppModel {
         workspacePanel.removeAll()
         accountRateLimitsSnapshot = nil
         gitBranch = nil
+        environmentInfoState = .unavailable
         let codex = self.codex
         self.codex = nil
         await codex?.close()
@@ -421,8 +428,19 @@ final class CodexCoreAppModel {
     private func refreshConnectedSession(using codex: Codex) async throws {
         await refreshStartupCatalogs(using: codex)
         await refreshRecentChats(using: codex)
+        await refreshRemoteEnvironment(using: codex)
         try await refreshRateLimits(using: codex)
         refreshGitBranch()
+    }
+
+    private func refreshRemoteEnvironment(using codex: Codex) async {
+        let provider = CodexAppServerRemoteControlProvider(codex: codex)
+        guard let status = try? await provider.readStatus() else {
+            environmentInfoState = .unavailable
+            return
+        }
+        mobileRouteSession.apply(status: status)
+        await refreshEnvironmentInfo(environmentID: status.environmentID)
     }
 
     private func refreshRateLimits(using codex: Codex) async throws {
@@ -554,7 +572,29 @@ final class CodexCoreAppModel {
         var session = mobileRouteSession
         let activity = await session.refreshStatus(provider: provider)
         mobileRouteSession = session
+        await refreshEnvironmentInfo(environmentID: session.state.status.environmentID)
         appendActivity(activity)
+    }
+
+    private func refreshEnvironmentInfo(environmentID: String?) async {
+        guard let codex, let environmentID = environmentID?.nilIfBlank else {
+            environmentInfoState = .unavailable
+            return
+        }
+        environmentInfoState = .loading
+        do {
+            let info = try await codex.environmentInfo(environmentId: environmentID)
+            environmentInfoState = .available(
+                cwd: info.cwd.flatMap { value in
+                    guard case .string(let cwd) = value.rawValue else { return nil }
+                    return cwd
+                },
+                shellName: info.shell.name,
+                shellPath: info.shell.path
+            )
+        } catch {
+            environmentInfoState = .failed(friendlyError(error))
+        }
     }
 
     func openMobilePermissionGate() {
@@ -1470,7 +1510,8 @@ final class CodexCoreAppModel {
         CodexWorkspaceSummaryContext(
             workspacePath: workspacePath,
             gitBranch: gitBranch,
-            turnDiff: currentDiff
+            turnDiff: currentDiff,
+            environmentInfo: environmentInfoState
         )
     }
 

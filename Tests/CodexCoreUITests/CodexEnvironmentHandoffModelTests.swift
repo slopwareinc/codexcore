@@ -141,7 +141,8 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
             CodexProjectEnvironmentPanelRow(title: "Mode", value: "Local"),
             CodexProjectEnvironmentPanelRow(title: "Branch", value: "main"),
             CodexProjectEnvironmentPanelRow(title: "Path", value: "/Users/me/repo"),
-            CodexProjectEnvironmentPanelRow(title: "Usage", value: "80% remaining")
+            CodexProjectEnvironmentPanelRow(title: "Usage", value: "80% remaining"),
+            CodexProjectEnvironmentPanelRow(title: "Runtime", value: "Unavailable")
         ])
 
         session.prepareModal(threadTitle: "Review PR #42")
@@ -150,6 +151,26 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
             threadTitle: "Review PR #42",
             sourcePath: "/Users/me/repo",
             targetPath: "/Users/me/repo-worktrees/review-pr-42"
+        ))
+    }
+
+    func testEnvironmentPanelRowsRepresentRuntimeLoadingAvailableAndFailure() {
+        var environment = CodexProjectEnvironmentState(workspacePath: "/repo", runtimeInfo: .loading)
+        var session = CodexProjectEnvironmentPanelSession(environment: environment)
+        XCTAssertEqual(session.rows.last, CodexProjectEnvironmentPanelRow(title: "Runtime", value: "Loading…"))
+
+        environment.runtimeInfo = .available(cwd: "/remote/repo", shellName: "zsh", shellPath: "/bin/zsh")
+        session.environment = environment
+        XCTAssertEqual(Array(session.rows.suffix(2)), [
+            CodexProjectEnvironmentPanelRow(title: "Shell", value: "zsh · /bin/zsh"),
+            CodexProjectEnvironmentPanelRow(title: "CWD", value: "/remote/repo")
+        ])
+
+        environment.runtimeInfo = .failed("environment disconnected")
+        session.environment = environment
+        XCTAssertEqual(session.rows.last, CodexProjectEnvironmentPanelRow(
+            title: "Runtime",
+            value: "Error · environment disconnected"
         ))
     }
 

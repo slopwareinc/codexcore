@@ -63,8 +63,15 @@ public struct CodexAuthSession: Equatable, Sendable {
         }
     }
 
-    public mutating func connected(server: String) {
+    /// Marks the session ready. Hosts must call this only after the SDK's
+    /// initialize/initialized handshake has returned successfully.
+    public mutating func connectedAfterHandshake(server: String) {
         connectionState = .connected(server: server)
+    }
+
+    @available(*, deprecated, renamed: "connectedAfterHandshake(server:)")
+    public mutating func connected(server: String) {
+        connectedAfterHandshake(server: server)
     }
 
     public mutating func connectionFailed(message: String) -> CodexActivity {

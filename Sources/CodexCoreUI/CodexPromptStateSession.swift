@@ -264,7 +264,10 @@ public actor CodexInteractivePromptBridge {
 
     public func resolveUserInput(id: String, answers: [String: String]) {
         guard let pending = pendingPrompts.removeValue(forKey: id) else { return }
-        pending.continuation.resume(returning: pending.prompt.userInputResponse(answers: answers))
+        let response = pending.prompt.kind == .mcpElicitation
+            ? pending.prompt.elicitationResponse(answers: answers)
+            : pending.prompt.userInputResponse(answers: answers)
+        pending.continuation.resume(returning: response)
         eventContinuation?.yield(.resolved(id))
     }
 

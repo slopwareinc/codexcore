@@ -356,7 +356,11 @@ final class CodexPromptStateSessionTests: XCTestCase {
         await fulfillment(of: [resolvedExpectation], timeout: 1)
         XCTAssertTrue(runtime.interactivePrompts.isEmpty)
         let response = await responseTask.value
-        XCTAssertEqual(response, .dictionary(["answers": .dictionary(["confirm": .string("yes")])]))
+        XCTAssertEqual(response, .dictionary([
+            "action": .string("accept"),
+            "content": .dictionary([:]),
+            "_meta": .null
+        ]))
 
         runtime.reset()
         await runtime.cancelAllPrompts()

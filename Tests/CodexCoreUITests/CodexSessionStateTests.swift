@@ -49,7 +49,7 @@ final class CodexSessionStateTests: XCTestCase {
 
         XCTAssertTrue(session.beginConnecting())
         XCTAssertFalse(session.beginConnecting())
-        session.connected(server: "Codex")
+        session.connectedAfterHandshake(server: "Codex")
         XCTAssertTrue(session.isConnected)
         XCTAssertEqual(session.serverName, "Codex")
 

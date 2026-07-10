@@ -402,7 +402,7 @@ private struct CodexInteractivePromptRow: View {
                 Spacer(minLength: 0)
             }
 
-            if prompt.kind == .userInput {
+            if prompt.kind == .userInput || prompt.requiresElicitationForm {
                 ForEach(prompt.questions) { question in
                     questionEditor(question)
                 }
@@ -431,17 +431,21 @@ private struct CodexInteractivePromptRow: View {
                 Spacer(minLength: 0)
 
                 Button {
-                    if prompt.kind == .userInput {
+                    if prompt.kind == .userInput || prompt.requiresElicitationForm {
                         onSubmit(prompt.id, answers)
                     } else {
                         onAccept(prompt.id)
                     }
                 } label: {
-                    Label(prompt.kind == .userInput ? "Submit" : "Allow", systemImage: "checkmark")
+                    Label(prompt.kind == .userInput || prompt.requiresElicitationForm ? "Submit" : "Allow", systemImage: "checkmark")
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .disabled(
+                    prompt.kind == .mcpElicitation
+                        && (!prompt.canAcceptElicitation || !prompt.isElicitationSubmissionValid(answers: answers))
+                )
                 .disabled(prompt.kind == .userInput && !hasRequiredAnswers)
             }
         }

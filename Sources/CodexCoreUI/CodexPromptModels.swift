@@ -499,6 +499,8 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
             let request = Self.dictionaryValue(params["request"])
             let message = request.flatMap { Self.string(in: $0, keys: ["message", "prompt"]) }
                 ?? Self.string(in: params, keys: ["message", "prompt"])
+            let questions = request.flatMap(Self.elicitationQuestions(from:)) ?? []
+            let schemaSupported = request.map(Self.isSupportedElicitationSchema(in:)) ?? true
             let title: String
             if let serverName, !serverName.isEmpty {
                 title = "\(serverName) request"
@@ -510,8 +512,11 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 method: serverRequest.method,
                 kind: .mcpElicitation,
                 title: title,
-                detail: message ?? "An MCP server is requesting input.",
+                detail: schemaSupported
+                    ? (message ?? "An MCP server is requesting input.")
+                    : "\(message ?? "An MCP server is requesting input.") This form contains unsupported fields and can only be declined.",
                 serverName: serverName,
+                questions: questions,
                 createdAt: createdAt,
                 rawParams: params
             )
@@ -537,6 +542,48 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
             "content": content,
             "_meta": meta
         ])
+    }
+
+    public var canAcceptElicitation: Bool {
+        guard kind == .mcpElicitation else { return false }
+        guard let request = Self.dictionaryValue(rawParams["request"]) else { return true }
+        return Self.isSupportedElicitationSchema(in: request)
+    }
+
+    public var requiresElicitationForm: Bool {
+        kind == .mcpElicitation && !questions.isEmpty
+    }
+
+    public func isElicitationSubmissionValid(answers: [String: String]) -> Bool {
+        guard canAcceptElicitation,
+              let request = Self.dictionaryValue(rawParams["request"]),
+              let schema = Self.elicitationSchema(from: request),
+              case .array(let required)? = schema["required"] else {
+            return canAcceptElicitation
+        }
+        return required.allSatisfy { value in
+            guard case .string(let key) = value else { return false }
+            return answers[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+    }
+
+    public func elicitationResponse(answers: [String: String]) -> CodexJSONValue {
+        guard let request = Self.dictionaryValue(rawParams["request"]),
+              let schema = Self.elicitationSchema(from: request),
+              case .dictionary(let properties)? = schema["properties"] else {
+            return acceptElicitationResponse()
+        }
+        var content: [String: CodexJSONValue] = [:]
+        for (key, answer) in answers where !answer.isEmpty {
+            guard case .dictionary(let property)? = properties[key] else { continue }
+            switch Self.stringValue(property["type"]) {
+            case "boolean": content[key] = .bool(["true", "yes", "1"].contains(answer.lowercased()))
+            case "integer": content[key] = Int(answer).map(CodexJSONValue.int) ?? .string(answer)
+            case "number": content[key] = Double(answer).map(CodexJSONValue.double) ?? .string(answer)
+            default: content[key] = .string(answer)
+            }
+        }
+        return acceptElicitationResponse(content: .dictionary(content))
     }
 
     public func declineResponse() -> CodexJSONValue {
@@ -578,6 +625,58 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 header: optionalString(question["header"]),
                 isSecret: boolValue(question["isSecret"]),
                 isOtherAllowed: boolValue(question["isOther"]),
+                options: options
+            )
+        }
+    }
+
+    private static func elicitationSchema(from request: [String: CodexJSONValue]) -> [String: CodexJSONValue]? {
+        dictionaryValue(request["requestedSchema"])
+            ?? dictionaryValue(request["requested_schema"])
+            ?? dictionaryValue(request["schema"])
+    }
+
+    private static func isSupportedElicitationSchema(in request: [String: CodexJSONValue]) -> Bool {
+        guard let schema = elicitationSchema(from: request),
+              case .dictionary(let properties)? = schema["properties"] else { return true }
+        return properties.values.allSatisfy { value in
+            guard case .dictionary(let property) = value else { return false }
+            let type = stringValue(property["type"])
+            return ["string", "boolean"].contains(type)
+        }
+    }
+
+    private static func elicitationQuestions(from request: [String: CodexJSONValue]) -> [CodexUserInputQuestion] {
+        guard isSupportedElicitationSchema(in: request),
+              let schema = elicitationSchema(from: request),
+              case .dictionary(let properties)? = schema["properties"] else { return [] }
+        let required: Set<String>
+        if case .array(let values)? = schema["required"] {
+            required = Set(values.compactMap { value in
+                guard case .string(let key) = value else { return nil }
+                return key
+            })
+        } else {
+            required = []
+        }
+        return properties.keys.sorted().compactMap { key in
+            guard case .dictionary(let property)? = properties[key] else { return nil }
+            let label = optionalString(property["title"]) ?? key
+            let options: [CodexUserInputOption]
+            if case .array(let values)? = property["enum"] {
+                options = values.compactMap { value in
+                    let label = stringValue(value)
+                    return label.isEmpty ? nil : CodexUserInputOption(label: label)
+                }
+            } else if stringValue(property["type"]) == "boolean" {
+                options = [CodexUserInputOption(label: "true"), CodexUserInputOption(label: "false")]
+            } else {
+                options = []
+            }
+            return CodexUserInputQuestion(
+                id: key,
+                question: optionalString(property["description"]) ?? label,
+                header: required.contains(key) ? "\(label) (required)" : label,
                 options: options
             )
         }

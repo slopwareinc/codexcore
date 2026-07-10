@@ -197,4 +197,55 @@ final class CodexPromptParsingTests: XCTestCase {
             "_meta": .null
         ]))
     }
+
+    func testParsesCurrentOpenAIFormAndDeclinesUnsupportedFields() throws {
+        let form = JSONRPCServerRequest(
+            id: .int(7),
+            method: CodexAppServerServerRequestMethod.mcpServerElicitationRequest.rawValue,
+            params: [
+                "serverName": .string("calendar"),
+                "request": .dictionary([
+                    "message": .string("Choose event details"),
+                    "requestedSchema": .dictionary([
+                        "type": .string("object"),
+                        "properties": .dictionary([
+                            "title": .dictionary(["type": .string("string"), "title": .string("Title")]),
+                            "private": .dictionary(["type": .string("boolean"), "title": .string("Private")])
+                        ]),
+                        "required": .array([.string("title")])
+                    ])
+                ])
+            ]
+        )
+        let prompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: form))
+        XCTAssertTrue(prompt.requiresElicitationForm)
+        XCTAssertTrue(prompt.canAcceptElicitation)
+        XCTAssertEqual(prompt.questions.map(\.id), ["private", "title"])
+        XCTAssertFalse(prompt.isElicitationSubmissionValid(answers: ["private": "true"]))
+        XCTAssertTrue(prompt.isElicitationSubmissionValid(answers: ["private": "true", "title": "Demo"]))
+        XCTAssertEqual(prompt.elicitationResponse(answers: ["private": "true", "title": "Demo"]), .dictionary([
+            "action": .string("accept"),
+            "content": .dictionary(["private": .bool(true), "title": .string("Demo")]),
+            "_meta": .null
+        ]))
+
+        let unsupported = try XCTUnwrap(CodexInteractivePrompt(serverRequest: JSONRPCServerRequest(
+            id: .int(8),
+            method: form.method,
+            params: [
+                "request": .dictionary([
+                    "message": .string("Upload data"),
+                    "requestedSchema": .dictionary([
+                        "type": .string("object"),
+                        "properties": .dictionary([
+                            "payload": .dictionary(["type": .string("object")])
+                        ])
+                    ])
+                ])
+            ]
+        )))
+        XCTAssertFalse(unsupported.canAcceptElicitation)
+        XCTAssertFalse(unsupported.requiresElicitationForm)
+        XCTAssertTrue(unsupported.detail.contains("can only be declined"))
+    }
 }
