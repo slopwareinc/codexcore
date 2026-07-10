@@ -40,6 +40,7 @@ public actor CodexClient {
     private var pendingCommandApprovalContinuations: [String: CheckedContinuation<CodexCommandApprovalDecision, Never>] = [:]
     private var pendingApprovalTurnIds: [String: String] = [:]
     private var pendingUserInputContinuations: [String: CheckedContinuation<CodexUserInputAnswers, Never>] = [:]
+    private var pendingUserInputTurnIds: [String: String] = [:]
 
     public init(
         transport: any CodexTransport,
@@ -695,6 +696,7 @@ public actor CodexClient {
         guard let continuation = pendingUserInputContinuations.removeValue(forKey: requestId) else {
             return false
         }
+        pendingUserInputTurnIds.removeValue(forKey: requestId)
         continuation.resume(returning: answers)
         return true
     }
@@ -717,6 +719,7 @@ public actor CodexClient {
 
         let inputs = pendingUserInputContinuations
         pendingUserInputContinuations = [:]
+        pendingUserInputTurnIds = [:]
         for continuation in inputs.values {
             continuation.resume(returning: [:])
         }
@@ -727,6 +730,10 @@ public actor CodexClient {
         let requestIds = pendingApprovalTurnIds.filter { $0.value == turnId }.map(\.key)
         for requestId in requestIds {
             resolveApproval(requestId: requestId, decision: .cancel)
+        }
+        let userInputRequestIds = pendingUserInputTurnIds.filter { $0.value == turnId }.map(\.key)
+        for requestId in userInputRequestIds {
+            resolveUserInput(requestId: requestId, answers: [:])
         }
     }
 
@@ -1047,12 +1054,13 @@ public actor CodexClient {
             let requestKey = request.id
             let answers = await withCheckedContinuation { (continuation: CheckedContinuation<CodexUserInputAnswers, Never>) in
                 pendingUserInputContinuations[requestKey] = continuation
+                pendingUserInputTurnIds[requestKey] = request.turnId
                 Task { @MainActor [store] in
                     store.dispatchRequest(request)
                 }
             }
             await MainActor.run {
-                store.resolveUserInput()
+                store.resolveUserInput(requestKey)
             }
             return answers
         }

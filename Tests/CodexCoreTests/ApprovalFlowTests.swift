@@ -59,6 +59,30 @@ final class ApprovalFlowTests: XCTestCase {
         await transport.receiveMessage(request)
     }
 
+    private func injectUserInput(
+        _ transport: MockTransport,
+        requestId: Int,
+        threadId: String,
+        turnId: String,
+        itemId: String
+    ) async {
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "id": \(requestId),
+            "method": "item/tool/requestUserInput",
+            "params": {
+                "threadId": "\(threadId)",
+                "turnId": "\(turnId)",
+                "itemId": "\(itemId)",
+                "questions": [
+                    {"id": "q-\(requestId)", "question": "Question \(requestId)?"}
+                ]
+            }
+        }
+        """)
+    }
+
     /// Finds the JSON-RPC reply sent for a server request id, if any.
     private func reply(in transport: MockTransport, requestId: Int) async -> [String: CodexJSONValue]? {
         let payloads = await transport.sentPayloads
@@ -269,6 +293,69 @@ final class ApprovalFlowTests: XCTestCase {
 
         let cleared = await store.pendingUserInput
         XCTAssertNil(cleared)
+    }
+
+    func testConcurrentUserInputsRemainOrderedAndResolveByRequestID() async throws {
+        let (client, store, transport) = try await makeClient(policy: .ask)
+        defer { Task { await client.disconnect() } }
+
+        await injectUserInput(transport, requestId: 21, threadId: "thread-a", turnId: "turn-a", itemId: "item-a")
+        await injectUserInput(transport, requestId: 22, threadId: "thread-b", turnId: "turn-b", itemId: "item-b")
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while await store.pendingUserInputs.count < 2, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let pending = await store.pendingUserInputs
+        XCTAssertEqual(pending.map(\.id), ["21", "22"])
+
+        let resolvedSecond = await client.resolveUserInput(requestId: "22", answers: ["q-22": ["second"]])
+        XCTAssertTrue(resolvedSecond)
+        let secondReply = await waitForReply(in: transport, requestId: 22)
+        XCTAssertNotNil(secondReply)
+
+        let secondResolutionDeadline = Date().addingTimeInterval(2.0)
+        while await store.pendingUserInputs.count == 2, Date() < secondResolutionDeadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let remaining = await store.pendingUserInputs
+        XCTAssertEqual(remaining.map(\.id), ["21"])
+        let firstEarlyReply = await reply(in: transport, requestId: 21)
+        XCTAssertNil(firstEarlyReply)
+
+        let resolvedFirst = await client.resolveUserInput(requestId: "21", answers: ["q-21": ["first"]])
+        XCTAssertTrue(resolvedFirst)
+        let firstReply = await waitForReply(in: transport, requestId: 21)
+        XCTAssertNotNil(firstReply)
+    }
+
+    func testInterruptCancelsOnlyUserInputsOwnedByThatTurn() async throws {
+        let (client, store, transport) = try await makeClient(policy: .ask)
+        defer { Task { await client.disconnect() } }
+
+        await injectUserInput(transport, requestId: 31, threadId: "thread-a", turnId: "turn-a", itemId: "item-a")
+        await injectUserInput(transport, requestId: 32, threadId: "thread-b", turnId: "turn-b", itemId: "item-b")
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while await store.pendingUserInputs.count < 2, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        _ = try await client.turnInterrupt(threadId: "thread-a", turnId: "turn-a")
+        let interruptedReply = await waitForReply(in: transport, requestId: 31)
+        XCTAssertNotNil(interruptedReply)
+
+        let interruptDeadline = Date().addingTimeInterval(2.0)
+        while await store.pendingUserInputs.count == 2, Date() < interruptDeadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let remaining = await store.pendingUserInputs
+        XCTAssertEqual(remaining.map(\.id), ["32"])
+        let otherReply = await reply(in: transport, requestId: 32)
+        XCTAssertNil(otherReply)
+
+        let resolvedOther = await client.resolveUserInput(requestId: "32", answers: [:])
+        XCTAssertTrue(resolvedOther)
     }
 
     func testCancelPendingServerRequestsResolvesCancel() async throws {

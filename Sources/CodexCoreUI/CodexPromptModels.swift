@@ -430,6 +430,9 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
     public var title: String
     public var detail: String
     public var serverName: String?
+    public var threadId: String?
+    public var turnId: String?
+    public var itemId: String?
     public var questions: [CodexUserInputQuestion]
     public var createdAt: Date
     public var rawParams: [String: CodexJSONValue]
@@ -441,6 +444,9 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
         title: String,
         detail: String,
         serverName: String? = nil,
+        threadId: String? = nil,
+        turnId: String? = nil,
+        itemId: String? = nil,
         questions: [CodexUserInputQuestion] = [],
         createdAt: Date = Date(),
         rawParams: [String: CodexJSONValue] = [:]
@@ -451,6 +457,9 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
         self.title = title
         self.detail = detail
         self.serverName = serverName
+        self.threadId = threadId
+        self.turnId = turnId
+        self.itemId = itemId
         self.questions = questions
         self.createdAt = createdAt
         self.rawParams = rawParams
@@ -466,6 +475,9 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
             kind: .userInput,
             title: "Input needed",
             detail: request.questions.first?.question ?? "Codex needs more information to continue.",
+            threadId: request.threadId,
+            turnId: request.turnId,
+            itemId: request.itemId,
             questions: request.questions,
             createdAt: createdAt
         )
@@ -478,6 +490,9 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
 
         let params = serverRequest.params
         let id = "\(serverRequest.method):\(serverRequest.id.description)"
+        let threadId = Self.optionalString(params["threadId"])
+        let turnId = Self.optionalString(params["turnId"])
+        let itemId = Self.optionalString(params["itemId"])
 
         switch method {
         case .itemToolRequestUserInput:
@@ -489,13 +504,15 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 kind: .userInput,
                 title: "Input needed",
                 detail: firstQuestion ?? "Codex needs more information to continue.",
+                threadId: threadId,
+                turnId: turnId,
+                itemId: itemId,
                 questions: questions,
                 createdAt: createdAt,
                 rawParams: params
             )
         case .mcpServerElicitationRequest:
             let serverName = Self.optionalString(params["serverName"])
-            let threadId = Self.optionalString(params["threadId"])
             let mode = Self.optionalString(params["mode"])
             let message = Self.optionalString(params["message"])
             guard let serverName, !serverName.isEmpty,
@@ -520,6 +537,9 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                     ? message
                     : "\(message) This form contains unsupported fields and can only be declined.",
                 serverName: serverName,
+                threadId: threadId,
+                turnId: turnId,
+                itemId: itemId,
                 questions: questions,
                 createdAt: createdAt,
                 rawParams: params

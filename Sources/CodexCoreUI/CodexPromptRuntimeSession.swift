@@ -128,8 +128,8 @@ public final class CodexPromptRuntimeSession {
     ) {
         withObservationTracking {
             let approvals = store.pendingApprovals
-            let userInput = store.pendingUserInput
-            for activity in promptSession.sync(approvalRequests: approvals, userInput: userInput) {
+            let userInputs = store.pendingUserInputs
+            for activity in promptSession.sync(approvalRequests: approvals, userInputs: userInputs) {
                 onActivity(activity)
             }
         } onChange: { [weak self] in

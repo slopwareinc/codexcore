@@ -116,7 +116,7 @@ final class CodexCoreAppModel {
         startInteractivePromptEventListener()
         do {
             // `.ask` publishes approvals and user-input questions to
-            // `codex.store.pendingApprovals` / `pendingUserInput` and suspends
+            // `codex.store.pendingApprovals` / `pendingUserInputs` and suspends
             // the server reply until this app answers them.
             let config = CodexConfig(
                 cwd: workspacePath,

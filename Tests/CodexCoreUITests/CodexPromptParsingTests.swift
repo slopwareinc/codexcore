@@ -150,6 +150,9 @@ final class CodexPromptParsingTests: XCTestCase {
         XCTAssertEqual(userInputPrompt.kind, .userInput)
         XCTAssertEqual(userInputPrompt.title, "Input needed")
         XCTAssertEqual(userInputPrompt.detail, "Which project should Codex inspect?")
+        XCTAssertEqual(userInputPrompt.threadId, "thread-1")
+        XCTAssertEqual(userInputPrompt.turnId, "turn-1")
+        XCTAssertEqual(userInputPrompt.itemId, "input-1")
         XCTAssertEqual(userInputPrompt.questions.first?.id, "question-1")
         XCTAssertEqual(userInputPrompt.questions.first?.header, "Choice")
         XCTAssertEqual(userInputPrompt.questions.first?.isSecret, true)
@@ -183,6 +186,7 @@ final class CodexPromptParsingTests: XCTestCase {
         XCTAssertEqual(elicitationPrompt.title, "gmail request")
         XCTAssertEqual(elicitationPrompt.detail, "Allow Gmail connector access?")
         XCTAssertEqual(elicitationPrompt.serverName, "gmail")
+        XCTAssertEqual(elicitationPrompt.threadId, "thread-1")
         XCTAssertEqual(elicitationPrompt.acceptElicitationResponse(), CodexJSONValue.dictionary([
             "action": .string("accept"),
             "content": .dictionary(["confirmed": .bool(true)]),

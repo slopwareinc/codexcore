@@ -734,7 +734,7 @@ public final class Codex: @unchecked Sendable {
         await client.resolveCommandApproval(requestId: id, decision: decision)
     }
 
-    /// Answers a pending `store.pendingUserInput` request with answers keyed by
+    /// Answers a request in `store.pendingUserInputs` with answers keyed by
     /// question id. Returns `false` if no request with this id is pending.
     @discardableResult
     public func respondToUserInput(id: String, answers: CodexUserInputAnswers) async -> Bool {

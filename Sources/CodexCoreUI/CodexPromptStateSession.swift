@@ -32,7 +32,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
     public private(set) var interactivePrompts: [CodexInteractivePrompt]
 
     private var lastApprovalIDs: Set<String>
-    private var lastUserInputID: String?
+    private var lastUserInputIDs: Set<String>
 
     public init(
         approvalPrompts: [CodexApprovalPrompt] = [],
@@ -41,12 +41,13 @@ public struct CodexPromptStateSession: Equatable, Sendable {
         self.approvalPrompts = approvalPrompts
         self.interactivePrompts = interactivePrompts
         self.lastApprovalIDs = Set(approvalPrompts.map(\.id))
+        self.lastUserInputIDs = []
     }
 
     @discardableResult
     public mutating func sync(
         approvalRequests: [CodexApprovalRequest],
-        userInput: CodexUserInputRequest?
+        userInputs: [CodexUserInputRequest]
     ) -> [CodexPromptStateActivity] {
         var activities: [CodexPromptStateActivity] = []
         let prompts = approvalRequests.map { CodexApprovalPrompt(request: $0) }
@@ -64,21 +65,28 @@ public struct CodexPromptStateSession: Equatable, Sendable {
             lastApprovalIDs = ids
         }
 
-        if userInput?.id != lastUserInputID {
-            if let lastUserInputID {
-                interactivePrompts.removeAll(where: { $0.id == lastUserInputID })
-            }
-            if let userInput {
-                let prompt = CodexInteractivePrompt(request: userInput)
-                if !interactivePrompts.contains(where: { $0.id == prompt.id }) {
-                    interactivePrompts.append(prompt)
-                    activities.append(CodexPromptStateActivity(title: "Input requested", detail: prompt.detail))
-                }
-            }
-            lastUserInputID = userInput?.id
+        let userInputPrompts = userInputs.map { CodexInteractivePrompt(request: $0) }
+        let userInputIDs = Set(userInputPrompts.map(\.id))
+        if userInputIDs != lastUserInputIDs
+            || userInputPrompts != interactivePrompts.filter({ lastUserInputIDs.contains($0.id) }) {
+            let bridgePrompts = interactivePrompts.filter { !lastUserInputIDs.contains($0.id) }
+            interactivePrompts = userInputPrompts + bridgePrompts
+            activities += userInputPrompts
+                .filter { !lastUserInputIDs.contains($0.id) }
+                .map { CodexPromptStateActivity(title: "Input requested", detail: $0.detail) }
+            lastUserInputIDs = userInputIDs
         }
 
         return activities
+    }
+
+    @available(*, deprecated, message: "Use sync(approvalRequests:userInputs:) for concurrent requests.")
+    @discardableResult
+    public mutating func sync(
+        approvalRequests: [CodexApprovalRequest],
+        userInput: CodexUserInputRequest?
+    ) -> [CodexPromptStateActivity] {
+        sync(approvalRequests: approvalRequests, userInputs: userInput.map { [$0] } ?? [])
     }
 
     @discardableResult
@@ -102,9 +110,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
 
     public mutating func removeInteractivePrompt(id: String) {
         interactivePrompts.removeAll(where: { $0.id == id })
-        if lastUserInputID == id {
-            lastUserInputID = nil
-        }
+        lastUserInputIDs.remove(id)
     }
 
     @discardableResult
@@ -209,7 +215,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
         approvalPrompts.removeAll()
         interactivePrompts.removeAll()
         lastApprovalIDs.removeAll()
-        lastUserInputID = nil
+        lastUserInputIDs.removeAll()
     }
 
     private mutating func upsertInteractivePrompt(_ prompt: CodexInteractivePrompt) {

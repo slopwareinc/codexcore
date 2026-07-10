@@ -77,7 +77,7 @@ final class CodexPromptStateSessionTests: XCTestCase {
         let approval = approvalRequest(id: "approval-1", command: "git status")
         let userInput = userInputRequest(id: "input-1", question: "Which branch?")
 
-        let firstActivities = session.sync(approvalRequests: [approval], userInput: userInput)
+        let firstActivities = session.sync(approvalRequests: [approval], userInputs: [userInput])
 
         XCTAssertEqual(session.approvalPrompts.map(\.id), ["approval-1"])
         XCTAssertEqual(session.approvalPrompts.first?.primaryValue, "git status")
@@ -87,15 +87,40 @@ final class CodexPromptStateSessionTests: XCTestCase {
             CodexPromptStateActivity(title: "Input requested", detail: "Which branch?")
         ])
 
-        XCTAssertEqual(session.sync(approvalRequests: [approval], userInput: userInput), [])
+        XCTAssertEqual(session.sync(approvalRequests: [approval], userInputs: [userInput]), [])
 
         let secondInput = userInputRequest(id: "input-2", question: "Ship it?")
-        let secondActivities = session.sync(approvalRequests: [approval], userInput: secondInput)
+        let secondActivities = session.sync(approvalRequests: [approval], userInputs: [secondInput])
 
         XCTAssertEqual(session.interactivePrompts.map(\.id), ["input-2"])
         XCTAssertEqual(secondActivities, [
             CodexPromptStateActivity(title: "Input requested", detail: "Ship it?")
         ])
+    }
+
+    func testSyncsConcurrentStoreUserInputsWithoutDroppingEitherPrompt() {
+        var session = CodexPromptStateSession()
+        let first = userInputRequest(id: "input-1", question: "First?")
+        let second = CodexUserInputRequest(
+            requestId: .string("input-2"),
+            threadId: "thread-2",
+            turnId: "turn-2",
+            itemId: "item-2",
+            questions: [CodexUserInputQuestion(id: "q-2", question: "Second?")]
+        )
+
+        let activities = session.sync(approvalRequests: [], userInputs: [first, second])
+
+        XCTAssertEqual(session.interactivePrompts.map(\.id), ["input-1", "input-2"])
+        XCTAssertEqual(activities.count, 2)
+        XCTAssertEqual(session.interactivePrompts[0].threadId, "thread-1")
+        XCTAssertEqual(session.interactivePrompts[0].turnId, "turn-1")
+        XCTAssertEqual(session.interactivePrompts[0].itemId, "item-1")
+        XCTAssertEqual(session.interactivePrompts[1].threadId, "thread-2")
+
+        XCTAssertEqual(session.sync(approvalRequests: [], userInputs: [first, second]), [])
+        XCTAssertEqual(session.sync(approvalRequests: [], userInputs: [second]), [])
+        XCTAssertEqual(session.interactivePrompts.map(\.id), ["input-2"])
     }
 
     func testAppliesBridgeEventsAndExplicitResolutions() throws {
