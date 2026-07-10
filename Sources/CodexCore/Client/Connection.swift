@@ -66,6 +66,11 @@ private final class CodexIncomingMessageSequencer: @unchecked Sendable {
     }
 }
 
+private struct CodexPendingRequest {
+    let continuation: CheckedContinuation<CodexJSONValue, Error>
+    let isHandshake: Bool
+}
+
 // A server→client request (server sends id + method, client must reply with a result/error)
 public struct JSONRPCServerRequest: Sendable {
     public let id: CodexJSONValue
@@ -90,7 +95,7 @@ public actor CodexConnection {
     private var pendingNotifications: [JSONRPCNotification] = []
     private var pendingIncomingMessages: [Int64: String] = [:]
     private var nextIncomingMessageSequence: Int64 = 0
-    private var pendingRequests: [Int64: CheckedContinuation<CodexJSONValue, Error>] = [:]
+    private var pendingRequests: [Int64: CodexPendingRequest] = [:]
     private var requestIdCounter: Int64 = 0
 
     // Callbacks for notification and server-request dispatching
@@ -100,6 +105,17 @@ public actor CodexConnection {
     public init(transport: any CodexTransport) {
         self.transport = transport
         self.reconnectionManager = CodexReconnectionManager(transport: transport)
+    }
+
+    init(
+        transport: any CodexTransport,
+        reconnectSleep: @escaping @Sendable (TimeInterval) async -> Void
+    ) {
+        self.transport = transport
+        self.reconnectionManager = CodexReconnectionManager(
+            transport: transport,
+            sleep: reconnectSleep
+        )
     }
 
     /// Starts the connection and performs the initialize handshake, buffering notifications.
@@ -126,33 +142,40 @@ public actor CodexConnection {
             },
             onError: { err in
                 print("[CodexConnection] Connection error: \(err)")
-                Task { [weak self] in
-                    await self?.failPendingRequests(CodexConnectionError.transportFailed(String(describing: err)))
-                }
             },
-            onReconnected: { [weak self] in
+            onDisconnect: { [weak self] err in
+                await self?.handleTransportError(err)
+            },
+            beforeReplay: { [weak self] in
                 guard let self else { return }
-                Task {
-                    try? await self.performInitializeHandshake(
-                        clientName: clientName,
-                        clientTitle: clientTitle,
-                        clientVersion: clientVersion,
-                        experimentalAPI: experimentalAPI,
-                        capabilities: capabilities
-                    )
-                }
-            }
+                _ = try await self.performInitializeHandshake(
+                    clientName: clientName,
+                    clientTitle: clientTitle,
+                    clientVersion: clientVersion,
+                    experimentalAPI: experimentalAPI,
+                    capabilities: capabilities
+                )
+            },
+            onReconnected: {}
         )
 
-        try await reconnectionManager.start()
+        try await reconnectionManager.startAwaitingHandshake()
 
-        return try await performInitializeHandshake(
-            clientName: clientName,
-            clientTitle: clientTitle,
-            clientVersion: clientVersion,
-            experimentalAPI: experimentalAPI,
-            capabilities: capabilities
-        )
+        do {
+            let response = try await performInitializeHandshake(
+                clientName: clientName,
+                clientTitle: clientTitle,
+                clientVersion: clientVersion,
+                experimentalAPI: experimentalAPI,
+                capabilities: capabilities
+            )
+            try await reconnectionManager.completeInitialHandshake()
+            return response
+        } catch {
+            await failPendingRequests(error)
+            await transport.stop()
+            throw error
+        }
     }
 
     private func enqueueIncomingMessage(_ message: String, sequence: Int64) {
@@ -165,7 +188,7 @@ public actor CodexConnection {
 
     /// Stop the transport connection.
     public func stop() async {
-        failPendingRequests(CodexConnectionError.closed)
+        await failPendingRequests(CodexConnectionError.closed)
         await transport.stop()
     }
 
@@ -180,6 +203,14 @@ public actor CodexConnection {
     }
 
     private func sendRequest(method: String, params: CodexJSONValue?) async throws -> CodexJSONValue {
+        try await sendRequest(method: method, params: params, isHandshake: false)
+    }
+
+    private func sendRequest(
+        method: String,
+        params: CodexJSONValue?,
+        isHandshake: Bool
+    ) async throws -> CodexJSONValue {
         requestIdCounter += 1
         let requestId = requestIdCounter
 
@@ -187,14 +218,24 @@ public actor CodexConnection {
         let payload = try encodeRequest(req)
 
         return try await withCheckedThrowingContinuation { continuation in
-            pendingRequests[requestId] = continuation
+            pendingRequests[requestId] = CodexPendingRequest(
+                continuation: continuation,
+                isHandshake: isHandshake
+            )
 
             Task {
+                guard pendingRequests[requestId] != nil else { return }
                 do {
-                    try await reconnectionManager.sendOrBuffer(payload)
+                    if isHandshake {
+                        try await reconnectionManager.sendHandshake(payload)
+                    } else {
+                        try await reconnectionManager.sendOrBuffer(payload)
+                    }
+                    if pendingRequests[requestId] == nil {
+                        await reconnectionManager.discardBufferedRequests(ids: [requestId])
+                    }
                 } catch {
-                    pendingRequests.removeValue(forKey: requestId)
-                    continuation.resume(throwing: error)
+                    failPendingRequest(id: requestId, error: error)
                 }
             }
         }
@@ -246,10 +287,15 @@ public actor CodexConnection {
             "capabilities": try CodexJSONValue(encoding: negotiatedCapabilities)
         ]
 
-        let result = try await request(method: "initialize", params: params)
+        let result = try await sendRequest(
+            method: "initialize",
+            params: .dictionary(params),
+            isHandshake: true
+        )
         let response = try result.decode(InitializeResponse.self)
 
-        try await notify(method: "initialized", params: [:])
+        let initialized = try encodeRequest(JSONRPCRequest(id: nil, method: "initialized"))
+        try await reconnectionManager.sendHandshake(initialized)
 
         isInitialized = true
         flushPendingNotifications()
@@ -306,11 +352,11 @@ public actor CodexConnection {
         // Response: has "id" and either "result" or "error"
         if hasId {
             if let response = try? decoder.decode(JSONRPCResponse.self, from: data) {
-                if let requestId = response.id, let continuation = pendingRequests.removeValue(forKey: requestId) {
+                if let requestId = response.id, let pending = pendingRequests.removeValue(forKey: requestId) {
                     if let error = response.error {
-                        continuation.resume(throwing: error.mappedError)
+                        pending.continuation.resume(throwing: error.mappedError)
                     } else {
-                        continuation.resume(returning: response.result ?? .null)
+                        pending.continuation.resume(returning: response.result ?? .null)
                     }
                 }
             } else if let requestId = payload["id"].flatMap(requestId(from:)) {
@@ -334,17 +380,40 @@ public actor CodexConnection {
         }
     }
 
-    private func failPendingRequests(_ error: Error) {
-        let requests = pendingRequests
-        pendingRequests.removeAll()
-        for continuation in requests.values {
-            continuation.resume(throwing: error)
+    private func failPendingRequests(
+        _ error: Error,
+        excluding preservedRequestIDs: Set<Int64> = []
+    ) async {
+        let requests = pendingRequests.filter { !preservedRequestIDs.contains($0.key) }
+        for requestID in requests.keys {
+            pendingRequests.removeValue(forKey: requestID)
+        }
+        for pending in requests.values {
+            pending.continuation.resume(throwing: error)
+        }
+        await reconnectionManager.discardBufferedRequests(ids: Set(requests.keys))
+    }
+
+    private func handleTransportError(_ error: Error) async {
+        let mapped = CodexConnectionError.transportFailed(String(describing: error))
+        if isInitialized {
+            isInitialized = false
+            let bufferedRequestIDs = await reconnectionManager.bufferedRequestIDs()
+            await failPendingRequests(mapped, excluding: bufferedRequestIDs)
+            return
+        }
+
+        let handshakeRequestIDs = pendingRequests.compactMap { id, pending in
+            pending.isHandshake ? id : nil
+        }
+        for requestID in handshakeRequestIDs {
+            failPendingRequest(id: requestID, error: mapped)
         }
     }
 
     private func failPendingRequest(id: Int64, error: Error) {
-        guard let continuation = pendingRequests.removeValue(forKey: id) else { return }
-        continuation.resume(throwing: error)
+        guard let pending = pendingRequests.removeValue(forKey: id) else { return }
+        pending.continuation.resume(throwing: error)
     }
 
     private func requestId(from value: CodexJSONValue) -> Int64? {
