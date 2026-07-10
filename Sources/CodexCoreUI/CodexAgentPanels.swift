@@ -52,7 +52,8 @@ public struct CodexFloatingSummaryPanel: View {
                     CodexProjectEnvironmentPanel(
                         environment: CodexProjectEnvironmentState(
                             workspacePath: workspaceSummary.workspacePath,
-                            branchName: workspaceSummary.gitBranch
+                            branchName: workspaceSummary.gitBranch,
+                            runtimeInfo: workspaceSummary.environmentInfo
                         ),
                         threadTitle: chatTitle,
                         onCompletion: onEnvironmentHandoffCompletion

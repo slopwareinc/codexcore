@@ -55,8 +55,9 @@ struct CodexCoreAppShell: View {
                     if !model.approvalPrompts.isEmpty {
                         CodexApprovalRequestsPanel(
                             prompts: model.approvalPrompts,
-                            onApprove: { id in model.resolveApprovalPrompt(id: id, approved: true) },
-                            onDeny: { id in model.resolveApprovalPrompt(id: id, approved: false) }
+                            onDecision: { id, decision in
+                                model.resolveApprovalPrompt(id: id, decision: decision)
+                            }
                         )
                     }
 

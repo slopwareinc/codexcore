@@ -58,6 +58,17 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
     public var secondaryValue: String?
     public var cwd: String?
     public var reason: String?
+    public var threadId: String?
+    public var turnId: String?
+    public var itemId: String?
+    public var approvalId: String?
+    public var environmentId: String?
+    public var availableDecisions: [CodexCommandApprovalDecision]?
+    public var commandActions: [CodexCommandAction]
+    public var additionalPermissions: CodexJSONValue?
+    public var networkApprovalContext: CodexNetworkApprovalContext?
+    public var proposedExecpolicyAmendment: [String]?
+    public var proposedNetworkPolicyAmendments: [CodexNetworkPolicyAmendment]
     public var createdAt: Date
     public var rawParams: [String: CodexJSONValue]
 
@@ -71,6 +82,17 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
         secondaryValue: String? = nil,
         cwd: String? = nil,
         reason: String? = nil,
+        threadId: String? = nil,
+        turnId: String? = nil,
+        itemId: String? = nil,
+        approvalId: String? = nil,
+        environmentId: String? = nil,
+        availableDecisions: [CodexCommandApprovalDecision]? = nil,
+        commandActions: [CodexCommandAction] = [],
+        additionalPermissions: CodexJSONValue? = nil,
+        networkApprovalContext: CodexNetworkApprovalContext? = nil,
+        proposedExecpolicyAmendment: [String]? = nil,
+        proposedNetworkPolicyAmendments: [CodexNetworkPolicyAmendment] = [],
         createdAt: Date = Date(),
         rawParams: [String: CodexJSONValue] = [:]
     ) {
@@ -83,6 +105,17 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
         self.secondaryValue = secondaryValue
         self.cwd = cwd
         self.reason = reason
+        self.threadId = threadId
+        self.turnId = turnId
+        self.itemId = itemId
+        self.approvalId = approvalId
+        self.environmentId = environmentId
+        self.availableDecisions = availableDecisions
+        self.commandActions = commandActions
+        self.additionalPermissions = additionalPermissions
+        self.networkApprovalContext = networkApprovalContext
+        self.proposedExecpolicyAmendment = proposedExecpolicyAmendment
+        self.proposedNetworkPolicyAmendments = proposedNetworkPolicyAmendments
         self.createdAt = createdAt
         self.rawParams = rawParams
     }
@@ -92,29 +125,33 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
     /// passed straight to `Codex.respondToApproval(id:decision:)`.
     public init(request: CodexApprovalRequest, createdAt: Date = Date()) {
         let kind: CodexApprovalPromptKind
+        let method: String
         let title: String
         let fallbackDetail: String
         var primaryValue: String?
         switch request.kind {
         case .command:
             kind = .command
+            method = CodexAppServerServerRequestMethod.itemCommandExecutionRequestApproval.rawValue
             title = "Approve command?"
             fallbackDetail = "Codex wants to run a command."
             primaryValue = request.command
         case .fileChange:
             kind = .fileChange
+            method = CodexAppServerServerRequestMethod.itemFileChangeRequestApproval.rawValue
             title = "Approve file change?"
             fallbackDetail = "Codex wants permission to edit files."
             primaryValue = request.path ?? request.grantRoot ?? request.command
         case .permissions:
             kind = .permissions
+            method = CodexAppServerServerRequestMethod.itemPermissionsRequestApproval.rawValue
             title = "Approve permissions?"
             fallbackDetail = "Codex wants broader permissions for this turn."
         }
 
         self.init(
             id: request.id,
-            method: CodexAppServerServerRequestMethod.itemCommandExecutionRequestApproval.rawValue,
+            method: method,
             kind: kind,
             title: title,
             detail: request.reason ?? fallbackDetail,
@@ -122,8 +159,65 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
             secondaryValue: request.cwd,
             cwd: request.cwd,
             reason: request.reason,
+            threadId: request.threadId,
+            turnId: request.turnId,
+            itemId: request.itemId,
+            approvalId: request.approvalId,
+            environmentId: request.environmentId,
+            availableDecisions: request.availableDecisions,
+            commandActions: request.commandActions ?? [],
+            additionalPermissions: request.additionalPermissions,
+            networkApprovalContext: request.networkApprovalContext,
+            proposedExecpolicyAmendment: request.proposedExecpolicyAmendment,
+            proposedNetworkPolicyAmendments: request.proposedNetworkPolicyAmendments ?? [],
             createdAt: createdAt
         )
+    }
+
+    public var commandDecisions: [CodexCommandApprovalDecision] {
+        guard kind == .command || kind == .execCommand else { return [] }
+        return availableDecisions ?? []
+    }
+
+    public var contextLines: [String] {
+        var lines: [String] = []
+        if let environmentId, !environmentId.isEmpty { lines.append("Environment: \(environmentId)") }
+        if let networkApprovalContext {
+            lines.append("Network: \(networkApprovalContext.protocol)://\(networkApprovalContext.host)")
+        }
+        if let additionalPermissions {
+            lines.append("Requested permissions: \(Self.compactJSON(additionalPermissions))")
+        }
+        lines += commandActions.map { action in
+            var detail = action.name ?? action.type
+            if !action.command.isEmpty { detail += " · \(action.command)" }
+            if let path = action.path { detail += " · \(path)" }
+            if let query = action.query { detail += " · \(query)" }
+            return "Action: \(detail)"
+        }
+        if let proposedExecpolicyAmendment, !proposedExecpolicyAmendment.isEmpty {
+            lines.append("Command policy: \(proposedExecpolicyAmendment.joined(separator: " "))")
+        }
+        lines += proposedNetworkPolicyAmendments.map {
+            "Network policy: \($0.action.rawValue.capitalized) \($0.host)"
+        }
+        if let approvalId, !approvalId.isEmpty { lines.append("Approval: \(approvalId)") }
+        if let itemId, !itemId.isEmpty { lines.append("Item: \(itemId)") }
+        return lines
+    }
+
+    public func label(for decision: CodexCommandApprovalDecision) -> String {
+        switch decision {
+        case .accept: return "Approve"
+        case .acceptForSession: return "Approve for session"
+        case .decline: return "Deny"
+        case .cancel: return "Deny and stop"
+        case .acceptWithExecpolicyAmendment(let amendment):
+            let command = amendment.joined(separator: " ")
+            return command.isEmpty ? "Approve and remember command" : "Approve and remember: \(command)"
+        case .applyNetworkPolicyAmendment(let amendment):
+            return amendment.action == .allow ? "Allow \(amendment.host)" : "Block \(amendment.host)"
+        }
     }
 
     public init?(serverRequest: JSONRPCServerRequest, createdAt: Date = Date()) {
@@ -302,6 +396,12 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
             return stringValue(value)
         }
     }
+
+    private static func compactJSON(_ value: CodexJSONValue) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let string = String(data: data, encoding: .utf8) else { return "requested" }
+        return string
+    }
 }
 
 public enum CodexInteractivePromptKind: String, Equatable, Sendable {
@@ -394,23 +494,33 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 rawParams: params
             )
         case .mcpServerElicitationRequest:
-            let serverName = Self.string(in: params, keys: ["serverName", "server"])
-            let request = Self.dictionaryValue(params["request"])
-            let message = request.flatMap { Self.string(in: $0, keys: ["message", "prompt"]) }
-                ?? Self.string(in: params, keys: ["message", "prompt"])
-            let title: String
-            if let serverName, !serverName.isEmpty {
-                title = "\(serverName) request"
-            } else {
-                title = "MCP request"
+            let serverName = Self.optionalString(params["serverName"])
+            let threadId = Self.optionalString(params["threadId"])
+            let mode = Self.optionalString(params["mode"])
+            let message = Self.optionalString(params["message"])
+            guard let serverName, !serverName.isEmpty,
+                  let threadId, !threadId.isEmpty,
+                  let mode, ["form", "openai/form", "url"].contains(mode),
+                  let message, !message.isEmpty else {
+                return nil
             }
+            if mode != "url", Self.dictionaryValue(params["requestedSchema"]) == nil {
+                return nil
+            }
+            let questions = Self.elicitationQuestions(from: params)
+            let schemaSupported = Self.isSupportedElicitationSchema(in: params)
+            let title: String
+            title = "\(serverName) request"
             self.init(
                 id: id,
                 method: serverRequest.method,
                 kind: .mcpElicitation,
                 title: title,
-                detail: message ?? "An MCP server is requesting input.",
+                detail: schemaSupported
+                    ? message
+                    : "\(message) This form contains unsupported fields and can only be declined.",
                 serverName: serverName,
+                questions: questions,
                 createdAt: createdAt,
                 rawParams: params
             )
@@ -436,6 +546,45 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
             "content": content,
             "_meta": meta
         ])
+    }
+
+    public var canAcceptElicitation: Bool {
+        guard kind == .mcpElicitation else { return false }
+        return Self.isSupportedElicitationSchema(in: elicitationRequest)
+    }
+
+    public var requiresElicitationForm: Bool {
+        kind == .mcpElicitation && !questions.isEmpty
+    }
+
+    public func isElicitationSubmissionValid(answers: [String: String]) -> Bool {
+        guard canAcceptElicitation,
+              let schema = Self.elicitationSchema(from: elicitationRequest),
+              case .array(let required)? = schema["required"] else {
+            return canAcceptElicitation
+        }
+        return required.allSatisfy { value in
+            guard case .string(let key) = value else { return false }
+            return answers[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+    }
+
+    public func elicitationResponse(answers: [String: String]) -> CodexJSONValue {
+        guard let schema = Self.elicitationSchema(from: elicitationRequest),
+              case .dictionary(let properties)? = schema["properties"] else {
+            return acceptElicitationResponse()
+        }
+        var content: [String: CodexJSONValue] = [:]
+        for (key, answer) in answers where !answer.isEmpty {
+            guard case .dictionary(let property)? = properties[key] else { continue }
+            switch Self.stringValue(property["type"]) {
+            case "boolean": content[key] = .bool(["true", "yes", "1"].contains(answer.lowercased()))
+            case "integer": content[key] = Int(answer).map(CodexJSONValue.int) ?? .string(answer)
+            case "number": content[key] = Double(answer).map(CodexJSONValue.double) ?? .string(answer)
+            default: content[key] = .string(answer)
+            }
+        }
+        return acceptElicitationResponse(content: .dictionary(content))
     }
 
     public func declineResponse() -> CodexJSONValue {
@@ -480,6 +629,64 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 options: options
             )
         }
+    }
+
+    private static func elicitationSchema(from request: [String: CodexJSONValue]) -> [String: CodexJSONValue]? {
+        dictionaryValue(request["requestedSchema"])
+    }
+
+    private static func isSupportedElicitationSchema(in request: [String: CodexJSONValue]) -> Bool {
+        let mode = stringValue(request["mode"])
+        if mode != "form", mode != "openai/form" {
+            return false
+        }
+        guard let schema = elicitationSchema(from: request),
+              case .dictionary(let properties)? = schema["properties"] else { return true }
+        return properties.values.allSatisfy { value in
+            guard case .dictionary(let property) = value else { return false }
+            let type = stringValue(property["type"])
+            return ["string", "boolean"].contains(type)
+        }
+    }
+
+    private static func elicitationQuestions(from request: [String: CodexJSONValue]) -> [CodexUserInputQuestion] {
+        guard isSupportedElicitationSchema(in: request),
+              let schema = elicitationSchema(from: request),
+              case .dictionary(let properties)? = schema["properties"] else { return [] }
+        let required: Set<String>
+        if case .array(let values)? = schema["required"] {
+            required = Set(values.compactMap { value in
+                guard case .string(let key) = value else { return nil }
+                return key
+            })
+        } else {
+            required = []
+        }
+        return properties.keys.sorted().compactMap { key in
+            guard case .dictionary(let property)? = properties[key] else { return nil }
+            let label = optionalString(property["title"]) ?? key
+            let options: [CodexUserInputOption]
+            if case .array(let values)? = property["enum"] {
+                options = values.compactMap { value in
+                    let label = stringValue(value)
+                    return label.isEmpty ? nil : CodexUserInputOption(label: label)
+                }
+            } else if stringValue(property["type"]) == "boolean" {
+                options = [CodexUserInputOption(label: "true"), CodexUserInputOption(label: "false")]
+            } else {
+                options = []
+            }
+            return CodexUserInputQuestion(
+                id: key,
+                question: optionalString(property["description"]) ?? label,
+                header: required.contains(key) ? "\(label) (required)" : label,
+                options: options
+            )
+        }
+    }
+
+    private var elicitationRequest: [String: CodexJSONValue] {
+        rawParams
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {

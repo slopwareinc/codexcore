@@ -47,6 +47,7 @@ final class CodexCoreAppModel {
     private(set) var gitBranch: String?
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
     private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
+    private(set) var environmentInfoState: CodexEnvironmentInfoState = .unavailable
 
     private var codex: Codex?
     var authSession = CodexAuthSession()
@@ -64,6 +65,7 @@ final class CodexCoreAppModel {
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
+    private(set) var threadHistoryPaginationState: CodexThreadHistoryPaginationState = .idle
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     private var chatSelectionGeneration = 0
     var isThreadLoading = false
@@ -121,7 +123,10 @@ final class CodexCoreAppModel {
                 clientName: "codex_core_app",
                 clientTitle: "CodexCore App",
                 clientVersion: "1.0.0",
-                approvalPolicy: .ask
+                approvalPolicy: .ask,
+                initializeCapabilities: InitializeCapabilities(
+                    mcpServerOpenAIFormElicitation: true
+                )
             )
             let codex = try await Codex(config: config, serverRequestHandler: { [weak self] request in
                 // MCP elicitations are not covered by the approval policy;
@@ -140,7 +145,9 @@ final class CodexCoreAppModel {
             runtimeSession.consumeGlobalNotifications(from: codex)
             bindApprovalStore(from: codex.store)
             let server = codex.metadata.serverInfo?.name ?? "Codex"
-            authSession.connected(server: server)
+            // Codex construction does not return until initialize + initialized
+            // complete, so ready is never exposed during the wire handshake.
+            authSession.connectedAfterHandshake(server: server)
             accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
 
             do {
@@ -182,6 +189,7 @@ final class CodexCoreAppModel {
         workspacePanel.removeAll()
         accountRateLimitsSnapshot = nil
         gitBranch = nil
+        environmentInfoState = .unavailable
         let codex = self.codex
         self.codex = nil
         await codex?.close()
@@ -420,8 +428,19 @@ final class CodexCoreAppModel {
     private func refreshConnectedSession(using codex: Codex) async throws {
         await refreshStartupCatalogs(using: codex)
         await refreshRecentChats(using: codex)
+        await refreshRemoteEnvironment(using: codex)
         try await refreshRateLimits(using: codex)
         refreshGitBranch()
+    }
+
+    private func refreshRemoteEnvironment(using codex: Codex) async {
+        let provider = CodexAppServerRemoteControlProvider(codex: codex)
+        guard let status = try? await provider.readStatus() else {
+            environmentInfoState = .unavailable
+            return
+        }
+        mobileRouteSession.apply(status: status)
+        await refreshEnvironmentInfo(environmentID: status.environmentID)
     }
 
     private func refreshRateLimits(using codex: Codex) async throws {
@@ -553,7 +572,29 @@ final class CodexCoreAppModel {
         var session = mobileRouteSession
         let activity = await session.refreshStatus(provider: provider)
         mobileRouteSession = session
+        await refreshEnvironmentInfo(environmentID: session.state.status.environmentID)
         appendActivity(activity)
+    }
+
+    private func refreshEnvironmentInfo(environmentID: String?) async {
+        guard let codex, let environmentID = environmentID?.nilIfBlank else {
+            environmentInfoState = .unavailable
+            return
+        }
+        environmentInfoState = .loading
+        do {
+            let info = try await codex.environmentInfo(environmentId: environmentID)
+            environmentInfoState = .available(
+                cwd: info.cwd.flatMap { value in
+                    guard case .string(let cwd) = value.rawValue else { return nil }
+                    return cwd
+                },
+                shellName: info.shell.name,
+                shellPath: info.shell.path
+            )
+        } catch {
+            environmentInfoState = .failed(friendlyError(error))
+        }
     }
 
     func openMobilePermissionGate() {
@@ -885,6 +926,15 @@ final class CodexCoreAppModel {
         }
     }
 
+    func resolveApprovalPrompt(id: String, decision: CodexCommandApprovalDecision) {
+        Task { [weak self] in
+            guard let self else { return }
+            if let activity = await promptRuntime.resolveApprovalPrompt(id: id, decision: decision, using: codex) {
+                appendActivity(.notice, title: activity.title, detail: activity.detail)
+            }
+        }
+    }
+
     func submitInteractivePrompt(id: String, answers: [String: String]) {
         Task { [weak self] in
             guard let self else { return }
@@ -1064,6 +1114,7 @@ final class CodexCoreAppModel {
         shouldApply: () -> Bool = { true }
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
+        threadHistoryPaginationState = .loading
         do {
             let result = try await CodexThreadHistorySession.load(
                 threadID: thread.id,
@@ -1079,6 +1130,10 @@ final class CodexCoreAppModel {
             span?.end(metadata: metadata)
             return result
         } catch {
+            threadHistoryPaginationState = CodexThreadHistoryPaginationState(
+                phase: .failed,
+                errorMessage: friendlyError(error)
+            )
             span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
             return nil
@@ -1093,6 +1148,7 @@ final class CodexCoreAppModel {
         shouldApply: () -> Bool = { true }
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
+        threadHistoryPaginationState = .loading
         do {
             let parentRaw = try resume.rawResponse()
             let result = await CodexThreadHistorySession.load(
@@ -1109,6 +1165,10 @@ final class CodexCoreAppModel {
             span?.end(metadata: metadata)
             return result
         } catch {
+            threadHistoryPaginationState = CodexThreadHistoryPaginationState(
+                phase: .failed,
+                errorMessage: friendlyError(error)
+            )
             span?.end(metadata: ["threadID": resume.thread.id, "outcome": "failure", "error": errorType(error)])
             appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
             return nil
@@ -1192,6 +1252,7 @@ final class CodexCoreAppModel {
         _ result: CodexThreadHistoryRestoreResult,
         trace: CodexPerformanceTrace?
     ) -> [String: String] {
+        threadHistoryPaginationState = result.paginationState
         let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
         let activity = runtimeSession.applyHistoryRestore(result)
         appendActivity(activity.kind, title: activity.title, detail: activity.detail)
@@ -1449,7 +1510,8 @@ final class CodexCoreAppModel {
         CodexWorkspaceSummaryContext(
             workspacePath: workspacePath,
             gitBranch: gitBranch,
-            turnDiff: currentDiff
+            turnDiff: currentDiff,
+            environmentInfo: environmentInfoState
         )
     }
 

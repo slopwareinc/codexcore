@@ -128,6 +128,7 @@ public struct CodexApprovalRequestsPanel: View {
     public let prompts: [CodexApprovalPrompt]
     public let onApprove: (String) -> Void
     public let onDeny: (String) -> Void
+    public let onDecision: (String, CodexCommandApprovalDecision) -> Void
 
     public init(
         prompts: [CodexApprovalPrompt],
@@ -137,6 +138,19 @@ public struct CodexApprovalRequestsPanel: View {
         self.prompts = prompts
         self.onApprove = onApprove
         self.onDeny = onDeny
+        self.onDecision = { id, decision in
+            if decision.isApproval { onApprove(id) } else { onDeny(id) }
+        }
+    }
+
+    public init(
+        prompts: [CodexApprovalPrompt],
+        onDecision: @escaping (String, CodexCommandApprovalDecision) -> Void
+    ) {
+        self.prompts = prompts
+        self.onApprove = { id in onDecision(id, .accept) }
+        self.onDeny = { id in onDecision(id, .decline) }
+        self.onDecision = onDecision
     }
 
     public var body: some View {
@@ -155,7 +169,12 @@ public struct CodexApprovalRequestsPanel: View {
             }
 
             ForEach(prompts.prefix(3)) { prompt in
-                CodexApprovalPromptRow(prompt: prompt, onApprove: onApprove, onDeny: onDeny)
+                CodexApprovalPromptRow(
+                    prompt: prompt,
+                    onApprove: onApprove,
+                    onDeny: onDeny,
+                    onDecision: onDecision
+                )
             }
         }
         .padding(12)
@@ -175,11 +194,18 @@ private struct CodexApprovalPromptRow: View {
     let prompt: CodexApprovalPrompt
     let onApprove: (String) -> Void
     let onDeny: (String) -> Void
+    let onDecision: (String, CodexCommandApprovalDecision) -> Void
 
-    init(prompt: CodexApprovalPrompt, onApprove: @escaping (String) -> Void, onDeny: @escaping (String) -> Void) {
+    init(
+        prompt: CodexApprovalPrompt,
+        onApprove: @escaping (String) -> Void,
+        onDeny: @escaping (String) -> Void,
+        onDecision: @escaping (String, CodexCommandApprovalDecision) -> Void
+    ) {
         self.prompt = prompt
         self.onApprove = onApprove
         self.onDeny = onDeny
+        self.onDecision = onDecision
     }
 
     var body: some View {
@@ -222,7 +248,30 @@ private struct CodexApprovalPromptRow: View {
                     .truncationMode(.middle)
             }
 
-            HStack(spacing: 8) {
+            ForEach(Array(prompt.contextLines.enumerated()), id: \.offset) { _, context in
+                Text(context)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+
+            if prompt.kind == .command {
+                Menu {
+                    ForEach(Array(prompt.commandDecisions.enumerated()), id: \.offset) { _, decision in
+                        Button(prompt.label(for: decision)) {
+                            onDecision(prompt.id, decision)
+                        }
+                    }
+                } label: {
+                    Label("Choose action", systemImage: "checkmark.shield")
+                }
+                .menuStyle(.borderlessButton)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .help("Respond to this command approval")
+            } else {
+                HStack(spacing: 8) {
                 Button {
                     onDeny(prompt.id)
                 } label: {
@@ -245,6 +294,7 @@ private struct CodexApprovalPromptRow: View {
                 .controlSize(.small)
                 .keyboardShortcut(.defaultAction)
                 .help("Approve")
+                }
             }
         }
         .padding(10)
@@ -352,7 +402,7 @@ private struct CodexInteractivePromptRow: View {
                 Spacer(minLength: 0)
             }
 
-            if prompt.kind == .userInput {
+            if prompt.kind == .userInput || prompt.requiresElicitationForm {
                 ForEach(prompt.questions) { question in
                     questionEditor(question)
                 }
@@ -381,17 +431,21 @@ private struct CodexInteractivePromptRow: View {
                 Spacer(minLength: 0)
 
                 Button {
-                    if prompt.kind == .userInput {
+                    if prompt.kind == .userInput || prompt.requiresElicitationForm {
                         onSubmit(prompt.id, answers)
                     } else {
                         onAccept(prompt.id)
                     }
                 } label: {
-                    Label(prompt.kind == .userInput ? "Submit" : "Allow", systemImage: "checkmark")
+                    Label(prompt.kind == .userInput || prompt.requiresElicitationForm ? "Submit" : "Allow", systemImage: "checkmark")
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .disabled(
+                    prompt.kind == .mcpElicitation
+                        && (!prompt.canAcceptElicitation || !prompt.isElicitationSubmissionValid(answers: answers))
+                )
                 .disabled(prompt.kind == .userInput && !hasRequiredAnswers)
             }
         }

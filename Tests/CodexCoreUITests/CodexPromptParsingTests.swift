@@ -167,16 +167,13 @@ final class CodexPromptParsingTests: XCTestCase {
             method: CodexAppServerServerRequestMethod.mcpServerElicitationRequest.rawValue,
             params: [
                 "threadId": .string("thread-1"),
-                "turnId": .string("turn-1"),
                 "serverName": .string("gmail"),
-                "request": .dictionary([
-                    "message": .string("Allow Gmail connector access?"),
-                    "requested_schema": .dictionary([
-                        "type": .string("object"),
-                        "properties": .dictionary([:]),
-                        "required": .array([])
-                    ]),
-                    "_meta": .dictionary(["persist": .string("always")])
+                "mode": .string("openai/form"),
+                "message": .string("Allow Gmail connector access?"),
+                "requestedSchema": .dictionary([
+                    "type": .string("object"),
+                    "properties": .dictionary([:]),
+                    "required": .array([])
                 ])
             ]
         )
@@ -196,5 +193,86 @@ final class CodexPromptParsingTests: XCTestCase {
             "content": .null,
             "_meta": .null
         ]))
+    }
+
+    func testParsesCurrentOpenAIFormAndDeclinesUnsupportedFields() throws {
+        let form = JSONRPCServerRequest(
+            id: .int(7),
+            method: CodexAppServerServerRequestMethod.mcpServerElicitationRequest.rawValue,
+            params: [
+                "serverName": .string("calendar"),
+                "threadId": .string("thread-1"),
+                "mode": .string("openai/form"),
+                "message": .string("Choose event details"),
+                "requestedSchema": .dictionary([
+                    "type": .string("object"),
+                    "properties": .dictionary([
+                        "title": .dictionary(["type": .string("string"), "title": .string("Title")]),
+                        "private": .dictionary(["type": .string("boolean"), "title": .string("Private")])
+                    ]),
+                    "required": .array([.string("title")])
+                ])
+            ]
+        )
+        let prompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: form))
+        XCTAssertTrue(prompt.requiresElicitationForm)
+        XCTAssertTrue(prompt.canAcceptElicitation)
+        XCTAssertEqual(prompt.questions.map(\.id), ["private", "title"])
+        XCTAssertFalse(prompt.isElicitationSubmissionValid(answers: ["private": "true"]))
+        XCTAssertTrue(prompt.isElicitationSubmissionValid(answers: ["private": "true", "title": "Demo"]))
+        XCTAssertEqual(prompt.elicitationResponse(answers: ["private": "true", "title": "Demo"]), .dictionary([
+            "action": .string("accept"),
+            "content": .dictionary(["private": .bool(true), "title": .string("Demo")]),
+            "_meta": .null
+        ]))
+
+        let unsupported = try XCTUnwrap(CodexInteractivePrompt(serverRequest: JSONRPCServerRequest(
+            id: .int(8),
+            method: form.method,
+            params: [
+                "serverName": .string("calendar"),
+                "threadId": .string("thread-1"),
+                "mode": .string("openai/form"),
+                "message": .string("Upload data"),
+                "requestedSchema": .dictionary([
+                    "type": .string("object"),
+                    "properties": .dictionary([
+                        "payload": .dictionary(["type": .string("object")])
+                    ])
+                ])
+            ]
+        )))
+        XCTAssertFalse(unsupported.canAcceptElicitation)
+        XCTAssertFalse(unsupported.requiresElicitationForm)
+        XCTAssertTrue(unsupported.detail.contains("can only be declined"))
+
+        let urlPrompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: JSONRPCServerRequest(
+            id: .int(9),
+            method: form.method,
+            params: [
+                "serverName": .string("calendar"),
+                "threadId": .string("thread-1"),
+                "mode": .string("url"),
+                "message": .string("Open authorization page"),
+                "url": .string("https://example.com/authorize"),
+                "elicitationId": .string("elicit-1")
+            ]
+        )))
+        XCTAssertFalse(urlPrompt.canAcceptElicitation)
+        XCTAssertTrue(urlPrompt.detail.contains("can only be declined"))
+
+        let nestedEnvelope = JSONRPCServerRequest(
+            id: .int(10),
+            method: form.method,
+            params: [
+                "serverName": .string("calendar"),
+                "threadId": .string("thread-1"),
+                "request": .dictionary([
+                    "message": .string("Old envelope"),
+                    "requested_schema": .dictionary(["type": .string("object")])
+                ])
+            ]
+        )
+        XCTAssertNil(CodexInteractivePrompt(serverRequest: nestedEnvelope))
     }
 }

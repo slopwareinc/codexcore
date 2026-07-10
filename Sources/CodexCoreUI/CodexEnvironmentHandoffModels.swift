@@ -17,25 +17,35 @@ public enum CodexProjectEnvironmentSelection: String, CaseIterable, Equatable, S
     }
 }
 
+public enum CodexEnvironmentInfoState: Equatable, Sendable {
+    case loading
+    case available(cwd: String?, shellName: String, shellPath: String)
+    case unavailable
+    case failed(String)
+}
+
 public struct CodexProjectEnvironmentState: Equatable, Sendable {
     public var selection: CodexProjectEnvironmentSelection
     public var workspacePath: String
     public var branchName: String?
     public var worktreePath: String?
     public var usageRemainingLabel: String?
+    public var runtimeInfo: CodexEnvironmentInfoState
 
     public init(
         selection: CodexProjectEnvironmentSelection = .local,
         workspacePath: String,
         branchName: String? = nil,
         worktreePath: String? = nil,
-        usageRemainingLabel: String? = nil
+        usageRemainingLabel: String? = nil,
+        runtimeInfo: CodexEnvironmentInfoState = .unavailable
     ) {
         self.selection = selection
         self.workspacePath = workspacePath
         self.branchName = branchName
         self.worktreePath = worktreePath
         self.usageRemainingLabel = usageRemainingLabel
+        self.runtimeInfo = runtimeInfo
     }
 
     public mutating func apply(_ result: CodexWorktreeHandoffResult) {
@@ -244,6 +254,19 @@ public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
         ]
         if let usage = environment.usageRemainingLabel?.nilIfBlank {
             rows.append(CodexProjectEnvironmentPanelRow(title: "Usage", value: usage))
+        }
+        switch environment.runtimeInfo {
+        case .loading:
+            rows.append(CodexProjectEnvironmentPanelRow(title: "Runtime", value: "Loading…"))
+        case .available(let cwd, let shellName, let shellPath):
+            rows.append(CodexProjectEnvironmentPanelRow(title: "Shell", value: "\(shellName) · \(shellPath)"))
+            if let cwd = cwd?.nilIfBlank {
+                rows.append(CodexProjectEnvironmentPanelRow(title: "CWD", value: cwd))
+            }
+        case .unavailable:
+            rows.append(CodexProjectEnvironmentPanelRow(title: "Runtime", value: "Unavailable"))
+        case .failed(let message):
+            rows.append(CodexProjectEnvironmentPanelRow(title: "Runtime", value: "Error · \(message)"))
         }
         return rows
     }
