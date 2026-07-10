@@ -1198,7 +1198,7 @@ public final class CodexTurnHandle: Identifiable, @unchecked Sendable {
 
     private func currentSnapshot() async -> CodexTurnSnapshot? {
         await MainActor.run {
-            store.activeThread?.turns.first(where: { $0.id == id })
+            store.turnSnapshot(threadID: threadId, turnID: id)
         }
     }
 

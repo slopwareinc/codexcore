@@ -156,6 +156,57 @@ final class CodexClientTerminalTests: XCTestCase {
         }
     }
 
+    func testTurnRunCollectsResultWhenAnotherThreadIsActive() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let codex = try await Codex(transport: transport, store: store)
+        defer { Task { await codex.close() } }
+
+        let thread = try await codex.threadStart(cwd: "/tmp")
+        let runTask = Task {
+            try await thread.run("Reply with the owning thread", timeout: 2)
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        await store.dispatch(.threadStarted(threadId: "thread-foreground", name: nil, status: "active"))
+        await store.activateThread(id: "thread-foreground")
+
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-mock",
+                "turnId": "turn-mock",
+                "item": {
+                    "id": "item-owning-thread",
+                    "type": "agentMessage",
+                    "text": "owning thread result"
+                }
+            }
+        }
+        """)
+        await transport.receiveMessage("""
+        {
+            "jsonrpc": "2.0",
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-mock",
+                "turn": {
+                    "id": "turn-mock",
+                    "status": { "type": "completed" }
+                },
+                "error": null
+            }
+        }
+        """)
+
+        let result = try await runTask.value
+        XCTAssertEqual(result.finalResponse, "owning thread result")
+        let activeThreadID = await store.activeThread?.id
+        XCTAssertEqual(activeThreadID, "thread-foreground")
+    }
+
     func testPendingRequestFailsOnTransportError() async throws {
         let transport = MockTransport(suspendedMethods: ["thread/list"])
         let store = await CodexCoreStore()
