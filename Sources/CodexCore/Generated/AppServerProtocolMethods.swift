@@ -32,7 +32,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadLoadedList = "thread/loaded/list"
     case threadRead = "thread/read"
     case threadTurnsList = "thread/turns/list"
-    case threadTurnsItemsList = "thread/turns/items/list"
+    case threadItemsList = "thread/items/list"
     case threadInjectItems = "thread/inject_items"
     case skillsList = "skills/list"
     case skillsExtraRootsSet = "skills/extraRoots/set"
@@ -87,6 +87,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case collaborationModeList = "collaborationMode/list"
     case mockExperimentalMethod = "mock/experimentalMethod"
     case environmentAdd = "environment/add"
+    case environmentInfo = "environment/info"
     case mcpServerOAuthLogin = "mcpServer/oauth/login"
     case configMCPServerReload = "config/mcpServer/reload"
     case mcpServerStatusList = "mcpServerStatus/list"
@@ -208,7 +209,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 121
+    public static let clientMethodCount = 122
     public static let notificationMethodCount = 68
     public static let serverRequestMethodCount = 11
 }

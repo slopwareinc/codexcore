@@ -24,12 +24,14 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadStart))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadResume))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadFork))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadItemsList))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadArchive))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.turnStart))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.turnInterrupt))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.turnSteer))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.modelList))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.commandExec))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.environmentInfo))
     }
 
     func testCoreNotificationAndServerRequestMethodsArePresent() {

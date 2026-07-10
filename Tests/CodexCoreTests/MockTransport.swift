@@ -134,6 +134,8 @@ actor MockTransport: CodexTransport {
                 result = #"{"thread":{"id":"thread-unarchived"}}"#
             case "thread/list":
                 result = #"{"data":[{"id":"thread-mock","cliVersion":"1.0.0","createdAt":1781075531,"cwd":"/tmp","ephemeral":false,"modelProvider":"openai","preview":"Mock thread","sessionId":"session-mock","source":"cli","status":{"type":"idle"},"turns":[],"updatedAt":1781075531}],"nextCursor":null,"backwardsCursor":null}"#
+            case "thread/items/list":
+                result = #"{"data":[{"id":"item-1","type":"agentMessage","text":"hello"}],"nextCursor":"next","backwardsCursor":null}"#
             case "thread/search":
                 result = #"{"data":[{"thread":{"id":"thread-mock","name":"Search hit","preview":"Matched preview","cliVersion":"1.0.0","createdAt":1781075531,"cwd":"/tmp","ephemeral":false,"modelProvider":"openai","parentThreadId":null,"sessionId":"session-mock","source":"cli","status":{"type":"idle"},"turns":[],"updatedAt":1781075531},"snippet":"needle in transcript"}],"nextCursor":null,"backwardsCursor":null}"#
             case "thread/read":
@@ -170,6 +172,8 @@ actor MockTransport: CodexTransport {
                 result = #"{"files":[{"file_name":"Client.swift","match_type":"file","path":"Sources/CodexCore/Client/Client.swift","root":"/repo","score":0.91,"indices":[0,1,2]},{"file_name":"Codex.swift","match_type":"file","path":"Sources/CodexCore/Client/Codex.swift","root":"/repo","score":0.72}]}"#
             case "command/exec":
                 result = #"{"exitCode":0,"stdout":"COMMAND_OK\n","stderr":""}"#
+            case "environment/info":
+                result = #"{"cwd":"file:///tmp/project","shell":{"name":"zsh","path":"/bin/zsh"}}"#
             case "retry/overload":
                 result = #"{"ok":true}"#
             default:

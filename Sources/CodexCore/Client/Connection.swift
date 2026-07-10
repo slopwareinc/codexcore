@@ -109,6 +109,7 @@ public actor CodexConnection {
         clientTitle: String = "Codex Core Swift Native SDK",
         clientVersion: String = "1.0.0",
         experimentalAPI: Bool = true,
+        capabilities: InitializeCapabilities? = nil,
         onNotification: @escaping @Sendable (JSONRPCNotification) -> Void,
         onServerRequest: @escaping @Sendable (JSONRPCServerRequest) async -> CodexJSONValue
     ) async throws -> InitializeResponse {
@@ -136,7 +137,8 @@ public actor CodexConnection {
                         clientName: clientName,
                         clientTitle: clientTitle,
                         clientVersion: clientVersion,
-                        experimentalAPI: experimentalAPI
+                        experimentalAPI: experimentalAPI,
+                        capabilities: capabilities
                     )
                 }
             }
@@ -148,7 +150,8 @@ public actor CodexConnection {
             clientName: clientName,
             clientTitle: clientTitle,
             clientVersion: clientVersion,
-            experimentalAPI: experimentalAPI
+            experimentalAPI: experimentalAPI,
+            capabilities: capabilities
         )
     }
 
@@ -221,21 +224,26 @@ public actor CodexConnection {
         clientName: String,
         clientTitle: String,
         clientVersion: String,
-        experimentalAPI: Bool
+        experimentalAPI: Bool,
+        capabilities: InitializeCapabilities?
     ) async throws -> InitializeResponse {
         isInitialized = false
 
         // Build nested params as CodexJSONValue.dictionary — NOT double-encoded
+        var negotiatedCapabilities = capabilities ?? InitializeCapabilities()
+        if negotiatedCapabilities.experimentalAPI == nil {
+            negotiatedCapabilities.experimentalAPI = experimentalAPI
+        }
+        if negotiatedCapabilities.requestAttestation == nil {
+            negotiatedCapabilities.requestAttestation = false
+        }
         let params: [String: CodexJSONValue] = [
             "clientInfo": .dictionary([
                 "name": .string(clientName),
                 "version": .string(clientVersion),
                 "title": .string(clientTitle)
             ]),
-            "capabilities": .dictionary([
-                "experimentalApi": .bool(experimentalAPI),
-                "requestAttestation": .bool(false)
-            ])
+            "capabilities": try CodexJSONValue(encoding: negotiatedCapabilities)
         ]
 
         let result = try await request(method: "initialize", params: params)

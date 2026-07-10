@@ -14,6 +14,7 @@ public struct CodexConfig: Sendable {
     public let clientTitle: String
     public let clientVersion: String
     public let experimentalAPI: Bool
+    public let initializeCapabilities: InitializeCapabilities?
     /// How escalated approval/user-input server requests are answered when no
     /// custom `serverRequestHandler` is installed. `.autoApprove` preserves the
     /// historic behavior; interactive apps should use `.ask` and resolve via
@@ -30,7 +31,8 @@ public struct CodexConfig: Sendable {
         clientTitle: String = "Codex Swift SDK",
         clientVersion: String = "1.0.0",
         experimentalAPI: Bool = true,
-        approvalPolicy: CodexApprovalPolicy = .autoApprove
+        approvalPolicy: CodexApprovalPolicy = .autoApprove,
+        initializeCapabilities: InitializeCapabilities? = nil
     ) {
         self.codexBinaryPath = codexBinaryPath
         self.launchArgumentsOverride = launchArgumentsOverride
@@ -46,6 +48,7 @@ public struct CodexConfig: Sendable {
         self.clientVersion = clientVersion
         self.experimentalAPI = experimentalAPI
         self.approvalPolicy = approvalPolicy
+        self.initializeCapabilities = initializeCapabilities
     }
 }
 
@@ -141,7 +144,8 @@ public final class Codex: @unchecked Sendable {
                 clientName: config.clientName,
                 clientTitle: config.clientTitle,
                 clientVersion: config.clientVersion,
-                experimentalAPI: config.experimentalAPI
+                experimentalAPI: config.experimentalAPI,
+                capabilities: config.initializeCapabilities
             )
         } catch {
             await client.disconnect()
@@ -358,7 +362,9 @@ public final class Codex: @unchecked Sendable {
         sortDirection: SortDirection? = nil,
         sortKey: ThreadSortKey? = nil,
         sourceKinds: [ThreadSourceKind]? = nil,
-        useStateDBOnly: Bool? = nil
+        useStateDBOnly: Bool? = nil,
+        ancestorThreadId: String? = nil,
+        parentThreadId: String? = nil
     ) async throws -> ThreadListResponse {
         try await client.threadList(ThreadListParams(
             archived: archived,
@@ -370,12 +376,34 @@ public final class Codex: @unchecked Sendable {
             sortDirection: sortDirection,
             sortKey: sortKey,
             sourceKinds: sourceKinds,
-            useStateDBOnly: useStateDBOnly
+            useStateDBOnly: useStateDBOnly,
+            ancestorThreadId: ancestorThreadId,
+            parentThreadId: parentThreadId
         ))
     }
 
     public func threadListSchema(_ params: CodexSchemaThreadListParams = CodexSchemaThreadListParams()) async throws -> CodexSchemaThreadListResponse {
         try await client.threadListSchema(params)
+    }
+
+    public func threadItemsList(
+        threadId: String,
+        turnId: String? = nil,
+        cursor: String? = nil,
+        limit: Int? = nil,
+        sortDirection: CodexSchemaSortDirection? = nil
+    ) async throws -> CodexSchemaThreadItemsListResponse {
+        try await client.threadItemsList(
+            threadId: threadId,
+            turnId: turnId,
+            cursor: cursor,
+            limit: limit,
+            sortDirection: sortDirection
+        )
+    }
+
+    public func environmentInfo(environmentId: String) async throws -> CodexSchemaEnvironmentInfoResponse {
+        try await client.environmentInfo(environmentId: environmentId)
     }
 
     public func threadReadSchema(_ threadId: String, includeTurns: Bool = false) async throws -> CodexSchemaThreadReadResponse {

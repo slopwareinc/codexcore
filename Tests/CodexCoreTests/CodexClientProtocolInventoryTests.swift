@@ -50,6 +50,70 @@ final class CodexClientProtocolInventoryTests: XCTestCase {
         await client.disconnect()
     }
 
+    func testCurrentInitializeCapabilitiesAndNewTypedEndpointsUseWireShape() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect(
+            experimentalAPI: true,
+            capabilities: InitializeCapabilities(
+                experimentalAPI: true,
+                mcpServerOpenAIFormElicitation: true,
+                optOutNotificationMethods: ["thread/started"],
+                requestAttestation: true
+            )
+        )
+
+        let environment = try await client.environmentInfo(environmentId: "env-1")
+        XCTAssertEqual(environment.shell.name, "zsh")
+        XCTAssertEqual(environment.cwd?.rawValue, .string("file:///tmp/project"))
+
+        let items = try await client.threadItemsList(threadId: "thread-mock", turnId: "turn-mock", limit: 25)
+        XCTAssertEqual(items.data.count, 1)
+        XCTAssertEqual(items.nextCursor, "next")
+
+        let payloads = await transport.sentPayloadsSnapshot()
+        let initialize = payloads.first { $0["method"] == .string("initialize") }
+        guard case .dictionary(let params)? = initialize?["params"],
+              case .dictionary(let capabilities)? = params["capabilities"] else {
+            return XCTFail("initialize capabilities missing")
+        }
+        XCTAssertEqual(capabilities["mcpServerOpenaiFormElicitation"], .bool(true))
+        XCTAssertEqual(capabilities["optOutNotificationMethods"], .array([.string("thread/started")]))
+        XCTAssertEqual(capabilities["requestAttestation"], .bool(true))
+
+        let methods = payloads.compactMap { payload -> String? in
+            guard case .string(let method)? = payload["method"] else { return nil }
+            return method
+        }
+        XCTAssertTrue(methods.contains("environment/info"))
+        XCTAssertTrue(methods.contains("thread/items/list"))
+        XCTAssertFalse(methods.contains("thread/turns/items/list"))
+
+        await client.disconnect()
+    }
+
+    func testPartialInitializeCapabilitiesPreserveLegacyDefaults() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect(
+            experimentalAPI: false,
+            capabilities: InitializeCapabilities(mcpServerOpenAIFormElicitation: true)
+        )
+
+        let initialize = await transport.sentPayloadsSnapshot().first { $0["method"] == .string("initialize") }
+        guard case .dictionary(let params)? = initialize?["params"],
+              case .dictionary(let capabilities)? = params["capabilities"] else {
+            return XCTFail("initialize capabilities missing")
+        }
+        XCTAssertEqual(capabilities["experimentalApi"], .bool(false))
+        XCTAssertEqual(capabilities["mcpServerOpenaiFormElicitation"], .bool(true))
+        XCTAssertEqual(capabilities["requestAttestation"], .bool(false))
+
+        await client.disconnect()
+    }
+
     func testEveryGeneratedClientMethodCanBeSentByEnumRequest() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()
