@@ -496,11 +496,13 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
             )
         case .mcpServerElicitationRequest:
             let serverName = Self.string(in: params, keys: ["serverName", "server"])
-            let request = Self.dictionaryValue(params["request"])
-            let message = request.flatMap { Self.string(in: $0, keys: ["message", "prompt"]) }
-                ?? Self.string(in: params, keys: ["message", "prompt"])
-            let questions = request.flatMap(Self.elicitationQuestions(from:)) ?? []
-            let schemaSupported = request.map(Self.isSupportedElicitationSchema(in:)) ?? true
+            // Current app-server requests flatten the MCP request beside
+            // thread/server metadata. Retain the nested envelope fallback for
+            // older app-server builds.
+            let request = Self.dictionaryValue(params["request"]) ?? params
+            let message = Self.string(in: request, keys: ["message", "prompt"])
+            let questions = Self.elicitationQuestions(from: request)
+            let schemaSupported = Self.isSupportedElicitationSchema(in: request)
             let title: String
             if let serverName, !serverName.isEmpty {
                 title = "\(serverName) request"
@@ -546,8 +548,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
 
     public var canAcceptElicitation: Bool {
         guard kind == .mcpElicitation else { return false }
-        guard let request = Self.dictionaryValue(rawParams["request"]) else { return true }
-        return Self.isSupportedElicitationSchema(in: request)
+        return Self.isSupportedElicitationSchema(in: elicitationRequest)
     }
 
     public var requiresElicitationForm: Bool {
@@ -556,8 +557,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
 
     public func isElicitationSubmissionValid(answers: [String: String]) -> Bool {
         guard canAcceptElicitation,
-              let request = Self.dictionaryValue(rawParams["request"]),
-              let schema = Self.elicitationSchema(from: request),
+              let schema = Self.elicitationSchema(from: elicitationRequest),
               case .array(let required)? = schema["required"] else {
             return canAcceptElicitation
         }
@@ -568,8 +568,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
     }
 
     public func elicitationResponse(answers: [String: String]) -> CodexJSONValue {
-        guard let request = Self.dictionaryValue(rawParams["request"]),
-              let schema = Self.elicitationSchema(from: request),
+        guard let schema = Self.elicitationSchema(from: elicitationRequest),
               case .dictionary(let properties)? = schema["properties"] else {
             return acceptElicitationResponse()
         }
@@ -637,6 +636,10 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
     }
 
     private static func isSupportedElicitationSchema(in request: [String: CodexJSONValue]) -> Bool {
+        let mode = stringValue(request["mode"])
+        if !mode.isEmpty, mode != "form", mode != "openai/form" {
+            return false
+        }
         guard let schema = elicitationSchema(from: request),
               case .dictionary(let properties)? = schema["properties"] else { return true }
         return properties.values.allSatisfy { value in
@@ -680,6 +683,10 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 options: options
             )
         }
+    }
+
+    private var elicitationRequest: [String: CodexJSONValue] {
+        Self.dictionaryValue(rawParams["request"]) ?? rawParams
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {

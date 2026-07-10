@@ -204,16 +204,16 @@ final class CodexPromptParsingTests: XCTestCase {
             method: CodexAppServerServerRequestMethod.mcpServerElicitationRequest.rawValue,
             params: [
                 "serverName": .string("calendar"),
-                "request": .dictionary([
-                    "message": .string("Choose event details"),
-                    "requestedSchema": .dictionary([
-                        "type": .string("object"),
-                        "properties": .dictionary([
-                            "title": .dictionary(["type": .string("string"), "title": .string("Title")]),
-                            "private": .dictionary(["type": .string("boolean"), "title": .string("Private")])
-                        ]),
-                        "required": .array([.string("title")])
-                    ])
+                "threadId": .string("thread-1"),
+                "mode": .string("openai/form"),
+                "message": .string("Choose event details"),
+                "requestedSchema": .dictionary([
+                    "type": .string("object"),
+                    "properties": .dictionary([
+                        "title": .dictionary(["type": .string("string"), "title": .string("Title")]),
+                        "private": .dictionary(["type": .string("boolean"), "title": .string("Private")])
+                    ]),
+                    "required": .array([.string("title")])
                 ])
             ]
         )
@@ -233,13 +233,14 @@ final class CodexPromptParsingTests: XCTestCase {
             id: .int(8),
             method: form.method,
             params: [
-                "request": .dictionary([
-                    "message": .string("Upload data"),
-                    "requestedSchema": .dictionary([
-                        "type": .string("object"),
-                        "properties": .dictionary([
-                            "payload": .dictionary(["type": .string("object")])
-                        ])
+                "serverName": .string("calendar"),
+                "threadId": .string("thread-1"),
+                "mode": .string("openai/form"),
+                "message": .string("Upload data"),
+                "requestedSchema": .dictionary([
+                    "type": .string("object"),
+                    "properties": .dictionary([
+                        "payload": .dictionary(["type": .string("object")])
                     ])
                 ])
             ]
@@ -247,5 +248,20 @@ final class CodexPromptParsingTests: XCTestCase {
         XCTAssertFalse(unsupported.canAcceptElicitation)
         XCTAssertFalse(unsupported.requiresElicitationForm)
         XCTAssertTrue(unsupported.detail.contains("can only be declined"))
+
+        let urlPrompt = try XCTUnwrap(CodexInteractivePrompt(serverRequest: JSONRPCServerRequest(
+            id: .int(9),
+            method: form.method,
+            params: [
+                "serverName": .string("calendar"),
+                "threadId": .string("thread-1"),
+                "mode": .string("url"),
+                "message": .string("Open authorization page"),
+                "url": .string("https://example.com/authorize"),
+                "elicitationId": .string("elicit-1")
+            ]
+        )))
+        XCTAssertFalse(urlPrompt.canAcceptElicitation)
+        XCTAssertTrue(urlPrompt.detail.contains("can only be declined"))
     }
 }
