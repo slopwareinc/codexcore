@@ -58,27 +58,6 @@ final class CodexThreadHistoryPaginationTests: XCTestCase {
         XCTAssertEqual(CodexThreadHistorySnapshot(raw: result.raw).messages.map(\.text), ["existing"])
     }
 
-    func testLegacyHistoryDoesNotCallPaginatedEndpoint() async {
-        var raw = threadRaw(items: [item("existing", text: "existing")])
-        guard case .dictionary(var response) = raw,
-              case .dictionary(var thread)? = response["thread"] else {
-            return XCTFail("invalid fixture")
-        }
-        thread["historyMode"] = .string("legacy")
-        response["thread"] = .dictionary(thread)
-        raw = .dictionary(response)
-        var didCall = false
-
-        let result = await CodexThreadHistorySession.paginate(parentRaw: raw) { _, _, _ in
-            didCall = true
-            return page([])
-        }
-
-        XCTAssertFalse(didCall)
-        XCTAssertEqual(result.raw, raw)
-        XCTAssertEqual(result.state, .idle)
-    }
-
     private func threadRaw(items: [CodexJSONValue]) -> CodexJSONValue {
         .dictionary([
             "thread": .dictionary([

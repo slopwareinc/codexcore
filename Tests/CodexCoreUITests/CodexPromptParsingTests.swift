@@ -167,16 +167,13 @@ final class CodexPromptParsingTests: XCTestCase {
             method: CodexAppServerServerRequestMethod.mcpServerElicitationRequest.rawValue,
             params: [
                 "threadId": .string("thread-1"),
-                "turnId": .string("turn-1"),
                 "serverName": .string("gmail"),
-                "request": .dictionary([
-                    "message": .string("Allow Gmail connector access?"),
-                    "requested_schema": .dictionary([
-                        "type": .string("object"),
-                        "properties": .dictionary([:]),
-                        "required": .array([])
-                    ]),
-                    "_meta": .dictionary(["persist": .string("always")])
+                "mode": .string("openai/form"),
+                "message": .string("Allow Gmail connector access?"),
+                "requestedSchema": .dictionary([
+                    "type": .string("object"),
+                    "properties": .dictionary([:]),
+                    "required": .array([])
                 ])
             ]
         )
@@ -263,5 +260,19 @@ final class CodexPromptParsingTests: XCTestCase {
         )))
         XCTAssertFalse(urlPrompt.canAcceptElicitation)
         XCTAssertTrue(urlPrompt.detail.contains("can only be declined"))
+
+        let nestedEnvelope = JSONRPCServerRequest(
+            id: .int(10),
+            method: form.method,
+            params: [
+                "serverName": .string("calendar"),
+                "threadId": .string("thread-1"),
+                "request": .dictionary([
+                    "message": .string("Old envelope"),
+                    "requested_schema": .dictionary(["type": .string("object")])
+                ])
+            ]
+        )
+        XCTAssertNil(CodexInteractivePrompt(serverRequest: nestedEnvelope))
     }
 }

@@ -64,10 +64,10 @@ final class CodexPromptStateSessionTests: XCTestCase {
         XCTAssertEqual(prompt.label(for: .applyNetworkPolicyAmendment(networkAmendment)), "Allow example.com")
     }
 
-    func testLegacyApprovalPromptDefaultsRemainAvailable() {
+    func testCommandApprovalOnlyExposesAdvertisedDecisions() {
         let prompt = CodexApprovalPrompt(request: approvalRequest(id: "approval-1", command: "git status"))
 
-        XCTAssertEqual(prompt.commandDecisions, [.decline, .accept])
+        XCTAssertEqual(prompt.commandDecisions, [])
         XCTAssertEqual(prompt.primaryValue, "git status")
         XCTAssertEqual(prompt.method, CodexAppServerServerRequestMethod.itemCommandExecutionRequestApproval.rawValue)
     }
@@ -413,15 +413,13 @@ private func elicitationServerRequest() -> JSONRPCServerRequest {
         method: CodexAppServerServerRequestMethod.mcpServerElicitationRequest.rawValue,
         params: [
             "threadId": .string("thread-1"),
-            "turnId": .string("turn-1"),
             "serverName": .string("gmail"),
-            "request": .dictionary([
-                "message": .string("Allow Gmail connector access?"),
-                "requested_schema": .dictionary([
-                    "type": .string("object"),
-                    "properties": .dictionary([:]),
-                    "required": .array([])
-                ])
+            "mode": .string("openai/form"),
+            "message": .string("Allow Gmail connector access?"),
+            "requestedSchema": .dictionary([
+                "type": .string("object"),
+                "properties": .dictionary([:]),
+                "required": .array([])
             ])
         ]
     )

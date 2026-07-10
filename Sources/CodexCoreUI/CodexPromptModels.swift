@@ -176,8 +176,7 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
 
     public var commandDecisions: [CodexCommandApprovalDecision] {
         guard kind == .command || kind == .execCommand else { return [] }
-        if let availableDecisions, !availableDecisions.isEmpty { return availableDecisions }
-        return [.decline, .accept]
+        return availableDecisions ?? []
     }
 
     public var contextLines: [String] {
@@ -495,28 +494,31 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 rawParams: params
             )
         case .mcpServerElicitationRequest:
-            let serverName = Self.string(in: params, keys: ["serverName", "server"])
-            // Current app-server requests flatten the MCP request beside
-            // thread/server metadata. Retain the nested envelope fallback for
-            // older app-server builds.
-            let request = Self.dictionaryValue(params["request"]) ?? params
-            let message = Self.string(in: request, keys: ["message", "prompt"])
-            let questions = Self.elicitationQuestions(from: request)
-            let schemaSupported = Self.isSupportedElicitationSchema(in: request)
-            let title: String
-            if let serverName, !serverName.isEmpty {
-                title = "\(serverName) request"
-            } else {
-                title = "MCP request"
+            let serverName = Self.optionalString(params["serverName"])
+            let threadId = Self.optionalString(params["threadId"])
+            let mode = Self.optionalString(params["mode"])
+            let message = Self.optionalString(params["message"])
+            guard let serverName, !serverName.isEmpty,
+                  let threadId, !threadId.isEmpty,
+                  let mode, ["form", "openai/form", "url"].contains(mode),
+                  let message, !message.isEmpty else {
+                return nil
             }
+            if mode != "url", Self.dictionaryValue(params["requestedSchema"]) == nil {
+                return nil
+            }
+            let questions = Self.elicitationQuestions(from: params)
+            let schemaSupported = Self.isSupportedElicitationSchema(in: params)
+            let title: String
+            title = "\(serverName) request"
             self.init(
                 id: id,
                 method: serverRequest.method,
                 kind: .mcpElicitation,
                 title: title,
                 detail: schemaSupported
-                    ? (message ?? "An MCP server is requesting input.")
-                    : "\(message ?? "An MCP server is requesting input.") This form contains unsupported fields and can only be declined.",
+                    ? message
+                    : "\(message) This form contains unsupported fields and can only be declined.",
                 serverName: serverName,
                 questions: questions,
                 createdAt: createdAt,
@@ -631,13 +633,11 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
 
     private static func elicitationSchema(from request: [String: CodexJSONValue]) -> [String: CodexJSONValue]? {
         dictionaryValue(request["requestedSchema"])
-            ?? dictionaryValue(request["requested_schema"])
-            ?? dictionaryValue(request["schema"])
     }
 
     private static func isSupportedElicitationSchema(in request: [String: CodexJSONValue]) -> Bool {
         let mode = stringValue(request["mode"])
-        if !mode.isEmpty, mode != "form", mode != "openai/form" {
+        if mode != "form", mode != "openai/form" {
             return false
         }
         guard let schema = elicitationSchema(from: request),
@@ -686,7 +686,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
     }
 
     private var elicitationRequest: [String: CodexJSONValue] {
-        Self.dictionaryValue(rawParams["request"]) ?? rawParams
+        rawParams
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
