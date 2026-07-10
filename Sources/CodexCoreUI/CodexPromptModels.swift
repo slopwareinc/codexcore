@@ -58,6 +58,17 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
     public var secondaryValue: String?
     public var cwd: String?
     public var reason: String?
+    public var threadId: String?
+    public var turnId: String?
+    public var itemId: String?
+    public var approvalId: String?
+    public var environmentId: String?
+    public var availableDecisions: [CodexCommandApprovalDecision]?
+    public var commandActions: [CodexCommandAction]
+    public var additionalPermissions: CodexJSONValue?
+    public var networkApprovalContext: CodexNetworkApprovalContext?
+    public var proposedExecpolicyAmendment: [String]?
+    public var proposedNetworkPolicyAmendments: [CodexNetworkPolicyAmendment]
     public var createdAt: Date
     public var rawParams: [String: CodexJSONValue]
 
@@ -71,6 +82,17 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
         secondaryValue: String? = nil,
         cwd: String? = nil,
         reason: String? = nil,
+        threadId: String? = nil,
+        turnId: String? = nil,
+        itemId: String? = nil,
+        approvalId: String? = nil,
+        environmentId: String? = nil,
+        availableDecisions: [CodexCommandApprovalDecision]? = nil,
+        commandActions: [CodexCommandAction] = [],
+        additionalPermissions: CodexJSONValue? = nil,
+        networkApprovalContext: CodexNetworkApprovalContext? = nil,
+        proposedExecpolicyAmendment: [String]? = nil,
+        proposedNetworkPolicyAmendments: [CodexNetworkPolicyAmendment] = [],
         createdAt: Date = Date(),
         rawParams: [String: CodexJSONValue] = [:]
     ) {
@@ -83,6 +105,17 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
         self.secondaryValue = secondaryValue
         self.cwd = cwd
         self.reason = reason
+        self.threadId = threadId
+        self.turnId = turnId
+        self.itemId = itemId
+        self.approvalId = approvalId
+        self.environmentId = environmentId
+        self.availableDecisions = availableDecisions
+        self.commandActions = commandActions
+        self.additionalPermissions = additionalPermissions
+        self.networkApprovalContext = networkApprovalContext
+        self.proposedExecpolicyAmendment = proposedExecpolicyAmendment
+        self.proposedNetworkPolicyAmendments = proposedNetworkPolicyAmendments
         self.createdAt = createdAt
         self.rawParams = rawParams
     }
@@ -92,29 +125,33 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
     /// passed straight to `Codex.respondToApproval(id:decision:)`.
     public init(request: CodexApprovalRequest, createdAt: Date = Date()) {
         let kind: CodexApprovalPromptKind
+        let method: String
         let title: String
         let fallbackDetail: String
         var primaryValue: String?
         switch request.kind {
         case .command:
             kind = .command
+            method = CodexAppServerServerRequestMethod.itemCommandExecutionRequestApproval.rawValue
             title = "Approve command?"
             fallbackDetail = "Codex wants to run a command."
             primaryValue = request.command
         case .fileChange:
             kind = .fileChange
+            method = CodexAppServerServerRequestMethod.itemFileChangeRequestApproval.rawValue
             title = "Approve file change?"
             fallbackDetail = "Codex wants permission to edit files."
             primaryValue = request.path ?? request.grantRoot ?? request.command
         case .permissions:
             kind = .permissions
+            method = CodexAppServerServerRequestMethod.itemPermissionsRequestApproval.rawValue
             title = "Approve permissions?"
             fallbackDetail = "Codex wants broader permissions for this turn."
         }
 
         self.init(
             id: request.id,
-            method: CodexAppServerServerRequestMethod.itemCommandExecutionRequestApproval.rawValue,
+            method: method,
             kind: kind,
             title: title,
             detail: request.reason ?? fallbackDetail,
@@ -122,8 +159,66 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
             secondaryValue: request.cwd,
             cwd: request.cwd,
             reason: request.reason,
+            threadId: request.threadId,
+            turnId: request.turnId,
+            itemId: request.itemId,
+            approvalId: request.approvalId,
+            environmentId: request.environmentId,
+            availableDecisions: request.availableDecisions,
+            commandActions: request.commandActions ?? [],
+            additionalPermissions: request.additionalPermissions,
+            networkApprovalContext: request.networkApprovalContext,
+            proposedExecpolicyAmendment: request.proposedExecpolicyAmendment,
+            proposedNetworkPolicyAmendments: request.proposedNetworkPolicyAmendments ?? [],
             createdAt: createdAt
         )
+    }
+
+    public var commandDecisions: [CodexCommandApprovalDecision] {
+        guard kind == .command || kind == .execCommand else { return [] }
+        if let availableDecisions, !availableDecisions.isEmpty { return availableDecisions }
+        return [.decline, .accept]
+    }
+
+    public var contextLines: [String] {
+        var lines: [String] = []
+        if let environmentId, !environmentId.isEmpty { lines.append("Environment: \(environmentId)") }
+        if let networkApprovalContext {
+            lines.append("Network: \(networkApprovalContext.protocol)://\(networkApprovalContext.host)")
+        }
+        if let additionalPermissions {
+            lines.append("Requested permissions: \(Self.compactJSON(additionalPermissions))")
+        }
+        lines += commandActions.map { action in
+            var detail = action.name ?? action.type
+            if !action.command.isEmpty { detail += " · \(action.command)" }
+            if let path = action.path { detail += " · \(path)" }
+            if let query = action.query { detail += " · \(query)" }
+            return "Action: \(detail)"
+        }
+        if let proposedExecpolicyAmendment, !proposedExecpolicyAmendment.isEmpty {
+            lines.append("Command policy: \(proposedExecpolicyAmendment.joined(separator: " "))")
+        }
+        lines += proposedNetworkPolicyAmendments.map {
+            "Network policy: \($0.action.rawValue.capitalized) \($0.host)"
+        }
+        if let approvalId, !approvalId.isEmpty { lines.append("Approval: \(approvalId)") }
+        if let itemId, !itemId.isEmpty { lines.append("Item: \(itemId)") }
+        return lines
+    }
+
+    public func label(for decision: CodexCommandApprovalDecision) -> String {
+        switch decision {
+        case .accept: return "Approve"
+        case .acceptForSession: return "Approve for session"
+        case .decline: return "Deny"
+        case .cancel: return "Deny and stop"
+        case .acceptWithExecpolicyAmendment(let amendment):
+            let command = amendment.joined(separator: " ")
+            return command.isEmpty ? "Approve and remember command" : "Approve and remember: \(command)"
+        case .applyNetworkPolicyAmendment(let amendment):
+            return amendment.action == .allow ? "Allow \(amendment.host)" : "Block \(amendment.host)"
+        }
     }
 
     public init?(serverRequest: JSONRPCServerRequest, createdAt: Date = Date()) {
@@ -301,6 +396,12 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
         case .int, .double, .bool, .null:
             return stringValue(value)
         }
+    }
+
+    private static func compactJSON(_ value: CodexJSONValue) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let string = String(data: data, encoding: .utf8) else { return "requested" }
+        return string
     }
 }
 

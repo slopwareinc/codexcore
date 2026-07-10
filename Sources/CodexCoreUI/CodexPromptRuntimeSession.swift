@@ -68,6 +68,15 @@ public final class CodexPromptRuntimeSession {
         return promptSession.apply(effect)
     }
 
+    public func resolveApprovalPrompt(
+        id: String,
+        decision: CodexCommandApprovalDecision,
+        using codex: Codex?
+    ) async -> CodexPromptStateActivity? {
+        let effect = await promptSession.resolveApprovalPrompt(id: id, decision: decision, using: codex)
+        return promptSession.apply(effect)
+    }
+
     public func submitInteractivePrompt(
         id: String,
         answers: [String: String],

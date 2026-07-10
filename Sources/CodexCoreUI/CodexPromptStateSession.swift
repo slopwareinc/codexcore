@@ -139,8 +139,27 @@ public struct CodexPromptStateSession: Equatable, Sendable {
         approved: Bool,
         using codex: Codex?
     ) async -> CodexPromptResponseEffect {
-        let decision: CodexApprovalDecision = approved ? .accept : .decline
-        let resolved = await codex?.respondToApproval(id: id, decision: decision) ?? false
+        await resolveApprovalPrompt(
+            id: id,
+            decision: approved ? .accept : .decline,
+            using: codex
+        )
+    }
+
+    public func resolveApprovalPrompt(
+        id: String,
+        decision: CodexCommandApprovalDecision,
+        using codex: Codex?
+    ) async -> CodexPromptResponseEffect {
+        guard let prompt = approvalPrompts.first(where: { $0.id == id }) else { return .none }
+        let resolved: Bool
+        if prompt.kind == .command {
+            resolved = await codex?.respondToCommandApproval(id: id, decision: decision) ?? false
+        } else if let scalar = decision.scalarDecision {
+            resolved = await codex?.respondToApproval(id: id, decision: scalar) ?? false
+        } else {
+            resolved = false
+        }
         return resolved ? .approvalResolved(id: id) : .none
     }
 
@@ -198,6 +217,18 @@ public struct CodexPromptStateSession: Equatable, Sendable {
             interactivePrompts[index] = prompt
         } else {
             interactivePrompts.append(prompt)
+        }
+    }
+}
+
+private extension CodexCommandApprovalDecision {
+    var scalarDecision: CodexApprovalDecision? {
+        switch self {
+        case .accept: return .accept
+        case .acceptForSession: return .acceptForSession
+        case .decline: return .decline
+        case .cancel: return .cancel
+        case .acceptWithExecpolicyAmendment, .applyNetworkPolicyAmendment: return nil
         }
     }
 }

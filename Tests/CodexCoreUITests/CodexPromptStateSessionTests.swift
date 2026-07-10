@@ -3,6 +3,75 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexPromptStateSessionTests: XCTestCase {
+    func testCommandApprovalPromptPreservesWireContextAndDecisions() throws {
+        let networkAmendment = CodexNetworkPolicyAmendment(action: .allow, host: "example.com")
+        let request = CodexApprovalRequest(
+            requestId: .string("rpc-7"),
+            kind: .command,
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "item-9",
+            approvalId: "approval-4",
+            command: "curl https://example.com",
+            cwd: "/tmp/project",
+            reason: "Download metadata",
+            environmentId: "env-local",
+            availableDecisions: [
+                .decline,
+                .acceptForSession,
+                .acceptWithExecpolicyAmendment(["curl", "https://example.com"]),
+                .applyNetworkPolicyAmendment(networkAmendment)
+            ],
+            commandActions: [
+                CodexCommandAction(
+                    type: "read",
+                    command: "curl https://example.com",
+                    name: "Fetch URL",
+                    query: "metadata"
+                )
+            ],
+            additionalPermissions: .dictionary([
+                "network": .dictionary(["enabled": .bool(true)])
+            ]),
+            networkApprovalContext: .init(host: "example.com", protocol: "https"),
+            proposedExecpolicyAmendment: ["curl", "https://example.com"],
+            proposedNetworkPolicyAmendments: [networkAmendment]
+        )
+
+        let prompt = CodexApprovalPrompt(request: request)
+
+        XCTAssertEqual(prompt.id, "rpc-7")
+        XCTAssertEqual(prompt.itemId, "item-9")
+        XCTAssertEqual(prompt.approvalId, "approval-4")
+        XCTAssertEqual(prompt.environmentId, "env-local")
+        XCTAssertEqual(prompt.commandDecisions, request.availableDecisions)
+        XCTAssertEqual(prompt.commandActions, request.commandActions)
+        XCTAssertEqual(prompt.additionalPermissions, request.additionalPermissions)
+        XCTAssertEqual(prompt.networkApprovalContext, request.networkApprovalContext)
+        XCTAssertEqual(prompt.proposedExecpolicyAmendment, request.proposedExecpolicyAmendment)
+        XCTAssertEqual(prompt.proposedNetworkPolicyAmendments, request.proposedNetworkPolicyAmendments)
+        XCTAssertTrue(prompt.contextLines.contains("Environment: env-local"))
+        XCTAssertTrue(prompt.contextLines.contains("Network: https://example.com"))
+        XCTAssertTrue(prompt.contextLines.contains("Command policy: curl https://example.com"))
+        XCTAssertTrue(prompt.contextLines.contains("Network policy: Allow example.com"))
+        XCTAssertTrue(prompt.contextLines.contains("Approval: approval-4"))
+        XCTAssertTrue(prompt.contextLines.contains("Item: item-9"))
+        XCTAssertEqual(prompt.label(for: .acceptForSession), "Approve for session")
+        XCTAssertEqual(
+            prompt.label(for: .acceptWithExecpolicyAmendment(["curl", "https://example.com"])),
+            "Approve and remember: curl https://example.com"
+        )
+        XCTAssertEqual(prompt.label(for: .applyNetworkPolicyAmendment(networkAmendment)), "Allow example.com")
+    }
+
+    func testLegacyApprovalPromptDefaultsRemainAvailable() {
+        let prompt = CodexApprovalPrompt(request: approvalRequest(id: "approval-1", command: "git status"))
+
+        XCTAssertEqual(prompt.commandDecisions, [.decline, .accept])
+        XCTAssertEqual(prompt.primaryValue, "git status")
+        XCTAssertEqual(prompt.method, CodexAppServerServerRequestMethod.itemCommandExecutionRequestApproval.rawValue)
+    }
+
     func testSyncDiffsApprovalAndUserInputPromptsFromStoreRequests() {
         var session = CodexPromptStateSession()
         let approval = approvalRequest(id: "approval-1", command: "git status")

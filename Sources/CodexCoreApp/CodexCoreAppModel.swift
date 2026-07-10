@@ -885,6 +885,15 @@ final class CodexCoreAppModel {
         }
     }
 
+    func resolveApprovalPrompt(id: String, decision: CodexCommandApprovalDecision) {
+        Task { [weak self] in
+            guard let self else { return }
+            if let activity = await promptRuntime.resolveApprovalPrompt(id: id, decision: decision, using: codex) {
+                appendActivity(.notice, title: activity.title, detail: activity.detail)
+            }
+        }
+    }
+
     func submitInteractivePrompt(id: String, answers: [String: String]) {
         Task { [weak self] in
             guard let self else { return }
