@@ -18,7 +18,8 @@ public struct CodexConfig: Sendable {
     /// How escalated approval/user-input server requests are answered when no
     /// custom `serverRequestHandler` is installed. `.autoApprove` preserves the
     /// historic behavior; interactive apps should use `.ask` and resolve via
-    /// `Codex.respondToApproval(id:decision:)`.
+    /// `Codex.respondToApproval(id:decision:)` or, for structured command
+    /// decisions, `Codex.respondToCommandApproval(id:decision:)`.
     public let approvalPolicy: CodexApprovalPolicy
 
     public init(
@@ -724,6 +725,13 @@ public final class Codex: @unchecked Sendable {
     @discardableResult
     public func respondToApproval(id: String, decision: CodexApprovalDecision) async -> Bool {
         await client.resolveApproval(requestId: id, decision: decision)
+    }
+
+    /// Resolves a pending command approval with the complete current wire
+    /// decision union, including exec-policy and network-policy amendments.
+    @discardableResult
+    public func respondToCommandApproval(id: String, decision: CodexCommandApprovalDecision) async -> Bool {
+        await client.resolveCommandApproval(requestId: id, decision: decision)
     }
 
     /// Answers a pending `store.pendingUserInput` request with answers keyed by

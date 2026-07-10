@@ -37,6 +37,7 @@ public actor CodexClient {
 
     // Escalated server requests awaiting a host decision (policy `.ask`).
     private var pendingApprovalContinuations: [String: CheckedContinuation<CodexApprovalDecision, Never>] = [:]
+    private var pendingCommandApprovalContinuations: [String: CheckedContinuation<CodexCommandApprovalDecision, Never>] = [:]
     private var pendingApprovalTurnIds: [String: String] = [:]
     private var pendingUserInputContinuations: [String: CheckedContinuation<CodexUserInputAnswers, Never>] = [:]
 
@@ -667,7 +668,19 @@ public actor CodexClient {
     /// Returns `false` if no request with that id is awaiting a decision.
     @discardableResult
     public func resolveApproval(requestId: String, decision: CodexApprovalDecision) -> Bool {
-        guard let continuation = pendingApprovalContinuations.removeValue(forKey: requestId) else {
+        if let continuation = pendingApprovalContinuations.removeValue(forKey: requestId) {
+            pendingApprovalTurnIds.removeValue(forKey: requestId)
+            continuation.resume(returning: decision)
+            return true
+        }
+        return resolveCommandApproval(requestId: requestId, decision: CodexCommandApprovalDecision(decision))
+    }
+
+    /// Resolves a command approval with either a scalar decision or one of the
+    /// structured policy-amendment decisions supported by the current wire API.
+    @discardableResult
+    public func resolveCommandApproval(requestId: String, decision: CodexCommandApprovalDecision) -> Bool {
+        guard let continuation = pendingCommandApprovalContinuations.removeValue(forKey: requestId) else {
             return false
         }
         pendingApprovalTurnIds.removeValue(forKey: requestId)
@@ -692,8 +705,13 @@ public actor CodexClient {
     public func cancelPendingServerRequests() {
         let approvals = pendingApprovalContinuations
         pendingApprovalContinuations = [:]
+        let commandApprovals = pendingCommandApprovalContinuations
+        pendingCommandApprovalContinuations = [:]
         pendingApprovalTurnIds = [:]
         for continuation in approvals.values {
+            continuation.resume(returning: .cancel)
+        }
+        for continuation in commandApprovals.values {
             continuation.resume(returning: .cancel)
         }
 
@@ -872,22 +890,31 @@ public actor CodexClient {
 
         switch knownMethod {
         case .itemCommandExecutionRequestApproval:
-            let approvalId = str("approvalId")
-            let itemId = str("itemId")
-
             let req = CodexApprovalRequest(
                 requestId: requestId,
                 kind: .command,
                 threadId: str("threadId"),
                 turnId: str("turnId"),
-                itemId: approvalId.isEmpty ? itemId : approvalId,
+                itemId: str("itemId"),
+                approvalId: optionalString(params["approvalId"]),
                 command: optionalString(params["command"]),
                 cwd: optionalString(params["cwd"]),
-                reason: optionalString(params["reason"])
+                reason: optionalString(params["reason"]),
+                startedAtMs: optionalInt(params["startedAtMs"]),
+                environmentId: optionalString(params["environmentId"]),
+                availableDecisions: parseCommandApprovalDecisions(params["availableDecisions"]),
+                commandActions: decodeArray(params["commandActions"], as: CodexCommandAction.self),
+                additionalPermissions: optionalJSON(params["additionalPermissions"]),
+                networkApprovalContext: decodeValue(params["networkApprovalContext"], as: CodexNetworkApprovalContext.self),
+                proposedExecpolicyAmendment: stringArray(params["proposedExecpolicyAmendment"]),
+                proposedNetworkPolicyAmendments: decodeArray(
+                    params["proposedNetworkPolicyAmendments"],
+                    as: CodexNetworkPolicyAmendment.self
+                )
             )
 
-            let decision = await decideApproval(req)
-            return .dictionary(["decision": .string(decision.rawValue)])
+            let decision = await decideCommandApproval(req)
+            return .dictionary(["decision": decision.jsonValue])
 
         case .itemFileChangeRequestApproval:
             let req = CodexApprovalRequest(
@@ -987,6 +1014,28 @@ public actor CodexClient {
         }
     }
 
+    private func decideCommandApproval(_ request: CodexApprovalRequest) async -> CodexCommandApprovalDecision {
+        switch approvalPolicy {
+        case .autoApprove:
+            return .accept
+        case .autoDecline:
+            return .decline
+        case .ask:
+            let requestKey = request.id
+            let decision = await withCheckedContinuation { (continuation: CheckedContinuation<CodexCommandApprovalDecision, Never>) in
+                pendingCommandApprovalContinuations[requestKey] = continuation
+                pendingApprovalTurnIds[requestKey] = request.turnId
+                Task { @MainActor [store] in
+                    store.dispatchRequest(request)
+                }
+            }
+            await MainActor.run {
+                store.resolveApproval(requestKey)
+            }
+            return decision
+        }
+    }
+
     /// Applies the configured `CodexApprovalPolicy` to a user-input request.
     /// Auto policies answer with no input; `.ask` suspends until the host
     /// calls `resolveUserInput(requestId:answers:)`.
@@ -1048,6 +1097,39 @@ public actor CodexClient {
     private func boolValue(_ value: CodexJSONValue?) -> Bool {
         if case .bool(let bool)? = value { return bool }
         return false
+    }
+
+    private func optionalInt(_ value: CodexJSONValue?) -> Int? {
+        guard case .int(let int)? = value else { return nil }
+        return int
+    }
+
+    private func optionalJSON(_ value: CodexJSONValue?) -> CodexJSONValue? {
+        guard let value, value != .null else { return nil }
+        return value
+    }
+
+    private func stringArray(_ value: CodexJSONValue?) -> [String]? {
+        guard case .array(let values)? = value else { return nil }
+        return values.compactMap { value in
+            guard case .string(let string) = value else { return nil }
+            return string
+        }
+    }
+
+    private func parseCommandApprovalDecisions(_ value: CodexJSONValue?) -> [CodexCommandApprovalDecision]? {
+        guard case .array(let values)? = value else { return nil }
+        return values.compactMap(CodexCommandApprovalDecision.init(jsonValue:))
+    }
+
+    private func decodeValue<T: Decodable>(_ value: CodexJSONValue?, as type: T.Type) -> T? {
+        guard let value else { return nil }
+        return try? value.decode(T.self)
+    }
+
+    private func decodeArray<T: Decodable>(_ value: CodexJSONValue?, as type: T.Type) -> [T]? {
+        guard case .array(let values)? = value else { return nil }
+        return values.compactMap { try? $0.decode(T.self) }
     }
 
     // MARK: - Server Notification Handling

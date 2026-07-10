@@ -101,7 +101,7 @@ final class V2TypeTests: XCTestCase {
             params: [
                 "threadId": .string("thread-1"),
                 "turnId": .string("turn-1"),
-                "itemId": .string("item-1"),
+                "callId": .string("call-1"),
                 "tool": .string("save_notebook_entry"),
                 "arguments": .dictionary(["title": .string("Groove map")])
             ]
@@ -111,7 +111,7 @@ final class V2TypeTests: XCTestCase {
         XCTAssertEqual(call.requestID, .int(42))
         XCTAssertEqual(call.threadID, "thread-1")
         XCTAssertEqual(call.turnID, "turn-1")
-        XCTAssertEqual(call.itemID, "item-1")
+        XCTAssertEqual(call.callID, "call-1")
         XCTAssertEqual(call.tool, "save_notebook_entry")
         XCTAssertEqual(call.argumentsObject, ["title": .string("Groove map")])
 
@@ -127,6 +127,37 @@ final class V2TypeTests: XCTestCase {
                 ])
             ])
         )
+    }
+
+    func testDynamicToolCallRejectsLegacyItemIdentifierShape() {
+        let request = JSONRPCServerRequest(
+            id: .int(42),
+            method: CodexAppServerServerRequestMethod.itemToolCall.rawValue,
+            params: [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("legacy-item-1"),
+                "tool": .string("save_notebook_entry"),
+                "arguments": .dictionary([:])
+            ]
+        )
+
+        XCTAssertNil(request.dynamicToolCall)
+    }
+
+    func testStructuredCommandApprovalDecisionsRoundTrip() throws {
+        let decisions: [CodexCommandApprovalDecision] = [
+            .accept,
+            .acceptWithExecpolicyAmendment(["git", "status"]),
+            .applyNetworkPolicyAmendment(.init(action: .deny, host: "example.com")),
+            .decline
+        ]
+
+        for decision in decisions {
+            let encoded = try CodexJSONValue(encoding: decision)
+            XCTAssertEqual(try encoded.decode(CodexCommandApprovalDecision.self), decision)
+            XCTAssertEqual(encoded, decision.jsonValue)
+        }
     }
 
     func testApprovalModeMappingMatchesPythonSDK() {
