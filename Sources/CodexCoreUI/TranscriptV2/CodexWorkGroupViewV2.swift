@@ -71,13 +71,7 @@ private struct CodexWorkRowViewV2: View {
             if let error = value.errorFirstLine, !error.isEmpty { return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool) — \(error)" }
             return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool)"
         case .webSearch(let value): return "Searched \(value.query)"
-        case .collabAgent(let value):
-            let names = value.agentNames.joined(separator: ", ")
-            switch value.action {
-            case .created: return "Created \(names)\(value.instructions.map { " with the instructions: \($0)" } ?? "")"
-            case .waited: return names.isEmpty ? "Waited for agents" : "Waited for \(names)"
-            case .closed: return names.isEmpty ? "Closed agents" : "Closed \(names)"
-            }
+        case .collabAgent(let value): return value.label
         case .other(let value): return value.label
         }
     }
@@ -102,6 +96,15 @@ private struct CodexWorkRowViewV2: View {
         case .fileChange(let v): return v.diff?.nilIfEmpty
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        case .collabAgent(let value):
+            guard value.action == .waited || value.action == .sentInput else { return nil }
+            let ordered = value.agentNames.filter { value.agentMessages[$0] != nil }
+                + value.agentMessages.keys.filter { !value.agentNames.contains($0) }.sorted()
+            let replies = ordered.compactMap { agent in
+                value.agentMessages[agent].map { "\(agent)\n\($0)" }
+            }.joined(separator: "\n\n")
+            let parts = [value.action == .sentInput ? value.instructions?.nilIfEmpty : nil, replies.nilIfEmpty].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         default: return nil
         }
