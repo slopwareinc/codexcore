@@ -100,7 +100,20 @@ public enum CodexCollabActionV2: Sendable, Equatable {
 }
 public struct CodexCollabAgentRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var action: CodexCollabActionV2; public var agentNames: [String]
-    public var instructions: String?; public var status: CodexWorkItemStatusV2
+    public var instructions: String?; public var agentMessages: [String: String]
+    public var status: CodexWorkItemStatusV2
+
+    public init(
+        id: String,
+        action: CodexCollabActionV2,
+        agentNames: [String],
+        instructions: String?,
+        agentMessages: [String: String] = [:],
+        status: CodexWorkItemStatusV2
+    ) {
+        self.id = id; self.action = action; self.agentNames = agentNames
+        self.instructions = instructions; self.agentMessages = agentMessages; self.status = status
+    }
 }
 public struct CodexOtherWorkRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var label: String; public var status: CodexWorkItemStatusV2
@@ -136,5 +149,5 @@ public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
 
 public enum CodexWorkCategoryV2: Sendable, Hashable {
     case read, list, search, run, edit, mcp(String)
-    case collabCreated, collabClosed, collabWorked, imageGeneration
+    case collabCreated, collabClosed, collabWait, collabWorked, imageGeneration
 }

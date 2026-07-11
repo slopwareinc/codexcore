@@ -106,6 +106,13 @@ private struct CodexWorkRowViewV2: View {
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        case .collabAgent(let value):
+            guard value.action == .waited, !value.agentMessages.isEmpty else { return nil }
+            let ordered = value.agentNames.filter { value.agentMessages[$0] != nil }
+                + value.agentMessages.keys.filter { !value.agentNames.contains($0) }.sorted()
+            return ordered.compactMap { agent in
+                value.agentMessages[agent].map { "\(agent)\n\($0)" }
+            }.joined(separator: "\n\n")
         default: return nil
         }
     }

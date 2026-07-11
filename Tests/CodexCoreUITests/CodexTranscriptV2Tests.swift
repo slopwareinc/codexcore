@@ -22,6 +22,37 @@ struct CodexTranscriptV2Tests {
         #expect(turn.narrative.contains(where: \.isProse) && turn.finalAnswer != nil)
     }
 
+    @Test func liveCollabFixtureMatchesOfficialAgentGrammar() throws {
+        let transcript = try replay(
+            "turn-collab-live",
+            threadID: "019f5207-0817-70f0-ab00-33810d6c8744"
+        )
+        #expect(transcript.turns.count == 1)
+        let turn = try #require(transcript.turns.first)
+        let groups = turn.narrative.compactMap(\.workGroup)
+        let createdGroup = try #require(groups.first { $0.header == "Created 5 agents" })
+        let createdRows = createdGroup.rows.compactMap { row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let value) = row, value.action == .created else { return nil }
+            return value
+        }
+        #expect(createdRows.count == 5)
+        let createdLabels = createdRows.map { row in
+            "Created \(row.agentNames.joined(separator: ", "))" +
+                (row.instructions.map { " with the instructions: \($0)" } ?? "")
+        }
+        #expect(createdLabels.count == 5)
+        #expect(createdLabels.allSatisfy { $0.hasPrefix("Created 019f") && $0.contains(" with the instructions: Count from ") })
+
+        let waitRows = groups.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let value) = row, value.action == .waited else { return nil }
+            return value
+        }
+        #expect(groups.contains { $0.header == "Working" })
+        #expect(!waitRows.isEmpty)
+        #expect(waitRows.allSatisfy { !$0.agentNames.isEmpty })
+        #expect(waitRows.contains { !$0.agentMessages.isEmpty })
+    }
+
     @Test func mcpFailureReplay() throws {
         let transcript = try replay("turn-mcp-failure")
         let turn = try #require(transcript.turns.first)
@@ -161,12 +192,19 @@ struct CodexTranscriptV2Tests {
         #expect(CodexWorkBlockViewV2.duration(durationMs) == "8s")
     }
 
-    private func replay(_ name: String) throws -> CodexTranscriptV2 {
+    private func replay(_ name: String, threadID explicitThreadID: String? = nil) throws -> CodexTranscriptV2 {
         struct Event: Decodable { let method: String; let params: CodexJSONValue }
         let url = try #require(Bundle.module.url(forResource:name, withExtension:"jsonl"))
         let lines = try String(contentsOf:url, encoding:.utf8).split(separator:"\n"), decoder = JSONDecoder()
         let first = try decoder.decode(Event.self, from:Data(lines[0].utf8))
-        guard case .dictionary(let p) = first.params, case .string(let thread)? = p["threadId"] else { throw Error.invalid }
+        guard case .dictionary(let p) = first.params else { throw Error.invalid }
+        let rootThreadID: String? = if case .string(let value)? = p["threadId"] { value } else { nil }
+        let nestedThreadID: String? = if case .dictionary(let thread)? = p["thread"],
+                                         case .string(let value)? = thread["id"] { value } else { nil }
+        let thread = explicitThreadID
+            ?? rootThreadID
+            ?? nestedThreadID
+        guard let thread else { throw Error.invalid }
         var reducer = CodexTranscriptReducerV2(threadID:thread)
         for line in lines { let event = try decoder.decode(Event.self, from:Data(line.utf8)); reducer.apply(method:event.method, params:event.params) }
         return reducer.transcript

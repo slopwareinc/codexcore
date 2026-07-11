@@ -15,7 +15,8 @@ public enum CodexWorkGroupHeaderV2 {
                 switch value.action {
                 case .created: categories = [(.collabCreated, max(1, value.agentNames.count))]
                 case .closed: categories = [(.collabClosed, max(1, value.agentNames.count))]
-                case .waited, .started, .interacted, .interrupted:
+                case .waited: categories = [(.collabWait, max(1, value.agentNames.count))]
+                case .started, .interacted, .interrupted:
                     categories = [(.collabWorked, max(1, value.agentNames.count))]
                 }
             case .other(let value):
@@ -55,6 +56,7 @@ public enum CodexWorkGroupHeaderV2 {
         case .mcp(let app): count == 1 ? "called \(app)" : "called \(app) \(count) times"
         case .collabCreated: count == 1 ? "created an agent" : "created \(count) agents"
         case .collabClosed: count == 1 ? "closed an agent" : "closed \(count) agents"
+        case .collabWait: "working"
         case .collabWorked: count == 1 ? "worked with an agent" : "worked with \(count) agents"
         case .imageGeneration: count == 1 ? "generated an image" : "generated \(count) images"
         }

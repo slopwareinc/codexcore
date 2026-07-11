@@ -186,7 +186,8 @@ public struct CodexTranscriptReducerV2: Sendable {
             group.rows[location.row] = row; group.header = CodexWorkGroupHeaderV2.synthesize(rows: group.rows)
             group.isLive = group.rows.contains(where: \.isInProgress)
             transcript.turns[index].narrative[location.entry] = .workGroup(group)
-        } else if case .workGroup(var group)? = transcript.turns[index].narrative.last {
+        } else if case .workGroup(var group)? = transcript.turns[index].narrative.last,
+                  canAppend(row, to: group) {
             group.rows.append(row); group.header = CodexWorkGroupHeaderV2.synthesize(rows: group.rows)
             group.isLive = group.rows.contains(where: \.isInProgress)
             transcript.turns[index].narrative[transcript.turns[index].narrative.count - 1] = .workGroup(group)
@@ -216,7 +217,13 @@ public struct CodexTranscriptReducerV2: Sendable {
         case "collabAgentToolCall":
             let tool = item.string("tool") ?? "", action: CodexCollabActionV2 = tool == "spawnAgent" ? .created : (tool == "closeAgent" ? .closed : .waited)
             let names = item.array("receiverThreadIds")?.compactMap(\.stringValue) ?? []
-            return .collabAgent(.init(id: id, action: action, agentNames: names, instructions: item.string("prompt"), status: state))
+            let messages = item.object("agentsStates")?.reduce(into: [String: String]()) { result, entry in
+                if let message = entry.value.object?.string("message"), !message.isEmpty { result[entry.key] = message }
+            } ?? [:]
+            return .collabAgent(.init(
+                id: id, action: action, agentNames: names, instructions: item.string("prompt"),
+                agentMessages: messages, status: state
+            ))
         case "subAgentActivity":
             let action: CodexCollabActionV2
             switch item.string("kind") {
@@ -298,7 +305,28 @@ public struct CodexTranscriptReducerV2: Sendable {
         transcript.turns[index].liveTail = nil
     }
 
-    private func tail(_ row: CodexWorkRowV2) -> String { switch row { case .command(let v): "Running \(shortCommand(v.command))"; case .mcpToolCall(let v): "Asking \(v.appName)"; case .fileChange: "Editing files"; case .webSearch: "Searching"; case .collabAgent(let v): v.action == .created ? "Creating an agent" : "Working with agents"; case .other(let v): v.label } }
+    private func tail(_ row: CodexWorkRowV2) -> String {
+        switch row {
+        case .command(let value): "Running \(shortCommand(value.command))"
+        case .mcpToolCall(let value): "Asking \(value.appName)"
+        case .fileChange: "Editing files"
+        case .webSearch: "Searching"
+        case .collabAgent(let value):
+            switch value.action {
+            case .created: "Creating an agent"
+            case .waited: "Waiting for agents"
+            default: "Working with agents"
+            }
+        case .other(let value): value.label
+        }
+    }
+    private func canAppend(_ row: CodexWorkRowV2, to group: CodexWorkGroupV2) -> Bool {
+        guard case .collabAgent(let incoming) = row,
+              case .collabAgent(let previous)? = group.rows.last else { return true }
+        let incomingIsWait = incoming.action == .waited
+        let previousIsWait = previous.action == .waited
+        return incomingIsWait == previousIsWait
+    }
     private func status(_ item: [String: CodexJSONValue], completed: Bool) -> CodexWorkItemStatusV2 { if item.string("status") == "failed" || (item.int("exitCode").map { $0 != 0 } ?? false) { return .failed }; return completed ? .completed : .inProgress }
     private func commandCategory(_ item: [String: CodexJSONValue]) -> CodexWorkCategoryV2 { guard let action = item.array("commandActions")?.first?.object?.string("type") else { return .run }; switch action.lowercased() { case "read", "fileread": return .read; case "listfiles", "list": return .list; case "search", "searchfiles": return .search; default: return .run } }
     private func shortCommand(_ command: String) -> String { if let range = command.range(of: "-lc ") { return String(command[range.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: " '\"")) }; return command }
