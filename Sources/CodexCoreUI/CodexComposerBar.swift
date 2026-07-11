@@ -14,6 +14,7 @@ public struct CodexComposerBar: View {
     private let approvalOptions: [CodexApprovalSelection]
     @Binding private var modelSelection: CodexModelSelection
     private let modelOptions: [CodexModelSelection]
+    private let modelPickerStyle: CodexComposerModelPickerStyle
     @Binding private var reasoningSelection: CodexReasoningSelection
     private let slashCommands: [CodexSlashCommand]
     private let mcpServers: [CodexMCPServerStatus]
@@ -48,6 +49,7 @@ public struct CodexComposerBar: View {
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        modelPickerStyle: CodexComposerModelPickerStyle = .menu,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
         mcpServers: [CodexMCPServerStatus] = [],
@@ -75,6 +77,7 @@ public struct CodexComposerBar: View {
         self.approvalOptions = approvalOptions
         self._modelSelection = modelSelection
         self.modelOptions = modelOptions
+        self.modelPickerStyle = modelPickerStyle
         self._reasoningSelection = reasoningSelection
         self.slashCommands = slashCommands
         self.mcpServers = mcpServers
@@ -157,7 +160,12 @@ public struct CodexComposerBar: View {
                         }
                     }
                     ComposerApprovalMenu(selection: $approvalSelection, options: approvalOptions)
-                    ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
+                    switch modelPickerStyle {
+                    case .menu:
+                        ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
+                    case .grid:
+                        ComposerModelGridPicker(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
+                    }
 
                     Spacer(minLength: 0)
 

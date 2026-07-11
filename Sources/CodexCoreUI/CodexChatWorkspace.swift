@@ -347,6 +347,7 @@ public struct CodexChatWorkspaceView: View {
                     approvalOptions: approvalOptions,
                     modelSelection: $modelSelection,
                     modelOptions: modelOptions,
+                    modelPickerStyle: .grid,
                     reasoningSelection: $reasoningSelection,
                     slashCommands: slashCommands,
                     mcpServers: mcpServers,
