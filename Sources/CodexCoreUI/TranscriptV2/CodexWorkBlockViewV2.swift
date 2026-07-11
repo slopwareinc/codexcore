@@ -10,6 +10,7 @@ public struct CodexWorkBlockViewV2: View {
     private let status: CodexTurnStatusV2
     private let productToolRenderer: CodexProductToolRendererV2?
     @State private var isExpanded: Bool
+    @State private var clientStartedAt = Date()
 
     public init(
         narrative: [CodexNarrativeEntry],
@@ -45,7 +46,11 @@ public struct CodexWorkBlockViewV2: View {
                 switch status {
                 case .working(let since):
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text("Working for \(elapsedSeconds(at: context.date, since: since))s")
+                        Text(verbatim: Self.workingLabel(
+                            at: context.date,
+                            since: since,
+                            clientStartedAt: clientStartedAt
+                        ))
                             .font(theme.fonts.caption)
                             .foregroundStyle(theme.colors.textTertiary)
                     }
@@ -57,7 +62,7 @@ public struct CodexWorkBlockViewV2: View {
                         withAnimation(.snappy(duration: theme.animations.snappyDuration)) { isExpanded.toggle() }
                     } label: {
                         HStack(spacing: 4) {
-                            Text("Worked for \(Self.duration(durationMs))")
+                            Text(verbatim: "Worked for " + Self.duration(durationMs))
                             Image(systemName: "chevron.right")
                                 .font(theme.fonts.micro)
                                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -106,16 +111,22 @@ public struct CodexWorkBlockViewV2: View {
         }
     }
 
-    private func elapsedSeconds(at date: Date, since: Int64?) -> Int {
-        guard let since else { return 0 }
-        return max(0, Int(date.timeIntervalSince1970) - Int(since / 1_000))
+    nonisolated static func elapsedSeconds(at date: Date, since: Int64?, clientStartedAt: Date) -> Int {
+        let start = since.map { TimeInterval($0) } ?? clientStartedAt.timeIntervalSince1970
+        return max(0, Int(date.timeIntervalSince1970 - start))
     }
 
-    static func duration(_ milliseconds: Int?) -> String {
+    nonisolated static func workingLabel(at date: Date, since: Int64?, clientStartedAt: Date) -> String {
+        "Working for " + String(elapsedSeconds(at: date, since: since, clientStartedAt: clientStartedAt)) + "s"
+    }
+
+    nonisolated static func duration(_ milliseconds: Int?) -> String {
         let seconds = max(0, (milliseconds ?? 0) / 1_000)
         let minutes = seconds / 60
         let remainder = seconds % 60
-        return minutes > 0 ? "\(minutes)m \(remainder)s" : "\(remainder)s"
+        return minutes > 0
+            ? String(minutes) + "m " + String(remainder) + "s"
+            : String(remainder) + "s"
     }
 }
 
@@ -171,7 +182,7 @@ func codexStatusGlyphV2(_ status: CodexWorkItemStatusV2) -> String {
             .workGroup(CodexTranscriptV2PreviewData.commandGroup)
         ],
         liveTail: "Searching files in AGENTS.md folder",
-        status: .working(since: Int64(Date().timeIntervalSince1970 * 1_000) - 36_000)
+        status: .working(since: Int64(Date().timeIntervalSince1970) - 36)
     )
     .padding()
 }

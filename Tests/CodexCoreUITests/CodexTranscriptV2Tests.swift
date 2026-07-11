@@ -1,5 +1,5 @@
 import CodexCore
-import CodexCoreUI
+@testable import CodexCoreUI
 import Foundation
 import Testing
 
@@ -51,6 +51,46 @@ struct CodexTranscriptV2Tests {
         reducer.apply(method:"turn/started", params:json(["threadId":"t","turn":["id":"v"]]))
         reducer.apply(method:"item/started", params:json(["threadId":"t","turnId":"v","item":["type":"reasoning","id":"r","summary":[],"content":[]]]))
         #expect(reducer.transcript.turns[0].liveTail == "Thinking")
+    }
+
+    @Test func stopwatchUsesEpochSecondsBackfillsAndFallsBackToClientAnchor() throws {
+        let now = Date(timeIntervalSince1970: 1_783_539_680)
+        #expect(CodexWorkBlockViewV2.elapsedSeconds(
+            at: now,
+            since: 1_783_539_644,
+            clientStartedAt: .distantPast
+        ) == 36)
+        #expect(CodexWorkBlockViewV2.workingLabel(
+            at: now,
+            since: 1_783_539_644,
+            clientStartedAt: .distantPast
+        ) == "Working for 36s")
+        #expect(CodexWorkBlockViewV2.elapsedSeconds(
+            at: now,
+            since: nil,
+            clientStartedAt: now.addingTimeInterval(-7)
+        ) == 7)
+        #expect(CodexWorkBlockViewV2.duration(68_000) == "1m 8s")
+
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": ["type": "reasoning", "id": "r", "summary": [], "content": []]
+        ]))
+        guard case .working(let initialSince) = reducer.transcript.turns[0].status else {
+            Issue.record("Expected working turn")
+            return
+        }
+        #expect(initialSince == nil)
+
+        reducer.apply(method: "turn/started", params: json([
+            "threadId": "t", "turn": ["id": "v", "startedAt": 1_783_539_644]
+        ]))
+        guard case .working(let backfilledSince) = reducer.transcript.turns[0].status else {
+            Issue.record("Expected working turn after backfill")
+            return
+        }
+        #expect(backfilledSince == 1_783_539_644)
     }
 
     private func replay(_ name: String) throws -> CodexTranscriptV2 {

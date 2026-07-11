@@ -212,7 +212,14 @@ public struct CodexTranscriptReducerV2: Sendable {
     }
 
     private mutating func ensureTurn(_ id: String, since: Int64?) {
-        guard turnIndex(id) == nil else { return }
+        if let index = turnIndex(id) {
+            if case .working(let existingSince) = transcript.turns[index].status,
+               existingSince == nil,
+               let since {
+                transcript.turns[index].status = .working(since: since)
+            }
+            return
+        }
         if let provisional = transcript.turns.firstIndex(where: { $0.id.hasPrefix("local-") && $0.userMessage?.isOptimistic == true }) {
             transcript.turns[provisional].id = id
             transcript.turns[provisional].status = .working(since: since)
