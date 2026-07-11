@@ -216,7 +216,13 @@ public struct ComposerModelGridPicker: View {
 
     public var body: some View {
         Button { isPresented.toggle() } label: {
-            ComposerChipLabel(systemImage: "square.grid.3x3.fill", title: "\(model.displayName) \(reasoning.displayName)")
+            HStack(spacing: 7) {
+                Text("\(model.displayName) \(reasoning.displayName)")
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {

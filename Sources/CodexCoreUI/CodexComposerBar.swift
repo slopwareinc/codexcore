@@ -175,6 +175,8 @@ public struct CodexComposerBar: View {
                             .transition(.opacity)
                     }
 
+                    ComposerMicrophoneButton()
+
                     if isSending {
                         // The composer stays live during a run: send steers or
                         // queues the draft, stop interrupts the turn.
@@ -742,7 +744,7 @@ private struct ComposerApprovalMenu: View {
                 }
             }
         } label: {
-            ComposerChipLabel(systemImage: "checkmark.seal.fill", title: selection.displayName, tint: theme.colors.accent)
+            ComposerChipLabel(systemImage: "exclamationmark.shield", title: selection.displayName, tint: .orange)
         }
         .fixedSize()
         .help("Approval mode")
@@ -846,6 +848,23 @@ private struct ComposerStopButton: View {
         .accessibilityLabel(CodexComposerAccessibility.stopButtonLabel)
         .help(CodexComposerAccessibility.stopButtonHelp)
         .sensoryFeedback(.impact(weight: .medium), trigger: tapCount)
+    }
+}
+
+private struct ComposerMicrophoneButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    var body: some View {
+        Button {} label: {
+            Image(systemName: "mic")
+                .font(theme.fonts.chat)
+                .foregroundStyle(theme.colors.textSecondary)
+                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+        }
+        .buttonStyle(.plain)
+        .disabled(true)
+        .help("Voice input is not available yet")
+        .accessibilityLabel("Voice input")
     }
 }
 
