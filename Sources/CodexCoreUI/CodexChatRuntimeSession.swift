@@ -28,7 +28,6 @@ public final class CodexChatRuntimeSession {
         set { state.integrationCatalogSession = newValue }
     }
 
-    public var messages: [CodexChatMessage] { state.messages }
     public var lifecycleEvents: [CodexAgentLifecycleEvent] { state.lifecycleEvents }
     public var sideChat: CodexSideChatState? { state.sideChat }
     public var subagents: [CodexSubagentState] { state.subagents }
@@ -111,14 +110,6 @@ public final class CodexChatRuntimeSession {
 
     public func openSideChat() -> CodexActivity {
         state.openSideChat()
-    }
-
-    public func appendMessage(_ role: CodexChatMessage.Role, _ text: String, detail: String? = nil) {
-        state.appendMessage(role, text, detail: detail)
-    }
-
-    public func append(_ message: CodexChatMessage) {
-        state.append(message)
     }
 
     @discardableResult

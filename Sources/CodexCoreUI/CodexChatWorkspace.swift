@@ -41,7 +41,7 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
 public struct CodexChatWorkspaceView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    private let messages: [CodexChatMessage]
+    private let transcriptV2: CodexTranscriptV2
     private let lifecycleEvents: [CodexAgentLifecycleEvent]
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
@@ -99,7 +99,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isCompactSummaryPanelPresented = false
 
     public init(
-        messages: [CodexChatMessage],
+        transcriptV2: CodexTranscriptV2,
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState] = [],
@@ -154,7 +154,7 @@ public struct CodexChatWorkspaceView: View {
         onPromptSelected: ((String) -> Void)? = nil,
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil
     ) {
-        self.messages = messages
+        self.transcriptV2 = transcriptV2
         self.lifecycleEvents = lifecycleEvents
         self.sideChat = sideChat
         self.subagents = subagents
@@ -288,18 +288,7 @@ public struct CodexChatWorkspaceView: View {
         let contentShift = isDockedOverviewVisible ? dockedOverviewContentShift : 0
 
         return ZStack(alignment: .topTrailing) {
-            CodexTranscriptView(
-                messages: messages,
-                transcriptID: currentThreadID,
-                lifecycleEvents: lifecycleEvents,
-                activeTurn: activeTurnState,
-                onCloseMessage: onCloseTranscriptMessage,
-                onOpenMCPDetails: onOpenMCPDetails,
-                onEditUserMessage: { draft = $0 },
-                contentHorizontalOffset: -contentShift,
-                topContentMargin: 58,
-                bottomContentMargin: 150
-            ) {
+            CodexTranscriptViewV2(transcript: transcriptV2) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
                 } else {
@@ -312,6 +301,9 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
             }
+            .offset(x: -contentShift)
+            .padding(.top, 58)
+            .padding(.bottom, 150)
 
             if isDockedOverviewVisible {
                 floatingSummaryPanel
@@ -385,18 +377,6 @@ public struct CodexChatWorkspaceView: View {
 
     private var dockedOverviewContentShift: CGFloat {
         min(theme.spacing.summaryPanelWidth * 0.38, 120)
-    }
-
-    private var activeTurnState: CodexActiveTurnState? {
-        guard isSending else { return nil }
-        if let lastAssistant = messages.last(where: { $0.role == .assistant }), lastAssistant.isStreaming {
-            return nil
-        }
-        let turnActivity = activities.first { $0.kind == .turn || $0.kind == .tool }
-        return CodexActiveTurnState(
-            activity: turnActivity,
-            startedAt: activities.first { $0.kind == .turn }?.createdAt ?? turnActivity?.createdAt ?? Date()
-        )
     }
 
     private var panelTabs: [CodexAgentPanelTab] {

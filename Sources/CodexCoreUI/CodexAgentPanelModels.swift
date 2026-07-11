@@ -88,7 +88,7 @@ public struct CodexSubagentState: Identifiable, Equatable, Sendable {
     public var title: String
     public var prompt: String
     public var status: Status
-    public var messages: [CodexChatMessage]
+    public var transcript: CodexTranscriptV2
     public var createdAt: Date
     public var completedAt: Date?
 
@@ -98,7 +98,7 @@ public struct CodexSubagentState: Identifiable, Equatable, Sendable {
         title: String,
         prompt: String,
         status: Status,
-        messages: [CodexChatMessage] = [],
+        transcript: CodexTranscriptV2 = .init(),
         createdAt: Date = Date(),
         completedAt: Date? = nil
     ) {
@@ -107,7 +107,7 @@ public struct CodexSubagentState: Identifiable, Equatable, Sendable {
         self.title = title
         self.prompt = prompt
         self.status = status
-        self.messages = messages
+        self.transcript = transcript
         self.createdAt = createdAt
         self.completedAt = completedAt
     }
@@ -150,18 +150,18 @@ public struct CodexSideChatState: Identifiable, Equatable, Sendable {
 
     public let id: String
     public var title: String
-    public var messages: [CodexChatMessage]
+    public var transcript: CodexTranscriptV2
     public var createdAt: Date
 
     public init(
         id: String = Self.defaultID,
         title: String = "Side chat",
-        messages: [CodexChatMessage] = [],
+        transcript: CodexTranscriptV2 = .init(),
         createdAt: Date = Date()
     ) {
         self.id = id
         self.title = title
-        self.messages = messages
+        self.transcript = transcript
         self.createdAt = createdAt
     }
 }
@@ -195,11 +195,11 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
         }
     }
 
-    public var messages: [CodexChatMessage] {
+    public var transcript: CodexTranscriptV2 {
         switch self {
-        case .sideChat(let sideChat): return sideChat.messages
-        case .subagent(let subagent): return subagent.messages
-        case .review: return []
+        case .sideChat(let sideChat): return sideChat.transcript
+        case .subagent(let subagent): return subagent.transcript
+        case .review: return .init()
         }
     }
 }

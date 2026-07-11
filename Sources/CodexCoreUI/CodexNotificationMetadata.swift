@@ -259,10 +259,18 @@ public enum CodexNotificationMetadata {
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {
-        CodexChatTranscriptProjection.string(from: value)
+        guard let value else { return nil }
+        switch value {
+        case .string(let text): return text
+        case .int(let number): return String(number)
+        case .double(let number): return String(number)
+        case .bool(let flag): return String(flag)
+        default: return nil
+        }
     }
 
     private static func verbatimString(from value: CodexJSONValue?) -> String? {
-        CodexChatTranscriptProjection.verbatimString(from: value)
+        guard case .string(let text)? = value else { return nil }
+        return text
     }
 }

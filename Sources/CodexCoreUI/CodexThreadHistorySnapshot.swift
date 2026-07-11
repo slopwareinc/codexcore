@@ -2,11 +2,9 @@ import Foundation
 import CodexCore
 
 public struct CodexThreadHistorySnapshot: Sendable {
-    public var messages: [CodexChatMessage]
     public var agentStateMapper: CodexAgentStateMapper
 
-    public init(messages: [CodexChatMessage] = [], agentStateMapper: CodexAgentStateMapper = CodexAgentStateMapper()) {
-        self.messages = messages
+    public init(agentStateMapper: CodexAgentStateMapper = CodexAgentStateMapper()) {
         self.agentStateMapper = agentStateMapper
     }
 
@@ -18,15 +16,7 @@ public struct CodexThreadHistorySnapshot: Sendable {
         var mapper = CodexAgentStateMapper()
         _ = mapper.applyChildThreadReferences(parent.snapshot.childThreads)
 
-        let messages = parent.snapshot.turns.flatMap(CodexChatTranscriptProjection.messages(for:))
-        for message in messages where message.role == .assistant {
-            _ = mapper.assistantMessageCompleted(message.text)
-        }
-
-        self.init(
-            messages: messages,
-            agentStateMapper: mapper
-        )
+        self.init(agentStateMapper: mapper)
     }
 
     public init(hydration: CodexThreadHistoryHydrationResult) {
@@ -125,7 +115,14 @@ public struct CodexThreadHistorySnapshot: Sendable {
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {
-        CodexChatTranscriptProjection.string(from: value)
+        guard let value else { return nil }
+        switch value {
+        case .string(let text): return text
+        case .int(let number): return String(number)
+        case .double(let number): return String(number)
+        case .bool(let flag): return String(flag)
+        default: return nil
+        }
     }
 
     private static func date(from value: CodexJSONValue?) -> Date? {

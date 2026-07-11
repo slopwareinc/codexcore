@@ -56,7 +56,7 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
     }
 
     public var messageCount: Int {
-        snapshot.messages.count
+        transcriptItemsV2.count
     }
 
     public var activity: CodexActivity {
@@ -237,7 +237,7 @@ public enum CodexThreadHistorySession {
         agentStateMapper: inout CodexAgentStateMapper,
         sideChatSession: inout CodexSideChatSession
     ) -> CodexActivity {
-        mainChatSession.resetTranscript(messages: result.snapshot.messages)
+        mainChatSession.reset()
         agentStateMapper = result.snapshot.agentStateMapper
         sideChatSession.reset()
         return result.activity

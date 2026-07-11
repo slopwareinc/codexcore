@@ -189,7 +189,7 @@ struct CodexCoreAppShell: View {
     private func chatWorkspace(proxy: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             CodexChatWorkspaceView(
-                messages: model.messages,
+                transcriptV2: model.transcriptV2,
                 lifecycleEvents: model.lifecycleEvents,
                 sideChat: model.sideChat,
                 subagents: model.subagents,
@@ -251,16 +251,6 @@ struct CodexCoreAppShell: View {
                     }
                 }
             )
-            .codexFileChangeUndo { change in
-                Task { @MainActor in
-                    model.undoFileChange(change)
-                }
-            }
-            .codexFileChangeReview { change in
-                Task { @MainActor in
-                    model.reviewFileChange(change)
-                }
-            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if model.isBottomTerminalVisible {

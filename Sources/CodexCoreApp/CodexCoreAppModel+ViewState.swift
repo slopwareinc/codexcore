@@ -20,8 +20,8 @@ extension CodexCoreAppModel {
         set { composerSession.sideChatDraft = newValue }
     }
 
-    var messages: [Message] {
-        runtimeSession.messages.filter { structuredPanelDismissalState.isVisible(messageID: $0.id) }
+    var transcriptV2: CodexTranscriptV2 {
+        runtimeSession.transcriptV2
     }
 
     /// The durable tool-panel state (terminals, browsers, sidebar open/selection)
