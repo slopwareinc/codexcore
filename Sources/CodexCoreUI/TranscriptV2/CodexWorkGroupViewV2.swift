@@ -66,7 +66,7 @@ private struct CodexWorkRowViewV2: View {
         case .command(let value):
             HStack(spacing: 3) {
                 Text(value.status == .inProgress ? "Running" : "Ran").font(theme.fonts.caption)
-                Text(value.command).font(theme.fonts.code)
+                Text(value.command.codexDisplayPrefix(limit: 280)).font(theme.fonts.code)
             }
             .lineLimit(1)
             .truncationMode(.middle)
@@ -76,7 +76,7 @@ private struct CodexWorkRowViewV2: View {
 
     private var rowLabel: String {
         switch row {
-        case .command(let value): return value.label
+        case .command(let value): return value.label.codexDisplayPrefix(limit: 280)
         case .fileChange(let value): return "Edited \(value.files.joined(separator: " · "))"
         case .mcpToolCall(let value):
             if let error = value.errorFirstLine, !error.isEmpty { return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool) — \(error)" }
@@ -110,7 +110,7 @@ private struct CodexWorkRowViewV2: View {
 
     private var detail: String? {
         switch row {
-        case .command(let v): return v.output?.nilIfEmpty
+        case .command(let v): return v.output?.nilIfEmpty?.codexDisplayPrefix(limit: 20_000)
         case .fileChange(let v): return v.diff?.nilIfEmpty
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
@@ -125,8 +125,8 @@ private struct CodexWorkRowViewV2: View {
     }
 
     private var hoverDetail: String? {
-        guard case .collabAgent = row else { return detail }
-        return detail
+        guard case .collabAgent = row else { return nil }
+        return detail?.codexDisplayPrefix(limit: 4_000)
     }
 
     private var subagentThreadID: String? {
@@ -141,4 +141,9 @@ private struct CodexWorkRowViewV2: View {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+
+    func codexDisplayPrefix(limit: Int) -> String {
+        guard let boundary = index(startIndex, offsetBy: limit, limitedBy: endIndex), boundary != endIndex else { return self }
+        return String(self[..<boundary]) + "\n… Output truncated for display"
+    }
 }
