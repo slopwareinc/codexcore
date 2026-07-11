@@ -6,11 +6,13 @@ public struct CodexTurnViewV2: View {
 
     private let turn: CodexTurnV2
     private let productToolRenderer: CodexProductToolRendererV2?
+    private let onOpenSubagent: (String) -> Void
     @State private var presentedAt = Date()
 
-    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil) {
+    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }) {
         self.turn = turn
         self.productToolRenderer = productToolRenderer
+        self.onOpenSubagent = onOpenSubagent
     }
 
     public var body: some View {
@@ -23,7 +25,8 @@ public struct CodexTurnViewV2: View {
                 narrative: turn.narrative,
                 liveTail: turn.liveTail,
                 status: turn.status,
-                productToolRenderer: productToolRenderer
+                productToolRenderer: productToolRenderer,
+                onOpenSubagent: onOpenSubagent
             )
 
             if let answer = turn.finalAnswer, !answer.text.isEmpty {

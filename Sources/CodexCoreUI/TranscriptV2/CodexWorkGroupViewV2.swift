@@ -3,6 +3,12 @@ import SwiftUI
 struct CodexWorkGroupViewV2: View {
     @Environment(\.codexAgentTheme) private var theme
     let group: CodexWorkGroupV2
+    let onOpenSubagent: (String) -> Void
+
+    init(group: CodexWorkGroupV2, onOpenSubagent: @escaping (String) -> Void = { _ in }) {
+        self.group = group
+        self.onOpenSubagent = onOpenSubagent
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -10,7 +16,7 @@ struct CodexWorkGroupViewV2: View {
                 .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textSecondary)
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(group.rows) { CodexWorkRowViewV2(row: $0) }
+                ForEach(group.rows) { CodexWorkRowViewV2(row: $0, onOpenSubagent: onOpenSubagent) }
             }
             .padding(.leading, 12)
         }
@@ -20,11 +26,15 @@ struct CodexWorkGroupViewV2: View {
 private struct CodexWorkRowViewV2: View {
     @Environment(\.codexAgentTheme) private var theme
     let row: CodexWorkRowV2
+    let onOpenSubagent: (String) -> Void
     @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Button { if detail != nil { isExpanded.toggle() } } label: {
+            Button {
+                if let threadID = subagentThreadID { onOpenSubagent(threadID) }
+                else if detail != nil { isExpanded.toggle() }
+            } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(codexStatusGlyphV2(status)).foregroundStyle(statusColor)
                     label
@@ -40,6 +50,7 @@ private struct CodexWorkRowViewV2: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help(hoverDetail ?? rowLabel)
             if isExpanded, let detail {
                 Text(detail)
                     .font(theme.fonts.code)
@@ -55,7 +66,7 @@ private struct CodexWorkRowViewV2: View {
         case .command(let value):
             HStack(spacing: 3) {
                 Text(value.status == .inProgress ? "Running" : "Ran").font(theme.fonts.caption)
-                Text(value.command).font(theme.fonts.code)
+                Text(value.command.codexDisplayPrefix(limit: 280)).font(theme.fonts.code)
             }
             .lineLimit(1)
             .truncationMode(.middle)
@@ -65,7 +76,7 @@ private struct CodexWorkRowViewV2: View {
 
     private var rowLabel: String {
         switch row {
-        case .command(let value): return value.label
+        case .command(let value): return value.label.codexDisplayPrefix(limit: 280)
         case .fileChange(let value): return "Edited \(value.files.joined(separator: " · "))"
         case .mcpToolCall(let value):
             if let error = value.errorFirstLine, !error.isEmpty { return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool) — \(error)" }
@@ -92,7 +103,7 @@ private struct CodexWorkRowViewV2: View {
 
     private var detail: String? {
         switch row {
-        case .command(let v): return v.output?.nilIfEmpty
+        case .command(let v): return v.output?.nilIfEmpty?.codexDisplayPrefix(limit: 20_000)
         case .fileChange(let v): return v.diff?.nilIfEmpty
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
@@ -110,6 +121,16 @@ private struct CodexWorkRowViewV2: View {
         }
     }
 
+    private var hoverDetail: String? {
+        guard case .collabAgent = row else { return nil }
+        return detail?.codexDisplayPrefix(limit: 4_000)
+    }
+
+    private var subagentThreadID: String? {
+        guard case .collabAgent(let value) = row else { return nil }
+        return value.agentThreadIDs.first
+    }
+
     private var statusColor: Color {
         switch status { case .inProgress: theme.colors.running; case .completed: theme.colors.success; case .failed: theme.colors.danger }
     }
@@ -117,4 +138,9 @@ private struct CodexWorkRowViewV2: View {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+
+    func codexDisplayPrefix(limit: Int) -> String {
+        guard let boundary = index(startIndex, offsetBy: limit, limitedBy: endIndex), boundary != endIndex else { return self }
+        return String(self[..<boundary]) + "\n… Output truncated for display"
+    }
 }

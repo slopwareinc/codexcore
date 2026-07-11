@@ -33,7 +33,19 @@ public final class CodexChatRuntimeSession {
 
     public var lifecycleEvents: [CodexAgentLifecycleEvent] { state.lifecycleEvents }
     public var sideChat: CodexSideChatState? { state.sideChat }
-    public var subagents: [CodexSubagentState] { state.subagents }
+    public var subagents: [CodexSubagentState] {
+        let nativeAgents = subagentStoreV2.agents.map { agent in
+            CodexSubagentState(
+                id: agent.threadID,
+                name: agent.displayName,
+                title: agent.role.map { "\(agent.displayName) (\($0))" } ?? agent.displayName,
+                prompt: agent.prompt ?? "Subagent task",
+                status: agent.legacyStatus,
+                transcript: agent.transcript
+            )
+        }
+        return nativeAgents.isEmpty ? state.subagents : nativeAgents
+    }
     public var isSending: Bool { state.isSending }
     public var isSideChatSending: Bool { state.isSideChatSending }
     public var activeTurn: CodexTurnHandle? { state.activeTurn }
@@ -462,35 +474,28 @@ public final class CodexChatRuntimeSession {
 
     private func applySubagentMetadata(_ thread: CodexSchemaThread) {
         let source = Self.agentSource(thread.threadSource?.rawValue) ?? Self.agentSource(thread.extra?.rawValue)
-        let sourceFields = source ?? [:]
-        subagentStoreV2.updateMetadata(
-            threadID: thread.id,
-            nickname: thread.agentNickname,
-            role: thread.agentRole,
-            agentPath: Self.string(in: sourceFields, keys: ["agentPath", "agent_path"]),
-            depth: Self.int(in: sourceFields, keys: ["depth"]),
-            parentThreadID: Self.string(in: sourceFields, keys: ["parentThreadId", "parent_thread_id"])
-                ?? thread.parentThreadID
-        )
+        let fields = source ?? [:]
+        _ = state.agentStateMapper.updateSubagentMetadata(id: thread.id, name: thread.agentNickname, role: thread.agentRole)
+        subagentStoreV2.updateMetadata(threadID: thread.id, nickname: thread.agentNickname, role: thread.agentRole,
+            agentPath: Self.string(in: fields, keys: ["agentPath", "agent_path"]),
+            depth: Self.int(in: fields, keys: ["depth"]),
+            parentThreadID: Self.string(in: fields, keys: ["parentThreadId", "parent_thread_id"]) ?? thread.parentThreadID)
     }
 
     private func discoverListedSubagent(_ thread: CodexSchemaThread) {
         let source = Self.agentSource(thread.threadSource?.rawValue) ?? Self.agentSource(thread.extra?.rawValue)
-        let sourceFields = source ?? [:]
-        let parent = Self.string(in: sourceFields, keys: ["parentThreadId", "parent_thread_id"])
-            ?? thread.parentThreadID
-        let path = Self.string(in: sourceFields, keys: ["agentPath", "agent_path"])
+        let fields = source ?? [:]
+        let parent = Self.string(in: fields, keys: ["parentThreadId", "parent_thread_id"]) ?? thread.parentThreadID
+        let path = Self.string(in: fields, keys: ["agentPath", "agent_path"])
         let isNew = subagentStoreV2.register(threadID: thread.id, parentThreadID: parent, agentPath: path)
         applySubagentMetadata(thread)
-        if isNew {
-            discoverSubagent(.init(threadID: thread.id, parentThreadID: parent, agentPath: path))
-        }
+        if isNew { discoverSubagent(.init(threadID: thread.id, parentThreadID: parent, agentPath: path)) }
     }
 
     private static func agentSource(_ value: CodexJSONValue?) -> [String: CodexJSONValue]? {
         guard case .dictionary(let object) = value else { return nil }
-        for nestedKey in ["subAgent", "sub_agent", "subAgentThreadSpawn", "sub_agent_thread_spawn"] {
-            if case .dictionary(let nested)? = object[nestedKey] { return nested }
+        for key in ["subAgent", "sub_agent", "subAgentThreadSpawn", "sub_agent_thread_spawn"] {
+            if case .dictionary(let nested)? = object[key] { return nested }
         }
         return object
     }
@@ -502,4 +507,5 @@ public final class CodexChatRuntimeSession {
         for key in keys { if case .int(let value)? = object[key] { return value } }
         return nil
     }
+
 }

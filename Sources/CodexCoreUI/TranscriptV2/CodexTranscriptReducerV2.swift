@@ -230,7 +230,7 @@ public struct CodexTranscriptReducerV2: Sendable {
                 }
             } ?? [:]
             return .collabAgent(.init(
-                id: id, action: action, agentNames: names, instructions: item.string("prompt"),
+                id: id, action: action, agentNames: names, agentThreadIDs: receiverIDs, instructions: item.string("prompt"),
                 agentMessages: messages, status: state
             ))
         case "subAgentActivity":
@@ -245,7 +245,8 @@ public struct CodexTranscriptReducerV2: Sendable {
             return .collabAgent(.init(id: id, action: action, agentNames: [agent], instructions: nil, status: state))
         case "imageGeneration":
             return .other(.init(id: id, label: "Generating an image", status: state))
-        default: return nil
+        default:
+            return nil
         }
     }
 

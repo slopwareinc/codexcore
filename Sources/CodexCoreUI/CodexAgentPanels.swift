@@ -193,6 +193,7 @@ public struct CodexAgentSidePanel: View {
     private let mountedBrowserSessions: [CodexBrowserSession]
     private let mountedFilesSessions: [CodexFilesSession]
     private let mountedFilePreviewSessions: [CodexFilePreviewSession]
+    private let modelOptions: [CodexModelSelection]
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
@@ -220,6 +221,7 @@ public struct CodexAgentSidePanel: View {
         mountedBrowserSessions: [CodexBrowserSession] = [],
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
+        modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
@@ -247,6 +249,7 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
+        self.modelOptions = modelOptions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
@@ -274,6 +277,7 @@ public struct CodexAgentSidePanel: View {
         mountedBrowserSessions: [CodexBrowserSession] = [],
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
+        modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
@@ -301,6 +305,7 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
+        self.modelOptions = modelOptions
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
@@ -389,7 +394,8 @@ public struct CodexAgentSidePanel: View {
                         isSideChatSending: isSideChatSending,
                         canSendSideChatMessage: canSendSideChatMessage,
                         onSendSideChatMessage: onSendSideChatMessage,
-                        onInterruptSideChatMessage: onInterruptSideChatMessage
+                        onInterruptSideChatMessage: onInterruptSideChatMessage,
+                        modelOptions: modelOptions
                     )
                 } else {
                     toolLauncher
@@ -766,6 +772,11 @@ private struct CodexAgentPanelContent: View {
     let canSendSideChatMessage: Bool
     let onSendSideChatMessage: () -> Void
     let onInterruptSideChatMessage: () -> Void
+    let modelOptions: [CodexModelSelection]
+    @State private var agentDraft = ""
+    @State private var agentApproval = CodexApprovalSelection.fullAccess
+    @State private var agentModel = CodexModelSelection.appServerDefault
+    @State private var agentReasoning = CodexReasoningSelection.medium
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -901,10 +912,15 @@ private struct CodexAgentPanelContent: View {
                 onInterrupt: onInterruptSideChatMessage
             )
         case .subagent:
-            AgentPanelComposer(
+            CodexComposerBar(
+                draft: $agentDraft,
                 placeholder: "Ask this agent...",
-                draft: .constant(""),
-                isEnabled: false,
+                isCompact: true,
+                approvalSelection: $agentApproval,
+                approvalOptions: CodexApprovalSelection.defaultOptions,
+                modelSelection: $agentModel,
+                modelOptions: modelOptions,
+                reasoningSelection: $agentReasoning,
                 isSending: false,
                 canSend: false,
                 onSend: {},

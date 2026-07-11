@@ -288,7 +288,11 @@ public struct CodexChatWorkspaceView: View {
         let contentShift = isDockedOverviewVisible ? dockedOverviewContentShift : 0
 
         return ZStack(alignment: .topTrailing) {
-            CodexTranscriptViewV2(transcript: transcriptV2) {
+            CodexTranscriptViewV2(
+                transcript: transcriptV2,
+                contentHorizontalOffset: -contentShift,
+                onOpenSubagent: openPanelTab
+            ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
                 } else {
@@ -301,16 +305,14 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
             }
-            .offset(x: -contentShift)
-            .padding(.top, 58)
-            .padding(.bottom, 150)
-
-            if isDockedOverviewVisible {
-                floatingSummaryPanel
-                    .frame(width: theme.spacing.summaryPanelWidth)
-                    .padding(.top, 58)
-                    .padding(.trailing, 28)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+            .overlay(alignment: .topTrailing) {
+                if isDockedOverviewVisible {
+                    floatingSummaryPanel
+                        .frame(width: theme.spacing.summaryPanelWidth)
+                        .padding(.top, 58)
+                        .padding(.trailing, 28)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+                }
             }
 
             VStack(spacing: 0) {
@@ -372,6 +374,9 @@ public struct CodexChatWorkspaceView: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 22)
                 .offset(x: -contentShift)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
             }
         }
     }
@@ -450,6 +455,7 @@ public struct CodexChatWorkspaceView: View {
             mountedBrowserSessions: mountedBrowserSessions,
             mountedFilesSessions: mountedFilesSessions,
             mountedFilePreviewSessions: mountedFilePreviewSessions,
+            modelOptions: modelOptions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,

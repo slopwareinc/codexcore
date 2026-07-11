@@ -34,6 +34,8 @@ public struct CodexComposerBar: View {
     private let onRefreshMCPServers: (() -> Void)?
     private let onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
+    private let placeholder: String
+    private let isCompact: Bool
     @FocusState private var focused: Bool
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
     @State private var activeCommandSelector: CodexComposerCommandSelector?
@@ -43,6 +45,8 @@ public struct CodexComposerBar: View {
 
     public init(
         draft: Binding<String>,
+        placeholder: String = "Ask Codex anything about this workspace...",
+        isCompact: Bool = false,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         isGoalPursuitEnabled: Bool = false,
@@ -71,6 +75,8 @@ public struct CodexComposerBar: View {
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil
     ) {
         self._draft = draft
+        self.placeholder = placeholder
+        self.isCompact = isCompact
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
         self.isGoalPursuitEnabled = isGoalPursuitEnabled
@@ -138,21 +144,18 @@ public struct CodexComposerBar: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            VStack(spacing: 8) {
-                TextField("Ask Codex anything about this workspace...", text: $draft, axis: .vertical)
+            VStack(spacing: isCompact ? 4 : 8) {
+                TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
-                    .lineLimit(1...6)
+                    .lineLimit(1...(isCompact ? 3 : 6))
                     .focused($focused)
                     .onSubmit(handleSubmit)
-                    .onKeyPress { keyPress in
-                        handleComposerKeyPress(keyPress)
-                    }
                     .padding(.leading, 6)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, isCompact ? 3 : 6)
 
-                HStack(spacing: 8) {
+                HStack(spacing: isCompact ? 5 : 8) {
                     ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
                     ForEach(composerChips) { chip in
                         ComposerModeChip(chip: chip) {
@@ -160,12 +163,6 @@ public struct CodexComposerBar: View {
                         }
                     }
                     ComposerApprovalMenu(selection: $approvalSelection, options: approvalOptions)
-                    switch modelPickerStyle {
-                    case .menu:
-                        ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
-                    case .grid:
-                        ComposerModelGridPicker(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
-                    }
 
                     Spacer(minLength: 0)
 
@@ -177,6 +174,9 @@ public struct CodexComposerBar: View {
                             .transition(.opacity)
                     }
 
+                    ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
+                    ComposerMicrophoneButton()
+
                     if isSending {
                         // The composer stays live during a run: send steers or
                         // queues the draft, stop interrupts the turn.
@@ -187,11 +187,10 @@ public struct CodexComposerBar: View {
                     }
                 }
             }
-            .padding(10)
+            .padding(isCompact ? 6 : 10)
             .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         }
         .onAppear {
-            focused = true
             reconcilePaletteSelections()
         }
         .onChange(of: draft) { _, _ in
@@ -313,25 +312,6 @@ public struct CodexComposerBar: View {
             return
         }
         onSend()
-    }
-
-    private func handleComposerKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
-        guard keyPress.modifiers.isEmpty else { return .ignored }
-
-        switch keyPress.key {
-        case .downArrow:
-            return handlePaletteKey(.moveDown) ? .handled : .ignored
-        case .upArrow:
-            return handlePaletteKey(.moveUp) ? .handled : .ignored
-        case .return:
-            return handlePaletteKey(.select) ? .handled : .ignored
-        case .escape:
-            return handlePaletteKey(.dismiss) ? .handled : .ignored
-        default:
-            break
-        }
-
-        return .ignored
     }
 
     private func handlePaletteKey(_ key: CodexComposerPaletteKey) -> Bool {
@@ -693,6 +673,8 @@ private struct ComposerAddMenu: View {
         } label: {
             ComposerChipLabel(systemImage: "plus", title: nil)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Add files and more")
     }
@@ -724,6 +706,8 @@ private extension CodexComposerChipKind {
 }
 
 private struct ComposerApprovalMenu: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     @Binding var selection: CodexApprovalSelection
     let options: [CodexApprovalSelection]
 
@@ -743,8 +727,10 @@ private struct ComposerApprovalMenu: View {
                 }
             }
         } label: {
-            ComposerChipLabel(systemImage: "checkmark.seal.fill", title: selection.displayName)
+            ComposerChipLabel(systemImage: "exclamationmark.shield", title: selection.displayName, tint: .orange)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Approval mode")
     }
@@ -770,61 +756,7 @@ public struct ComposerModelMenu: View {
     }
 
     public var body: some View {
-        let state = menuState
-
-        Menu {
-            Section(state.reasoningTitle) {
-                ForEach(state.reasoningItems) { item in
-                    Button {
-                        reasoning = item.selection
-                    } label: {
-                        if item.isSelected {
-                            Label(item.title, systemImage: "checkmark")
-                        } else {
-                            Text(item.title)
-                        }
-                    }
-                }
-            }
-            Divider()
-
-            Menu(state.gptFamilyTitle) {
-                ForEach(state.gptFamilyItems) { item in
-                    Button {
-                        selectModel(item.selection)
-                    } label: {
-                        if item.isSelected {
-                            Label(item.title, systemImage: "checkmark")
-                        } else {
-                            Text(item.title)
-                        }
-                    }
-                    .help(item.detail ?? item.title)
-                }
-            }
-
-            Menu(state.speedTitle) {
-                ForEach(state.speedItems) { item in
-                    Button {
-                        if let selection = item.selection {
-                            selectModel(selection)
-                        }
-                    } label: {
-                        if item.isSelected {
-                            Label(item.title, systemImage: "checkmark")
-                        } else {
-                            Text(item.title)
-                        }
-                    }
-                    .disabled(!item.isEnabled)
-                    .help(item.detail)
-                }
-            }
-        } label: {
-            ComposerChipLabel(systemImage: "sparkles", title: state.displayTitle)
-        }
-        .fixedSize()
-        .help("Model and reasoning")
+        ComposerModelGridPicker(model: $model, modelOptions: modelOptions, reasoning: $reasoning)
         .onChange(of: model) { _, newModel in
             reconcileReasoning(for: newModel)
         }
@@ -853,15 +785,15 @@ public struct ComposerChipLabel: View {
 
     public let systemImage: String
     public let title: String?
+    public let tint: Color?
 
-    public init(systemImage: String, title: String?) {
+    public init(systemImage: String, title: String?, tint: Color? = nil) {
         self.systemImage = systemImage
         self.title = title
+        self.tint = tint
     }
 
     public var body: some View {
-        let chipShape = RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-
         HStack(spacing: title == nil ? 0 : 6) {
             Image(systemName: systemImage)
                 .font(theme.fonts.caption)
@@ -871,12 +803,10 @@ public struct ComposerChipLabel: View {
                     .lineLimit(1)
             }
         }
-        .foregroundStyle(theme.colors.textSecondary)
+        .foregroundStyle(tint ?? theme.colors.textSecondary)
         .frame(minWidth: title == nil ? 28 : 0, minHeight: 28)
-        .padding(.horizontal, title == nil ? 0 : 10)
-        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: chipShape)
-        .overlay(chipShape.stroke(theme.colors.border, lineWidth: 1))
-        .contentShape(chipShape)
+        .padding(.horizontal, title == nil ? 0 : 4)
+        .contentShape(Rectangle())
     }
 }
 
@@ -903,6 +833,23 @@ private struct ComposerStopButton: View {
         .accessibilityLabel(CodexComposerAccessibility.stopButtonLabel)
         .help(CodexComposerAccessibility.stopButtonHelp)
         .sensoryFeedback(.impact(weight: .medium), trigger: tapCount)
+    }
+}
+
+private struct ComposerMicrophoneButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    var body: some View {
+        Button {} label: {
+            Image(systemName: "mic")
+                .font(theme.fonts.chat)
+                .foregroundStyle(theme.colors.textSecondary)
+                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+        }
+        .buttonStyle(.plain)
+        .disabled(true)
+        .help("Voice input is not available yet")
+        .accessibilityLabel("Voice input")
     }
 }
 

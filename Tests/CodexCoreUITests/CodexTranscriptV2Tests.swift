@@ -19,6 +19,11 @@ struct CodexTranscriptV2Tests {
         #expect(turn.narrative.flatMap(\.rows).count == 6)
         #expect(turn.narrative.compactMap(\.header).contains("Created 2 agents"))
         #expect(turn.narrative.compactMap(\.header).contains("Closed 2 agents"))
+        let agentRows = turn.narrative.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let value) = row else { return nil }
+            return value
+        }
+        #expect(agentRows.contains { !$0.agentThreadIDs.isEmpty })
         #expect(turn.narrative.contains(where: \.isProse) && turn.finalAnswer != nil)
     }
 

@@ -9,6 +9,7 @@ public struct CodexWorkBlockViewV2: View {
     private let liveTail: String?
     private let status: CodexTurnStatusV2
     private let productToolRenderer: CodexProductToolRendererV2?
+    private let onOpenSubagent: (String) -> Void
     @State private var isExpanded: Bool
     @State private var clientStartedAt = Date()
 
@@ -17,12 +18,14 @@ public struct CodexWorkBlockViewV2: View {
         liveTail: String?,
         status: CodexTurnStatusV2,
         productToolRenderer: CodexProductToolRendererV2? = nil,
+        onOpenSubagent: @escaping (String) -> Void = { _ in },
         initiallyExpanded: Bool = false
     ) {
         self.narrative = narrative
         self.liveTail = liveTail
         self.status = status
         self.productToolRenderer = productToolRenderer
+        self.onOpenSubagent = onOpenSubagent
         self._isExpanded = State(initialValue: initiallyExpanded)
     }
 
@@ -98,7 +101,7 @@ public struct CodexWorkBlockViewV2: View {
                     )
                     .foregroundStyle(theme.colors.textSecondary)
                 case .workGroup(let group):
-                    CodexWorkGroupViewV2(group: group)
+                    CodexWorkGroupViewV2(group: group, onOpenSubagent: onOpenSubagent)
                 case .notice(let notice):
                     Text(notice.message)
                         .font(theme.fonts.caption)
