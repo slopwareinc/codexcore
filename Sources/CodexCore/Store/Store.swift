@@ -345,7 +345,12 @@ public final class CodexCoreStore {
     public private(set) var accountRateLimits: CodexSchemaRateLimitSnapshot?
     public private(set) var accountRateLimitsByLimitID: [String: CodexSchemaRateLimitSnapshot]?
     public private(set) var isThinking = false
-    public private(set) var pendingUserInput: CodexUserInputRequest?
+    /// User-input requests awaiting answers, in arrival order. Request IDs are
+    /// unique and are used to resolve one prompt without disturbing others.
+    public private(set) var pendingUserInputs: [CodexUserInputRequest] = []
+    /// The oldest pending user-input request.
+    @available(*, deprecated, message: "Use pendingUserInputs to support concurrent requests.")
+    public var pendingUserInput: CodexUserInputRequest? { pendingUserInputs.first }
     /// Escalated approval requests awaiting a decision, store-wide. Requests
     /// whose `threadId` matches `activeThread` are mirrored into
     /// `activeThread.pendingApprovals` as well.
@@ -626,7 +631,11 @@ public final class CodexCoreStore {
     }
 
     public func dispatchRequest(_ request: CodexUserInputRequest) {
-        self.pendingUserInput = request
+        if let index = pendingUserInputs.firstIndex(where: { $0.id == request.id }) {
+            pendingUserInputs[index] = request
+        } else {
+            pendingUserInputs.append(request)
+        }
     }
 
     public func resolveApproval(_ requestId: String) {
@@ -641,8 +650,14 @@ public final class CodexCoreStore {
         }
     }
 
+    public func resolveUserInput(_ requestId: String) {
+        pendingUserInputs.removeAll(where: { $0.id == requestId })
+    }
+
+    @available(*, deprecated, message: "Resolve user input by request ID.")
     public func resolveUserInput() {
-        self.pendingUserInput = nil
+        guard let requestId = pendingUserInputs.first?.id else { return }
+        resolveUserInput(requestId)
     }
 
     // MARK: - Delta Appender Helper

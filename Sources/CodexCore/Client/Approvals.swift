@@ -158,7 +158,7 @@ public enum CodexApprovalPolicy: Sendable, Equatable {
     case autoApprove
     /// Decline every escalated request immediately.
     case autoDecline
-    /// Publish the request to the store (`pendingApprovals` / `pendingUserInput`)
+    /// Publish the request to the store (`pendingApprovals` / `pendingUserInputs`)
     /// and suspend the JSON-RPC reply until the host resolves it via
     /// `resolveApproval(requestId:decision:)` / `resolveUserInput(requestId:answers:)`.
     case ask

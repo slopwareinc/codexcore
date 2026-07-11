@@ -47,8 +47,17 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     public var turnParameterOverrides: [String: CodexJSONValue] {
         var params = approvalSelection.turnParameterOverrides
-        if isPlanModeEnabled, let planModeOption {
-            params["collaborationMode"] = .string(planModeOption.mode)
+        if isPlanModeEnabled,
+           let planModeOption,
+           let model = planModeOption.modelIdentifier ?? modelSelection.modelIdentifier {
+            var settings: [String: CodexJSONValue] = ["model": .string(model)]
+            if let reasoning = planModeOption.reasoning ?? Optional(reasoningSelection) {
+                settings["reasoning_effort"] = .string(reasoning.effort.rawValue)
+            }
+            params["collaborationMode"] = .dictionary([
+                "mode": .string(planModeOption.mode),
+                "settings": .dictionary(settings),
+            ])
         }
         return params
     }
