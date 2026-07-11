@@ -33,7 +33,19 @@ public final class CodexChatRuntimeSession {
 
     public var lifecycleEvents: [CodexAgentLifecycleEvent] { state.lifecycleEvents }
     public var sideChat: CodexSideChatState? { state.sideChat }
-    public var subagents: [CodexSubagentState] { state.subagents }
+    public var subagents: [CodexSubagentState] {
+        let nativeAgents = subagentStoreV2.agents.map { agent in
+            CodexSubagentState(
+                id: agent.threadID,
+                name: agent.displayName,
+                title: agent.role.map { "\(agent.displayName) (\($0))" } ?? agent.displayName,
+                prompt: agent.prompt ?? "Subagent task",
+                status: agent.legacyStatus,
+                transcript: agent.transcript
+            )
+        }
+        return nativeAgents.isEmpty ? state.subagents : nativeAgents
+    }
     public var isSending: Bool { state.isSending }
     public var isSideChatSending: Bool { state.isSideChatSending }
     public var activeTurn: CodexTurnHandle? { state.activeTurn }

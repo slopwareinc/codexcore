@@ -14,6 +14,7 @@ public struct CodexSubagentV2: Identifiable, Sendable {
     public var agentPath: String?
     public var nickname: String?
     public var role: String?
+    public var prompt: String?
     public var depth: Int
     public var parentThreadID: String?
     public var status: CodexSubagentLiveStatusV2
@@ -24,6 +25,16 @@ public struct CodexSubagentV2: Identifiable, Sendable {
         if let nickname, !nickname.isEmpty { return nickname }
         let raw = agentPath?.split(separator: "/").last.map(String.init) ?? "agent-\(threadID.split(separator: "-").first ?? Substring(threadID))"
         return raw.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+extension CodexSubagentV2 {
+    var legacyStatus: CodexSubagentState.Status {
+        switch status {
+        case .pending, .working: return .running
+        case .completed: return .completed
+        case .failed: return .failed
+        }
     }
 }
 
@@ -62,13 +73,24 @@ public struct CodexSubagentStoreV2: Sendable {
         if let item = object(root["item"]) {
             if item.string("type") == "collabAgentToolCall" {
                 for id in strings(item["receiverThreadIds"]) {
-                    if register(threadID: id, parentThreadID: root.string("threadId"), agentPath: nil) {
+                    if register(threadID: id, parentThreadID: root.string("threadId"), agentPath: nil, prompt: item.string("prompt")) {
                         discoveries.append(.init(threadID: id, parentThreadID: root.string("threadId"), agentPath: nil))
+                    }
+                }
+                if root.string("method") == nil, item.string("status") == "completed" {
+                    let tool = item.string("tool")
+                    for id in strings(item["receiverThreadIds"]) where tool == "wait" || tool == "closeAgent" {
+                        if let agent = agentsByID[id] {
+                            switch agent.status {
+                            case .pending, .working: agentsByID[id]?.status = .completed(durationMs: nil)
+                            case .completed, .failed: break
+                            }
+                        }
                     }
                 }
             } else if item.string("type") == "subAgentActivity", let id = item.string("agentThreadId") {
                 let path = item.string("agentPath")
-                if register(threadID: id, parentThreadID: root.string("threadId"), agentPath: path) {
+                if register(threadID: id, parentThreadID: root.string("threadId"), agentPath: path, prompt: item.string("prompt")) {
                     discoveries.append(.init(threadID: id, parentThreadID: root.string("threadId"), agentPath: path))
                 } else if let path { agentsByID[id]?.agentPath = path; agentsByID[id]?.depth = Self.depth(path) }
             }
@@ -84,16 +106,17 @@ public struct CodexSubagentStoreV2: Sendable {
     }
 
     @discardableResult
-    public mutating func register(threadID: String, parentThreadID: String?, agentPath: String? = nil) -> Bool {
+    public mutating func register(threadID: String, parentThreadID: String?, agentPath: String? = nil, prompt: String? = nil) -> Bool {
         guard agentsByID[threadID] == nil else { return false }
-        agentsByID[threadID] = CodexSubagentV2(threadID: threadID, agentPath: agentPath, nickname: nil, role: nil, depth: agentPath.map(Self.depth) ?? 1, parentThreadID: parentThreadID, status: .pending, reducer: CodexTranscriptReducerV2(threadID: threadID))
+        agentsByID[threadID] = CodexSubagentV2(threadID: threadID, agentPath: agentPath, nickname: nil, role: nil, prompt: prompt, depth: agentPath.map(Self.depth) ?? 1, parentThreadID: parentThreadID, status: .pending, reducer: CodexTranscriptReducerV2(threadID: threadID))
         return true
     }
 
-    public mutating func updateMetadata(threadID: String, nickname: String?, role: String?, agentPath: String?, depth: Int?, parentThreadID: String?) {
-        if agentsByID[threadID] == nil { _ = register(threadID: threadID, parentThreadID: parentThreadID, agentPath: agentPath) }
+    public mutating func updateMetadata(threadID: String, nickname: String?, role: String?, prompt: String? = nil, agentPath: String?, depth: Int?, parentThreadID: String?) {
+        if agentsByID[threadID] == nil { _ = register(threadID: threadID, parentThreadID: parentThreadID, agentPath: agentPath, prompt: prompt) }
         guard var agent = agentsByID[threadID] else { return }
         agent.nickname = nickname ?? agent.nickname; agent.role = role ?? agent.role
+        agent.prompt = prompt ?? agent.prompt
         agent.agentPath = agentPath ?? agent.agentPath; agent.depth = depth ?? agentPath.map(Self.depth) ?? agent.depth
         agent.parentThreadID = parentThreadID ?? agent.parentThreadID; agentsByID[threadID] = agent
     }
