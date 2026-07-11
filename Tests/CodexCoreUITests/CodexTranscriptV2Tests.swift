@@ -69,6 +69,49 @@ struct CodexTranscriptV2Tests {
         #expect(labels.contains { $0.hasPrefix("Sent input to agent-") })
     }
 
+    @Test func ultraSubagentReplayBuildsTwoIndependentAgentTranscripts() throws {
+        let replay = try replayWithSubagents(
+            "turn-subagents-ultra",
+            threadID: "019f5233-c8fa-7cf0-b33b-6f2fb77a4230"
+        )
+        let mainTurn = try #require(replay.transcript.turns.first)
+        #expect(mainTurn.narrative.flatMap(\.rows).contains { row in
+            guard case .collabAgent(let agent) = row else { return false }
+            return agent.action == .started
+        })
+        #expect(mainTurn.narrative.flatMap(\.rows).contains { row in
+            guard case .collabAgent(let agent) = row else { return false }
+            return agent.action == .waited
+        })
+        #expect(replay.subagents.agents.count == 2)
+        #expect(replay.subagents.agents.map(\.agentPath) == ["/root/count_binaries", "/root/count_docs"])
+        #expect(replay.subagents.agents.allSatisfy { agent in
+            !agent.transcript.turns.isEmpty
+                && agent.transcript.turns.contains { !$0.narrative.flatMap(\.rows).isEmpty }
+                && agent.transcript.turns.contains { $0.narrative.contains(where: \.isProse) || $0.finalAnswer != nil }
+        })
+        #expect(replay.subagents.agents.allSatisfy { agent in
+            guard case .completed = agent.status else { return false }
+            return true
+        })
+    }
+
+    @Test func classicCollabReplayDiscoversAgentsWithoutChangingMainTranscript() throws {
+        let replay = try replayWithSubagents(
+            "turn-collab-official",
+            threadID: "019f521f-4a88-7003-91ff-36afe08e67cf"
+        )
+        #expect(replay.transcript.turns.count == 3)
+        #expect(replay.subagents.agents.count == 2)
+        #expect(replay.transcript.turns.first?.narrative.compactMap(\.header).contains("Created 2 agents") == true)
+        let labels = replay.transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> String? in
+            guard case .collabAgent(let value) = row else { return nil }
+            return value.label
+        }
+        #expect(labels.contains { $0.hasPrefix("Created agent-019f521f with the instructions: In /Users/") })
+        #expect(labels.contains { $0.hasPrefix("Sent input to agent-") })
+    }
+
     @Test func mcpFailureReplay() throws {
         let transcript = try replay("turn-mcp-failure")
         let turn = try #require(transcript.turns.first)
@@ -224,6 +267,19 @@ struct CodexTranscriptV2Tests {
         var reducer = CodexTranscriptReducerV2(threadID:thread)
         for line in lines { let event = try decoder.decode(Event.self, from:Data(line.utf8)); reducer.apply(method:event.method, params:event.params) }
         return reducer.transcript
+    }
+    private func replayWithSubagents(_ name: String, threadID: String) throws -> (transcript: CodexTranscriptV2, subagents: CodexSubagentStoreV2) {
+        struct Event: Decodable { let method: String; let params: CodexJSONValue }
+        let url = try #require(Bundle.module.url(forResource:name, withExtension:"jsonl"))
+        let lines = try String(contentsOf:url, encoding:.utf8).split(separator:"\n"), decoder = JSONDecoder()
+        var reducer = CodexTranscriptReducerV2(threadID: threadID)
+        var subagents = CodexSubagentStoreV2()
+        for line in lines {
+            let event = try decoder.decode(Event.self, from:Data(line.utf8))
+            reducer.apply(method:event.method, params:event.params)
+            subagents.apply(method:event.method, params:event.params)
+        }
+        return (reducer.transcript, subagents)
     }
     private func json(_ value: Any) -> CodexJSONValue { try! JSONDecoder().decode(CodexJSONValue.self, from:JSONSerialization.data(withJSONObject:value)) }
     enum Error: Swift.Error { case invalid }
