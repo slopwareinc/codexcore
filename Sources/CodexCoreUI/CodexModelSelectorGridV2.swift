@@ -56,7 +56,13 @@ public struct CodexModelGridV2: Equatable, Sendable {
     ) {
         let options = modelOptions.isEmpty ? CodexModelSelection.defaultOptions : modelOptions
         var seen = Set<String>()
-        let columns: [Column] = options.compactMap { model -> Column? in
+        let orderedOptions = options.sorted { lhs, rhs in
+            let lhs56 = lhs.displayName.lowercased().contains("5.6") || lhs.id.lowercased().contains("5.6")
+            let rhs56 = rhs.displayName.lowercased().contains("5.6") || rhs.id.lowercased().contains("5.6")
+            if lhs56 != rhs56 { return lhs56 && !rhs56 }
+            return options.firstIndex(where: { $0.id == lhs.id })! < options.firstIndex(where: { $0.id == rhs.id })!
+        }
+        let columns: [Column] = orderedOptions.compactMap { model -> Column? in
             let family = Self.family(for: model)
             guard seen.insert(family.id).inserted else { return nil }
             return Column(id: family.id, title: model.displayName, model: model, appearance: family.appearance)
@@ -126,7 +132,7 @@ public struct CodexModelSelectorGridV2: View {
                         .font(theme.fonts.caption.weight(.semibold))
                         .foregroundStyle(tint(for: column.appearance))
                         .lineLimit(1)
-                        .frame(minWidth: 92)
+                        .frame(minWidth: 68)
                 }
             }
 
@@ -135,7 +141,7 @@ public struct CodexModelSelectorGridV2: View {
                     Text(effort.displayName)
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textSecondary)
-                        .frame(width: 72, alignment: .trailing)
+                        .frame(width: 56, alignment: .trailing)
                     ForEach(model.columns) { column in
                         if let cell = model.cell(columnID: column.id, effort: effort) {
                             cellButton(cell, appearance: column.appearance)
@@ -144,7 +150,7 @@ public struct CodexModelSelectorGridV2: View {
                 }
             }
         }
-        .padding(12)
+        .padding(8)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
                 Divider()
@@ -155,8 +161,8 @@ public struct CodexModelSelectorGridV2: View {
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
         }
         .background(theme.colors.surfaceElevated)
         .clipShape(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
@@ -174,7 +180,7 @@ public struct CodexModelSelectorGridV2: View {
                         .foregroundStyle(theme.colors.textPrimary)
                 }
             }
-            .frame(minWidth: 92, minHeight: 32)
+            .frame(minWidth: 68, minHeight: 26)
             .overlay(shape.stroke(cell.isSelected ? theme.colors.borderStrong : theme.colors.border.opacity(0.55), lineWidth: cell.isSelected ? 2 : 1))
             .opacity(cell.isEnabled ? 1 : 0.35)
         }

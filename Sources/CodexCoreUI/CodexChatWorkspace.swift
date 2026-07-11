@@ -372,6 +372,9 @@ public struct CodexChatWorkspaceView: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 22)
                 .offset(x: -contentShift)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
             }
         }
     }
