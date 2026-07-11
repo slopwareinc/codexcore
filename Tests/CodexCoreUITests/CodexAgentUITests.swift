@@ -242,6 +242,59 @@ final class CodexAgentUITests: XCTestCase {
     }
 
     @MainActor
+    func testChatRuntimeSessionPopulatesTranscriptV2AndReconcilesOptimisticUser() async throws {
+        let session = CodexChatRuntimeSession()
+        let submission = CodexComposerSubmission(
+            prompt: "Inspect state",
+            clientID: "client-user-1"
+        )
+
+        _ = await session.submitMainTurn(
+            submission,
+            start: { throw NSError(domain: "CodexRuntimeSessionTests", code: 1) },
+            currentThreadID: { "thread-1" },
+            store: { nil },
+            applyResult: { _ in },
+            onActivity: { _ in },
+            errorMessage: { _ in "offline" }
+        )
+
+        XCTAssertEqual(session.transcriptV2.turns.count, 1)
+        XCTAssertEqual(session.transcriptV2.turns[0].userMessage?.id, "local-client-user-1")
+        XCTAssertTrue(session.transcriptV2.turns[0].userMessage?.isOptimistic == true)
+
+        let userItem = try transcriptThreadItem([
+            "id": .string("server-user-1"),
+            "type": .string("userMessage"),
+            "clientId": .string("client-user-1"),
+            "content": .array([.dictionary(["type": .string("text"), "text": .string("Inspect state")])])
+        ])
+        let (stream, continuation) = AsyncStream<CodexNotification>.makeStream()
+        session.consumeGlobalNotificationStream(
+            stream,
+            store: nil,
+            currentThreadID: { "thread-1" },
+            applyResult: { _ in }
+        )
+        continuation.yield(transcriptNotification(.turnStarted(.init(
+            threadId: "thread-1",
+            turn: .init(id: "turn-1", status: .inProgress)
+        ))))
+        continuation.yield(transcriptNotification(.itemStarted(.init(
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: userItem
+        ))))
+        continuation.finish()
+
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(session.transcriptV2.turns.count, 1)
+        XCTAssertEqual(session.transcriptV2.turns[0].id, "turn-1")
+        XCTAssertEqual(session.transcriptV2.turns[0].userMessage?.id, "server-user-1")
+        XCTAssertFalse(session.transcriptV2.turns[0].userMessage?.isOptimistic == true)
+    }
+
+    @MainActor
     func testChatStreamSessionCancelsReplacedTurnStreamsWithoutFinishingThem() async {
         let session = CodexChatStreamSession()
         var firstContinuation: AsyncStream<CodexNotification>.Continuation!

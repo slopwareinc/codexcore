@@ -253,7 +253,9 @@ final class CodexCoreAppModel {
                 start: {
                     let thread = try await self.ensureThread()
                     self.protectThreadHistoryCache(threadID: thread.id)
-                    return try await thread.turn(submission.turnInput, configuration: self.turnLaunchConfiguration)
+                    var configuration = self.turnLaunchConfiguration
+                    configuration.parameters["clientUserMessageId"] = .string(submission.clientID)
+                    return try await thread.turn(submission.turnInput, configuration: configuration)
                 },
                 onActivity: { [weak self] activity in self?.appendActivity(activity) },
                 errorMessage: CodexErrorFormat.localizedDescription

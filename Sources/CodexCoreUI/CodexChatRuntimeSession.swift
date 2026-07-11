@@ -13,6 +13,7 @@ public final class CodexChatRuntimeSession {
     private var state: CodexChatRuntimeState
     private let streams: CodexChatStreamSession
     private var hostBindings: HostBindings?
+    private var transcriptReducerV2: CodexTranscriptReducerV2?
 
     public init(
         state: CodexChatRuntimeState = CodexChatRuntimeState(),
@@ -43,6 +44,7 @@ public final class CodexChatRuntimeSession {
     public var activeGoalTurnID: String? { state.activeGoalTurnID }
     public var hasActiveGoal: Bool { state.hasActiveGoal }
     public var threadHistorySnapshot: CodexThreadHistorySnapshot { state.threadHistorySnapshot }
+    public var transcriptV2: CodexTranscriptV2 { transcriptReducerV2?.transcript ?? .init() }
 
     public func bindHost(
         currentThreadID: @escaping @MainActor () -> String?,
@@ -152,8 +154,18 @@ public final class CodexChatRuntimeSession {
         errorMessage: (Error) -> String
     ) async -> Bool {
         onActivity(state.beginTurnSubmission(submission))
+        var optimisticThreadID: String?
+        if let threadID = currentThreadID() {
+            prepareTranscriptReducerV2(for: threadID)
+            transcriptReducerV2?.submitLocalUserMessage(text: submission.prompt, clientID: submission.clientID)
+            optimisticThreadID = threadID
+        }
         do {
             let handle = try await start()
+            if optimisticThreadID != handle.threadId {
+                prepareTranscriptReducerV2(for: handle.threadId)
+                transcriptReducerV2?.submitLocalUserMessage(text: submission.prompt, clientID: submission.clientID)
+            }
             state.startMainTurn(handle)
             consumeMainTurn(
                 handle,
@@ -241,7 +253,10 @@ public final class CodexChatRuntimeSession {
     }
 
     public func applyHistoryRestore(_ result: CodexThreadHistoryRestoreResult) -> CodexActivity {
-        state.applyHistoryRestore(result)
+        var reducer = CodexTranscriptReducerV2(threadID: result.hydration.parent.snapshot.id)
+        reducer.restoreHistory(items: result.transcriptItemsV2)
+        transcriptReducerV2 = reducer
+        return state.applyHistoryRestore(result)
     }
 
     public func applyGoal(_ goal: ThreadGoal, turnID: String?, shouldAnnounce: Bool = true) -> CodexActivity? {
@@ -255,6 +270,7 @@ public final class CodexChatRuntimeSession {
     public func resetThreadState() {
         streams.cancelTurnStreams()
         state.resetThreadState()
+        transcriptReducerV2 = nil
     }
 
     public func cancelGlobalNotifications() {
@@ -264,6 +280,7 @@ public final class CodexChatRuntimeSession {
     public func reset() {
         streams.reset()
         state.resetThreadState()
+        transcriptReducerV2 = nil
     }
 
     public func consumeMainTurn(
@@ -304,7 +321,8 @@ public final class CodexChatRuntimeSession {
             id: turnID,
             notifications: notifications,
             routeNotification: { [weak self] notification in
-                self?.state.apply(
+                self?.applyToTranscriptV2(notification, threadID: currentThreadID())
+                return self?.state.apply(
                     notification,
                     mode: .mainTurnStream,
                     currentThreadID: currentThreadID(),
@@ -402,7 +420,8 @@ public final class CodexChatRuntimeSession {
         streams.consumeGlobalNotificationResultStream(
             notifications,
             routeNotification: { [weak self] notification in
-                self?.state.apply(
+                self?.applyToTranscriptV2(notification, threadID: currentThreadID())
+                return self?.state.apply(
                     notification,
                     mode: .globalStream,
                     currentThreadID: currentThreadID(),
@@ -410,6 +429,21 @@ public final class CodexChatRuntimeSession {
                 )
             },
             applyResult: applyResult
+        )
+    }
+
+    private func prepareTranscriptReducerV2(for threadID: String) {
+        if transcriptReducerV2?.threadID != threadID {
+            transcriptReducerV2 = CodexTranscriptReducerV2(threadID: threadID)
+        }
+    }
+
+    private func applyToTranscriptV2(_ notification: CodexNotification, threadID: String?) {
+        guard let threadID else { return }
+        prepareTranscriptReducerV2(for: threadID)
+        transcriptReducerV2?.apply(
+            method: notification.method,
+            params: .dictionary(notification.rawParams)
         )
     }
 }

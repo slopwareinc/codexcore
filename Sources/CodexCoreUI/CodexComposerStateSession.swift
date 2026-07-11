@@ -5,11 +5,18 @@ public struct CodexComposerSubmission: Equatable, Sendable {
     public var prompt: String
     public var skills: [CodexSlashCommand]
     public var mentions: [CodexInput]
+    public var clientID: String
 
-    public init(prompt: String, skills: [CodexSlashCommand] = [], mentions: [CodexInput] = []) {
+    public init(
+        prompt: String,
+        skills: [CodexSlashCommand] = [],
+        mentions: [CodexInput] = [],
+        clientID: String = UUID().uuidString
+    ) {
         self.prompt = prompt
         self.skills = skills
         self.mentions = mentions
+        self.clientID = clientID
     }
 
     public var skillDetail: String? {
@@ -25,6 +32,10 @@ public struct CodexComposerSubmission: Equatable, Sendable {
             guard let name = command.skillName, let path = command.skillPath else { return nil }
             return .skill(name: name, path: path)
         } + mentions + [.text(prompt)]
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.prompt == rhs.prompt && lhs.skills == rhs.skills && lhs.mentions == rhs.mentions
     }
 }
 
