@@ -22,6 +22,96 @@ struct CodexTranscriptV2Tests {
         #expect(turn.narrative.contains(where: \.isProse) && turn.finalAnswer != nil)
     }
 
+    @Test func liveCollabFixtureMatchesOfficialAgentGrammar() throws {
+        let transcript = try replay(
+            "turn-collab-live",
+            threadID: "019f5207-0817-70f0-ab00-33810d6c8744"
+        )
+        #expect(transcript.turns.count == 1)
+        let turn = try #require(transcript.turns.first)
+        let groups = turn.narrative.compactMap(\.workGroup)
+        let createdGroup = try #require(groups.first { $0.header == "Created 5 agents" })
+        let createdRows = createdGroup.rows.compactMap { row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let value) = row, value.action == .created else { return nil }
+            return value
+        }
+        #expect(createdRows.count == 5)
+        let createdLabels = createdRows.map { row in
+            "Created \(row.agentNames.joined(separator: ", "))" +
+                (row.instructions.map { " with the instructions: \($0)" } ?? "")
+        }
+        #expect(createdLabels.count == 5)
+        #expect(createdLabels.allSatisfy { $0.hasPrefix("Created agent-019f") && $0.contains(" with the instructions: Count from ") })
+
+        let waitRows = groups.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let value) = row, value.action == .waited else { return nil }
+            return value
+        }
+        #expect(groups.contains { $0.header == "Working" })
+        #expect(!waitRows.isEmpty)
+        #expect(waitRows.allSatisfy { !$0.agentNames.isEmpty })
+        #expect(waitRows.contains { !$0.agentMessages.isEmpty })
+    }
+
+    @Test func officialCollabReplayMatchesCapturedRowsAndFiltersChildThreads() throws {
+        let transcript = try replay(
+            "turn-collab-official",
+            threadID: "019f521f-4a88-7003-91ff-36afe08e67cf"
+        )
+        #expect(transcript.turns.count == 3)
+        let firstTurn = try #require(transcript.turns.first)
+        #expect(firstTurn.narrative.compactMap(\.header).contains("Created 2 agents"))
+        let labels = transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> String? in
+            guard case .collabAgent(let value) = row else { return nil }
+            return value.label
+        }
+        #expect(labels.contains { $0.hasPrefix("Created agent-019f521f with the instructions: In /Users/") })
+        #expect(labels.contains { $0.hasPrefix("Sent input to agent-") })
+    }
+
+    @Test func ultraSubagentReplayBuildsTwoIndependentAgentTranscripts() throws {
+        let replay = try replayWithSubagents(
+            "turn-subagents-ultra",
+            threadID: "019f5233-c8fa-7cf0-b33b-6f2fb77a4230"
+        )
+        let mainTurn = try #require(replay.transcript.turns.first)
+        #expect(mainTurn.narrative.flatMap(\.rows).contains { row in
+            guard case .collabAgent(let agent) = row else { return false }
+            return agent.action == .started
+        })
+        #expect(mainTurn.narrative.flatMap(\.rows).contains { row in
+            guard case .collabAgent(let agent) = row else { return false }
+            return agent.action == .waited
+        })
+        #expect(replay.subagents.agents.count == 2)
+        #expect(replay.subagents.agents.map(\.agentPath) == ["/root/count_binaries", "/root/count_docs"])
+        #expect(replay.subagents.agents.allSatisfy { agent in
+            !agent.transcript.turns.isEmpty
+                && agent.transcript.turns.contains { !$0.narrative.flatMap(\.rows).isEmpty }
+                && agent.transcript.turns.contains { $0.narrative.contains(where: \.isProse) || $0.finalAnswer != nil }
+        })
+        #expect(replay.subagents.agents.allSatisfy { agent in
+            guard case .completed = agent.status else { return false }
+            return true
+        })
+    }
+
+    @Test func classicCollabReplayDiscoversAgentsWithoutChangingMainTranscript() throws {
+        let replay = try replayWithSubagents(
+            "turn-collab-official",
+            threadID: "019f521f-4a88-7003-91ff-36afe08e67cf"
+        )
+        #expect(replay.transcript.turns.count == 3)
+        #expect(replay.subagents.agents.count == 2)
+        #expect(replay.transcript.turns.first?.narrative.compactMap(\.header).contains("Created 2 agents") == true)
+        let labels = replay.transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> String? in
+            guard case .collabAgent(let value) = row else { return nil }
+            return value.label
+        }
+        #expect(labels.contains { $0.hasPrefix("Created agent-019f521f with the instructions: In /Users/") })
+        #expect(labels.contains { $0.hasPrefix("Sent input to agent-") })
+    }
+
     @Test func mcpFailureReplay() throws {
         let transcript = try replay("turn-mcp-failure")
         let turn = try #require(transcript.turns.first)
@@ -93,15 +183,103 @@ struct CodexTranscriptV2Tests {
         #expect(backfilledSince == 1_783_539_644)
     }
 
-    private func replay(_ name: String) throws -> CodexTranscriptV2 {
+    @Test func subAgentActivityMapsToAgentWorkWithoutGenericChrome() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": [
+                "type": "subAgentActivity", "id": "activity-1", "kind": "interacted",
+                "agentThreadId": "agent-thread", "agentPath": "agents/reviewer"
+            ]
+        ]))
+
+        let turn = try #require(reducer.transcript.turns.first)
+        let group = try #require(turn.narrative.compactMap(\.workGroup).first)
+        #expect(group.header == "Worked with an agent")
+        #expect(turn.liveTail == "Working with agents")
+        guard case .collabAgent(let row) = try #require(group.rows.first) else {
+            Issue.record("Expected collab-agent row")
+            return
+        }
+        #expect(row.action == .interacted)
+        #expect(row.agentNames == ["agents/reviewer"])
+    }
+
+    @Test func planIsProseAndUnknownItemsAreSkipped() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "item/completed", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": ["type": "plan", "id": "plan-1", "text": "## Plan\n\n- Ship it"]
+        ]))
+        reducer.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": ["type": "futureWireItem", "id": "unknown-1"]
+        ]))
+
+        let turn = try #require(reducer.transcript.turns.first)
+        #expect(turn.narrative.count == 1)
+        guard case .prose(let prose) = turn.narrative[0] else {
+            Issue.record("Expected plan prose")
+            return
+        }
+        #expect(prose.text == "## Plan\n\n- Ship it")
+        #expect(turn.liveTail == nil)
+
+        var unknownOnly = CodexTranscriptReducerV2(threadID: "t")
+        unknownOnly.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v", "item": ["type": "futureWireItem", "id": "unknown-2"]
+        ]))
+        #expect(unknownOnly.transcript.turns.isEmpty)
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: []) == "")
+    }
+
+    @Test func completionDerivesMissingDurationFromWireTimestamps() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "turn/started", params: json([
+            "threadId": "t", "turn": ["id": "v", "startedAt": 100]
+        ]))
+        reducer.apply(method: "turn/completed", params: json([
+            "threadId": "t", "turn": ["id": "v", "startedAt": 100, "completedAt": 108]
+        ]))
+
+        let turn = try #require(reducer.transcript.turns.first)
+        guard case .done(let durationMs) = turn.status else {
+            Issue.record("Expected completed turn")
+            return
+        }
+        #expect(durationMs == 8_000)
+        #expect(CodexWorkBlockViewV2.duration(durationMs) == "8s")
+    }
+
+    private func replay(_ name: String, threadID explicitThreadID: String? = nil) throws -> CodexTranscriptV2 {
         struct Event: Decodable { let method: String; let params: CodexJSONValue }
         let url = try #require(Bundle.module.url(forResource:name, withExtension:"jsonl"))
         let lines = try String(contentsOf:url, encoding:.utf8).split(separator:"\n"), decoder = JSONDecoder()
         let first = try decoder.decode(Event.self, from:Data(lines[0].utf8))
-        guard case .dictionary(let p) = first.params, case .string(let thread)? = p["threadId"] else { throw Error.invalid }
+        guard case .dictionary(let p) = first.params else { throw Error.invalid }
+        let rootThreadID: String? = if case .string(let value)? = p["threadId"] { value } else { nil }
+        let nestedThreadID: String? = if case .dictionary(let thread)? = p["thread"],
+                                         case .string(let value)? = thread["id"] { value } else { nil }
+        let thread = explicitThreadID
+            ?? rootThreadID
+            ?? nestedThreadID
+        guard let thread else { throw Error.invalid }
         var reducer = CodexTranscriptReducerV2(threadID:thread)
         for line in lines { let event = try decoder.decode(Event.self, from:Data(line.utf8)); reducer.apply(method:event.method, params:event.params) }
         return reducer.transcript
+    }
+    private func replayWithSubagents(_ name: String, threadID: String) throws -> (transcript: CodexTranscriptV2, subagents: CodexSubagentStoreV2) {
+        struct Event: Decodable { let method: String; let params: CodexJSONValue }
+        let url = try #require(Bundle.module.url(forResource:name, withExtension:"jsonl"))
+        let lines = try String(contentsOf:url, encoding:.utf8).split(separator:"\n"), decoder = JSONDecoder()
+        var reducer = CodexTranscriptReducerV2(threadID: threadID)
+        var subagents = CodexSubagentStoreV2()
+        for line in lines {
+            let event = try decoder.decode(Event.self, from:Data(line.utf8))
+            reducer.apply(method:event.method, params:event.params)
+            subagents.apply(method:event.method, params:event.params)
+        }
+        return (reducer.transcript, subagents)
     }
     private func json(_ value: Any) -> CodexJSONValue { try! JSONDecoder().decode(CodexJSONValue.self, from:JSONSerialization.data(withJSONObject:value)) }
     enum Error: Swift.Error { case invalid }
@@ -111,4 +289,5 @@ private extension CodexNarrativeEntry {
     var isProse: Bool { if case .prose = self { true } else { false } }
     var header: String? { if case .workGroup(let group) = self { group.header } else { nil } }
     var rows: [CodexWorkRowV2] { if case .workGroup(let group) = self { group.rows } else { [] } }
+    var workGroup: CodexWorkGroupV2? { if case .workGroup(let group) = self { group } else { nil } }
 }

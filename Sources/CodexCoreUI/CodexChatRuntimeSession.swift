@@ -14,6 +14,9 @@ public final class CodexChatRuntimeSession {
     private let streams: CodexChatStreamSession
     private var hostBindings: HostBindings?
     private var transcriptReducerV2: CodexTranscriptReducerV2?
+    private var subagentStoreV2 = CodexSubagentStoreV2()
+    private var discoveryCodex: Codex?
+    private var requestedSubagentIDs: Set<String> = []
 
     public init(
         state: CodexChatRuntimeState = CodexChatRuntimeState(),
@@ -44,6 +47,7 @@ public final class CodexChatRuntimeSession {
     public var hasActiveGoal: Bool { state.hasActiveGoal }
     public var threadHistorySnapshot: CodexThreadHistorySnapshot { state.threadHistorySnapshot }
     public var transcriptV2: CodexTranscriptV2 { transcriptReducerV2?.transcript ?? .init() }
+    public var subagentsV2: CodexSubagentStoreV2 { subagentStoreV2 }
 
     public func bindHost(
         currentThreadID: @escaping @MainActor () -> String?,
@@ -262,6 +266,8 @@ public final class CodexChatRuntimeSession {
         streams.cancelTurnStreams()
         state.resetThreadState()
         transcriptReducerV2 = nil
+        subagentStoreV2 = CodexSubagentStoreV2()
+        requestedSubagentIDs = []
     }
 
     public func cancelGlobalNotifications() {
@@ -272,6 +278,8 @@ public final class CodexChatRuntimeSession {
         streams.reset()
         state.resetThreadState()
         transcriptReducerV2 = nil
+        subagentStoreV2 = CodexSubagentStoreV2()
+        requestedSubagentIDs = []
     }
 
     public func consumeMainTurn(
@@ -394,6 +402,7 @@ public final class CodexChatRuntimeSession {
         currentThreadID: @escaping @MainActor () -> String?,
         applyResult: @escaping @MainActor (CodexChatNotificationPipelineResult) -> Void
     ) {
+        discoveryCodex = codex
         consumeGlobalNotificationStream(
             codex.notifications(),
             store: codex.store,
@@ -432,9 +441,65 @@ public final class CodexChatRuntimeSession {
     private func applyToTranscriptV2(_ notification: CodexNotification, threadID: String?) {
         guard let threadID else { return }
         prepareTranscriptReducerV2(for: threadID)
-        transcriptReducerV2?.apply(
-            method: notification.method,
-            params: .dictionary(notification.rawParams)
+        let params = CodexJSONValue.dictionary(notification.rawParams)
+        transcriptReducerV2?.apply(method: notification.method, params: params)
+        let discoveries = subagentStoreV2.apply(method: notification.method, params: params)
+        for discovery in discoveries { discoverSubagent(discovery) }
+    }
+
+    private func discoverSubagent(_ discovery: CodexSubagentDiscoveryV2) {
+        guard let codex = discoveryCodex, requestedSubagentIDs.insert(discovery.threadID).inserted else { return }
+        Task { [weak self] in
+            if let response = try? await codex.threadReadSchema(discovery.threadID, includeTurns: false) {
+                self?.applySubagentMetadata(response.thread)
+            }
+            _ = try? await codex.threadResume(discovery.threadID)
+            if let response = try? await codex.threadListSchema(.init(parentThreadID: discovery.threadID)) {
+                for child in response.data { self?.discoverListedSubagent(child) }
+            }
+        }
+    }
+
+    private func applySubagentMetadata(_ thread: CodexSchemaThread) {
+        let source = Self.agentSource(thread.threadSource?.rawValue) ?? Self.agentSource(thread.extra?.rawValue)
+        let sourceFields = source ?? [:]
+        subagentStoreV2.updateMetadata(
+            threadID: thread.id,
+            nickname: thread.agentNickname,
+            role: thread.agentRole,
+            agentPath: Self.string(in: sourceFields, keys: ["agentPath", "agent_path"]),
+            depth: Self.int(in: sourceFields, keys: ["depth"]),
+            parentThreadID: Self.string(in: sourceFields, keys: ["parentThreadId", "parent_thread_id"])
+                ?? thread.parentThreadID
         )
+    }
+
+    private func discoverListedSubagent(_ thread: CodexSchemaThread) {
+        let source = Self.agentSource(thread.threadSource?.rawValue) ?? Self.agentSource(thread.extra?.rawValue)
+        let sourceFields = source ?? [:]
+        let parent = Self.string(in: sourceFields, keys: ["parentThreadId", "parent_thread_id"])
+            ?? thread.parentThreadID
+        let path = Self.string(in: sourceFields, keys: ["agentPath", "agent_path"])
+        let isNew = subagentStoreV2.register(threadID: thread.id, parentThreadID: parent, agentPath: path)
+        applySubagentMetadata(thread)
+        if isNew {
+            discoverSubagent(.init(threadID: thread.id, parentThreadID: parent, agentPath: path))
+        }
+    }
+
+    private static func agentSource(_ value: CodexJSONValue?) -> [String: CodexJSONValue]? {
+        guard case .dictionary(let object) = value else { return nil }
+        for nestedKey in ["subAgent", "sub_agent", "subAgentThreadSpawn", "sub_agent_thread_spawn"] {
+            if case .dictionary(let nested)? = object[nestedKey] { return nested }
+        }
+        return object
+    }
+    private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
+        for key in keys { if case .string(let value)? = object[key] { return value } }
+        return nil
+    }
+    private static func int(in object: [String: CodexJSONValue], keys: [String]) -> Int? {
+        for key in keys { if case .int(let value)? = object[key] { return value } }
+        return nil
     }
 }
