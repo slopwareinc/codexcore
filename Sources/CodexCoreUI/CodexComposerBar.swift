@@ -163,7 +163,6 @@ public struct CodexComposerBar: View {
                         }
                     }
                     ComposerApprovalMenu(selection: $approvalSelection, options: approvalOptions)
-                    ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
 
                     Spacer(minLength: 0)
 
@@ -175,6 +174,7 @@ public struct CodexComposerBar: View {
                             .transition(.opacity)
                     }
 
+                    ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
                     ComposerMicrophoneButton()
 
                     if isSending {
@@ -692,6 +692,8 @@ private struct ComposerAddMenu: View {
         } label: {
             ComposerChipLabel(systemImage: "plus", title: nil)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Add files and more")
     }
@@ -746,6 +748,8 @@ private struct ComposerApprovalMenu: View {
         } label: {
             ComposerChipLabel(systemImage: "exclamationmark.shield", title: selection.displayName, tint: .orange)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Approval mode")
     }
