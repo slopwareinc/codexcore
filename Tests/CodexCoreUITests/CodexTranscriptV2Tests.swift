@@ -41,7 +41,7 @@ struct CodexTranscriptV2Tests {
                 (row.instructions.map { " with the instructions: \($0)" } ?? "")
         }
         #expect(createdLabels.count == 5)
-        #expect(createdLabels.allSatisfy { $0.hasPrefix("Created 019f") && $0.contains(" with the instructions: Count from ") })
+        #expect(createdLabels.allSatisfy { $0.hasPrefix("Created agent-019f") && $0.contains(" with the instructions: Count from ") })
 
         let waitRows = groups.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
             guard case .collabAgent(let value) = row, value.action == .waited else { return nil }
@@ -51,6 +51,22 @@ struct CodexTranscriptV2Tests {
         #expect(!waitRows.isEmpty)
         #expect(waitRows.allSatisfy { !$0.agentNames.isEmpty })
         #expect(waitRows.contains { !$0.agentMessages.isEmpty })
+    }
+
+    @Test func officialCollabReplayMatchesCapturedRowsAndFiltersChildThreads() throws {
+        let transcript = try replay(
+            "turn-collab-official",
+            threadID: "019f521f-4a88-7003-91ff-36afe08e67cf"
+        )
+        #expect(transcript.turns.count == 3)
+        let firstTurn = try #require(transcript.turns.first)
+        #expect(firstTurn.narrative.compactMap(\.header).contains("Created 2 agents"))
+        let labels = transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> String? in
+            guard case .collabAgent(let value) = row else { return nil }
+            return value.label
+        }
+        #expect(labels.contains { $0.hasPrefix("Created agent-019f521f with the instructions: In /Users/") })
+        #expect(labels.contains { $0.hasPrefix("Sent input to agent-") })
     }
 
     @Test func mcpFailureReplay() throws {

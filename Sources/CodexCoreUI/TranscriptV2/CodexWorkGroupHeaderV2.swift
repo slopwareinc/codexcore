@@ -16,7 +16,7 @@ public enum CodexWorkGroupHeaderV2 {
                 case .created: categories = [(.collabCreated, max(1, value.agentNames.count))]
                 case .closed: categories = [(.collabClosed, max(1, value.agentNames.count))]
                 case .waited: categories = [(.collabWait, max(1, value.agentNames.count))]
-                case .started, .interacted, .interrupted:
+                case .sentInput, .started, .interacted, .interrupted:
                     categories = [(.collabWorked, max(1, value.agentNames.count))]
                 }
             case .other(let value):

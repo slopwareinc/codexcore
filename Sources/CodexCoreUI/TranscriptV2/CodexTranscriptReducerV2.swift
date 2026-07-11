@@ -215,10 +215,19 @@ public struct CodexTranscriptReducerV2: Sendable {
             return .mcpToolCall(.init(id: id, appName: app, server: item.string("server") ?? app, tool: item.string("tool") ?? "Tool", status: state, durationMs: item.int("durationMs"), errorFirstLine: state == .failed ? mcpError(item) : nil, arguments: item["arguments"], result: item["result"]))
         case "webSearch": return .webSearch(.init(id: id, query: item.string("query") ?? "", status: state))
         case "collabAgentToolCall":
-            let tool = item.string("tool") ?? "", action: CodexCollabActionV2 = tool == "spawnAgent" ? .created : (tool == "closeAgent" ? .closed : .waited)
-            let names = item.array("receiverThreadIds")?.compactMap(\.stringValue) ?? []
+            let tool = item.string("tool") ?? ""
+            let action: CodexCollabActionV2 = switch tool {
+            case "spawnAgent": .created
+            case "sendInput": .sentInput
+            case "closeAgent": .closed
+            default: .waited
+            }
+            let receiverIDs = item.array("receiverThreadIds")?.compactMap(\.stringValue) ?? []
+            let names = receiverIDs.map(shortAgentName)
             let messages = item.object("agentsStates")?.reduce(into: [String: String]()) { result, entry in
-                if let message = entry.value.object?.string("message"), !message.isEmpty { result[entry.key] = message }
+                if let message = entry.value.object?.string("message"), !message.isEmpty {
+                    result[shortAgentName(entry.key)] = message
+                }
             } ?? [:]
             return .collabAgent(.init(
                 id: id, action: action, agentNames: names, instructions: item.string("prompt"),
@@ -314,6 +323,7 @@ public struct CodexTranscriptReducerV2: Sendable {
         case .collabAgent(let value):
             switch value.action {
             case .created: "Creating an agent"
+            case .sentInput: "Messaging an agent"
             case .waited: "Waiting for agents"
             default: "Working with agents"
             }
@@ -343,6 +353,9 @@ public struct CodexTranscriptReducerV2: Sendable {
         return max(0, Int(end - start) * 1_000)
     }
     private func mcpError(_ item: [String: CodexJSONValue]) -> String? { if let error = item.string("error") { return error.firstLine }; if let result = item.object("result"), let error = result.object("structuredContent")?.string("error") { return error.firstLine }; return item.object("result")?.array("content")?.compactMap { $0.object?.string("text") }.first?.firstLine }
+    private func shortAgentName(_ threadID: String) -> String {
+        "agent-\(threadID.split(separator: "-").first.map(String.init) ?? threadID)"
+    }
 }
 
 private extension CodexJSONValue {

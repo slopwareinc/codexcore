@@ -95,8 +95,23 @@ public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2
 }
 public enum CodexCollabActionV2: Sendable, Equatable {
-    case created, waited, closed
+    case created, sentInput, waited, closed
     case started, interacted, interrupted
+}
+
+extension CodexCollabAgentRowV2 {
+    var label: String {
+        let names = agentNames.joined(separator: ", ")
+        return switch action {
+        case .created: "Created \(names)\(instructions.map { " with the instructions: \($0)" } ?? "")"
+        case .sentInput: "Sent input to \(names)"
+        case .waited: names.isEmpty ? "Waited for agents" : "Waited for \(names)"
+        case .closed: names.isEmpty ? "Closed agents" : "Closed \(names)"
+        case .started: "Started an agent"
+        case .interacted: "Messaged an agent"
+        case .interrupted: "Interrupted an agent"
+        }
+    }
 }
 public struct CodexCollabAgentRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var action: CodexCollabActionV2; public var agentNames: [String]
