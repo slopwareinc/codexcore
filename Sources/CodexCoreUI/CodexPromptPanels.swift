@@ -336,18 +336,21 @@ public struct CodexInteractivePromptsPanel: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer(minLength: 0)
-                Text("\(prompts.count)")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
+                if prompts.count > 1 {
+                    Text("\(prompts.count) requests")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
             }
 
-            ForEach(prompts.prefix(3)) { prompt in
+            if let prompt = prompts.first {
                 CodexInteractivePromptRow(
                     prompt: prompt,
                     onSubmit: onSubmit,
                     onAccept: onAccept,
                     onDecline: onDecline
                 )
+                .id(prompt.id)
             }
         }
         .padding(12)
@@ -368,7 +371,8 @@ private struct CodexInteractivePromptRow: View {
     let onSubmit: (String, [String: String]) -> Void
     let onAccept: (String) -> Void
     let onDecline: (String) -> Void
-    @State private var answers: [String: String] = [:]
+    @State private var progress = CodexInteractivePromptProgress()
+    @State private var otherQuestionIDs: Set<String> = []
 
     init(
         prompt: CodexInteractivePrompt,
@@ -394,16 +398,24 @@ private struct CodexInteractivePromptRow: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(1)
-                    Text(prompt.detail)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .lineLimit(3)
+                    if prompt.questions.isEmpty {
+                        Text(prompt.detail)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .lineLimit(3)
+                    }
                 }
                 Spacer(minLength: 0)
             }
 
             if prompt.kind == .userInput || prompt.requiresElicitationForm {
-                ForEach(prompt.questions) { question in
+                if let question = currentQuestion {
+                    HStack {
+                        Text("Question \(progress.questionIndex + 1) of \(prompt.questions.count)")
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                        Spacer(minLength: 0)
+                    }
                     questionEditor(question)
                 }
             } else if let serverName = prompt.serverName {
@@ -419,45 +431,72 @@ private struct CodexInteractivePromptRow: View {
             }
 
             HStack(spacing: 8) {
-                Button {
-                    onDecline(prompt.id)
-                } label: {
-                    Label(prompt.kind == .userInput ? "Cancel" : "Decline", systemImage: "xmark")
-                        .labelStyle(.titleAndIcon)
+                if progress.questionIndex > 0 {
+                    Button {
+                        progress.moveBack()
+                    } label: {
+                        Label("Back", systemImage: "chevron.left")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
+                    Button {
+                        onDecline(prompt.id)
+                    } label: {
+                        Label(prompt.kind == .userInput ? "Cancel" : "Decline", systemImage: "xmark")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
 
                 Spacer(minLength: 0)
 
                 Button {
                     if prompt.kind == .userInput || prompt.requiresElicitationForm {
-                        onSubmit(prompt.id, answers)
+                        if progress.isLastQuestion(count: prompt.questions.count) {
+                            onSubmit(prompt.id, progress.answers)
+                        } else {
+                            progress.moveForward(count: prompt.questions.count)
+                        }
                     } else {
                         onAccept(prompt.id)
                     }
                 } label: {
-                    Label(prompt.kind == .userInput || prompt.requiresElicitationForm ? "Submit" : "Allow", systemImage: "checkmark")
+                    Label(primaryActionTitle, systemImage: primaryActionSystemImage)
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(
                     prompt.kind == .mcpElicitation
-                        && (!prompt.canAcceptElicitation || !prompt.isElicitationSubmissionValid(answers: answers))
+                        && progress.isLastQuestion(count: prompt.questions.count)
+                        && (!prompt.canAcceptElicitation || !prompt.isElicitationSubmissionValid(answers: progress.answers))
                 )
-                .disabled(prompt.kind == .userInput && !hasRequiredAnswers)
+                .disabled((prompt.kind == .userInput || prompt.requiresElicitationForm) && !hasCurrentAnswer)
             }
         }
         .padding(10)
         .background(theme.colors.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
     }
 
-    private var hasRequiredAnswers: Bool {
-        guard !prompt.questions.isEmpty else { return true }
-        return prompt.questions.allSatisfy { question in
-            !(answers[question.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+    private var currentQuestion: CodexUserInputQuestion? {
+        progress.currentQuestion(in: prompt.questions)
+    }
+
+    private var hasCurrentAnswer: Bool {
+        guard let currentQuestion else { return true }
+        return progress.hasAnswer(for: currentQuestion.id)
+    }
+
+    private var primaryActionTitle: String {
+        guard prompt.kind == .userInput || prompt.requiresElicitationForm else { return "Allow" }
+        return progress.isLastQuestion(count: prompt.questions.count) ? "Submit" : "Next"
+    }
+
+    private var primaryActionSystemImage: String {
+        primaryActionTitle == "Next" ? "chevron.right" : "checkmark"
     }
 
     @ViewBuilder
@@ -477,16 +516,42 @@ private struct CodexInteractivePromptRow: View {
             if !question.options.isEmpty {
                 CodexFlexibleOptionButtons(
                     options: question.options,
-                    selectedAnswer: answers[question.id],
-                    onSelect: { answers[question.id] = $0 }
+                    selectedAnswer: progress.answers[question.id],
+                    onSelect: {
+                        otherQuestionIDs.remove(question.id)
+                        progress.answers[question.id] = $0
+                    }
                 )
+
+                if question.isOtherAllowed {
+                    Button {
+                        otherQuestionIDs.insert(question.id)
+                        progress.answers[question.id] = ""
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: otherQuestionIDs.contains(question.id) ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Other")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        (otherQuestionIDs.contains(question.id) ? theme.colors.accent.opacity(0.16) : theme.colors.surface.opacity(0.72)),
+                        in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                    )
+                }
             }
 
             if question.isSecret {
                 SecureField("Answer", text: answerBinding(for: question.id))
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
-            } else if question.isOtherAllowed || question.options.isEmpty {
+            } else if question.options.isEmpty || otherQuestionIDs.contains(question.id) {
                 TextField("Answer", text: answerBinding(for: question.id))
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
@@ -498,9 +563,36 @@ private struct CodexInteractivePromptRow: View {
 
     private func answerBinding(for id: String) -> Binding<String> {
         Binding(
-            get: { answers[id] ?? "" },
-            set: { answers[id] = $0 }
+            get: { progress.answers[id] ?? "" },
+            set: { progress.answers[id] = $0 }
         )
+    }
+}
+
+struct CodexInteractivePromptProgress: Equatable {
+    var questionIndex = 0
+    var answers: [String: String] = [:]
+
+    func currentQuestion(in questions: [CodexUserInputQuestion]) -> CodexUserInputQuestion? {
+        guard questions.indices.contains(questionIndex) else { return nil }
+        return questions[questionIndex]
+    }
+
+    func hasAnswer(for questionID: String) -> Bool {
+        !(answers[questionID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func isLastQuestion(count: Int) -> Bool {
+        count == 0 || questionIndex >= count - 1
+    }
+
+    mutating func moveForward(count: Int) {
+        guard !isLastQuestion(count: count) else { return }
+        questionIndex += 1
+    }
+
+    mutating func moveBack() {
+        questionIndex = max(0, questionIndex - 1)
     }
 }
 
