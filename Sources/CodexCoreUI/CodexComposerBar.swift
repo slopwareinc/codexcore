@@ -149,9 +149,6 @@ public struct CodexComposerBar: View {
                     .lineLimit(1...(isCompact ? 3 : 6))
                     .focused($focused)
                     .onSubmit(handleSubmit)
-                    .onKeyPress { keyPress in
-                        handleComposerKeyPress(keyPress)
-                    }
                     .padding(.leading, 6)
                     .padding(.vertical, isCompact ? 3 : 6)
 
@@ -312,25 +309,6 @@ public struct CodexComposerBar: View {
             return
         }
         onSend()
-    }
-
-    private func handleComposerKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
-        guard keyPress.modifiers.isEmpty else { return .ignored }
-
-        switch keyPress.key {
-        case .downArrow:
-            return handlePaletteKey(.moveDown) ? .handled : .ignored
-        case .upArrow:
-            return handlePaletteKey(.moveUp) ? .handled : .ignored
-        case .return:
-            return handlePaletteKey(.select) ? .handled : .ignored
-        case .escape:
-            return handlePaletteKey(.dismiss) ? .handled : .ignored
-        default:
-            break
-        }
-
-        return .ignored
     }
 
     private func handlePaletteKey(_ key: CodexComposerPaletteKey) -> Bool {
