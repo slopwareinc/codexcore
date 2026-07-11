@@ -77,6 +77,9 @@ private struct CodexWorkRowViewV2: View {
             case .created: return "Created \(names)\(value.instructions.map { " with the instructions: \($0)" } ?? "")"
             case .waited: return names.isEmpty ? "Waited for agents" : "Waited for \(names)"
             case .closed: return names.isEmpty ? "Closed agents" : "Closed \(names)"
+            case .started: return "Started an agent"
+            case .interacted: return "Messaged an agent"
+            case .interrupted: return "Interrupted an agent"
             }
         case .other(let value): return value.label
         }

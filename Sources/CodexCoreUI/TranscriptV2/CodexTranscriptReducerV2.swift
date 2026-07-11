@@ -6,6 +6,7 @@ public struct CodexTranscriptReducerV2: Sendable {
     public private(set) var transcript: CodexTranscriptV2
     private var pendingUsers: [String: CodexUserMessageV2] = [:]
     private var reasoningText: [String: String] = [:]
+    private var turnStartedAt: [String: Int64] = [:]
 
     public init(threadID: String, transcript: CodexTranscriptV2 = .init()) {
         self.threadID = threadID; self.transcript = transcript
@@ -38,7 +39,7 @@ public struct CodexTranscriptReducerV2: Sendable {
     }
 
     public mutating func restoreHistory(items: [CodexJSONValue]) {
-        transcript = .init(); reasoningText = [:]
+        transcript = .init(); reasoningText = [:]; turnStartedAt = [:]
         var fabricated = 0
         var turnID: String?
         for value in items {
@@ -66,13 +67,15 @@ public struct CodexTranscriptReducerV2: Sendable {
 
     private mutating func startTurn(_ root: [String: CodexJSONValue]) {
         guard let turn = root.object("turn"), let id = turn.string("id") else { return }
-        ensureTurn(id, since: turn.int64("startedAt"))
+        let startedAt = turn.int64("startedAt")
+        if let startedAt { turnStartedAt[id] = startedAt }
+        ensureTurn(id, since: startedAt)
     }
 
     private mutating func completeTurn(_ root: [String: CodexJSONValue]) {
         guard let turn = root.object("turn"), let id = turn.string("id"), let index = turnIndex(id) else { return }
         if let error = turn.string("error"), !error.isEmpty { failTurn(at: index, message: error) }
-        else { finishTurn(at: index, duration: turn.int("durationMs")) }
+        else { finishTurn(at: index, duration: completionDuration(turn, turnID: id)) }
     }
 
     private mutating func failTurn(_ root: [String: CodexJSONValue]) {
@@ -84,6 +87,7 @@ public struct CodexTranscriptReducerV2: Sendable {
 
     private mutating func applyItem(_ root: [String: CodexJSONValue], completed: Bool) {
         guard let item = root.object("item"), let turnID = root.string("turnId"), let type = item.string("type") else { return }
+        guard isHandledItemType(type) else { return }
         ensureTurn(turnID, since: nil)
         guard let index = turnIndex(turnID) else { return }
         switch type {
@@ -91,6 +95,10 @@ public struct CodexTranscriptReducerV2: Sendable {
         case "agentMessage": applyAgent(item, turn: index, completed: completed)
         case "reasoning": applyReasoning(item, turn: index, completed: completed)
         case "dynamicToolCall": applyProductTool(item, turn: index, completed: completed)
+        case "plan": applyPlan(item, turn: index, completed: completed)
+        case "enteredReviewMode": applyNotice(item, message: "Entered review mode", turn: index)
+        case "exitedReviewMode": applyNotice(item, message: "Exited review mode", turn: index)
+        case "contextCompaction": applyNotice(item, message: "Compacted context", turn: index)
         default: applyWork(item, type: type, turn: index, completed: completed)
         }
     }
@@ -102,8 +110,32 @@ public struct CodexTranscriptReducerV2: Sendable {
         case "agentMessage": applyAgent(item, turn: index, completed: true)
         case "reasoning": break
         case "dynamicToolCall": applyProductTool(item, turn: index, completed: true)
+        case "plan": applyPlan(item, turn: index, completed: true)
+        case "enteredReviewMode": applyNotice(item, message: "Entered review mode", turn: index)
+        case "exitedReviewMode": applyNotice(item, message: "Exited review mode", turn: index)
+        case "contextCompaction": applyNotice(item, message: "Compacted context", turn: index)
+        case "hookPrompt": break
         default: applyWork(item, type: type, turn: index, completed: true)
         }
+    }
+
+    private mutating func applyPlan(_ item: [String: CodexJSONValue], turn index: Int, completed: Bool) {
+        guard let id = item.string("id"), let text = item.string("text"), !text.isEmpty else { return }
+        closeGroup(turn: index)
+        upsertProse(.init(id: id, text: text, isStreaming: !completed), turn: index)
+        refreshTail(turn: index)
+    }
+
+    private mutating func applyNotice(_ item: [String: CodexJSONValue], message: String, turn index: Int) {
+        guard let id = item.string("id") else { return }
+        closeGroup(turn: index)
+        let notice = CodexTurnNoticeV2(id: id, message: message)
+        if let entry = transcript.turns[index].narrative.firstIndex(where: { $0.id == id }) {
+            transcript.turns[index].narrative[entry] = .notice(notice)
+        } else {
+            transcript.turns[index].narrative.append(.notice(notice))
+        }
+        refreshTail(turn: index)
     }
 
     private mutating func applyUser(_ item: [String: CodexJSONValue], turn index: Int) {
@@ -159,7 +191,9 @@ public struct CodexTranscriptReducerV2: Sendable {
             group.isLive = group.rows.contains(where: \.isInProgress)
             transcript.turns[index].narrative[transcript.turns[index].narrative.count - 1] = .workGroup(group)
         } else {
-            let group = CodexWorkGroupV2(id: "group-\(row.id)", header: CodexWorkGroupHeaderV2.synthesize(rows: [row]), rows: [row], isLive: row.isInProgress)
+            let header = CodexWorkGroupHeaderV2.synthesize(rows: [row])
+            guard !header.isEmpty else { return }
+            let group = CodexWorkGroupV2(id: "group-\(row.id)", header: header, rows: [row], isLive: row.isInProgress)
             transcript.turns[index].narrative.append(.workGroup(group))
         }
         refreshTail(turn: index)
@@ -183,7 +217,19 @@ public struct CodexTranscriptReducerV2: Sendable {
             let tool = item.string("tool") ?? "", action: CodexCollabActionV2 = tool == "spawnAgent" ? .created : (tool == "closeAgent" ? .closed : .waited)
             let names = item.array("receiverThreadIds")?.compactMap(\.stringValue) ?? []
             return .collabAgent(.init(id: id, action: action, agentNames: names, instructions: item.string("prompt"), status: state))
-        default: return .other(.init(id: id, label: friendlyLabel(type), status: state))
+        case "subAgentActivity":
+            let action: CodexCollabActionV2
+            switch item.string("kind") {
+            case "started": action = .started
+            case "interacted": action = .interacted
+            case "interrupted": action = .interrupted
+            default: return nil
+            }
+            let agent = item.string("agentPath") ?? item.string("agentThreadId") ?? "agent"
+            return .collabAgent(.init(id: id, action: action, agentNames: [agent], instructions: nil, status: state))
+        case "imageGeneration":
+            return .other(.init(id: id, label: "Generating an image", status: state))
+        default: return nil
         }
     }
 
@@ -223,10 +269,12 @@ public struct CodexTranscriptReducerV2: Sendable {
         if let provisional = transcript.turns.firstIndex(where: { $0.id.hasPrefix("local-") && $0.userMessage?.isOptimistic == true }) {
             transcript.turns[provisional].id = id
             transcript.turns[provisional].status = .working(since: since)
+            turnStartedAt[id] = since ?? Int64(Date().timeIntervalSince1970)
             return
         }
         var user: CodexUserMessageV2?
         if let first = pendingUsers.first { user = first.value }
+        turnStartedAt[id] = turnStartedAt[id] ?? Int64(Date().timeIntervalSince1970)
         transcript.turns.append(.init(id: id, userMessage: user, status: .working(since: since)))
     }
     private func turnIndex(_ id: String) -> Int? { transcript.turns.firstIndex { $0.id == id } }
@@ -247,14 +295,25 @@ public struct CodexTranscriptReducerV2: Sendable {
             if case .productToolCall(let value) = entry, value.status == .inProgress { transcript.turns[index].liveTail = "Using \(value.tool)"; return }
             if case .workGroup(let group) = entry, let row = group.rows.last(where: \.isInProgress) { transcript.turns[index].liveTail = tail(row); return }
         }
-        transcript.turns[index].liveTail = "Working"
+        transcript.turns[index].liveTail = nil
     }
 
     private func tail(_ row: CodexWorkRowV2) -> String { switch row { case .command(let v): "Running \(shortCommand(v.command))"; case .mcpToolCall(let v): "Asking \(v.appName)"; case .fileChange: "Editing files"; case .webSearch: "Searching"; case .collabAgent(let v): v.action == .created ? "Creating an agent" : "Working with agents"; case .other(let v): v.label } }
     private func status(_ item: [String: CodexJSONValue], completed: Bool) -> CodexWorkItemStatusV2 { if item.string("status") == "failed" || (item.int("exitCode").map { $0 != 0 } ?? false) { return .failed }; return completed ? .completed : .inProgress }
     private func commandCategory(_ item: [String: CodexJSONValue]) -> CodexWorkCategoryV2 { guard let action = item.array("commandActions")?.first?.object?.string("type") else { return .run }; switch action.lowercased() { case "read", "fileread": return .read; case "listfiles", "list": return .list; case "search", "searchfiles": return .search; default: return .run } }
     private func shortCommand(_ command: String) -> String { if let range = command.range(of: "-lc ") { return String(command[range.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: " '\"")) }; return command }
-    private func friendlyLabel(_ type: String) -> String { switch type { case "imageView": "Viewing an image"; case "sleep": "Waiting"; default: "Working" } }
+    private func isHandledItemType(_ type: String) -> Bool {
+        ["userMessage", "agentMessage", "reasoning", "dynamicToolCall", "plan",
+         "enteredReviewMode", "exitedReviewMode", "contextCompaction", "commandExecution",
+         "fileChange", "mcpToolCall", "webSearch", "collabAgentToolCall", "subAgentActivity",
+         "imageGeneration"].contains(type)
+    }
+    private func completionDuration(_ turn: [String: CodexJSONValue], turnID: String) -> Int {
+        if let duration = turn.int("durationMs") { return max(0, duration) }
+        let start = turn.int64("startedAt") ?? turnStartedAt[turnID] ?? Int64(Date().timeIntervalSince1970)
+        let end = turn.int64("completedAt") ?? Int64(Date().timeIntervalSince1970)
+        return max(0, Int(end - start) * 1_000)
+    }
     private func mcpError(_ item: [String: CodexJSONValue]) -> String? { if let error = item.string("error") { return error.firstLine }; if let result = item.object("result"), let error = result.object("structuredContent")?.string("error") { return error.firstLine }; return item.object("result")?.array("content")?.compactMap { $0.object?.string("text") }.first?.firstLine }
 }
 

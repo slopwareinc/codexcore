@@ -93,6 +93,74 @@ struct CodexTranscriptV2Tests {
         #expect(backfilledSince == 1_783_539_644)
     }
 
+    @Test func subAgentActivityMapsToAgentWorkWithoutGenericChrome() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": [
+                "type": "subAgentActivity", "id": "activity-1", "kind": "interacted",
+                "agentThreadId": "agent-thread", "agentPath": "agents/reviewer"
+            ]
+        ]))
+
+        let turn = try #require(reducer.transcript.turns.first)
+        let group = try #require(turn.narrative.compactMap(\.workGroup).first)
+        #expect(group.header == "Worked with an agent")
+        #expect(turn.liveTail == "Working with agents")
+        guard case .collabAgent(let row) = try #require(group.rows.first) else {
+            Issue.record("Expected collab-agent row")
+            return
+        }
+        #expect(row.action == .interacted)
+        #expect(row.agentNames == ["agents/reviewer"])
+    }
+
+    @Test func planIsProseAndUnknownItemsAreSkipped() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "item/completed", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": ["type": "plan", "id": "plan-1", "text": "## Plan\n\n- Ship it"]
+        ]))
+        reducer.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": ["type": "futureWireItem", "id": "unknown-1"]
+        ]))
+
+        let turn = try #require(reducer.transcript.turns.first)
+        #expect(turn.narrative.count == 1)
+        guard case .prose(let prose) = turn.narrative[0] else {
+            Issue.record("Expected plan prose")
+            return
+        }
+        #expect(prose.text == "## Plan\n\n- Ship it")
+        #expect(turn.liveTail == nil)
+
+        var unknownOnly = CodexTranscriptReducerV2(threadID: "t")
+        unknownOnly.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v", "item": ["type": "futureWireItem", "id": "unknown-2"]
+        ]))
+        #expect(unknownOnly.transcript.turns.isEmpty)
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: []) == "")
+    }
+
+    @Test func completionDerivesMissingDurationFromWireTimestamps() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "turn/started", params: json([
+            "threadId": "t", "turn": ["id": "v", "startedAt": 100]
+        ]))
+        reducer.apply(method: "turn/completed", params: json([
+            "threadId": "t", "turn": ["id": "v", "startedAt": 100, "completedAt": 108]
+        ]))
+
+        let turn = try #require(reducer.transcript.turns.first)
+        guard case .done(let durationMs) = turn.status else {
+            Issue.record("Expected completed turn")
+            return
+        }
+        #expect(durationMs == 8_000)
+        #expect(CodexWorkBlockViewV2.duration(durationMs) == "8s")
+    }
+
     private func replay(_ name: String) throws -> CodexTranscriptV2 {
         struct Event: Decodable { let method: String; let params: CodexJSONValue }
         let url = try #require(Bundle.module.url(forResource:name, withExtension:"jsonl"))
@@ -111,4 +179,5 @@ private extension CodexNarrativeEntry {
     var isProse: Bool { if case .prose = self { true } else { false } }
     var header: String? { if case .workGroup(let group) = self { group.header } else { nil } }
     var rows: [CodexWorkRowV2] { if case .workGroup(let group) = self { group.rows } else { [] } }
+    var workGroup: CodexWorkGroupV2? { if case .workGroup(let group) = self { group } else { nil } }
 }

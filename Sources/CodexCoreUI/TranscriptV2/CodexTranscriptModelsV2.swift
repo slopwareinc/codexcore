@@ -66,7 +66,7 @@ public struct CodexWorkGroupV2: Identifiable, Sendable, Equatable {
     public var header: String
     public var rows: [CodexWorkRowV2]
     public var isLive: Bool
-    public init(id: String, header: String = "Working", rows: [CodexWorkRowV2] = [], isLive: Bool = true) {
+    public init(id: String, header: String = "", rows: [CodexWorkRowV2] = [], isLive: Bool = true) {
         self.id = id; self.header = header; self.rows = rows; self.isLive = isLive
     }
 }
@@ -94,7 +94,10 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
 public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2
 }
-public enum CodexCollabActionV2: Sendable, Equatable { case created, waited, closed }
+public enum CodexCollabActionV2: Sendable, Equatable {
+    case created, waited, closed
+    case started, interacted, interrupted
+}
 public struct CodexCollabAgentRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var action: CodexCollabActionV2; public var agentNames: [String]
     public var instructions: String?; public var status: CodexWorkItemStatusV2
@@ -131,4 +134,7 @@ public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
     public init(id: String, message: String) { self.id = id; self.message = message }
 }
 
-public enum CodexWorkCategoryV2: Sendable, Hashable { case read, list, search, run, edit, mcp(String), collabCreated, collabClosed, other }
+public enum CodexWorkCategoryV2: Sendable, Hashable {
+    case read, list, search, run, edit, mcp(String)
+    case collabCreated, collabClosed, collabWorked, imageGeneration
+}
