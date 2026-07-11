@@ -183,7 +183,6 @@ public struct CodexComposerBar: View {
             .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         }
         .onAppear {
-            focused = true
             reconcilePaletteSelections()
         }
         .onChange(of: draft) { _, _ in
@@ -716,6 +715,8 @@ private extension CodexComposerChipKind {
 }
 
 private struct ComposerApprovalMenu: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     @Binding var selection: CodexApprovalSelection
     let options: [CodexApprovalSelection]
 
@@ -735,7 +736,7 @@ private struct ComposerApprovalMenu: View {
                 }
             }
         } label: {
-            ComposerChipLabel(systemImage: "checkmark.seal.fill", title: selection.displayName)
+            ComposerChipLabel(systemImage: "checkmark.seal.fill", title: selection.displayName, tint: theme.colors.accent)
         }
         .fixedSize()
         .help("Approval mode")
@@ -845,15 +846,15 @@ public struct ComposerChipLabel: View {
 
     public let systemImage: String
     public let title: String?
+    public let tint: Color?
 
-    public init(systemImage: String, title: String?) {
+    public init(systemImage: String, title: String?, tint: Color? = nil) {
         self.systemImage = systemImage
         self.title = title
+        self.tint = tint
     }
 
     public var body: some View {
-        let chipShape = RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-
         HStack(spacing: title == nil ? 0 : 6) {
             Image(systemName: systemImage)
                 .font(theme.fonts.caption)
@@ -863,12 +864,10 @@ public struct ComposerChipLabel: View {
                     .lineLimit(1)
             }
         }
-        .foregroundStyle(theme.colors.textSecondary)
+        .foregroundStyle(tint ?? theme.colors.textSecondary)
         .frame(minWidth: title == nil ? 28 : 0, minHeight: 28)
-        .padding(.horizontal, title == nil ? 0 : 10)
-        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: chipShape)
-        .overlay(chipShape.stroke(theme.colors.border, lineWidth: 1))
-        .contentShape(chipShape)
+        .padding(.horizontal, title == nil ? 0 : 4)
+        .contentShape(Rectangle())
     }
 }
 

@@ -288,7 +288,10 @@ public struct CodexChatWorkspaceView: View {
         let contentShift = isDockedOverviewVisible ? dockedOverviewContentShift : 0
 
         return ZStack(alignment: .topTrailing) {
-            CodexTranscriptViewV2(transcript: transcriptV2) {
+            CodexTranscriptViewV2(
+                transcript: transcriptV2,
+                contentHorizontalOffset: -contentShift
+            ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
                 } else {
@@ -301,16 +304,14 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
             }
-            .offset(x: -contentShift)
-            .padding(.top, 58)
-            .padding(.bottom, 150)
-
-            if isDockedOverviewVisible {
-                floatingSummaryPanel
-                    .frame(width: theme.spacing.summaryPanelWidth)
-                    .padding(.top, 58)
-                    .padding(.trailing, 28)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+            .overlay(alignment: .topTrailing) {
+                if isDockedOverviewVisible {
+                    floatingSummaryPanel
+                        .frame(width: theme.spacing.summaryPanelWidth)
+                        .padding(.top, 58)
+                        .padding(.trailing, 28)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+                }
             }
 
             VStack(spacing: 0) {

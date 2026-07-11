@@ -19,14 +19,17 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let transcript: CodexTranscriptV2
     private let productToolRenderer: CodexProductToolRendererV2?
     private let emptyState: EmptyState
+    private let contentHorizontalOffset: CGFloat
 
     public init(
         transcript: CodexTranscriptV2,
         productToolRenderer: CodexProductToolRendererV2? = nil,
+        contentHorizontalOffset: CGFloat = 0,
         @ViewBuilder emptyState: () -> EmptyState
     ) {
         self.transcript = transcript
         self.productToolRenderer = productToolRenderer
+        self.contentHorizontalOffset = contentHorizontalOffset
         self.emptyState = emptyState()
     }
 
@@ -35,7 +38,12 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
             ScrollView {
                 if transcript.turns.isEmpty {
                     emptyState
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 58)
+                        .padding(.bottom, 150)
+                        .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth)
+                        .frame(maxWidth: .infinity, minHeight: 420, alignment: .center)
+                        .offset(x: contentHorizontalOffset)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 28) {
                         ForEach(transcript.turns) { turn in
@@ -43,16 +51,19 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                         }
                         Color.clear.frame(height: 1).id(Self.bottomID)
                     }
-                    .frame(maxWidth: theme.spacing.transcriptMaxWidth)
+                    .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
                     .padding(.horizontal, 24)
-                    .padding(.vertical, 20)
+                    .padding(.top, 58 + 20)
+                    .padding(.bottom, 150 + 20)
                     .frame(maxWidth: .infinity)
+                    .offset(x: contentHorizontalOffset)
                 }
             }
-            .background(theme.colors.canvas)
+            .scrollContentBackground(.hidden)
             .onAppear { scrollToBottom(proxy, animated: false) }
             .onChange(of: transcript) { _, _ in scrollToBottom(proxy, animated: true) }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private static var bottomID: String { "codex-transcript-v2-bottom" }
@@ -72,8 +83,13 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
 public extension CodexTranscriptViewV2 where EmptyState == EmptyView {
     init(
         transcript: CodexTranscriptV2,
-        productToolRenderer: CodexProductToolRendererV2? = nil
+        productToolRenderer: CodexProductToolRendererV2? = nil,
+        contentHorizontalOffset: CGFloat = 0
     ) {
-        self.init(transcript: transcript, productToolRenderer: productToolRenderer) { EmptyView() }
+        self.init(
+            transcript: transcript,
+            productToolRenderer: productToolRenderer,
+            contentHorizontalOffset: contentHorizontalOffset
+        ) { EmptyView() }
     }
 }

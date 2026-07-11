@@ -75,6 +75,7 @@ private struct CodexWorkRowViewV2: View {
             let names = value.agentNames.joined(separator: ", ")
             switch value.action {
             case .created: return "Created \(names)\(value.instructions.map { " with the instructions: \($0)" } ?? "")"
+            case .sentInput: return names.isEmpty ? "Sent input to an agent" : "Sent input to \(names)"
             case .waited: return names.isEmpty ? "Waited for agents" : "Waited for \(names)"
             case .closed: return names.isEmpty ? "Closed agents" : "Closed \(names)"
             }
@@ -102,6 +103,10 @@ private struct CodexWorkRowViewV2: View {
         case .fileChange(let v): return v.diff?.nilIfEmpty
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        case .collabAgent(let v):
+            let replies = v.agentMessages.sorted { $0.key < $1.key }.map { "\($0.key)\n\($0.value)" }.joined(separator: "\n\n")
+            let parts = [v.action == .sentInput ? v.instructions : nil, replies.isEmpty ? nil : replies].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         default: return nil
         }

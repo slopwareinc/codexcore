@@ -94,10 +94,13 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
 public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2
 }
-public enum CodexCollabActionV2: Sendable, Equatable { case created, waited, closed }
+public enum CodexCollabActionV2: Sendable, Equatable { case created, sentInput, waited, closed }
 public struct CodexCollabAgentRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var action: CodexCollabActionV2; public var agentNames: [String]
-    public var instructions: String?; public var status: CodexWorkItemStatusV2
+    public var instructions: String?; public var agentMessages: [String: String]; public var status: CodexWorkItemStatusV2
+    public init(id: String, action: CodexCollabActionV2, agentNames: [String], instructions: String?, agentMessages: [String: String] = [:], status: CodexWorkItemStatusV2) {
+        self.id = id; self.action = action; self.agentNames = agentNames; self.instructions = instructions; self.agentMessages = agentMessages; self.status = status
+    }
 }
 public struct CodexOtherWorkRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var label: String; public var status: CodexWorkItemStatusV2
@@ -131,4 +134,4 @@ public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
     public init(id: String, message: String) { self.id = id; self.message = message }
 }
 
-public enum CodexWorkCategoryV2: Sendable, Hashable { case read, list, search, run, edit, mcp(String), collabCreated, collabClosed, other }
+public enum CodexWorkCategoryV2: Sendable, Hashable { case read, list, search, run, edit, mcp(String), collabCreated, collabClosed, collabWorked, other }

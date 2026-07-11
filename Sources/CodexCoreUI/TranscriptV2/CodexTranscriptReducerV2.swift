@@ -180,9 +180,13 @@ public struct CodexTranscriptReducerV2: Sendable {
             return .mcpToolCall(.init(id: id, appName: app, server: item.string("server") ?? app, tool: item.string("tool") ?? "Tool", status: state, durationMs: item.int("durationMs"), errorFirstLine: state == .failed ? mcpError(item) : nil, arguments: item["arguments"], result: item["result"]))
         case "webSearch": return .webSearch(.init(id: id, query: item.string("query") ?? "", status: state))
         case "collabAgentToolCall":
-            let tool = item.string("tool") ?? "", action: CodexCollabActionV2 = tool == "spawnAgent" ? .created : (tool == "closeAgent" ? .closed : .waited)
-            let names = item.array("receiverThreadIds")?.compactMap(\.stringValue) ?? []
-            return .collabAgent(.init(id: id, action: action, agentNames: names, instructions: item.string("prompt"), status: state))
+            let tool = item.string("tool") ?? ""
+            let action: CodexCollabActionV2 = tool == "spawnAgent" ? .created : (tool == "sendInput" ? .sentInput : (tool == "closeAgent" ? .closed : .waited))
+            let names = item.array("receiverThreadIds")?.compactMap(\.stringValue).map(shortAgentName) ?? []
+            let messages = item.object("agentsStates")?.reduce(into: [String: String]()) { result, entry in
+                if let message = entry.value.object?.string("message"), !message.isEmpty { result[shortAgentName(entry.key)] = message }
+            } ?? [:]
+            return .collabAgent(.init(id: id, action: action, agentNames: names, instructions: item.string("prompt"), agentMessages: messages, status: state))
         default: return .other(.init(id: id, label: friendlyLabel(type), status: state))
         }
     }
@@ -254,6 +258,7 @@ public struct CodexTranscriptReducerV2: Sendable {
     private func status(_ item: [String: CodexJSONValue], completed: Bool) -> CodexWorkItemStatusV2 { if item.string("status") == "failed" || (item.int("exitCode").map { $0 != 0 } ?? false) { return .failed }; return completed ? .completed : .inProgress }
     private func commandCategory(_ item: [String: CodexJSONValue]) -> CodexWorkCategoryV2 { guard let action = item.array("commandActions")?.first?.object?.string("type") else { return .run }; switch action.lowercased() { case "read", "fileread": return .read; case "listfiles", "list": return .list; case "search", "searchfiles": return .search; default: return .run } }
     private func shortCommand(_ command: String) -> String { if let range = command.range(of: "-lc ") { return String(command[range.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: " '\"")) }; return command }
+    private func shortAgentName(_ threadID: String) -> String { "agent-\(threadID.split(separator: "-").first.map(String.init) ?? threadID)" }
     private func friendlyLabel(_ type: String) -> String { switch type { case "imageView": "Viewing an image"; case "sleep": "Waiting"; default: "Working" } }
     private func mcpError(_ item: [String: CodexJSONValue]) -> String? { if let error = item.string("error") { return error.firstLine }; if let result = item.object("result"), let error = result.object("structuredContent")?.string("error") { return error.firstLine }; return item.object("result")?.array("content")?.compactMap { $0.object?.string("text") }.first?.firstLine }
 }
