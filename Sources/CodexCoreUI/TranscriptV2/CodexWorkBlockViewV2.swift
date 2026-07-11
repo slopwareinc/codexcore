@@ -1,0 +1,241 @@
+import CodexCore
+import SwiftUI
+
+/// One chronological work block for a turn.
+public struct CodexWorkBlockViewV2: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    private let narrative: [CodexNarrativeEntry]
+    private let liveTail: String?
+    private let status: CodexTurnStatusV2
+    private let productToolRenderer: CodexProductToolRendererV2?
+    @State private var isExpanded: Bool
+
+    public init(
+        narrative: [CodexNarrativeEntry],
+        liveTail: String?,
+        status: CodexTurnStatusV2,
+        productToolRenderer: CodexProductToolRendererV2? = nil,
+        initiallyExpanded: Bool = false
+    ) {
+        self.narrative = narrative
+        self.liveTail = liveTail
+        self.status = status
+        self.productToolRenderer = productToolRenderer
+        self._isExpanded = State(initialValue: initiallyExpanded)
+    }
+
+    public init(
+        turn: CodexTurnV2,
+        productToolRenderer: CodexProductToolRendererV2? = nil,
+        initiallyExpanded: Bool = false
+    ) {
+        self.init(
+            narrative: turn.narrative,
+            liveTail: turn.liveTail,
+            status: turn.status,
+            productToolRenderer: productToolRenderer,
+            initiallyExpanded: initiallyExpanded
+        )
+    }
+
+    public var body: some View {
+        if hasContent {
+            VStack(alignment: .leading, spacing: 12) {
+                switch status {
+                case .working(let since):
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text("Working for \(elapsedSeconds(at: context.date, since: since))s")
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                    }
+                    narrativeBody
+                    if let liveTail, !liveTail.isEmpty { CodexLiveTailV2(text: liveTail) }
+
+                case .done(let durationMs):
+                    Button {
+                        withAnimation(.snappy(duration: theme.animations.snappyDuration)) { isExpanded.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Worked for \(Self.duration(durationMs))")
+                            Image(systemName: "chevron.right")
+                                .font(theme.fonts.micro)
+                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        }
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if isExpanded { narrativeBody }
+
+                case .failed(let message):
+                    Text(message.isEmpty ? "Work failed" : message)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+            }
+            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+        }
+    }
+
+    private var hasContent: Bool { !narrative.isEmpty || liveTail != nil }
+
+    private var narrativeBody: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(narrative) { entry in
+                switch entry {
+                case .prose(let prose):
+                    CodexAssistantContentView(
+                        text: prose.text,
+                        isStreaming: prose.isStreaming,
+                        cacheNamespace: "transcript-v2-prose-\(prose.id)"
+                    )
+                    .foregroundStyle(theme.colors.textSecondary)
+                case .workGroup(let group):
+                    CodexWorkGroupViewV2(group: group)
+                case .notice(let notice):
+                    Text(notice.message)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                case .productToolCall(let call):
+                    if let rendered = productToolRenderer?.render(call) { rendered }
+                    else { CodexProductToolFallbackV2(call: call) }
+                }
+            }
+        }
+    }
+
+    private func elapsedSeconds(at date: Date, since: Int64?) -> Int {
+        guard let since else { return 0 }
+        return max(0, Int(date.timeIntervalSince1970) - Int(since / 1_000))
+    }
+
+    static func duration(_ milliseconds: Int?) -> String {
+        let seconds = max(0, (milliseconds ?? 0) / 1_000)
+        let minutes = seconds / 60
+        let remainder = seconds % 60
+        return minutes > 0 ? "\(minutes)m \(remainder)s" : "\(remainder)s"
+    }
+}
+
+private struct CodexLiveTailV2: View {
+    @Environment(\.codexAgentTheme) private var theme
+    let text: String
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 24)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.8) / 1.8
+            Text(text)
+                .font(theme.fonts.caption)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [theme.colors.textTertiary, theme.colors.textSecondary, theme.colors.textTertiary],
+                        startPoint: UnitPoint(x: phase - 0.5, y: 0.5),
+                        endPoint: UnitPoint(x: phase + 0.5, y: 0.5)
+                    )
+                )
+        }
+        .accessibilityLabel(text)
+    }
+}
+
+private struct CodexProductToolFallbackV2: View {
+    @Environment(\.codexAgentTheme) private var theme
+    let call: CodexProductToolCallV2
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(codexStatusGlyphV2(call.status))
+            Text([call.namespace, call.tool].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
+                .lineLimit(1)
+        }
+        .font(theme.fonts.caption)
+        .foregroundStyle(theme.colors.textSecondary)
+        .padding(theme.spacing.chipPadding)
+        .background(theme.colors.surfaceSunken)
+        .clipShape(Capsule())
+        .overlay { Capsule().stroke(theme.colors.border, lineWidth: 1) }
+    }
+}
+
+func codexStatusGlyphV2(_ status: CodexWorkItemStatusV2) -> String {
+    switch status { case .inProgress: "◌"; case .completed: "✓"; case .failed: "!" }
+}
+
+#if DEBUG
+#Preview("Live turn mid-work") {
+    CodexWorkBlockViewV2(
+        narrative: [
+            .prose(.init(id: "live-prose", text: "I'll take a quick repo pulse.", isStreaming: false)),
+            .workGroup(CodexTranscriptV2PreviewData.commandGroup)
+        ],
+        liveTail: "Searching files in AGENTS.md folder",
+        status: .working(since: Int64(Date().timeIntervalSince1970 * 1_000) - 36_000)
+    )
+    .padding()
+}
+
+#Preview("Completed collapsed turn") {
+    CodexWorkBlockViewV2(
+        narrative: [.workGroup(CodexTranscriptV2PreviewData.commandGroup)],
+        liveTail: nil,
+        status: .done(durationMs: 68_000)
+    )
+    .padding()
+}
+
+#Preview("Expanded narrative") {
+    CodexWorkBlockViewV2(
+        narrative: [
+            .prose(.init(id: "expanded-prose", text: "So far: clean main, synced with origin/main.", isStreaming: false)),
+            .workGroup(CodexTranscriptV2PreviewData.commandGroup),
+            .workGroup(CodexTranscriptV2PreviewData.fileGroup),
+            .productToolCall(.init(
+                id: "product-tool", tool: "lookup", namespace: "github",
+                arguments: nil, status: .completed, contentItems: [], success: true
+            ))
+        ],
+        liveTail: nil,
+        status: .done(durationMs: 68_000),
+        initiallyExpanded: true
+    )
+    .padding()
+}
+
+#Preview("Failed turn") {
+    CodexWorkBlockViewV2(
+        narrative: [.notice(.init(id: "failure-notice", message: "The operation could not be completed."))],
+        liveTail: nil,
+        status: .failed(message: "Connection lost")
+    )
+    .padding()
+}
+
+private enum CodexTranscriptV2PreviewData {
+    static let commandGroup = CodexWorkGroupV2(
+        id: "commands", header: "Listed files, ran a command",
+        rows: [
+            .command(.init(
+                id: "status", command: "git status --short --branch", label: "Ran git status",
+                action: .run, status: .completed, exitCode: 0, durationMs: 420, output: "## codex/transcript-v2"
+            )),
+            .command(.init(
+                id: "list", command: "ls Sources/CodexCoreUI", label: "Listed files",
+                action: .list, status: .completed, exitCode: 0, durationMs: 180
+            ))
+        ], isLive: false
+    )
+
+    static let fileGroup = CodexWorkGroupV2(
+        id: "files", header: "Read 2 files and searched code",
+        rows: [
+            .fileChange(.init(
+                id: "change", files: ["CodexTurnViewV2.swift", "CodexWorkBlockViewV2.swift"],
+                status: .completed, durationMs: 310, diff: "+ presentation grammar"
+            )),
+            .webSearch(.init(id: "search", query: "SwiftUI disclosure", status: .completed))
+        ], isLive: false
+    )
+}
+#endif
