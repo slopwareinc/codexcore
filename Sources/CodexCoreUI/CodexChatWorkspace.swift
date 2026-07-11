@@ -450,6 +450,7 @@ public struct CodexChatWorkspaceView: View {
             mountedBrowserSessions: mountedBrowserSessions,
             mountedFilesSessions: mountedFilesSessions,
             mountedFilePreviewSessions: mountedFilePreviewSessions,
+            modelOptions: modelOptions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,

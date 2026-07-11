@@ -33,6 +33,8 @@ public struct CodexComposerBar: View {
     private let onRefreshMCPServers: (() -> Void)?
     private let onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
+    private let placeholder: String
+    private let isCompact: Bool
     @FocusState private var focused: Bool
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
     @State private var activeCommandSelector: CodexComposerCommandSelector?
@@ -42,6 +44,8 @@ public struct CodexComposerBar: View {
 
     public init(
         draft: Binding<String>,
+        placeholder: String = "Ask Codex anything about this workspace...",
+        isCompact: Bool = false,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         isGoalPursuitEnabled: Bool = false,
@@ -69,6 +73,8 @@ public struct CodexComposerBar: View {
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil
     ) {
         self._draft = draft
+        self.placeholder = placeholder
+        self.isCompact = isCompact
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
         self.isGoalPursuitEnabled = isGoalPursuitEnabled
@@ -135,21 +141,21 @@ public struct CodexComposerBar: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            VStack(spacing: 8) {
-                TextField("Ask Codex anything about this workspace...", text: $draft, axis: .vertical)
+            VStack(spacing: isCompact ? 4 : 8) {
+                TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
-                    .lineLimit(1...6)
+                    .lineLimit(1...(isCompact ? 3 : 6))
                     .focused($focused)
                     .onSubmit(handleSubmit)
                     .onKeyPress { keyPress in
                         handleComposerKeyPress(keyPress)
                     }
                     .padding(.leading, 6)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, isCompact ? 3 : 6)
 
-                HStack(spacing: 8) {
+                HStack(spacing: isCompact ? 5 : 8) {
                     ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
                     ForEach(composerChips) { chip in
                         ComposerModeChip(chip: chip) {
@@ -179,7 +185,7 @@ public struct CodexComposerBar: View {
                     }
                 }
             }
-            .padding(10)
+            .padding(isCompact ? 6 : 10)
             .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         }
         .onAppear {
@@ -763,61 +769,7 @@ public struct ComposerModelMenu: View {
     }
 
     public var body: some View {
-        let state = menuState
-
-        Menu {
-            Section(state.reasoningTitle) {
-                ForEach(state.reasoningItems) { item in
-                    Button {
-                        reasoning = item.selection
-                    } label: {
-                        if item.isSelected {
-                            Label(item.title, systemImage: "checkmark")
-                        } else {
-                            Text(item.title)
-                        }
-                    }
-                }
-            }
-            Divider()
-
-            Menu(state.gptFamilyTitle) {
-                ForEach(state.gptFamilyItems) { item in
-                    Button {
-                        selectModel(item.selection)
-                    } label: {
-                        if item.isSelected {
-                            Label(item.title, systemImage: "checkmark")
-                        } else {
-                            Text(item.title)
-                        }
-                    }
-                    .help(item.detail ?? item.title)
-                }
-            }
-
-            Menu(state.speedTitle) {
-                ForEach(state.speedItems) { item in
-                    Button {
-                        if let selection = item.selection {
-                            selectModel(selection)
-                        }
-                    } label: {
-                        if item.isSelected {
-                            Label(item.title, systemImage: "checkmark")
-                        } else {
-                            Text(item.title)
-                        }
-                    }
-                    .disabled(!item.isEnabled)
-                    .help(item.detail)
-                }
-            }
-        } label: {
-            ComposerChipLabel(systemImage: "sparkles", title: state.displayTitle)
-        }
-        .fixedSize()
-        .help("Model and reasoning")
+        ComposerModelGridPicker(model: $model, modelOptions: modelOptions, reasoning: $reasoning)
         .onChange(of: model) { _, newModel in
             reconcileReasoning(for: newModel)
         }
