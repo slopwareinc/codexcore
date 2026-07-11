@@ -3,6 +3,12 @@ import SwiftUI
 struct CodexWorkGroupViewV2: View {
     @Environment(\.codexAgentTheme) private var theme
     let group: CodexWorkGroupV2
+    let onOpenSubagent: (String) -> Void
+
+    init(group: CodexWorkGroupV2, onOpenSubagent: @escaping (String) -> Void = { _ in }) {
+        self.group = group
+        self.onOpenSubagent = onOpenSubagent
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -10,7 +16,7 @@ struct CodexWorkGroupViewV2: View {
                 .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textSecondary)
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(group.rows) { CodexWorkRowViewV2(row: $0) }
+                ForEach(group.rows) { CodexWorkRowViewV2(row: $0, onOpenSubagent: onOpenSubagent) }
             }
             .padding(.leading, 12)
         }
@@ -20,11 +26,15 @@ struct CodexWorkGroupViewV2: View {
 private struct CodexWorkRowViewV2: View {
     @Environment(\.codexAgentTheme) private var theme
     let row: CodexWorkRowV2
+    let onOpenSubagent: (String) -> Void
     @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Button { if detail != nil { isExpanded.toggle() } } label: {
+            Button {
+                if let threadID = subagentThreadID { onOpenSubagent(threadID) }
+                else if detail != nil { isExpanded.toggle() }
+            } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(codexStatusGlyphV2(status)).foregroundStyle(statusColor)
                     label
@@ -117,6 +127,11 @@ private struct CodexWorkRowViewV2: View {
     private var hoverDetail: String? {
         guard case .collabAgent = row else { return detail }
         return detail
+    }
+
+    private var subagentThreadID: String? {
+        guard case .collabAgent(let value) = row else { return nil }
+        return value.agentThreadIDs.first
     }
 
     private var statusColor: Color {

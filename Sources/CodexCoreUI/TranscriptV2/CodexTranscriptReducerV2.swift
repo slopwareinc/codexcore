@@ -182,11 +182,12 @@ public struct CodexTranscriptReducerV2: Sendable {
         case "collabAgentToolCall":
             let tool = item.string("tool") ?? ""
             let action: CodexCollabActionV2 = tool == "spawnAgent" ? .created : (tool == "sendInput" ? .sentInput : (tool == "closeAgent" ? .closed : .waited))
-            let names = item.array("receiverThreadIds")?.compactMap(\.stringValue).map(shortAgentName) ?? []
+            let receiverIDs = item.array("receiverThreadIds")?.compactMap(\.stringValue) ?? []
+            let names = receiverIDs.map(shortAgentName)
             let messages = item.object("agentsStates")?.reduce(into: [String: String]()) { result, entry in
                 if let message = entry.value.object?.string("message"), !message.isEmpty { result[shortAgentName(entry.key)] = message }
             } ?? [:]
-            return .collabAgent(.init(id: id, action: action, agentNames: names, instructions: item.string("prompt"), agentMessages: messages, status: state))
+            return .collabAgent(.init(id: id, action: action, agentNames: names, agentThreadIDs: receiverIDs, instructions: item.string("prompt"), agentMessages: messages, status: state))
         default: return .other(.init(id: id, label: friendlyLabel(type), status: state))
         }
     }

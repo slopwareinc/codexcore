@@ -290,7 +290,8 @@ public struct CodexChatWorkspaceView: View {
         return ZStack(alignment: .topTrailing) {
             CodexTranscriptViewV2(
                 transcript: transcriptV2,
-                contentHorizontalOffset: -contentShift
+                contentHorizontalOffset: -contentShift,
+                onOpenSubagent: openPanelTab
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()

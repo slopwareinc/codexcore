@@ -20,16 +20,19 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let productToolRenderer: CodexProductToolRendererV2?
     private let emptyState: EmptyState
     private let contentHorizontalOffset: CGFloat
+    private let onOpenSubagent: (String) -> Void
 
     public init(
         transcript: CodexTranscriptV2,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
+        onOpenSubagent: @escaping (String) -> Void = { _ in },
         @ViewBuilder emptyState: () -> EmptyState
     ) {
         self.transcript = transcript
         self.productToolRenderer = productToolRenderer
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.onOpenSubagent = onOpenSubagent
         self.emptyState = emptyState()
     }
 
@@ -47,7 +50,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: 28) {
                         ForEach(transcript.turns) { turn in
-                            CodexTurnViewV2(turn: turn, productToolRenderer: productToolRenderer)
+                            CodexTurnViewV2(turn: turn, productToolRenderer: productToolRenderer, onOpenSubagent: onOpenSubagent)
                         }
                         Color.clear.frame(height: 1).id(Self.bottomID)
                     }
