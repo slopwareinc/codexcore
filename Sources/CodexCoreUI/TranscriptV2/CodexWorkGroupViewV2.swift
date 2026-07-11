@@ -115,7 +115,7 @@ private struct CodexWorkRowViewV2: View {
     }
 
     private var hoverDetail: String? {
-        guard case .collabAgent(let value) = row else { return detail }
+        guard case .collabAgent = row else { return detail }
         return detail
     }
 
