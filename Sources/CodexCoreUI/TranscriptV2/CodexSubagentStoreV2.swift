@@ -37,7 +37,6 @@ extension CodexSubagentV2 {
         }
     }
 }
-
 public struct CodexSubagentDiscoveryV2: Sendable, Equatable {
     public var threadID: String
     public var parentThreadID: String?

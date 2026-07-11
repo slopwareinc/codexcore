@@ -507,4 +507,5 @@ public final class CodexChatRuntimeSession {
         for key in keys { if case .int(let value)? = object[key] { return value } }
         return nil
     }
+
 }

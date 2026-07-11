@@ -41,7 +41,7 @@ public struct CodexModelGridV2: Equatable, Sendable {
         }
     }
 
-    public static let orderedEfforts: [CodexReasoningSelection] = [.low, .medium, .high, .extraHigh]
+    public static let orderedEfforts: [CodexReasoningSelection] = [.low, .medium, .high, .extraHigh, .ultra]
 
     public var columns: [Column]
     public var efforts: [CodexReasoningSelection]
@@ -198,7 +198,7 @@ public struct CodexModelSelectorGridV2: View {
     }
 
     private func shade(for effort: CodexReasoningSelection) -> Double {
-        switch effort { case .low: 0.16; case .medium: 0.25; case .high: 0.36; case .extraHigh: 0.49; default: 0.1 }
+        switch effort { case .low: 0.16; case .medium: 0.25; case .high: 0.36; case .extraHigh: 0.49; case .ultra: 0.65; default: 0.1 }
     }
 }
 

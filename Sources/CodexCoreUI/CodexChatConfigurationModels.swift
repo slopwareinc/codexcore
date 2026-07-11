@@ -310,6 +310,7 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
     case medium
     case high
     case extraHigh
+    case ultra
 
     public var id: String { rawValue }
 
@@ -329,6 +330,8 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
             self = .high
         case ReasoningEffort.xhigh.rawValue:
             self = .extraHigh
+        case ReasoningEffort.ultra.rawValue:
+            self = .ultra
         default:
             return nil
         }
@@ -342,6 +345,7 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
         case .medium: return "Medium"
         case .high: return "High"
         case .extraHigh: return "Extra High"
+        case .ultra: return "Ultra"
         }
     }
 
@@ -353,6 +357,7 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
         case .medium: return .medium
         case .high: return .high
         case .extraHigh: return .xhigh
+        case .ultra: return .ultra
         }
     }
 }

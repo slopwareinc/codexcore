@@ -15,17 +15,19 @@ public enum CodexWorkGroupHeaderV2 {
                 switch value.action {
                 case .created: categories = [(.collabCreated, max(1, value.agentNames.count))]
                 case .closed: categories = [(.collabClosed, max(1, value.agentNames.count))]
-                case .sentInput: categories = [(.collabWorked, max(1, value.agentNames.count))]
-                case .waited: categories = []
+                case .waited: categories = [(.collabWait, max(1, value.agentNames.count))]
+                case .sentInput, .started, .interacted, .interrupted:
+                    categories = [(.collabWorked, max(1, value.agentNames.count))]
                 }
-            case .other: categories = [(.other, 1)]
+            case .other(let value):
+                categories = value.label == "Generating an image" ? [(.imageGeneration, 1)] : []
             }
             for (category, count) in categories {
                 if counts[category] == nil { order.append(category) }
                 counts[category, default: 0] += count
             }
         }
-        guard !order.isEmpty else { return "Working" }
+        guard !order.isEmpty else { return "" }
         // The app treats read + search as one discovery phrase, even when run
         // commands arrived between them on the wire.
         if let read = order.firstIndex(of: .read), let search = order.firstIndex(of: .search), search > read + 1 {
@@ -54,8 +56,9 @@ public enum CodexWorkGroupHeaderV2 {
         case .mcp(let app): count == 1 ? "called \(app)" : "called \(app) \(count) times"
         case .collabCreated: count == 1 ? "created an agent" : "created \(count) agents"
         case .collabClosed: count == 1 ? "closed an agent" : "closed \(count) agents"
+        case .collabWait: "working"
         case .collabWorked: count == 1 ? "worked with an agent" : "worked with \(count) agents"
-        case .other: "worked"
+        case .imageGeneration: count == 1 ? "generated an image" : "generated \(count) images"
         }
     }
 }

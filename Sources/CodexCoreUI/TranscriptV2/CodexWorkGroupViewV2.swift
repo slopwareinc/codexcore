@@ -82,14 +82,7 @@ private struct CodexWorkRowViewV2: View {
             if let error = value.errorFirstLine, !error.isEmpty { return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool) — \(error)" }
             return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool)"
         case .webSearch(let value): return "Searched \(value.query)"
-        case .collabAgent(let value):
-            let names = value.agentNames.joined(separator: ", ")
-            switch value.action {
-            case .created: return names.isEmpty ? "Created an agent" : "Created \(names)"
-            case .sentInput: return names.isEmpty ? "Sent input to an agent" : "Sent input to \(names)"
-            case .waited: return names.isEmpty ? "Waited for agents" : "Waited for \(names)"
-            case .closed: return names.isEmpty ? "Closed agents" : "Closed \(names)"
-            }
+        case .collabAgent(let value): return value.label
         case .other(let value): return value.label
         }
     }
@@ -115,10 +108,14 @@ private struct CodexWorkRowViewV2: View {
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
-        case .collabAgent(let v):
-            let replies = v.agentMessages.sorted { $0.key < $1.key }.map { "\($0.key)\n\($0.value)" }.joined(separator: "\n\n")
-            let instruction = v.instructions.map { "Instructions\n\($0)" }
-            let parts = [instruction, replies.isEmpty ? nil : replies].compactMap { $0 }
+        case .collabAgent(let value):
+            guard value.action == .waited || value.action == .sentInput else { return nil }
+            let ordered = value.agentNames.filter { value.agentMessages[$0] != nil }
+                + value.agentMessages.keys.filter { !value.agentNames.contains($0) }.sorted()
+            let replies = ordered.compactMap { agent in
+                value.agentMessages[agent].map { "\(agent)\n\($0)" }
+            }.joined(separator: "\n\n")
+            let parts = [value.action == .sentInput ? value.instructions?.nilIfEmpty : nil, replies.nilIfEmpty].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         default: return nil
         }
