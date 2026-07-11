@@ -317,13 +317,20 @@ final class CodexChatConfigurationSessionTests: XCTestCase {
         XCTAssertEqual(modeActivity.detail, "2 app-server modes")
         XCTAssertTrue(session.isPlanModeEnabled)
         XCTAssertEqual(session.reasoningSelection, .low)
-        XCTAssertEqual(session.turnParameterOverrides["collaborationMode"], .string("plan"))
+        XCTAssertNil(session.turnParameterOverrides["collaborationMode"])
         XCTAssertEqual(session.turnParameterOverrides["approvalPolicy"], .string(AskForApproval.onRequest.rawValue))
 
         let modelActivity = session.applyModelResponse(modelResponse)
         XCTAssertEqual(modelActivity.detail, "2 app-server models")
         XCTAssertEqual(session.modelSelection.displayName, "GPT-5.1 Codex Max")
         XCTAssertEqual(session.reasoningSelection, .high)
+        XCTAssertEqual(session.turnParameterOverrides["collaborationMode"], .dictionary([
+            "mode": .string("plan"),
+            "settings": .dictionary([
+                "model": .string("gpt-5.1-codex-max"),
+                "reasoning_effort": .string("low"),
+            ]),
+        ]))
 
         let fastActivity = session.applyFastCommand()
         XCTAssertEqual(fastActivity, CodexChatConfigurationActivity(title: "Fast mode", detail: "Speed Minimal"))
