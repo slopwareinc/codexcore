@@ -50,7 +50,6 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
         }
     }
 }
-
 public struct CodexListItem: Equatable, Sendable, Identifiable {
     public let id: String
     public let text: String
@@ -572,4 +571,3 @@ extension CodexTableModel {
         lhs.digest == rhs.digest
     }
 }
-

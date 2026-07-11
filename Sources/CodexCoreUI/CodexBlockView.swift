@@ -45,7 +45,7 @@ enum CodexProseCache {
                 resolvedName = "ChivoMono-Bold"
             }
         }
-        
+
         #if canImport(AppKit)
         if !name.contains("DMSans") && !familyName.contains("DM Sans") &&
            !name.contains("BricolageGrotesque") && !familyName.contains("Bricolage Grotesque") &&
@@ -57,14 +57,14 @@ enum CodexProseCache {
             var traits: NSFontDescriptor.SymbolicTraits = []
             if isBold { traits.insert(.bold) }
             if isItalic { traits.insert(.italic) }
-            
+
             let resolvedDescriptor = descriptor.withSymbolicTraits(traits)
             if let resolvedNSFont = NSFont(descriptor: resolvedDescriptor, size: size) {
                 return Font(resolvedNSFont)
             }
         }
         #endif
-        
+
         var font = Font.custom(resolvedName, size: size)
         if isItalic {
             font = font.italic()
@@ -134,7 +134,6 @@ enum CodexProseCache {
         String(describing: font)
     }
 }
-
 // MARK: - Block views
 
 struct CodexBlockView: View, Equatable {
@@ -252,4 +251,3 @@ struct CodexProseBlock: View, Equatable {
         lhs.digest == rhs.digest && lhs.text == rhs.text
     }
 }
-

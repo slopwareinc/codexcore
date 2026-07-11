@@ -79,10 +79,8 @@ public struct CodexTableBlockView: View, Equatable {
         lhs.model.digest == rhs.model.digest
     }
 }
-
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
 }
-
