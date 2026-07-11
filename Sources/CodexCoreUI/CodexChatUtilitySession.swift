@@ -48,13 +48,10 @@ public struct CodexChatStatusSummaryContext: Equatable, Sendable {
 }
 
 public enum CodexChatUtilitySession {
-    public static func transcriptText(messages: [CodexChatMessage]) -> String {
-        messages.map { message in
-            let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let content = text.isEmpty ? (message.commandRun?.command ?? "") : text
-            return "\(message.role.rawValue): \(content)"
-        }
-        .joined(separator: "\n\n")
+    public static func transcriptText(transcript: CodexTranscriptV2) -> String {
+        transcript.turns.flatMap { turn in
+            [turn.userMessage.map { "You: \($0.text)" }, turn.finalAnswer.map { "Codex: \($0.text)" }].compactMap { $0 }
+        }.joined(separator: "\n\n")
     }
 
     public static func copiedTranscriptActivityDetail(messageCount: Int) -> String {

@@ -22,10 +22,6 @@ public struct CodexChatRuntimeState: Sendable {
         self.integrationCatalogSession = integrationCatalogSession
     }
 
-    public var messages: [CodexChatMessage] {
-        mainChatSession.messages
-    }
-
     public var lifecycleEvents: [CodexAgentLifecycleEvent] {
         agentStateMapper.lifecycleEvents
     }
@@ -79,7 +75,7 @@ public struct CodexChatRuntimeState: Sendable {
     }
 
     public var threadHistorySnapshot: CodexThreadHistorySnapshot {
-        CodexThreadHistorySnapshot(messages: messages, agentStateMapper: agentStateMapper)
+        CodexThreadHistorySnapshot(agentStateMapper: agentStateMapper)
     }
 
     public func canSendFollowUp(hasActiveTurnHandle: Bool) -> Bool {
@@ -181,14 +177,6 @@ public struct CodexChatRuntimeState: Sendable {
     @discardableResult
     public mutating func failSideChatSubmission(message: String) -> CodexActivity {
         sideChatSession.failSubmission(message: message)
-    }
-
-    public mutating func appendMessage(_ role: CodexChatMessage.Role, _ text: String, detail: String? = nil) {
-        mainChatSession.appendMessage(role, text, detail: detail)
-    }
-
-    public mutating func append(_ message: CodexChatMessage) {
-        mainChatSession.append(message)
     }
 
     @discardableResult

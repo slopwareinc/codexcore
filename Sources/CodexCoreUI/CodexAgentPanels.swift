@@ -772,13 +772,13 @@ private struct CodexAgentPanelContent: View {
             switch tab {
             case .sideChat(let sideChat):
                 transcriptPanel(
-                    messages: sideChat.messages,
+                    transcript: sideChat.transcript,
                     transcriptID: sideChat.id,
                     empty: "Side chat is ready for a focused branch of the parent conversation."
                 )
             case .subagent(let subagent):
                 transcriptPanel(
-                    messages: subagent.messages,
+                    transcript: subagent.transcript,
                     transcriptID: subagent.id,
                     empty: "No transcript returned yet."
                 ) {
@@ -828,12 +828,12 @@ private struct CodexAgentPanelContent: View {
     }
 
     private func transcriptPanel(
-        messages: [CodexChatMessage],
+        transcript: CodexTranscriptV2,
         transcriptID: String,
         empty: String
     ) -> some View {
         transcriptPanel(
-            messages: messages,
+            transcript: transcript,
             transcriptID: transcriptID,
             empty: empty
         ) {
@@ -842,7 +842,7 @@ private struct CodexAgentPanelContent: View {
     }
 
     private func transcriptPanel<Header: View>(
-        messages: [CodexChatMessage],
+        transcript: CodexTranscriptV2,
         transcriptID: String,
         empty: String,
         @ViewBuilder header: () -> Header
@@ -856,13 +856,12 @@ private struct CodexAgentPanelContent: View {
             .padding(.top, 14)
             .padding(.bottom, 8)
 
-            CodexTranscriptView(
-                messages: messages,
-                transcriptID: "agent-panel-\(transcriptID)",
-                bottomContentMargin: 96
+            CodexTranscriptViewV2(
+                transcript: transcript
             ) {
                 emptyText(empty)
             }
+            .padding(.bottom, 96)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

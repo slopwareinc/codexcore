@@ -62,31 +62,6 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         )
     }
 
-    public init?(notice: CodexChatMessage.Notice) {
-        guard notice.kind == Self.noticeKind else { return nil }
-        let values = Dictionary(uniqueKeysWithValues: notice.metadata.compactMap(Self.keyValue))
-        let rows = notice.metadata.compactMap(Self.rateRow)
-        self.init(
-            sessionID: values["session"]?.nilIfBlank ?? "preparing",
-            connectionLabel: values["connection"]?.nilIfBlank ?? "Unknown",
-            contextUsedLabel: values["contextUsed"]?.nilIfBlank ?? "Context unavailable",
-            contextLeftLabel: values["contextLeft"]?.nilIfBlank ?? "Unknown left",
-            contextFraction: Double(values["contextFraction"] ?? "") ?? 0,
-            rateLimitRows: rows.isEmpty ? [Self.unavailableRateLimitRow(title: "5h limit"), Self.unavailableRateLimitRow(title: "7d limit")] : rows
-        )
-    }
-
-    public func notice(itemID: String = "slash-status-panel") -> CodexChatMessage.Notice {
-        CodexChatMessage.Notice(
-            itemID: itemID,
-            kind: Self.noticeKind,
-            title: "Status",
-            detail: "Session \(sessionID)",
-            metadata: encodedMetadata,
-            severity: .info
-        )
-    }
-
     private var encodedMetadata: [String] {
         [
             "session=\(sessionID)",
@@ -229,30 +204,6 @@ public struct CodexMCPStatusPanelModel: Equatable, Sendable {
         } else {
             self.init(detail: "\(servers.count) configured", rows: servers.map(CodexMCPStatusPanelServerRow.init(server:)))
         }
-    }
-
-    public init?(notice: CodexChatMessage.Notice) {
-        guard notice.kind == Self.noticeKind else { return nil }
-        let values = Dictionary(uniqueKeysWithValues: notice.metadata.compactMap(Self.keyValue))
-        self.init(
-            title: notice.title,
-            detail: notice.detail,
-            rows: notice.metadata.compactMap(Self.serverRow)
-        )
-        if let detail = values["detail"]?.nilIfBlank {
-            self.detail = detail
-        }
-    }
-
-    public func notice(itemID: String = "slash-mcp-panel") -> CodexChatMessage.Notice {
-        CodexChatMessage.Notice(
-            itemID: itemID,
-            kind: Self.noticeKind,
-            title: title,
-            detail: detail,
-            metadata: encodedMetadata,
-            severity: .info
-        )
     }
 
     private var encodedMetadata: [String] {

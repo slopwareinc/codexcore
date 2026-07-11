@@ -31,24 +31,10 @@ public struct CodexAgentMessageDeltaRoute: Equatable, Sendable {
 }
 
 public struct CodexMainChatSession: Sendable {
-    private var transcriptSession: CodexChatTranscriptSession
     private var turnLifecycle: CodexTurnLifecycleSession
-
-    public var messages: [CodexChatMessage] {
-        transcriptSession.messages
-    }
-
-    public var currentPlan: [TurnPlanStep] {
-        transcriptSession.currentPlan
-    }
-
-    public var currentPlanExplanation: String? {
-        transcriptSession.currentPlanExplanation
-    }
-
-    public var currentDiff: String? {
-        transcriptSession.currentDiff
-    }
+    public private(set) var currentPlan: [TurnPlanStep] = []
+    public private(set) var currentPlanExplanation: String?
+    public private(set) var currentDiff: String?
 
     public var isSending: Bool {
         turnLifecycle.isSending
@@ -63,33 +49,18 @@ public struct CodexMainChatSession: Sendable {
     }
 
     public init(
-        transcriptSession: CodexChatTranscriptSession = CodexChatTranscriptSession(),
         turnLifecycle: CodexTurnLifecycleSession = CodexTurnLifecycleSession()
     ) {
-        self.transcriptSession = transcriptSession
         self.turnLifecycle = turnLifecycle
     }
 
-    public mutating func reset(messages: [CodexChatMessage] = []) {
-        transcriptSession.reset(messages: messages)
+    public mutating func reset() {
+        currentPlan = []; currentPlanExplanation = nil; currentDiff = nil
         turnLifecycle.reset()
-    }
-
-    public mutating func resetTranscript(messages: [CodexChatMessage] = []) {
-        transcriptSession.reset(messages: messages)
-    }
-
-    public mutating func appendMessage(_ role: CodexChatMessage.Role, _ text: String, detail: String? = nil) {
-        transcriptSession.appendMessage(role, text, detail: detail)
-    }
-
-    public mutating func append(_ message: CodexChatMessage) {
-        transcriptSession.append(message)
     }
 
     public mutating func beginTurnSubmission(_ submission: CodexComposerSubmission) -> CodexActivity {
         startPending()
-        appendMessage(.user, submission.prompt, detail: submission.skillDetail)
         return CodexActivity(
             kind: .turn,
             title: "You asked Codex",
@@ -114,7 +85,6 @@ public struct CodexMainChatSession: Sendable {
 
     public mutating func beginGoalSubmission(_ submission: CodexComposerSubmission) -> CodexActivity {
         startPending()
-        appendMessage(.user, submission.prompt, detail: submission.goalDetail)
         return CodexActivity(kind: .turn, title: "Pursuing goal", detail: submission.prompt)
     }
 
@@ -124,12 +94,10 @@ public struct CodexMainChatSession: Sendable {
     }
 
     public mutating func appendQueuedFollowUp(_ prompt: String) -> CodexActivity {
-        appendMessage(.user, prompt, detail: "Queued")
         return CodexActivity(kind: .turn, title: "Follow-up queued", detail: prompt)
     }
 
     public mutating func appendSteeredFollowUp(_ prompt: String) -> CodexActivity {
-        appendMessage(.user, prompt, detail: "Steered")
         return CodexActivity(kind: .turn, title: "Steering turn", detail: prompt)
     }
 
@@ -163,14 +131,6 @@ public struct CodexMainChatSession: Sendable {
         turnSnapshot: CodexTurnSnapshot?,
         isSubagentItem: (ThreadItem) -> Bool
     ) -> CodexMainChatUpdate? {
-        if let transcriptResult = transcriptSession.apply(
-            notification,
-            activeTurnID: turnLifecycle.activeTurnID,
-            turnSnapshot: turnSnapshot
-        ) {
-            return update(from: transcriptResult)
-        }
-
         switch notification.payload {
         case .itemStarted(let payload):
             if isSubagentItem(payload.item) {
@@ -188,11 +148,11 @@ public struct CodexMainChatSession: Sendable {
             return activity(.token, title: "Token usage updated", detail: CodexNotificationPresentation.tokenUsageSummary(payload.tokenUsage))
 
         case .turnStarted:
-            transcriptSession.syncTurnChrome(from: turnSnapshot, resetWhenMissing: true)
+            syncTurnChrome(from: turnSnapshot, resetWhenMissing: true)
             return activity(.turn, title: "Codex is working", detail: "Turn started")
 
         case .turnCompleted(let payload):
-            transcriptSession.syncTurnChrome(from: turnSnapshot)
+            syncTurnChrome(from: turnSnapshot)
             return finishActiveTurn(id: payload.turn.id)
 
         case .threadGoalUpdated(let payload):
@@ -207,7 +167,7 @@ public struct CodexMainChatSession: Sendable {
         case .known(let method, let params):
             if method == .turnCompleted {
                 let turnID = CodexNotificationMetadata.turnID(from: params)
-                transcriptSession.syncTurnChrome(from: turnSnapshot)
+                syncTurnChrome(from: turnSnapshot)
                 return finishActiveTurn(id: turnID)
             }
             return activity(.notice, title: CodexNotificationPresentation.methodTitle(method.rawValue), detail: "App-server notification")
@@ -223,7 +183,6 @@ public struct CodexMainChatSession: Sendable {
     @discardableResult
     public mutating func finishActiveTurn(id turnID: String?) -> CodexMainChatUpdate? {
         guard turnLifecycle.complete(turnID: turnID) else { return nil }
-        transcriptSession.finishStreamingMessages()
         return CodexMainChatUpdate(actions: [
             .activity(kind: .turn, title: "Turn complete", detail: "Codex finished"),
             .refreshRecentChats,
@@ -231,15 +190,14 @@ public struct CodexMainChatSession: Sendable {
         ])
     }
 
-    private func update(from result: CodexChatTranscriptRouteResult) -> CodexMainChatUpdate {
-        var actions: [CodexMainChatAction] = []
-        if let text = result.completedAssistantText {
-            actions.append(.assistantMessageCompleted(text))
+    private mutating func syncTurnChrome(from snapshot: CodexTurnSnapshot?, resetWhenMissing: Bool = false) {
+        if let snapshot {
+            currentPlan = snapshot.plan ?? []
+            currentPlanExplanation = snapshot.planExplanation
+            currentDiff = snapshot.diff
+        } else if resetWhenMissing {
+            currentPlan = []; currentPlanExplanation = nil; currentDiff = nil
         }
-        if let activity = result.activity {
-            actions.append(.activity(kind: activity.kind, title: activity.title, detail: activity.detail))
-        }
-        return CodexMainChatUpdate(actions: actions)
     }
 
     private func activity(_ kind: CodexActivity.Kind, title: String, detail: String) -> CodexMainChatUpdate {

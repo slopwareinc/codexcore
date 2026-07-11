@@ -30,7 +30,10 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
         guard let turnDiff, !turnDiff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        let change = CodexChatMessage.fileChange(itemID: "summary-diff", path: nil, diff: turnDiff)
-        return "+\(change.addedLineCount) -\(change.removedLineCount) across \(change.changedFileCount) file(s)"
+        let lines = turnDiff.split(separator: "\n", omittingEmptySubsequences: false)
+        let added = lines.filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
+        let removed = lines.filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
+        let files = max(1, lines.filter { $0.hasPrefix("diff --git ") }.count)
+        return "+\(added) -\(removed) across \(files) file(s)"
     }
 }

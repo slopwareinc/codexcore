@@ -98,6 +98,7 @@ let package = Package(
             name: "CodexCoreUITests",
             dependencies: ["CodexCore", "CodexCoreUI"],
             path: "Tests/CodexCoreUITests",
+            resources: [.process("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],

@@ -161,6 +161,13 @@ public enum CodexGlobalNotificationRouter {
     }
 
     private static func string(from value: CodexJSONValue?) -> String? {
-        CodexChatTranscriptProjection.string(from: value)
+        guard let value else { return nil }
+        switch value {
+        case .string(let text): return text
+        case .int(let number): return String(number)
+        case .double(let number): return String(number)
+        case .bool(let flag): return String(flag)
+        default: return nil
+        }
     }
 }

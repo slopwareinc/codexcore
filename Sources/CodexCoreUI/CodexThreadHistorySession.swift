@@ -39,21 +39,24 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
     public var hydration: CodexThreadHistoryHydrationResult
     public var restoredChildThreadCount: Int
     public var paginationState: CodexThreadHistoryPaginationState
+    public var transcriptItemsV2: [CodexJSONValue]
 
     public init(
         snapshot: CodexThreadHistorySnapshot,
         hydration: CodexThreadHistoryHydrationResult,
         restoredChildThreadCount: Int = 0,
-        paginationState: CodexThreadHistoryPaginationState = .idle
+        paginationState: CodexThreadHistoryPaginationState = .idle,
+        transcriptItemsV2: [CodexJSONValue] = []
     ) {
         self.snapshot = snapshot
         self.hydration = hydration
         self.restoredChildThreadCount = restoredChildThreadCount
         self.paginationState = paginationState
+        self.transcriptItemsV2 = transcriptItemsV2
     }
 
     public var messageCount: Int {
-        snapshot.messages.count
+        transcriptItemsV2.count
     }
 
     public var activity: CodexActivity {
@@ -208,10 +211,23 @@ public enum CodexThreadHistorySession {
         let result = CodexThreadHistoryRestoreResult(
             snapshot: snapshot,
             hydration: hydration,
-            restoredChildThreadCount: hydration.restoredChildThreadCount
+            restoredChildThreadCount: hydration.restoredChildThreadCount,
+            transcriptItemsV2: Self.transcriptItems(from: parentRaw)
         )
         snapshotSpan?.end(metadata: metadata(for: result))
         return result
+    }
+
+    private static func transcriptItems(from raw: CodexJSONValue) -> [CodexJSONValue] {
+        guard case .dictionary(let root) = raw else { return [] }
+        let threadValue = root["thread"] ?? raw
+        guard case .dictionary(let thread) = threadValue,
+              case .array(let turns)? = thread["turns"] else { return [] }
+        return turns.flatMap { turn -> [CodexJSONValue] in
+            guard case .dictionary(let object) = turn,
+                  case .array(let items)? = object["items"] else { return [] }
+            return items
+        }
     }
 
     @discardableResult
@@ -221,7 +237,7 @@ public enum CodexThreadHistorySession {
         agentStateMapper: inout CodexAgentStateMapper,
         sideChatSession: inout CodexSideChatSession
     ) -> CodexActivity {
-        mainChatSession.resetTranscript(messages: result.snapshot.messages)
+        mainChatSession.reset()
         agentStateMapper = result.snapshot.agentStateMapper
         sideChatSession.reset()
         return result.activity

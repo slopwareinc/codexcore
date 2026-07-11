@@ -14,7 +14,6 @@ func defaultWorkspacePath() -> String {
 @Observable
 final class CodexCoreAppModel {
     typealias ConnectionState = CodexConnectionState
-    typealias Message = CodexChatMessage
     typealias Activity = CodexActivity
 
     var workspacePath = defaultWorkspacePath()
@@ -253,7 +252,9 @@ final class CodexCoreAppModel {
                 start: {
                     let thread = try await self.ensureThread()
                     self.protectThreadHistoryCache(threadID: thread.id)
-                    return try await thread.turn(submission.turnInput, configuration: self.turnLaunchConfiguration)
+                    var configuration = self.turnLaunchConfiguration
+                    configuration.parameters["clientUserMessageId"] = .string(submission.clientID)
+                    return try await thread.turn(submission.turnInput, configuration: configuration)
                 },
                 onActivity: { [weak self] activity in self?.appendActivity(activity) },
                 errorMessage: CodexErrorFormat.localizedDescription
@@ -1326,10 +1327,10 @@ final class CodexCoreAppModel {
     }
 
     func copyChatTranscript() {
-        let transcript = CodexChatFormat.transcriptText(messages: messages)
+        let transcript = CodexChatUtilitySession.transcriptText(transcript: runtimeSession.transcriptV2)
         clipboardService.copy(transcript)
 
-        let detail = CodexChatFormat.copiedTranscriptActivityDetail(messageCount: messages.count)
+        let detail = CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: runtimeSession.transcriptV2.turns.count)
         appendActivity(.notice, title: "Copied chat", detail: detail)
     }
 
@@ -1491,7 +1492,7 @@ final class CodexCoreAppModel {
             modelDisplayName: modelSelection.displayName,
             reasoningDisplayName: reasoningSelection.displayName,
             approvalDisplayName: approvalSelection.displayName,
-            messageCount: messages.count,
+            messageCount: runtimeSession.transcriptV2.turns.count,
             isSideChatOpen: sideChat != nil,
             activeSubagentCount: subagents.filter { $0.status == .running }.count,
             subagentCount: subagents.count,
@@ -1539,54 +1540,6 @@ final class CodexCoreAppModel {
         syncComposerThreadID()
         composerSession.selectMention(result)
         appendActivity(.notice, title: "Mentioned file", detail: result.path)
-    }
-
-    // MARK: - File change undo
-
-    func undoFileChange(_ change: CodexChatMessage.FileChange) {
-        guard let plan = CodexFileChangeUndoSession.plan(for: change, workspacePath: workspacePath) else {
-            appendActivity(CodexFileChangeUndoSession.unavailableActivity)
-            return
-        }
-
-        Task { [weak self] in
-            guard let self, let codex else { return }
-            do {
-                _ = try await codex.execCommand(plan.command, cwd: plan.cwd)
-                await CodexMainActorProjection.run {
-                    self.appendActivity(CodexFileChangeUndoSession.successActivity(relativePath: plan.relativePath))
-                }
-            } catch {
-                await CodexMainActorProjection.run {
-                    self.appendActivity(CodexFileChangeUndoSession.failureActivity(message: self.friendlyError(error)))
-                }
-            }
-        }
-    }
-
-    func reviewFileChange(_ change: CodexChatMessage.FileChange) {
-        guard let codex, let threadID = currentThreadID else {
-            appendActivity(.notice, title: "Review unavailable", detail: "Connect and start a thread first")
-            return
-        }
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                _ = try await codex.startReview(
-                    threadID: threadID,
-                    itemIDs: [change.itemID],
-                    delivery: .inline
-                )
-                await CodexMainActorProjection.run {
-                    self.appendActivity(.notice, title: "Review started", detail: change.displayPath)
-                }
-            } catch {
-                await CodexMainActorProjection.run {
-                    self.appendActivity(.notice, title: "Review failed", detail: self.friendlyError(error))
-                }
-            }
-        }
     }
 
     private func clearThreadState(keepCurrentThread: Bool = false) {
