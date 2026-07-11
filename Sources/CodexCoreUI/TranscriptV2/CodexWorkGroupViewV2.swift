@@ -40,6 +40,7 @@ private struct CodexWorkRowViewV2: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help(hoverDetail ?? rowLabel)
             if isExpanded, let detail {
                 Text(detail)
                     .font(theme.fonts.code)
@@ -74,7 +75,7 @@ private struct CodexWorkRowViewV2: View {
         case .collabAgent(let value):
             let names = value.agentNames.joined(separator: ", ")
             switch value.action {
-            case .created: return "Created \(names)\(value.instructions.map { " with the instructions: \($0)" } ?? "")"
+            case .created: return names.isEmpty ? "Created an agent" : "Created \(names)"
             case .sentInput: return names.isEmpty ? "Sent input to an agent" : "Sent input to \(names)"
             case .waited: return names.isEmpty ? "Waited for agents" : "Waited for \(names)"
             case .closed: return names.isEmpty ? "Closed agents" : "Closed \(names)"
@@ -106,10 +107,16 @@ private struct CodexWorkRowViewV2: View {
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         case .collabAgent(let v):
             let replies = v.agentMessages.sorted { $0.key < $1.key }.map { "\($0.key)\n\($0.value)" }.joined(separator: "\n\n")
-            let parts = [v.action == .sentInput ? v.instructions : nil, replies.isEmpty ? nil : replies].compactMap { $0 }
+            let instruction = v.instructions.map { "Instructions\n\($0)" }
+            let parts = [instruction, replies.isEmpty ? nil : replies].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         default: return nil
         }
+    }
+
+    private var hoverDetail: String? {
+        guard case .collabAgent(let value) = row else { return detail }
+        return detail
     }
 
     private var statusColor: Color {
