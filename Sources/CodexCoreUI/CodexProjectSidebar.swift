@@ -7,6 +7,7 @@ public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var showsOlderProjects = false
     @State private var dragStartWidth: CGFloat?
+    @State private var liveResizeWidth: CGFloat?
 
     let serverName: String?
     let accountSummary: CodexAccountMenuSummary
@@ -102,7 +103,7 @@ public struct CodexProjectSidebar: View {
     private var resolvedWidth: CGFloat {
         snapshot.isCollapsed
             ? SidebarMetrics.collapsedWidth
-            : CodexProjectSidebar.clampExpandedWidth(expandedWidth)
+            : liveResizeWidth ?? CodexProjectSidebar.clampExpandedWidth(expandedWidth)
     }
 
     /// A thin transparent strip straddling the trailing edge that drag-resizes
@@ -128,11 +129,22 @@ public struct CodexProjectSidebar: View {
                         .onChanged { value in
                             let base = dragStartWidth ?? resolvedWidth
                             if dragStartWidth == nil { dragStartWidth = base }
-                            onResizeExpandedWidth(
-                                CodexProjectSidebar.clampExpandedWidth(base + value.translation.width)
+                            let nextWidth = CodexProjectSidebar.clampExpandedWidth(
+                                base + value.translation.width
                             )
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                liveResizeWidth = nextWidth
+                            }
                         }
-                        .onEnded { _ in dragStartWidth = nil }
+                        .onEnded { _ in
+                            if let liveResizeWidth {
+                                onResizeExpandedWidth(liveResizeWidth)
+                            }
+                            dragStartWidth = nil
+                            liveResizeWidth = nil
+                        }
                 )
                 // Straddle the divider so the hit area covers both sides of the edge.
                 .offset(x: SidebarMetrics.resizeHandleHitWidth / 2)
