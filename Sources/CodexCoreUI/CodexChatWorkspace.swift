@@ -106,6 +106,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
+    @State private var hiddenSubagentTabIDs: Set<String> = []
 
     public init(
         transcriptV2: CodexTranscriptV2,
@@ -410,7 +411,7 @@ public struct CodexChatWorkspaceView: View {
         var tabs: [CodexAgentPanelTab] = []
         if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
         if let sideChat { tabs.append(.sideChat(sideChat)) }
-        tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent))
+        tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent).filter { !hiddenSubagentTabIDs.contains($0.id) })
         return tabs
     }
 
@@ -490,6 +491,7 @@ public struct CodexChatWorkspaceView: View {
             onCloseBrowser: closeBrowserTab,
             onCloseFiles: closeFilesTab,
             onCloseFilePreview: closeFilePreviewTab,
+            onCloseSubagent: closeSubagentTab,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
         )
     }
@@ -501,11 +503,17 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func openPanelTab(_ id: String) {
+        hiddenSubagentTabIDs.remove(id)
         panel.selectedTabID = id
         isCompactSummaryPanelPresented = false
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen = true
         }
+    }
+
+    private func closeSubagentTab(_ id: String) {
+        hiddenSubagentTabIDs.insert(id)
+        panel.selectedTabID = panelTabs.first?.id
     }
 
     private func toggleAgentPanel() {

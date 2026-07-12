@@ -314,7 +314,7 @@ extension CodexCoreAppModel {
         configurationSession.selectModel(selection)
     }
 
-    private func rememberManualModelSelection(_ selection: CodexModelSelection) {
+    func rememberManualModelSelection(_ selection: CodexModelSelection) {
         lastManualModelID = selection.id
         CodexModelPreferenceStorage.saveLastModelID(selection.id, to: preferenceStore)
         if let threadID = currentThreadID {

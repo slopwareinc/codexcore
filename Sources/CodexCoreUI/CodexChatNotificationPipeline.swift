@@ -141,7 +141,12 @@ public enum CodexChatNotificationPipeline {
 
         switch action {
         case .threadStartedMetadata(let metadata):
-            if agentStateMapper.updateSubagentMetadata(id: metadata.threadID, name: metadata.name, role: metadata.role) {
+            if metadata.parentThreadID == currentThreadID,
+               agentStateMapper.registerSubagentThread(
+                   id: metadata.threadID,
+                   name: metadata.name,
+                   role: metadata.role
+               ) {
                 result.syncAgentState = true
             }
 

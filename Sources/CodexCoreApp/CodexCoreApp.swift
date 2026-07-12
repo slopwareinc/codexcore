@@ -3,6 +3,26 @@ import AppKit
 import CodexCore
 import CodexCoreUI
 
+private final class CodexMainWindow: NSWindow {
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown,
+           event.clickCount == 2,
+           styleMask.contains(.resizable),
+           titlebarHitTestContains(event.locationInWindow) {
+            zoom(nil)
+            return
+        }
+        super.sendEvent(event)
+    }
+
+    private func titlebarHitTestContains(_ point: NSPoint) -> Bool {
+        // The custom full-size content view still reserves this top strip for
+        // title-bar interactions, including the native double-click-to-zoom.
+        let titlebarHeight: CGFloat = 32
+        return point.y >= frame.height - titlebarHeight
+    }
+}
+
 @main
 @MainActor
 final class CodexCoreApp: NSObject, NSApplicationDelegate {
@@ -87,7 +107,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
                 .codexClipboardService(clipboardService)
                 .frame(minWidth: 940, minHeight: 660))
-            let window = NSWindow(contentViewController: controller)
+            let window = CodexMainWindow(contentViewController: controller)
             window.title = "CodexCore"
             window.setAccessibilityElement(true)
             window.setAccessibilityRole(.window)

@@ -48,6 +48,8 @@ public struct CodexModelGridV2: Equatable, Sendable {
     public var cells: [Cell]
     public var selectedModel: CodexModelSelection
     public var selectedReasoning: CodexReasoningSelection
+    public var fastModel: CodexModelSelection?
+    public var standardModel: CodexModelSelection?
 
     public init(
         modelOptions: [CodexModelSelection],
@@ -82,11 +84,26 @@ public struct CodexModelGridV2: Equatable, Sendable {
                 )
             }
         }
-        self.columns = columns
+        let appearanceOrder: [Column.Appearance] = [.sol, .terra, .luna, .generic]
+        self.columns = columns.sorted {
+            let left = appearanceOrder.firstIndex(of: $0.appearance) ?? appearanceOrder.count
+            let right = appearanceOrder.firstIndex(of: $1.appearance) ?? appearanceOrder.count
+            return left == right ? $0.title < $1.title : left < right
+        }
         self.efforts = efforts
         self.cells = cells
         self.selectedModel = selectedModel
         self.selectedReasoning = selectedReasoning
+        self.fastModel = options.first(where: {
+            $0.isFastModel || $0.id.localizedCaseInsensitiveContains("speed")
+                || $0.modelIdentifier?.localizedCaseInsensitiveContains("speed") == true
+                || $0.displayName.localizedCaseInsensitiveContains("speed")
+        })
+        self.standardModel = options.first(where: {
+            !($0.isFastModel || $0.id.localizedCaseInsensitiveContains("speed")
+                || $0.modelIdentifier?.localizedCaseInsensitiveContains("speed") == true
+                || $0.displayName.localizedCaseInsensitiveContains("speed"))
+        })
     }
 
     public func cell(columnID: String, effort: CodexReasoningSelection) -> Cell? {
@@ -99,6 +116,10 @@ public struct CodexModelGridV2: Equatable, Sendable {
 
     private static func supportedEfforts(for model: CodexModelSelection) -> [CodexReasoningSelection] {
         model.supportedReasoning.isEmpty ? CodexReasoningSelection.defaultOptions : model.supportedReasoning
+    }
+
+    public static func appearance(for model: CodexModelSelection) -> Column.Appearance {
+        family(for: model).appearance
     }
 
     private static func family(for model: CodexModelSelection) -> (id: String, appearance: Column.Appearance) {
@@ -124,15 +145,18 @@ public struct CodexModelSelectorGridV2: View {
     }
 
     public var body: some View {
-        Grid(horizontalSpacing: 8, verticalSpacing: 7) {
+        Grid(horizontalSpacing: 6, verticalSpacing: 5) {
             GridRow {
-                Color.clear.frame(width: 72, height: 1)
+                Text(model.columns.allSatisfy { isCurrentGeneration($0.model) } ? "GPT 5.6" : "Models")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .frame(width: 46, alignment: .leading)
                 ForEach(model.columns) { column in
-                    Label(column.title, systemImage: icon(for: column.appearance))
+                    Label(shortTitle(for: column), systemImage: icon(for: column.appearance))
                         .font(theme.fonts.caption.weight(.semibold))
                         .foregroundStyle(tint(for: column.appearance))
                         .lineLimit(1)
-                        .frame(minWidth: 68)
+                        .frame(minWidth: 76)
                 }
             }
 
@@ -141,7 +165,7 @@ public struct CodexModelSelectorGridV2: View {
                     Text(effort.displayName)
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textSecondary)
-                        .frame(width: 56, alignment: .trailing)
+                        .frame(width: 42, alignment: .trailing)
                     ForEach(model.columns) { column in
                         if let cell = model.cell(columnID: column.id, effort: effort) {
                             cellButton(cell, appearance: column.appearance)
@@ -150,20 +174,7 @@ public struct CodexModelSelectorGridV2: View {
                 }
             }
         }
-        .padding(8)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Divider()
-                Text("Default (\(model.selectedModel.displayName) - \(model.selectedReasoning.displayName)) selected")
-                    .font(theme.fonts.caption.weight(.medium))
-                    .foregroundStyle(theme.colors.textSecondary)
-                Text("Shade = $/M x effort token-volume (heuristic)")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 8)
-        }
+        .padding(4)
         .background(theme.colors.surfaceElevated)
         .clipShape(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous).stroke(theme.colors.border))
@@ -180,7 +191,7 @@ public struct CodexModelSelectorGridV2: View {
                         .foregroundStyle(theme.colors.textPrimary)
                 }
             }
-            .frame(minWidth: 68, minHeight: 26)
+            .frame(minWidth: 76, minHeight: 24)
             .overlay(shape.stroke(cell.isSelected ? theme.colors.borderStrong : theme.colors.border.opacity(0.55), lineWidth: cell.isSelected ? 2 : 1))
             .opacity(cell.isEnabled ? 1 : 0.35)
         }
@@ -193,6 +204,21 @@ public struct CodexModelSelectorGridV2: View {
         switch appearance { case .sol: "sun.max.fill"; case .terra: "leaf.fill"; case .luna: "moon.fill"; case .generic: "sparkles" }
     }
 
+    private func shortTitle(for column: CodexModelGridV2.Column) -> String {
+        guard isCurrentGeneration(column.model) else { return column.title }
+        return switch column.appearance {
+        case .sol: "Sol"
+        case .terra: "Terra"
+        case .luna: "Luna"
+        case .generic: "GPT 5.6"
+        }
+    }
+
+    private func isCurrentGeneration(_ model: CodexModelSelection) -> Bool {
+        let searchable = "\(model.id) \(model.modelIdentifier ?? "") \(model.displayName)"
+        return searchable.range(of: #"\b5\.6\b"#, options: .regularExpression) != nil
+    }
+
     private func tint(for appearance: CodexModelGridV2.Column.Appearance) -> Color {
         switch appearance { case .sol: .orange; case .terra: .green; case .luna: .indigo; case .generic: theme.colors.accent }
     }
@@ -203,10 +229,12 @@ public struct CodexModelSelectorGridV2: View {
 }
 
 public struct ComposerModelGridPicker: View {
+    @Environment(\.codexAgentTheme) private var theme
     @Binding public var model: CodexModelSelection
     public let modelOptions: [CodexModelSelection]
     @Binding public var reasoning: CodexReasoningSelection
     @State private var isPresented = false
+    @State private var showOlderModels = false
 
     public init(model: Binding<CodexModelSelection>, modelOptions: [CodexModelSelection], reasoning: Binding<CodexReasoningSelection>) {
         self._model = model
@@ -223,14 +251,49 @@ public struct ComposerModelGridPicker: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
+            .foregroundStyle(modelTint)
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            CodexModelSelectorGridV2(model: gridModel) { modelID, effort in
-                guard let selection = availableOptions.first(where: { $0.id == modelID }) else { return }
-                model = selection
-                reasoning = effort
-                isPresented = false
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Show older models", isOn: $showOlderModels)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .font(.caption)
+                    .padding(.horizontal, 4)
+
+                if let fastModel = gridModel.fastModel {
+                    HStack(spacing: 6) {
+                        Text("Standard")
+                        Slider(
+                            value: Binding(
+                                get: { model.id == fastModel.id ? 1 : 0 },
+                                set: { value in
+                                    let target = value >= 0.5 ? fastModel : gridModel.standardModel
+                                    guard let target else { return }
+                                    let effort = target.supportedReasoning.contains(reasoning)
+                                        ? reasoning
+                                        : (target.defaultReasoning ?? .medium)
+                                    model = target
+                                    reasoning = effort
+                                }
+                            ),
+                            in: 0...1,
+                            step: 1
+                        )
+                        .controlSize(.mini)
+                        Text("Fast")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 4)
+                }
+
+                CodexModelSelectorGridV2(model: gridModel) { modelID, effort in
+                    guard let selection = availableOptions.first(where: { $0.id == modelID }) else { return }
+                    model = selection
+                    reasoning = effort
+                    isPresented = false
+                }
             }
             .padding(6)
         }
@@ -241,8 +304,28 @@ public struct ComposerModelGridPicker: View {
         modelOptions.isEmpty ? CodexModelSelection.defaultOptions : modelOptions
     }
 
+    private var visibleOptions: [CodexModelSelection] {
+        guard !showOlderModels else { return availableOptions }
+        let current = availableOptions.filter(isCurrentGeneration)
+        return current.isEmpty ? availableOptions : current
+    }
+
     private var gridModel: CodexModelGridV2 {
-        CodexModelGridV2(modelOptions: availableOptions, selectedModel: model, selectedReasoning: reasoning)
+        CodexModelGridV2(modelOptions: visibleOptions, selectedModel: model, selectedReasoning: reasoning)
+    }
+
+    private func isCurrentGeneration(_ option: CodexModelSelection) -> Bool {
+        let searchable = "\(option.id) \(option.modelIdentifier ?? "") \(option.displayName)"
+        return searchable.range(of: #"\b5\.6\b"#, options: .regularExpression) != nil
+    }
+
+    private var modelTint: Color {
+        switch CodexModelGridV2.appearance(for: model) {
+        case .sol: .orange
+        case .terra: .green
+        case .luna: .indigo
+        case .generic: theme.colors.accent
+        }
     }
 }
 
