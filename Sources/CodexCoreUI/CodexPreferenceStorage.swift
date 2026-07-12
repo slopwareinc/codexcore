@@ -155,3 +155,31 @@ public enum CodexExpandedProjectStorage {
         return result
     }
 }
+
+public enum CodexModelPreferenceStorage {
+    private static let lastModelKey = "CodexCoreApp.lastManualModel.v1"
+    private static let threadModelsKey = "CodexCoreApp.threadModels.v1"
+
+    public static func loadLastModelID(from store: any CodexStringListPreferenceStore) -> String? {
+        store.loadStrings(forKey: lastModelKey).first
+    }
+
+    public static func saveLastModelID(_ id: String, to store: any CodexStringListPreferenceStore) {
+        store.saveStrings([id], forKey: lastModelKey)
+    }
+
+    public static func loadThreadModelIDs(from store: any CodexStringListPreferenceStore) -> [String: String] {
+        guard let value = store.loadStrings(forKey: threadModelsKey).first,
+              let data = value.data(using: .utf8),
+              let result = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return [:] }
+        return result
+    }
+
+    public static func saveThreadModelIDs(_ ids: [String: String], to store: any CodexStringListPreferenceStore) {
+        guard let data = try? JSONEncoder().encode(ids),
+              let value = String(data: data, encoding: .utf8)
+        else { return }
+        store.saveStrings([value], forKey: threadModelsKey)
+    }
+}

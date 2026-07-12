@@ -10,7 +10,7 @@ public enum CodexWorkGroupHeaderV2 {
             case .command(let value): categories = [(value.action, 1)]
             case .fileChange(let value): categories = [(.edit, max(1, value.files.count))]
             case .mcpToolCall(let value): categories = [(.mcp(value.appName), 1)]
-            case .webSearch: categories = [(.search, 1)]
+            case .webSearch: categories = [(.webSearch, 1)]
             case .collabAgent(let value):
                 switch value.action {
                 case .created: categories = [(.collabCreated, max(1, value.agentNames.count))]
@@ -50,7 +50,7 @@ public enum CodexWorkGroupHeaderV2 {
         switch category {
         case .read: count == 1 ? "read a file" : "read \(count) files"
         case .list: "listed files"
-        case .search: "searched code"
+        case .search, .webSearch: "searched"
         case .run: count == 1 ? "ran a command" : "ran \(count) commands"
         case .edit: count == 1 ? "edited a file" : "edited \(count) files"
         case .mcp(let app): count == 1 ? "called \(app)" : "called \(app) \(count) times"

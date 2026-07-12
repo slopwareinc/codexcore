@@ -20,12 +20,14 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let productToolRenderer: CodexProductToolRendererV2?
     private let emptyState: EmptyState
     private let contentHorizontalOffset: CGFloat
+    private let bottomContentInset: CGFloat
     private let onOpenSubagent: (String) -> Void
 
     public init(
         transcript: CodexTranscriptV2,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
+        bottomContentInset: CGFloat = 170,
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         @ViewBuilder emptyState: () -> EmptyState
     ) {
@@ -34,6 +36,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.contentHorizontalOffset = contentHorizontalOffset
         self.onOpenSubagent = onOpenSubagent
         self.emptyState = emptyState()
+        self.bottomContentInset = max(0, bottomContentInset)
     }
 
     public var body: some View {
@@ -52,12 +55,15 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                         ForEach(transcript.turns) { turn in
                             CodexTurnViewV2(turn: turn, productToolRenderer: productToolRenderer, onOpenSubagent: onOpenSubagent)
                         }
-                        Color.clear.frame(height: 1).id(Self.bottomID)
+                        // The anchor must be the final content item. Keeping the
+                        // composer inset inside this spacer makes scroll-to-bottom
+                        // land at the absolute end while the last turn rests above
+                        // the overlaid composer.
+                        Color.clear.frame(height: bottomContentInset).id(Self.bottomID)
                     }
                     .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
                     .padding(.horizontal, 24)
                     .padding(.top, 58 + 20)
-                    .padding(.bottom, 150 + 20)
                     .frame(maxWidth: .infinity)
                     .offset(x: contentHorizontalOffset)
                 }
@@ -65,6 +71,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
             .scrollContentBackground(.hidden)
             .onAppear { scrollToBottom(proxy, animated: false) }
             .onChange(of: transcript) { _, _ in scrollToBottom(proxy, animated: true) }
+            .onChange(of: bottomContentInset) { _, _ in scrollToBottom(proxy, animated: false) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -87,12 +94,14 @@ public extension CodexTranscriptViewV2 where EmptyState == EmptyView {
     init(
         transcript: CodexTranscriptV2,
         productToolRenderer: CodexProductToolRendererV2? = nil,
-        contentHorizontalOffset: CGFloat = 0
+        contentHorizontalOffset: CGFloat = 0,
+        bottomContentInset: CGFloat = 170
     ) {
         self.init(
             transcript: transcript,
             productToolRenderer: productToolRenderer,
-            contentHorizontalOffset: contentHorizontalOffset
+            contentHorizontalOffset: contentHorizontalOffset,
+            bottomContentInset: bottomContentInset
         ) { EmptyView() }
     }
 }

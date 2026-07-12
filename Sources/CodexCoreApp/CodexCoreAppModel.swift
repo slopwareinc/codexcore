@@ -63,6 +63,8 @@ final class CodexCoreAppModel {
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
+    var modelIDByThread: [String: String]
+    var lastManualModelID: String?
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
     private(set) var threadHistoryPaginationState: CodexThreadHistoryPaginationState = .idle
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
@@ -81,7 +83,7 @@ final class CodexCoreAppModel {
     var isBottomTerminalRunning = false
 
     private let clipboardService: any CodexClipboardService
-    private let preferenceStore: any CodexStringListPreferenceStore
+    let preferenceStore: any CodexStringListPreferenceStore
 
     init(
         clipboardService: any CodexClipboardService,
@@ -93,6 +95,8 @@ final class CodexCoreAppModel {
         self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
         self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+        self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
+        self.lastManualModelID = CodexModelPreferenceStorage.loadLastModelID(from: preferenceStore)
         let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
         self.hasStoredExpandedProjectState = expandedState.hasStoredState
         self.sidebarNavigationSession = CodexSidebarNavigationSession(
@@ -495,6 +499,7 @@ final class CodexCoreAppModel {
             errorMessage: CodexErrorFormat.localizedDescription
         )
         configurationSession = session
+        applyPreferredModel(for: currentThreadID)
         appendConfigurationActivities(activities)
     }
 
@@ -698,6 +703,7 @@ final class CodexCoreAppModel {
         sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
         saveExpandedSidebarProjects()
         clearThreadState()
+        applyPreferredModel(for: nil)
         guard codex != nil else { return }
         await refreshRecentChats()
     }
@@ -705,6 +711,7 @@ final class CodexCoreAppModel {
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
         guard !threadSession.isCurrentThread(id: threadID) else { return }
+        applyPreferredModel(for: threadID)
         chatSelectionGeneration += 1
         let selectionGeneration = chatSelectionGeneration
         isThreadLoading = true
@@ -765,6 +772,7 @@ final class CodexCoreAppModel {
                 return
             }
             threadSession.activateResumedThread(resumeResult.thread, using: codex)
+            applyPreferredModel(for: threadID)
             syncComposerThreadID()
             await refreshGoal(
                 for: resumeResult.thread,
@@ -1070,6 +1078,7 @@ final class CodexCoreAppModel {
         )
         syncComposerThreadID()
         if result.didStart {
+            rememberModelSelection(for: result.thread.id)
             workspacePanel.migrateUnassigned(to: result.thread.id)
             await refreshGoal(for: result.thread)
             appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
@@ -1475,6 +1484,7 @@ final class CodexCoreAppModel {
 
     private func applyFastCommand() {
         let activity = configurationSession.applyFastCommand()
+        rememberManualModelSelection(configurationSession.modelSelection)
         appendActivity(.notice, title: activity.title, detail: activity.detail)
     }
 

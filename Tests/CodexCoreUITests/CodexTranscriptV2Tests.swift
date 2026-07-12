@@ -9,7 +9,7 @@ struct CodexTranscriptV2Tests {
         let turn = try #require(transcript.turns.first)
         #expect(turn.userMessage != nil)
         #expect(turn.narrative.filter(\.isProse).count == 5)
-        #expect(turn.narrative.compactMap(\.header) == ["Listed files, ran 2 commands", "Read 4 files, ran a command", "Read 2 files and searched code, ran 2 commands", "Ran 2 commands"])
+        #expect(turn.narrative.compactMap(\.header) == ["Listed files, ran 2 commands", "Read 4 files, ran a command", "Read 2 files and searched, ran 2 commands", "Ran 2 commands"])
         #expect(turn.liveTail == nil)
     }
 
@@ -138,10 +138,26 @@ struct CodexTranscriptV2Tests {
         #expect(reducer.transcript.turns[0].finalAnswer?.id == "two")
     }
 
+    @Test func messageDeltaAliasesStreamIntoFinalAnswer() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.apply(method: "item/started", params: json([
+            "threadId": "t", "turnId": "v",
+            "item": ["type": "agentMessage", "id": "answer", "phase": "final_answer", "text": ""]
+        ]))
+        reducer.apply(method: "item/message/delta", params: json([
+            "threadId": "t", "turnId": "v", "itemId": "answer", "delta": "Hello"
+        ]))
+        reducer.apply(method: "item/agentMessage/delta", params: json([
+            "threadId": "t", "turnId": "v", "itemId": "answer", "delta": " world"
+        ]))
+
+        #expect(try #require(reducer.transcript.turns.first?.finalAnswer?.text) == "Hello world")
+    }
+
     @Test func headersAndLiveTail() {
         func row(_ id: String, _ action: CodexWorkCategoryV2) -> CodexWorkRowV2 { .command(.init(id:id, command:id, label:id, action:action, status:.completed, exitCode:0, durationMs:nil, output:nil)) }
         #expect(CodexWorkGroupHeaderV2.synthesize(rows: [row("l",.list),row("1",.run),row("2",.run)]) == "Listed files, ran 2 commands")
-        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [row("a",.read),row("b",.read),row("s",.search),row("1",.run),row("2",.run)]) == "Read 2 files and searched code, ran 2 commands")
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [row("a",.read),row("b",.read),row("s",.search),row("1",.run),row("2",.run)]) == "Read 2 files and searched, ran 2 commands")
         var reducer = CodexTranscriptReducerV2(threadID:"t")
         reducer.apply(method:"turn/started", params:json(["threadId":"t","turn":["id":"v"]]))
         reducer.apply(method:"item/started", params:json(["threadId":"t","turnId":"v","item":["type":"reasoning","id":"r","summary":[],"content":[]]]))
@@ -186,6 +202,16 @@ struct CodexTranscriptV2Tests {
             return
         }
         #expect(backfilledSince == 1_783_539_644)
+    }
+
+    @Test func activePresentationDistinguishesThinkingFromIntermediateWork() {
+        #expect(!CodexWorkBlockViewV2.showsWorkingDuration(narrative: [], liveTail: nil))
+        #expect(!CodexWorkBlockViewV2.showsWorkingDuration(narrative: [], liveTail: "Thinking"))
+        #expect(CodexWorkBlockViewV2.showsWorkingDuration(narrative: [], liveTail: "Running rg"))
+        #expect(CodexWorkBlockViewV2.showsWorkingDuration(
+            narrative: [.prose(.init(id: "one", text: "First")), .prose(.init(id: "two", text: "Second"))],
+            liveTail: nil
+        ))
     }
 
     @Test func subAgentActivityMapsToAgentWorkWithoutGenericChrome() throws {

@@ -169,7 +169,10 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         }
 
         modelOptions = options
-        selectModel(selectedModel(from: options))
+        let selection = modelSelection.id == CodexModelSelection.appServerDefault.id
+            ? CodexModelSelection.preferredDefault(from: options)
+            : selectedModel(from: options)
+        selectModel(selection)
         return CodexChatConfigurationActivity(title: "Loaded models", detail: "\(options.count) app-server models")
     }
 

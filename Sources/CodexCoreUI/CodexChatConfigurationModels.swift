@@ -240,6 +240,14 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
 
     public static let defaultOptions: [CodexModelSelection] = [.appServerDefault]
 
+    public static func preferredDefault(from options: [CodexModelSelection]) -> CodexModelSelection {
+        let sol = options.first { option in
+            let value = (option.modelIdentifier ?? option.id) + " " + option.displayName
+            return value.localizedCaseInsensitiveContains("5.6") && value.localizedCaseInsensitiveContains("sol")
+        }
+        return sol ?? options.first(where: \.isDefault) ?? options.first ?? .appServerDefault
+    }
+
     public static func options(from response: ModelListResponse) -> [CodexModelSelection] {
         let rawModels = response.data ?? response.models ?? []
         return rawModels.compactMap(option(from:))
