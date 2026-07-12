@@ -30,7 +30,7 @@ public struct CodexTranscriptReducerV2: Sendable {
         case "turn/failed": failTurn(root)
         case "item/started": applyItem(root, completed: false)
         case "item/completed": applyItem(root, completed: true)
-        case "item/agentMessage/delta": appendAgentDelta(root)
+        case "item/agentMessage/delta", "item/message/delta": appendAgentDelta(root)
         case "item/reasoning/summaryTextDelta": appendReasoningDelta(root)
         case "item/commandExecution/outputDelta": appendCommandOutput(root)
         case "error": applyError(root)
@@ -213,7 +213,9 @@ public struct CodexTranscriptReducerV2: Sendable {
         case "mcpToolCall":
             let app = item.object("appContext")?.string("appName") ?? item.string("server") ?? "Tool"
             return .mcpToolCall(.init(id: id, appName: app, server: item.string("server") ?? app, tool: item.string("tool") ?? "Tool", status: state, durationMs: item.int("durationMs"), errorFirstLine: state == .failed ? mcpError(item) : nil, arguments: item["arguments"], result: item["result"]))
-        case "webSearch": return .webSearch(.init(id: id, query: item.string("query") ?? "", status: state))
+        case "webSearch":
+            guard let query = item.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines), !query.isEmpty else { return nil }
+            return .webSearch(.init(id: id, query: query, status: state))
         case "collabAgentToolCall":
             let tool = item.string("tool") ?? ""
             let action: CodexCollabActionV2 = switch tool {

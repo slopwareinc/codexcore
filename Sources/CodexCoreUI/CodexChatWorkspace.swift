@@ -1,6 +1,14 @@
 import SwiftUI
 import CodexCore
 
+private struct CodexComposerOverlayHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     public var availableWidth: CGFloat
 
@@ -97,6 +105,7 @@ public struct CodexChatWorkspaceView: View {
     private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
+    @State private var composerOverlayHeight: CGFloat = 170
 
     public init(
         transcriptV2: CodexTranscriptV2,
@@ -291,6 +300,7 @@ public struct CodexChatWorkspaceView: View {
             CodexTranscriptViewV2(
                 transcript: transcriptV2,
                 contentHorizontalOffset: -contentShift,
+                bottomContentInset: composerOverlayHeight + 20,
                 onOpenSubagent: openPanelTab
             ) {
                 if isThreadLoading {
@@ -334,50 +344,61 @@ public struct CodexChatWorkspaceView: View {
                 )
 
                 Spacer(minLength: 0)
-                if let rateLimitBannerMessage {
-                    CodexRateLimitBanner(message: rateLimitBannerMessage)
-                        .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 6)
-                        .offset(x: -contentShift)
+                VStack(spacing: 0) {
+                    if let rateLimitBannerMessage {
+                        CodexRateLimitBanner(message: rateLimitBannerMessage)
+                            .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 6)
+                            .offset(x: -contentShift)
+                    }
+                    CodexComposerBar(
+                        draft: $draft,
+                        approvalSelection: $approvalSelection,
+                        isPlanModeEnabled: $isPlanModeEnabled,
+                        isGoalPursuitEnabled: isGoalPursuitEnabled,
+                        approvalOptions: approvalOptions,
+                        modelSelection: $modelSelection,
+                        modelOptions: modelOptions,
+                        modelPickerStyle: .grid,
+                        reasoningSelection: $reasoningSelection,
+                        slashCommands: slashCommands,
+                        mcpServers: mcpServers,
+                        isLoadingMCPServers: isLoadingMCPServers,
+                        mcpErrorMessage: mcpErrorMessage,
+                        isSending: isSending,
+                        canSend: canSend,
+                        canUsePlanMode: canUsePlanMode,
+                        followUpHint: followUpHint,
+                        mentionResults: mentionResults,
+                        onMentionQueryChanged: onMentionQueryChanged,
+                        onMentionSelected: onMentionSelected,
+                        onSend: onSend,
+                        onInterrupt: onInterrupt,
+                        onSlashCommandSelected: onSlashCommandSelected,
+                        onOpenMCPDetails: onOpenMCPDetails,
+                        onRefreshMCPServers: onRefreshMCPServers,
+                        onAddMenuRoute: onComposerAddMenuRoute,
+                        onComposerChipClear: onComposerChipClear
+                    )
+                    .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 22)
+                    .offset(x: -contentShift)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
                 }
-                CodexComposerBar(
-                    draft: $draft,
-                    approvalSelection: $approvalSelection,
-                    isPlanModeEnabled: $isPlanModeEnabled,
-                    isGoalPursuitEnabled: isGoalPursuitEnabled,
-                    approvalOptions: approvalOptions,
-                    modelSelection: $modelSelection,
-                    modelOptions: modelOptions,
-                    modelPickerStyle: .grid,
-                    reasoningSelection: $reasoningSelection,
-                    slashCommands: slashCommands,
-                    mcpServers: mcpServers,
-                    isLoadingMCPServers: isLoadingMCPServers,
-                    mcpErrorMessage: mcpErrorMessage,
-                    isSending: isSending,
-                    canSend: canSend,
-                    canUsePlanMode: canUsePlanMode,
-                    followUpHint: followUpHint,
-                    mentionResults: mentionResults,
-                    onMentionQueryChanged: onMentionQueryChanged,
-                    onMentionSelected: onMentionSelected,
-                    onSend: onSend,
-                    onInterrupt: onInterrupt,
-                    onSlashCommandSelected: onSlashCommandSelected,
-                    onOpenMCPDetails: onOpenMCPDetails,
-                    onRefreshMCPServers: onRefreshMCPServers,
-                    onAddMenuRoute: onComposerAddMenuRoute,
-                    onComposerChipClear: onComposerChipClear
-                )
-                .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 22)
-                .offset(x: -contentShift)
-                .transaction { transaction in
-                    transaction.animation = nil
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: CodexComposerOverlayHeightKey.self, value: proxy.size.height)
+                    }
                 }
             }
+        }
+        .onPreferenceChange(CodexComposerOverlayHeightKey.self) { height in
+            guard height > 0 else { return }
+            composerOverlayHeight = height
         }
     }
 

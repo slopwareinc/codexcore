@@ -1,4 +1,5 @@
 import CodexCore
+import Foundation
 import SwiftUI
 
 /// One chronological work block for a turn.
@@ -8,6 +9,7 @@ public struct CodexWorkBlockViewV2: View {
     private let narrative: [CodexNarrativeEntry]
     private let liveTail: String?
     private let status: CodexTurnStatusV2
+    private let finalAnswer: CodexAssistantTextV2?
     private let productToolRenderer: CodexProductToolRendererV2?
     private let onOpenSubagent: (String) -> Void
     @State private var isExpanded: Bool
@@ -17,6 +19,7 @@ public struct CodexWorkBlockViewV2: View {
         narrative: [CodexNarrativeEntry],
         liveTail: String?,
         status: CodexTurnStatusV2,
+        finalAnswer: CodexAssistantTextV2? = nil,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         initiallyExpanded: Bool = false
@@ -24,6 +27,7 @@ public struct CodexWorkBlockViewV2: View {
         self.narrative = narrative
         self.liveTail = liveTail
         self.status = status
+        self.finalAnswer = finalAnswer
         self.productToolRenderer = productToolRenderer
         self.onOpenSubagent = onOpenSubagent
         self._isExpanded = State(initialValue: initiallyExpanded)
@@ -38,26 +42,31 @@ public struct CodexWorkBlockViewV2: View {
             narrative: turn.narrative,
             liveTail: turn.liveTail,
             status: turn.status,
+            finalAnswer: turn.finalAnswer,
             productToolRenderer: productToolRenderer,
             initiallyExpanded: initiallyExpanded
         )
     }
 
     public var body: some View {
-        if hasContent {
+        if shouldRender {
             VStack(alignment: .leading, spacing: 12) {
                 switch status {
                 case .working(let since):
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(verbatim: Self.workingLabel(
-                            at: context.date,
-                            since: since,
-                            clientStartedAt: clientStartedAt
-                        ))
-                            .font(theme.fonts.caption)
-                            .foregroundStyle(theme.colors.textTertiary)
+                    if Self.showsWorkingDuration(narrative: narrative, liveTail: liveTail) {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(verbatim: Self.workingLabel(
+                                at: context.date,
+                                since: since,
+                                clientStartedAt: clientStartedAt
+                            ))
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textTertiary)
+                        }
+                    } else {
+                        CodexLiveTailV2(text: "Thinking")
                     }
-                    narrativeBody
+                    if !narrative.isEmpty { narrativeBody }
                     if let liveTail, !liveTail.isEmpty { CodexLiveTailV2(text: liveTail) }
 
                 case .done(let durationMs):
@@ -88,6 +97,32 @@ public struct CodexWorkBlockViewV2: View {
     }
 
     private var hasContent: Bool { !narrative.isEmpty || liveTail != nil }
+
+    private var shouldRender: Bool {
+        switch status {
+        case .working:
+            // The app-server can announce the final-answer item before its
+            // first delta. Keep the active work state visible until text exists.
+            finalAnswer?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        case .done, .failed: hasContent
+        }
+    }
+
+    /// The protocol exposes turn/item activity, not a presentation label. A single
+    /// final answer is just thinking until the model has produced intermediate work.
+    nonisolated static func showsWorkingDuration(narrative: [CodexNarrativeEntry], liveTail: String?) -> Bool {
+        if liveTail?.isEmpty == false, liveTail != "Thinking" { return true }
+        if narrative.contains(where: { entry in
+            switch entry {
+            case .workGroup, .productToolCall: true
+            case .prose, .notice: false
+            }
+        }) { return true }
+        return narrative.count(where: {
+            if case .prose = $0 { return true }
+            return false
+        }) > 1
+    }
 
     private var narrativeBody: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -242,7 +277,7 @@ private enum CodexTranscriptV2PreviewData {
     )
 
     static let fileGroup = CodexWorkGroupV2(
-        id: "files", header: "Read 2 files and searched code",
+        id: "files", header: "Read 2 files and searched",
         rows: [
             .fileChange(.init(
                 id: "change", files: ["CodexTurnViewV2.swift", "CodexWorkBlockViewV2.swift"],

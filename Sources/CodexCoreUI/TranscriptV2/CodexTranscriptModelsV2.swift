@@ -165,6 +165,6 @@ public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
 }
 
  public enum CodexWorkCategoryV2: Sendable, Hashable {
-    case read, list, search, run, edit, mcp(String)
+    case read, list, search, webSearch, run, edit, mcp(String)
     case collabCreated, collabClosed, collabWait, collabWorked, imageGeneration
  }

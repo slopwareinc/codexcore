@@ -198,7 +198,10 @@ extension CodexCoreAppModel {
 
     var modelSelection: CodexModelSelection {
         get { configurationSession.modelSelection }
-        set { configurationSession.selectModel(newValue) }
+        set {
+            configurationSession.selectModel(newValue)
+            rememberManualModelSelection(newValue)
+        }
     }
 
     var modelOptions: [CodexModelSelection] {
@@ -299,5 +302,29 @@ extension CodexCoreAppModel {
             sandbox: approvalSelection.sandbox,
             parameters: configurationSession.turnParameterOverrides
         )
+    }
+
+    func applyPreferredModel(for threadID: String?) {
+        let preferredID = threadID.flatMap { modelIDByThread[$0] } ?? lastManualModelID
+        let selection = preferredID.flatMap { id in
+            configurationSession.modelOptions.first { option in
+                option.id == id || option.modelIdentifier == id
+            }
+        } ?? (preferredID == CodexModelSelection.appServerDefault.id ? .appServerDefault : CodexModelSelection.preferredDefault(from: configurationSession.modelOptions))
+        configurationSession.selectModel(selection)
+    }
+
+    private func rememberManualModelSelection(_ selection: CodexModelSelection) {
+        lastManualModelID = selection.id
+        CodexModelPreferenceStorage.saveLastModelID(selection.id, to: preferenceStore)
+        if let threadID = currentThreadID {
+            modelIDByThread[threadID] = selection.id
+            CodexModelPreferenceStorage.saveThreadModelIDs(modelIDByThread, to: preferenceStore)
+        }
+    }
+
+    func rememberModelSelection(for threadID: String) {
+        modelIDByThread[threadID] = configurationSession.modelSelection.id
+        CodexModelPreferenceStorage.saveThreadModelIDs(modelIDByThread, to: preferenceStore)
     }
 }

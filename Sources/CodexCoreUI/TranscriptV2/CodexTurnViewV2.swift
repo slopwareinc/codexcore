@@ -25,6 +25,7 @@ public struct CodexTurnViewV2: View {
                 narrative: turn.narrative,
                 liveTail: turn.liveTail,
                 status: turn.status,
+                finalAnswer: turn.finalAnswer,
                 productToolRenderer: productToolRenderer,
                 onOpenSubagent: onOpenSubagent
             )
