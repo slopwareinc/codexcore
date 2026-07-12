@@ -144,12 +144,28 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         let editItem = NSMenuItem()
         mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(responderMenuItem(title: "Undo", action: "undo:", key: "z"))
+        let redoItem = responderMenuItem(title: "Redo", action: "redo:", key: "z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redoItem)
+        editMenu.addItem(.separator())
+        editMenu.addItem(responderMenuItem(title: "Cut", action: "cut:", key: "x"))
+        editMenu.addItem(responderMenuItem(title: "Copy", action: "copy:", key: "c"))
+        editMenu.addItem(responderMenuItem(title: "Paste", action: "paste:", key: "v"))
+        editMenu.addItem(responderMenuItem(title: "Select All", action: "selectAll:", key: "a"))
+        editMenu.addItem(.separator())
         let searchItem = NSMenuItem(title: "Command Menu", action: #selector(openCommandPalette(_:)), keyEquivalent: "g")
         searchItem.target = self
         editMenu.addItem(searchItem)
         editItem.submenu = editMenu
 
         NSApplication.shared.mainMenu = mainMenu
+    }
+
+    private func responderMenuItem(title: String, action: String, key: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: Selector((action)), keyEquivalent: key)
+        item.target = nil
+        return item
     }
 }
 
