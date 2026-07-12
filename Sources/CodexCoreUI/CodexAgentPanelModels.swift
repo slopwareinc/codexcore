@@ -171,6 +171,11 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
     case subagent(CodexSubagentState)
     case review(CodexGitReviewSession)
 
+    public var isSubagent: Bool {
+        if case .subagent = self { return true }
+        return false
+    }
+
     public var id: String {
         switch self {
         case .sideChat(let sideChat): return sideChat.id

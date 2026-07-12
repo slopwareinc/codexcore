@@ -39,6 +39,25 @@ public struct CodexAgentStateMapper: Sendable {
         subagents[index].name = name; return true
     }
 
+    /// Registers a child thread as soon as the server announces it. This keeps
+    /// the overview responsive even when the spawn tool notification arrives
+    /// before the child thread metadata or transcript has been hydrated.
+    @discardableResult
+    public mutating func registerSubagentThread(
+        id: String,
+        name: String?,
+        role: String?,
+        prompt: String? = nil
+    ) -> Bool {
+        ensureSubagent(
+            id: id,
+            name: name.flatMap { $0.isEmpty ? nil : $0 } ?? shortAgentName(id),
+            title: role.flatMap { $0.isEmpty ? nil : $0 } ?? "Subagent",
+            prompt: prompt ?? "Subagent task",
+            status: .running
+        )
+    }
+
     @discardableResult public mutating func applyChildThreadReferences(_ references: [CodexChildThreadReference]) -> Bool {
         var changed = false
         for reference in references {

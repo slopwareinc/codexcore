@@ -206,6 +206,7 @@ public struct CodexAgentSidePanel: View {
     private let onCloseBrowser: (String) -> Void
     private let onCloseFiles: (String) -> Void
     private let onCloseFilePreview: (String) -> Void
+    private let onCloseSubagent: (String) -> Void
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
     @State private var liveResizeWidth: CGFloat?
@@ -235,6 +236,7 @@ public struct CodexAgentSidePanel: View {
         onCloseBrowser: @escaping (String) -> Void = { _ in },
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
+        onCloseSubagent: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -262,6 +264,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseBrowser = onCloseBrowser
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
+        self.onCloseSubagent = onCloseSubagent
         self.onClose = onClose
     }
 
@@ -291,6 +294,7 @@ public struct CodexAgentSidePanel: View {
         onCloseBrowser: @escaping (String) -> Void = { _ in },
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
+        onCloseSubagent: @escaping (String) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -318,6 +322,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseBrowser = onCloseBrowser
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
+        self.onCloseSubagent = onCloseSubagent
         self.onClose = onClose
     }
 
@@ -536,7 +541,7 @@ public struct CodexAgentSidePanel: View {
                             title: tab.title,
                             systemImage: tab.systemImage,
                             isSelected: tab.id == selectedTab?.id,
-                            closeAction: nil
+                            closeAction: tab.isSubagent ? { onCloseSubagent(tab.id) } : nil
                         ) {
                             selectedTabID = tab.id
                         }
