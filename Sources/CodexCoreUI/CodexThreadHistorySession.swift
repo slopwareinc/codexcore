@@ -14,23 +14,17 @@ public struct CodexThreadHistoryPaginationState: Sendable, Equatable {
     public var nextCursorByTurnID: [String: String]
     public var loadedItemCount: Int
     public var errorMessage: String?
-    public var retryTurnID: String?
-    public var retryCursor: String?
 
     public init(
         phase: Phase = .idle,
         nextCursorByTurnID: [String: String] = [:],
         loadedItemCount: Int = 0,
-        errorMessage: String? = nil,
-        retryTurnID: String? = nil,
-        retryCursor: String? = nil
+        errorMessage: String? = nil
     ) {
         self.phase = phase
         self.nextCursorByTurnID = nextCursorByTurnID
         self.loadedItemCount = loadedItemCount
         self.errorMessage = errorMessage
-        self.retryTurnID = retryTurnID
-        self.retryCursor = retryCursor
     }
 
     public var isLoading: Bool { phase == .loading }
@@ -45,30 +39,24 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
     public var hydration: CodexThreadHistoryHydrationResult
     public var restoredChildThreadCount: Int
     public var paginationState: CodexThreadHistoryPaginationState
-    public var transcriptItemsV2: [CodexJSONValue]
     public var transcriptV2: CodexTranscriptV2
-    public var paginationRaw: CodexJSONValue?
 
     public init(
         snapshot: CodexThreadHistorySnapshot,
         hydration: CodexThreadHistoryHydrationResult,
         restoredChildThreadCount: Int = 0,
         paginationState: CodexThreadHistoryPaginationState = .idle,
-        transcriptItemsV2: [CodexJSONValue] = [],
-        transcriptV2: CodexTranscriptV2,
-        paginationRaw: CodexJSONValue? = nil
+        transcriptV2: CodexTranscriptV2
     ) {
         self.snapshot = snapshot
         self.hydration = hydration
         self.restoredChildThreadCount = restoredChildThreadCount
         self.paginationState = paginationState
-        self.transcriptItemsV2 = transcriptItemsV2
         self.transcriptV2 = transcriptV2
-        self.paginationRaw = paginationRaw
     }
 
-    public var messageCount: Int {
-        transcriptV2.turns.isEmpty ? transcriptItemsV2.count : transcriptV2.turns.count
+    public var restoredTurnCount: Int {
+        transcriptV2.turns.count
     }
 
     public var activity: CodexActivity {
@@ -76,7 +64,7 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
         return CodexActivity(
             kind: .notice,
             title: "Loaded transcript",
-            detail: "\(messageCount) messages restored\(agentDetail)"
+            detail: "\(restoredTurnCount) turns restored\(agentDetail)"
         )
     }
 }
@@ -85,7 +73,8 @@ public struct CodexThreadHistoryCache: Sendable {
     private let capacity: Int
     private var entries: [String: CodexThreadHistoryRestoreResult] = [:]
     private var order: [String] = []
-    private var protectionCounts: [String: Int] = [:]
+    private var nextLeaseID: UInt64 = 0
+    private var protectedThreadIDByLeaseID: [UInt64: String] = [:]
 
     public init(capacity: Int = 20) {
         self.capacity = max(0, capacity)
@@ -96,7 +85,7 @@ public struct CodexThreadHistoryCache: Sendable {
     }
 
     public func isProtected(threadID: String) -> Bool {
-        protectionCounts[threadID, default: 0] > 0
+        protectedThreadIDByLeaseID.values.contains(threadID)
     }
 
     public mutating func result(for threadID: String) -> CodexThreadHistoryRestoreResult? {
@@ -105,43 +94,40 @@ public struct CodexThreadHistoryCache: Sendable {
         return result
     }
 
-    public mutating func store(_ result: CodexThreadHistoryRestoreResult, protected: Bool = false) {
+    public mutating func store(_ result: CodexThreadHistoryRestoreResult) {
         let threadID = result.hydration.parent.snapshot.id
-        let shouldKeep = protected || isProtected(threadID: threadID)
-        guard capacity > 0 || shouldKeep else {
+        guard capacity > 0 || isProtected(threadID: threadID) else {
             evictUnprotectedEntries()
             return
-        }
-        if protected {
-            protect(threadID: threadID)
         }
         entries[threadID] = result
         touch(threadID)
         evictOverflow()
     }
 
-    public mutating func protect(threadID: String) {
-        protectionCounts[threadID, default: 0] += 1
-        evictOverflow()
+    package mutating func acquireProtection(threadID: String) -> CodexThreadHistoryCacheLease {
+        let lease = CodexThreadHistoryCacheLease(id: nextLeaseID, threadID: threadID)
+        nextLeaseID &+= 1
+        protectedThreadIDByLeaseID[lease.id] = threadID
+        return lease
     }
 
-    public mutating func unprotect(threadID: String) {
-        let count = protectionCounts[threadID, default: 0]
-        if count <= 1 { protectionCounts.removeValue(forKey: threadID) }
-        else { protectionCounts[threadID] = count - 1 }
+    package mutating func releaseProtection(_ lease: CodexThreadHistoryCacheLease) {
+        guard protectedThreadIDByLeaseID[lease.id] == lease.threadID else { return }
+        protectedThreadIDByLeaseID.removeValue(forKey: lease.id)
         evictOverflow()
     }
 
     public mutating func remove(threadID: String) {
         entries.removeValue(forKey: threadID)
         order.removeAll { $0 == threadID }
-        protectionCounts.removeValue(forKey: threadID)
+        protectedThreadIDByLeaseID = protectedThreadIDByLeaseID.filter { $0.value != threadID }
     }
 
     public mutating func removeAll() {
         entries.removeAll()
         order.removeAll()
-        protectionCounts.removeAll()
+        protectedThreadIDByLeaseID.removeAll()
     }
 
     private mutating func touch(_ threadID: String) {
@@ -164,7 +150,7 @@ public struct CodexThreadHistoryCache: Sendable {
     }
 
     private mutating func evictUnprotectedEntries() {
-        let protectedThreadIDs = Set(protectionCounts.keys)
+        let protectedThreadIDs = Set(protectedThreadIDByLeaseID.values)
         for threadID in Array(entries.keys) where !protectedThreadIDs.contains(threadID) {
             entries.removeValue(forKey: threadID)
         }
@@ -172,49 +158,9 @@ public struct CodexThreadHistoryCache: Sendable {
     }
 }
 
-public struct CodexThreadHistoryCacheProtectionLease: Sendable, Equatable {
+package struct CodexThreadHistoryCacheLease: Sendable, Equatable {
     fileprivate let id: UInt64
-    public let threadID: String
-}
-
-public struct CodexThreadHistoryCacheProtectionLeases: Sendable, Equatable {
-    private var nextLeaseID: UInt64 = 0
-    private var activeThreadIDsByLeaseID: [UInt64: String] = [:]
-
-    public init() {}
-
-    public var isEmpty: Bool {
-        activeThreadIDsByLeaseID.isEmpty
-    }
-
-    public mutating func acquire(
-        threadID: String,
-        cache: inout CodexThreadHistoryCache
-    ) -> CodexThreadHistoryCacheProtectionLease {
-        let lease = CodexThreadHistoryCacheProtectionLease(id: nextLeaseID, threadID: threadID)
-        nextLeaseID &+= 1
-        activeThreadIDsByLeaseID[lease.id] = threadID
-        cache.protect(threadID: threadID)
-        return lease
-    }
-
-    @discardableResult
-    public mutating func release(
-        _ lease: CodexThreadHistoryCacheProtectionLease,
-        cache: inout CodexThreadHistoryCache
-    ) -> String? {
-        guard let threadID = activeThreadIDsByLeaseID.removeValue(forKey: lease.id),
-              threadID == lease.threadID else { return nil }
-        cache.unprotect(threadID: threadID)
-        return threadID
-    }
-
-    public mutating func releaseAll(cache: inout CodexThreadHistoryCache) {
-        for threadID in activeThreadIDsByLeaseID.values {
-            cache.unprotect(threadID: threadID)
-        }
-        activeThreadIDsByLeaseID.removeAll()
-    }
+    package let threadID: String
 }
 
 public enum CodexThreadHistorySession {
@@ -247,7 +193,6 @@ public enum CodexThreadHistorySession {
             try await readThreadRaw(threadID: childThreadID, using: codex)
         }
         result.paginationState = pagination.state
-        result.paginationRaw = pagination.raw
         return await hydrateStore(result, using: codex, trace: trace, activateParent: activateParent)
     }
 
@@ -281,23 +226,10 @@ public enum CodexThreadHistorySession {
             snapshot: snapshot,
             hydration: hydration,
             restoredChildThreadCount: hydration.restoredChildThreadCount,
-            transcriptItemsV2: transcriptTurns.flatMap { $0.items.map(\.rawValue) },
             transcriptV2: reducer.transcript
         )
         snapshotSpan?.end(metadata: metadata(for: result))
         return result
-    }
-
-    private static func transcriptItems(from raw: CodexJSONValue) -> [CodexJSONValue] {
-        guard case .dictionary(let root) = raw else { return [] }
-        let threadValue = root["thread"] ?? raw
-        guard case .dictionary(let thread) = threadValue,
-              case .array(let turns)? = thread["turns"] else { return [] }
-        return turns.flatMap { turn -> [CodexJSONValue] in
-            guard case .dictionary(let object) = turn,
-                  case .array(let items)? = object["items"] else { return [] }
-            return items
-        }
     }
 
     private static func transcriptTurns(from raw: CodexJSONValue) -> [CodexSchemaTurn] {
@@ -341,9 +273,8 @@ public enum CodexThreadHistorySession {
         }
     }
 
-    public static func paginate(
+    static func paginate(
         parentRaw: CodexJSONValue,
-        retrying retryState: CodexThreadHistoryPaginationState? = nil,
         trace: CodexPerformanceTrace? = nil,
         loadPage: (String, String, String?) async throws -> CodexSchemaThreadItemsListResponse
     ) async -> (raw: CodexJSONValue, state: CodexThreadHistoryPaginationState) {
@@ -357,10 +288,8 @@ public enum CodexThreadHistorySession {
         }
 
         let span = trace?.begin("threadHistory.items.paginate", metadata: ["threadID": threadID])
-        var loadedItemCount = retryState?.loadedItemCount ?? 0
+        var loadedItemCount = 0
         var nextCursorByTurnID: [String: String] = [:]
-        var activeTurnID: String?
-        var activeCursor: String?
 
         func responseValue() -> CodexJSONValue {
             var updatedThread = thread
@@ -371,30 +300,16 @@ public enum CodexThreadHistorySession {
             return .dictionary(updatedResponse)
         }
 
-        let startIndex: Int
-        if let retryTurnID = retryState?.retryTurnID,
-           let index = turns.firstIndex(where: { value in
-               guard case .dictionary(let turn) = value else { return false }
-               return Self.string(turn["id"]) == retryTurnID
-           }) {
-            startIndex = index
-        } else {
-            startIndex = turns.startIndex
-        }
-
         do {
-            for turnIndex in turns.indices.dropFirst(startIndex) {
+            for turnIndex in turns.indices {
                 guard case .dictionary(var turn) = turns[turnIndex],
                       let turnID = Self.string(turn["id"]) else { continue }
-                activeTurnID = turnID
                 var mergedItems: [CodexJSONValue]
                 if case .array(let items)? = turn["items"] { mergedItems = items } else { mergedItems = [] }
 
-                var cursor = turnID == retryState?.retryTurnID ? retryState?.retryCursor : nil
+                var cursor: String?
                 var seenCursors: Set<String> = []
-                if let cursor { seenCursors.insert(cursor) }
                 repeat {
-                    activeCursor = cursor
                     let page = try await loadPage(threadID, turnID, cursor)
                     mergedItems = mergePage(page.data.map(\.rawValue), into: mergedItems)
                     loadedItemCount += page.data.count
@@ -427,9 +342,7 @@ public enum CodexThreadHistorySession {
                     phase: phase,
                     nextCursorByTurnID: nextCursorByTurnID,
                     loadedItemCount: loadedItemCount,
-                    errorMessage: message,
-                    retryTurnID: activeTurnID,
-                    retryCursor: activeCursor
+                    errorMessage: message
                 )
             )
         }
@@ -474,9 +387,8 @@ public enum CodexThreadHistorySession {
     private static func metadata(for result: CodexThreadHistoryRestoreResult) -> [String: String] {
         [
             "threadID": result.hydration.parent.snapshot.id,
-            "turnCount": "\(result.hydration.parent.snapshot.turns.count)",
             "itemCount": "\(result.hydration.parent.snapshot.turns.reduce(0) { $0 + $1.items.count })",
-            "messageCount": "\(result.messageCount)",
+            "turnCount": "\(result.restoredTurnCount)",
             "restoredChildThreadCount": "\(result.restoredChildThreadCount)",
             "failedChildThreadCount": "\(result.hydration.failedChildThreadIDs.count)"
         ]

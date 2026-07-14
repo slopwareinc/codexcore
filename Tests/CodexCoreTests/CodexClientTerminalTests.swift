@@ -115,7 +115,8 @@ final class CodexClientTerminalTests: XCTestCase {
                 "threadId": "thread-mock",
                 "turn": {
                     "id": "turn-mock",
-                    "status": { "type": "completed" }
+                    "status": "completed",
+                    "items": []
                 },
                 "error": null
             }
@@ -194,7 +195,8 @@ final class CodexClientTerminalTests: XCTestCase {
                 "threadId": "thread-mock",
                 "turn": {
                     "id": "turn-mock",
-                    "status": { "type": "completed" }
+                    "status": "completed",
+                    "items": []
                 },
                 "error": null
             }
@@ -338,7 +340,8 @@ final class CodexClientTerminalTests: XCTestCase {
                 "threadId": "thread-wait",
                 "turn": {
                     "id": "turn-wait",
-                    "status": { "type": "completed" }
+                    "status": "completed",
+                    "items": []
                 }
             }
         }
@@ -356,7 +359,7 @@ final class CodexClientTerminalTests: XCTestCase {
             "method": "account/login/completed",
             "params": {
                 "loginId": "login-wait",
-                "status": "success"
+                "success": true
             }
         }
         """)
@@ -397,7 +400,8 @@ final class CodexClientTerminalTests: XCTestCase {
                 "threadId": "thread-stream",
                 "turn": {
                     "id": "turn-mock",
-                    "status": { "type": "completed" }
+                    "status": "completed",
+                    "items": []
                 }
             }
         }

@@ -116,7 +116,8 @@ final class CodexClientNotificationStreamTests: XCTestCase {
                 "threadId": "\(threadId)",
                 "turn": {
                     "id": "\(turnId)",
-                    "status": { "type": "completed" }
+                    "status": "completed",
+                    "items": []
                 }
             }
         }
@@ -312,7 +313,8 @@ final class CodexClientNotificationStreamTests: XCTestCase {
                 "threadId": "\(thread.id)",
                 "turn": {
                     "id": "\(handle.id)",
-                    "status": { "type": "completed" }
+                    "status": "completed",
+                    "items": []
                 }
             }
         }
@@ -358,7 +360,7 @@ final class CodexClientNotificationStreamTests: XCTestCase {
             "method": "account/login/completed",
             "params": {
                 "loginId": "\(loginId)",
-                "status": "success"
+                "success": true
             }
         }
         """
@@ -402,7 +404,7 @@ final class CodexClientNotificationStreamTests: XCTestCase {
             "method": "account/login/completed",
             "params": {
                 "loginId": "\(chatgpt.loginId)",
-                "status": "success"
+                "success": true
             }
         }
         """

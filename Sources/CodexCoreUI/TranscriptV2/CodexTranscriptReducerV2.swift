@@ -38,23 +38,6 @@ public struct CodexTranscriptReducerV2: Sendable {
         }
     }
 
-    public mutating func restoreHistory(items: [CodexJSONValue]) {
-        transcript = .init(); reasoningText = [:]; turnStartedAt = [:]
-        var fabricated = 0
-        var turnID: String?
-        for value in items {
-            guard let item = value.object else { continue }
-            if item.string("type") == "userMessage" || turnID == nil {
-                fabricated += 1; turnID = "history-\(fabricated)"
-                transcript.turns.append(.init(id: turnID!, status: .working(since: nil)))
-            }
-            applyHistoryItem(item, turnID: turnID!)
-        }
-        for index in transcript.turns.indices {
-            finishTurn(at: index, duration: nil)
-        }
-    }
-
     public mutating func restoreHistory(turns: [CodexSchemaTurn]) {
         transcript = .init(); pendingUsers = [:]; reasoningText = [:]; turnStartedAt = [:]
         for turn in turns {
@@ -80,11 +63,6 @@ public struct CodexTranscriptReducerV2: Sendable {
             }
             transcript.turns[index].liveTail = turn.status == .inProgress ? transcript.turns[index].liveTail : nil
         }
-    }
-
-    public mutating func restoreHistory(params: CodexJSONValue) {
-        guard let root = params.object, let items = root.array("items") else { return }
-        restoreHistory(items: items)
     }
 
     private func belongsToThread(_ root: [String: CodexJSONValue]) -> Bool {

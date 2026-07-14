@@ -66,12 +66,10 @@ final class CodexCoreAppModel {
     var modelIDByThread: [String: String]
     var lastManualModelID: String?
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
-    private var threadHistoryCacheProtectionLeases = CodexThreadHistoryCacheProtectionLeases()
-    private var mainTurnHistoryCacheProtectionLeases: [CodexThreadHistoryCacheProtectionLease] = []
-    private var sideChatHistoryCacheProtectionLeases: [CodexThreadHistoryCacheProtectionLease] = []
-    private var goalHistoryCacheProtectionLeases: [CodexThreadHistoryCacheProtectionLease] = []
+    private var mainTurnHistoryCacheLease: CodexThreadHistoryCacheLease?
+    private var sideChatHistoryCacheLease: CodexThreadHistoryCacheLease?
+    private var goalHistoryCacheLease: CodexThreadHistoryCacheLease?
     private(set) var threadHistoryPaginationState: CodexThreadHistoryPaginationState = .idle
-    private var threadHistoryPaginationRaw: CodexJSONValue?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     private var chatSelectionGeneration = 0
     var isThreadLoading = false
@@ -262,7 +260,7 @@ final class CodexCoreAppModel {
                     let thread = try await self.ensureThread()
                     self.protectThreadHistoryCache(
                         threadID: thread.id,
-                        ownedBy: &self.mainTurnHistoryCacheProtectionLeases
+                        ownedBy: &self.mainTurnHistoryCacheLease
                     )
                     var configuration = self.turnLaunchConfiguration
                     configuration.parameters["clientUserMessageId"] = .string(submission.clientID)
@@ -273,7 +271,7 @@ final class CodexCoreAppModel {
             )
             if !didStart {
                 composerSession.restore(submission)
-                releaseThreadHistoryCacheProtection(ownedBy: &mainTurnHistoryCacheProtectionLeases)
+                releaseThreadHistoryCacheProtection(ownedBy: &mainTurnHistoryCacheLease)
             }
         }
     }
@@ -317,7 +315,7 @@ final class CodexCoreAppModel {
         if let currentThreadID {
             protectThreadHistoryCache(
                 threadID: currentThreadID,
-                ownedBy: &mainTurnHistoryCacheProtectionLeases
+                ownedBy: &mainTurnHistoryCacheLease
             )
         }
         appendActivity(submission.activity)
@@ -338,7 +336,7 @@ final class CodexCoreAppModel {
                         message: self.friendlyError(error),
                         composerSession: &self.composerSession
                     ))
-                    self.releaseThreadHistoryCacheProtection(ownedBy: &self.mainTurnHistoryCacheProtectionLeases)
+                    self.releaseThreadHistoryCacheProtection(ownedBy: &self.mainTurnHistoryCacheLease)
                 }
             }
         }
@@ -351,7 +349,7 @@ final class CodexCoreAppModel {
                 let thread = try await self.ensureThread()
                 self.protectThreadHistoryCache(
                     threadID: thread.id,
-                    ownedBy: &self.goalHistoryCacheProtectionLeases
+                    ownedBy: &self.goalHistoryCacheLease
                 )
                 let response = try await thread.setGoal(objective: submission.prompt, status: .active)
                 return response.goal
@@ -362,7 +360,7 @@ final class CodexCoreAppModel {
         if !didStart {
             composerSession.restore(submission)
         }
-        releaseThreadHistoryCacheProtection(ownedBy: &goalHistoryCacheProtectionLeases)
+        releaseThreadHistoryCacheProtection(ownedBy: &goalHistoryCacheLease)
     }
 
     func setGoalPursuitEnabled(_ enabled: Bool) {
@@ -1141,7 +1139,6 @@ final class CodexCoreAppModel {
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
         threadHistoryPaginationState = .loading
-        threadHistoryPaginationRaw = nil
         do {
             let result = try await CodexThreadHistorySession.load(
                 threadID: thread.id,
@@ -1176,7 +1173,6 @@ final class CodexCoreAppModel {
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
         threadHistoryPaginationState = .loading
-        threadHistoryPaginationRaw = nil
         do {
             let parentRaw = try resume.rawResponse()
             let result = await CodexThreadHistorySession.load(
@@ -1232,31 +1228,29 @@ final class CodexCoreAppModel {
 
     private func protectThreadHistoryCache(
         threadID: String,
-        ownedBy leases: inout [CodexThreadHistoryCacheProtectionLease]
+        ownedBy lease: inout CodexThreadHistoryCacheLease?
     ) {
-        leases.append(threadHistoryCacheProtectionLeases.acquire(
-            threadID: threadID,
-            cache: &threadHistoryCache
-        ))
+        releaseThreadHistoryCacheProtection(ownedBy: &lease)
+        lease = threadHistoryCache.acquireProtection(threadID: threadID)
         refreshThreadHistoryCache(threadID: threadID)
     }
 
     private func releaseThreadHistoryCacheProtection(
-        ownedBy leases: inout [CodexThreadHistoryCacheProtectionLease]
+        ownedBy lease: inout CodexThreadHistoryCacheLease?
     ) {
-        guard let lease = leases.popLast() else { return }
-        let threadID = lease.threadID
+        guard let acquired = lease else { return }
+        lease = nil
+        let threadID = acquired.threadID
         if threadID == currentThreadID {
             refreshThreadHistoryCache(threadID: threadID)
         }
-        threadHistoryCacheProtectionLeases.release(lease, cache: &threadHistoryCache)
+        threadHistoryCache.releaseProtection(acquired)
     }
 
     private func releaseAllThreadHistoryCacheProtections() {
-        threadHistoryCacheProtectionLeases.releaseAll(cache: &threadHistoryCache)
-        mainTurnHistoryCacheProtectionLeases.removeAll()
-        sideChatHistoryCacheProtectionLeases.removeAll()
-        goalHistoryCacheProtectionLeases.removeAll()
+        releaseThreadHistoryCacheProtection(ownedBy: &mainTurnHistoryCacheLease)
+        releaseThreadHistoryCacheProtection(ownedBy: &sideChatHistoryCacheLease)
+        releaseThreadHistoryCacheProtection(ownedBy: &goalHistoryCacheLease)
     }
 
     private func syncCurrentThreadHistoryCacheAfterMutation() {
@@ -1268,7 +1262,7 @@ final class CodexCoreAppModel {
         }
     }
 
-    private func refreshThreadHistoryCache(threadID: String, protected: Bool = false) {
+    private func refreshThreadHistoryCache(threadID: String) {
         guard let codex else { return }
         let parentSnapshot = codex.store.threadSnapshot(id: threadID)
             ?? CodexThreadSnapshot(id: threadID, updatedAt: Date())
@@ -1287,10 +1281,9 @@ final class CodexCoreAppModel {
             hydration: hydration,
             restoredChildThreadCount: snapshot.subagentThreadIDs.count,
             paginationState: threadHistoryPaginationState,
-            transcriptV2: runtimeSession.transcriptV2,
-            paginationRaw: threadHistoryPaginationRaw
+            transcriptV2: runtimeSession.transcriptV2
         )
-        threadHistoryCache.store(result, protected: protected)
+        threadHistoryCache.store(result)
     }
 
     private func invalidateCurrentThreadHistoryCache() {
@@ -1303,7 +1296,6 @@ final class CodexCoreAppModel {
         trace: CodexPerformanceTrace?
     ) -> [String: String] {
         threadHistoryPaginationState = result.paginationState
-        threadHistoryPaginationRaw = result.paginationRaw
         let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
         let activity = runtimeSession.applyHistoryRestore(result)
         appendActivity(activity.kind, title: activity.title, detail: activity.detail)
@@ -1361,7 +1353,7 @@ final class CodexCoreAppModel {
                 if let currentThreadID = self.currentThreadID {
                     self.protectThreadHistoryCache(
                         threadID: currentThreadID,
-                        ownedBy: &self.sideChatHistoryCacheProtectionLeases
+                        ownedBy: &self.sideChatHistoryCacheLease
                     )
                 }
                 return try await thread.turn([.text(prompt)], configuration: self.turnLaunchConfiguration)
@@ -1370,7 +1362,7 @@ final class CodexCoreAppModel {
             errorMessage: CodexErrorFormat.localizedDescription
         )
         if !didStart {
-            releaseThreadHistoryCacheProtection(ownedBy: &sideChatHistoryCacheProtectionLeases)
+            releaseThreadHistoryCacheProtection(ownedBy: &sideChatHistoryCacheLease)
         }
     }
 
@@ -1440,9 +1432,6 @@ final class CodexCoreAppModel {
         if result.syncMainTranscript || result.syncAgentState {
             syncCurrentThreadHistoryCacheAfterMutation()
         }
-        if result.didApplyTranscriptIngress, !isSending {
-            releaseThreadHistoryCacheProtection(ownedBy: &mainTurnHistoryCacheProtectionLeases)
-        }
         for activity in result.activities {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         }
@@ -1453,6 +1442,7 @@ final class CodexCoreAppModel {
             case .refreshSlashCommands(let forceReload):
                 Task { await refreshSlashCommands(forceReload: forceReload) }
             case .flushQueuedFollowUps:
+                releaseThreadHistoryCacheProtection(ownedBy: &mainTurnHistoryCacheLease)
                 flushQueuedFollowUps()
             }
         }
@@ -1463,7 +1453,7 @@ final class CodexCoreAppModel {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         }
         if !runtimeSession.isSideChatSending {
-            releaseThreadHistoryCacheProtection(ownedBy: &sideChatHistoryCacheProtectionLeases)
+            releaseThreadHistoryCacheProtection(ownedBy: &sideChatHistoryCacheLease)
         }
     }
 
@@ -1529,9 +1519,8 @@ final class CodexCoreAppModel {
     private func historyMetadata(for result: CodexThreadHistoryRestoreResult) -> [String: String] {
         [
             "threadID": result.hydration.parent.snapshot.id,
-            "turnCount": "\(result.hydration.parent.snapshot.turns.count)",
             "itemCount": "\(result.hydration.parent.snapshot.turns.reduce(0) { $0 + $1.items.count })",
-            "messageCount": "\(result.messageCount)",
+            "turnCount": "\(result.restoredTurnCount)",
             "restoredChildThreadCount": "\(result.restoredChildThreadCount)",
             "failedChildThreadCount": "\(result.hydration.failedChildThreadIDs.count)"
         ]

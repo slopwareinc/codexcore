@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 struct CodexThreadHistorySessionTests {
-    @Test func paginationRetainsPartialPagesAndRetriesFromFailureCursor() async throws {
+    @Test func paginationRetainsPartialPagesOnFailure() async throws {
         let parent = json([
             "thread": [
                 "id": "thread-1",
@@ -27,23 +27,8 @@ struct CodexThreadHistorySessionTests {
 
         #expect(first.state.phase == .failed)
         #expect(first.state.loadedItemCount == 1)
-        #expect(first.state.retryTurnID == "turn-1")
-        #expect(first.state.retryCursor == "cursor-2")
+        #expect(first.state.nextCursorByTurnID == ["turn-1": "cursor-2"])
         #expect(itemIDs(in: first.raw) == ["page-1"])
-
-        var retryCursors: [String?] = []
-        let retried = await CodexThreadHistorySession.paginate(
-            parentRaw: first.raw,
-            retrying: first.state
-        ) { _, _, cursor in
-            retryCursors.append(cursor)
-            return .init(data: [item("page-2")])
-        }
-
-        #expect(retryCursors == ["cursor-2"])
-        #expect(retried.state.phase == .loaded)
-        #expect(retried.state.loadedItemCount == 2)
-        #expect(itemIDs(in: retried.raw) == ["page-1", "page-2"])
     }
 
     @Test func laterTurnFirstPageFailureRetainsCompletedTurns() async {
@@ -64,8 +49,6 @@ struct CodexThreadHistorySessionTests {
         }
 
         #expect(partial.state.loadedItemCount == 1)
-        #expect(partial.state.retryTurnID == "turn-2")
-        #expect(partial.state.retryCursor == nil)
         #expect(itemIDs(in: partial.raw, turnID: "turn-1") == ["kept"])
     }
 
@@ -79,75 +62,54 @@ struct CodexThreadHistorySessionTests {
         }
 
         var cache = CodexThreadHistoryCache(capacity: 1)
-        cache.store(result("protected"), protected: true)
-        cache.protect(threadID: "protected")
+        let firstLease = cache.acquireProtection(threadID: "protected")
+        let secondLease = cache.acquireProtection(threadID: "protected")
+        cache.store(result("protected"))
         cache.store(result("recent"))
         #expect(cache.count == 2)
 
-        cache.unprotect(threadID: "protected")
+        cache.releaseProtection(firstLease)
 
         #expect(cache.count == 2)
         #expect(cache.isProtected(threadID: "protected"))
 
-        cache.unprotect(threadID: "protected")
+        cache.releaseProtection(secondLease)
 
         #expect(cache.count == 1)
         #expect(cache.result(for: "protected") == nil)
         #expect(cache.result(for: "recent") != nil)
     }
 
-    @Test func protectionLeaseReleasesAcquiredThreadAfterSelectionSwitch() {
-        for changedSelection: String? in ["thread-b", nil] {
-            var currentThreadID: String? = "thread-a"
-            var cache = CodexThreadHistoryCache(capacity: 1)
-            var leases = CodexThreadHistoryCacheProtectionLeases()
-            cache.store(result("thread-a"))
-            let lease = leases.acquire(threadID: "thread-a", cache: &cache)
-            cache.store(result("thread-b"))
-            cache.store(result("thread-c"))
-            #expect(cache.isProtected(threadID: "thread-a"))
-
-            currentThreadID = changedSelection
-            #expect(currentThreadID != "thread-a")
-            leases.release(lease, cache: &cache)
-
-            #expect(cache.result(for: "thread-a") == nil)
-            #expect(cache.result(for: "thread-c") != nil)
-        }
-    }
-
     @Test func protectionLeaseBalancesRepeatedAcquisitions() {
         var cache = CodexThreadHistoryCache(capacity: 1)
-        var leases = CodexThreadHistoryCacheProtectionLeases()
         cache.store(result("thread-a"))
 
-        let firstLease = leases.acquire(threadID: "thread-a", cache: &cache)
-        let secondLease = leases.acquire(threadID: "thread-a", cache: &cache)
+        let firstLease = cache.acquireProtection(threadID: "thread-a")
+        let secondLease = cache.acquireProtection(threadID: "thread-a")
         cache.store(result("thread-b"))
 
-        leases.release(firstLease, cache: &cache)
+        cache.releaseProtection(firstLease)
         #expect(cache.isProtected(threadID: "thread-a"))
         #expect(cache.result(for: "thread-a") != nil)
 
-        leases.release(secondLease, cache: &cache)
+        cache.releaseProtection(secondLease)
         #expect(!cache.isProtected(threadID: "thread-a"))
         cache.store(result("thread-c"))
         #expect(cache.result(for: "thread-a") == nil)
     }
 
-    @Test func historyRestoreMessageCountUsesCanonicalTranscript() {
+    @Test func historyRestoreTurnCountUsesCanonicalTranscript() {
         let result = CodexThreadHistoryRestoreResult(
             snapshot: .init(),
             hydration: .init(parent: .init(snapshot: .init(id: "thread-1"))),
-            transcriptItemsV2: [],
             transcriptV2: CodexTranscriptV2(turns: [
                 CodexTurnV2(id: "turn-1", status: .done(durationMs: nil)),
                 CodexTurnV2(id: "turn-2", status: .done(durationMs: nil))
             ])
         )
 
-        #expect(result.messageCount == 2)
-        #expect(result.activity.detail == "2 messages restored")
+        #expect(result.restoredTurnCount == 2)
+        #expect(result.activity.detail == "2 turns restored")
     }
 
     @Test func protectedCacheStoresTheExactLiveTranscript() throws {
@@ -162,12 +124,13 @@ struct CodexThreadHistorySessionTests {
             )
         ])
         var cache = CodexThreadHistoryCache(capacity: 1)
+        _ = cache.acquireProtection(threadID: "thread-1")
 
         cache.store(CodexThreadHistoryRestoreResult(
             snapshot: .init(),
             hydration: hydration,
             transcriptV2: populated
-        ), protected: true)
+        ))
         #expect(cache.result(for: "thread-1")?.transcriptV2 == populated)
 
         cache.store(CodexThreadHistoryRestoreResult(

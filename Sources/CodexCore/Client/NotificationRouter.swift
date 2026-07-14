@@ -250,49 +250,24 @@ public actor CodexNotificationRouter {
     }
 
     private func routeLogin(_ notification: CodexNotification, loginId: String) {
-        routeScoped(
-            notification,
-            id: loginId,
-            isCompletion: notification.method == CodexAppServerNotificationMethod.accountLoginCompleted.rawValue,
-            registered: &registeredLogins,
-            continuations: &loginContinuations,
-            pending: &pendingLoginNotifications
-        )
-    }
-
-    private func routeScoped(
-        _ notification: CodexNotification,
-        id: String,
-        isCompletion: Bool,
-        registered: inout Set<String>,
-        continuations: inout [String: [UUID: AsyncStream<CodexNotification>.Continuation]],
-        pending: inout [String: [CodexNotification]]
-    ) {
-        if let scopedContinuations = continuations[id], !scopedContinuations.isEmpty {
+        let isCompletion = notification.method == CodexAppServerNotificationMethod.accountLoginCompleted.rawValue
+        if let scopedContinuations = loginContinuations[loginId], !scopedContinuations.isEmpty {
             for continuation in scopedContinuations.values {
                 continuation.yield(notification)
-                if isCompletion {
-                    continuation.finish()
-                }
+                if isCompletion { continuation.finish() }
             }
-        } else if registered.contains(id) {
-            appendPending(notification, to: &pending[id, default: []])
+        } else if registeredLogins.contains(loginId) {
+            pendingLoginNotifications[loginId, default: []].append(notification)
+            if pendingLoginNotifications[loginId, default: []].count > maxPendingNotificationsPerTurn {
+                pendingLoginNotifications[loginId]?.removeFirst()
+            }
         } else if isCompletion {
-            pending.removeValue(forKey: id)
-        } else {
-            appendPending(notification, to: &pending[id, default: []])
+            pendingLoginNotifications.removeValue(forKey: loginId)
         }
 
         if isCompletion {
-            registered.remove(id)
-            continuations.removeValue(forKey: id)
-        }
-    }
-
-    private func appendPending(_ notification: CodexNotification, to buffer: inout [CodexNotification]) {
-        buffer.append(notification)
-        if buffer.count > maxPendingNotificationsPerTurn {
-            buffer.removeFirst(buffer.count - maxPendingNotificationsPerTurn)
+            registeredLogins.remove(loginId)
+            loginContinuations.removeValue(forKey: loginId)
         }
     }
 
@@ -374,16 +349,16 @@ public actor CodexNotificationRouter {
         switch method {
         case CodexAppServerNotificationMethod.itemStarted.rawValue:
             if let wire = decode(CodexSchemaItemStartedNotification.self),
-               let payload = try? ItemStartedNotification(wire) {
-                return .itemStarted(payload)
+               let item = try? wire.item.rawValue.decode(ThreadItem.self) {
+                return .itemStarted(.init(threadId: wire.threadID, turnId: wire.turnID, item: item))
             }
-            return decode(ItemStartedNotification.self).map(CodexNotificationPayload.itemStarted) ?? knownFallback()
+            return knownFallback()
         case CodexAppServerNotificationMethod.itemCompleted.rawValue:
             if let wire = decode(CodexSchemaItemCompletedNotification.self),
-               let payload = try? ItemCompletedNotification(wire) {
-                return .itemCompleted(payload)
+               let item = try? wire.item.rawValue.decode(ThreadItem.self) {
+                return .itemCompleted(.init(threadId: wire.threadID, turnId: wire.turnID, item: item))
             }
-            return decode(ItemCompletedNotification.self).map(CodexNotificationPayload.itemCompleted) ?? knownFallback()
+            return knownFallback()
         case CodexAppServerNotificationMethod.itemAgentMessageDelta.rawValue:
             return decode(AgentMessageDeltaNotification.self).map(CodexNotificationPayload.agentMessageDelta) ?? knownFallback()
         case CodexAppServerNotificationMethod.threadTokenUsageUpdated.rawValue:
@@ -394,23 +369,23 @@ public actor CodexNotificationRouter {
             return decode(ThreadGoalClearedNotification.self).map(CodexNotificationPayload.threadGoalCleared) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnStarted.rawValue:
             if let wire = decode(CodexSchemaTurnStartedNotification.self) {
-                return .turnStarted(TurnStartedNotification(wire))
+                return .turnStarted(.init(threadId: wire.threadID, turn: AppServerTurn(wire.turn)))
             }
-            return decode(TurnStartedNotification.self).map(CodexNotificationPayload.turnStarted) ?? knownFallback()
+            return knownFallback()
         case CodexAppServerNotificationMethod.turnCompleted.rawValue:
             if let wire = decode(CodexSchemaTurnCompletedNotification.self) {
-                return .turnCompleted(TurnCompletedNotification(wire))
+                return .turnCompleted(.init(threadId: wire.threadID, turn: AppServerTurn(wire.turn)))
             }
-            return decode(TurnCompletedNotification.self).map(CodexNotificationPayload.turnCompleted) ?? knownFallback()
+            return knownFallback()
         case CodexAppServerNotificationMethod.turnPlanUpdated.rawValue:
             return decode(TurnPlanUpdatedNotification.self).map(CodexNotificationPayload.turnPlanUpdated) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnDiffUpdated.rawValue:
             return decode(TurnDiffUpdatedNotification.self).map(CodexNotificationPayload.turnDiffUpdated) ?? knownFallback()
         case CodexAppServerNotificationMethod.accountLoginCompleted.rawValue:
             if let wire = decode(CodexSchemaAccountLoginCompletedNotification.self) {
-                return .accountLoginCompleted(AccountLoginCompletedNotification(wire))
+                return .accountLoginCompleted(.init(loginId: wire.loginID, success: wire.success, error: wire.error))
             }
-            return decode(AccountLoginCompletedNotification.self).map(CodexNotificationPayload.accountLoginCompleted) ?? knownFallback()
+            return knownFallback()
         default:
             return knownFallback()
         }
