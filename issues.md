@@ -63,6 +63,9 @@ unsafe because it would stale legitimate live mutations.
 
 ### 3. Agent state has competing owners — high
 
+Disposition: excluded from this remediation by delegated scope. Agent-store
+unification and presentation merge behavior are unchanged.
+
 History populates `CodexAgentStateMapper`; live traffic populates
 `CodexSubagentStoreV2`. Presentation uses an all-or-nothing fallback. Discovering
 one live agent therefore hides every historical agent. The stores also disagree
@@ -73,6 +76,9 @@ graph. At minimum merge by thread ID with live facts overriding stale historical
 facts; the target architecture gives one store complete ownership.
 
 ### 4. Global agent traffic is not root-scoped — high
+
+Disposition: excluded from this remediation by delegated scope. Agent discovery
+and root-scoped agent projection are unchanged.
 
 Transcript reduction rejects another thread's notification, but agent reduction
 runs unconditionally. A foreign spawn appears in the selected thread's agent UI.
@@ -108,6 +114,9 @@ Required change: centralize exact error-message extraction and account for
 
 ### 7. Ultra and nested history hydration are incomplete — high
 
+Disposition: excluded from this remediation by delegated scope. Ultra child
+extraction and recursive agent hydration are unchanged.
+
 The history child extractor ignores `subAgentActivity.agentThreadId`, and the
 hydrator reads only direct children. Root -> A -> B restores only A.
 
@@ -115,6 +124,9 @@ Required change: recognize the exact ultra field, recursively hydrate descendant
 guard cycles/duplicates, keep stable discovery order, and retain partial failures.
 
 ### 8. Thread-spawn source decoding is one level shallow — high
+
+Disposition: excluded from this remediation by delegated scope. Agent source
+decoding and discovery metadata are unchanged.
 
 The runtime unwraps `subAgent` but reads path/depth before unwrapping
 `thread_spawn`. Path and depth are lost.
@@ -124,6 +136,9 @@ camel/snake alternate-key probing: notification envelopes are camelCase; snake
 case is required inside this specific source variant.
 
 ### 9. Hydrated child projection includes inherited context and wrong status — high
+
+Disposition: excluded from this remediation by delegated scope. Child-agent
+transcript ownership and status semantics are unchanged.
 
 Child reads can include parent prefix turns. Current projection copies every turn
 and then marks the child completed regardless of active/interrupted state.
@@ -195,6 +210,15 @@ duplicated:
 - Official capture oracle: concatenated server deltas matched completed text once
   for 27/27 assistant messages.
 - Eight focused audit reproductions failed exactly at the defects listed above.
+
+## Scoped remediation verification
+
+- Full Swift suite: 234 XCTest cases and 22 Swift Testing cases passed.
+- Transcript V2: 18 cases passed, including ingress, envelope, and retry errors.
+- History/cache: 4 cases passed, including partial-page retry and lease release.
+- Notification router: 7 cases passed, including global bounds and login failure.
+- Pinned drift: 102 enums, 389 structs, 95 raw aliases; 66 handwritten overlaps.
+- Pinned version: `codex-cli 0.144.1`.
 
 ## Commit plan
 
