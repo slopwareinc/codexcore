@@ -13,10 +13,31 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var finalAnswer: CodexAssistantTextV2?
     public var liveTail: String?
     public var status: CodexTurnStatusV2
+    public var wireStatus: CodexSchemaTurnStatus?
+    public var error: CodexSchemaTurnError?
+    public var startedAt: Int?
+    public var completedAt: Int?
+    public var durationMs: Int?
+    public var itemsView: CodexSchemaTurnItemsView?
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2) {
+    public init(
+        id: String,
+        userMessage: CodexUserMessageV2? = nil,
+        narrative: [CodexNarrativeEntry] = [],
+        finalAnswer: CodexAssistantTextV2? = nil,
+        liveTail: String? = nil,
+        status: CodexTurnStatusV2,
+        wireStatus: CodexSchemaTurnStatus? = nil,
+        error: CodexSchemaTurnError? = nil,
+        startedAt: Int? = nil,
+        completedAt: Int? = nil,
+        durationMs: Int? = nil,
+        itemsView: CodexSchemaTurnItemsView? = nil
+    ) {
         self.id = id; self.userMessage = userMessage; self.narrative = narrative
         self.finalAnswer = finalAnswer; self.liveTail = liveTail; self.status = status
+        self.wireStatus = wireStatus; self.error = error; self.startedAt = startedAt
+        self.completedAt = completedAt; self.durationMs = durationMs; self.itemsView = itemsView
     }
 }
 

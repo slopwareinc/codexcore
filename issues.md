@@ -79,6 +79,10 @@ root graph.
 
 ### 5. History destroys turn envelopes — high
 
+Disposition: fixed for Transcript V2 history restoration. Real schema turn
+envelopes now retain stable order and IDs, exact wire status, timing, items view,
+and structured `TurnError`, including empty/no-user turns.
+
 History flattens all `turns[].items`. The reducer fabricates `history-*` IDs and
 forces done status without timing or errors. Two real turns, including a failed
 turn with no user message, restored as one successful `history-1` turn.

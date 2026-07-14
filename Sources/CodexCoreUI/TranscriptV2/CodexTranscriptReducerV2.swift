@@ -55,6 +55,33 @@ public struct CodexTranscriptReducerV2: Sendable {
         }
     }
 
+    public mutating func restoreHistory(turns: [CodexSchemaTurn]) {
+        transcript = .init(); pendingUsers = [:]; reasoningText = [:]; turnStartedAt = [:]
+        for turn in turns {
+            let status: CodexTurnStatusV2 = switch turn.status {
+            case .inProgress: .working(since: turn.startedAt.map(Int64.init))
+            case .completed, .interrupted: .done(durationMs: turn.durationMs)
+            case .failed: .failed(message: turn.error?.message ?? "Turn failed")
+            }
+            transcript.turns.append(.init(
+                id: turn.id,
+                status: status,
+                wireStatus: turn.status,
+                error: turn.error,
+                startedAt: turn.startedAt,
+                completedAt: turn.completedAt,
+                durationMs: turn.durationMs,
+                itemsView: turn.itemsView
+            ))
+            let index = transcript.turns.count - 1
+            for item in turn.items {
+                guard let object = item.rawValue.object else { continue }
+                applyHistoryItem(object, turnID: turn.id)
+            }
+            transcript.turns[index].liveTail = turn.status == .inProgress ? transcript.turns[index].liveTail : nil
+        }
+    }
+
     public mutating func restoreHistory(params: CodexJSONValue) {
         guard let root = params.object, let items = root.array("items") else { return }
         restoreHistory(items: items)
@@ -70,12 +97,18 @@ public struct CodexTranscriptReducerV2: Sendable {
         let startedAt = turn.int64("startedAt")
         if let startedAt { turnStartedAt[id] = startedAt }
         ensureTurn(id, since: startedAt)
+        if let index = turnIndex(id) {
+            transcript.turns[index].wireStatus = .inProgress
+            transcript.turns[index].startedAt = turn.int("startedAt")
+        }
     }
 
     private mutating func completeTurn(_ root: [String: CodexJSONValue]) {
         guard let turn = root.object("turn"), let id = turn.string("id"), let index = turnIndex(id) else { return }
         if let error = turn.string("error"), !error.isEmpty { failTurn(at: index, message: error) }
         else { finishTurn(at: index, duration: completionDuration(turn, turnID: id)) }
+        transcript.turns[index].completedAt = turn.int("completedAt")
+        transcript.turns[index].durationMs = turn.int("durationMs") ?? completionDuration(turn, turnID: id)
     }
 
     private mutating func failTurn(_ root: [String: CodexJSONValue]) {

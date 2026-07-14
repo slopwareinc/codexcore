@@ -40,19 +40,22 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
     public var restoredChildThreadCount: Int
     public var paginationState: CodexThreadHistoryPaginationState
     public var transcriptItemsV2: [CodexJSONValue]
+    public var transcriptV2: CodexTranscriptV2
 
     public init(
         snapshot: CodexThreadHistorySnapshot,
         hydration: CodexThreadHistoryHydrationResult,
         restoredChildThreadCount: Int = 0,
         paginationState: CodexThreadHistoryPaginationState = .idle,
-        transcriptItemsV2: [CodexJSONValue] = []
+        transcriptItemsV2: [CodexJSONValue] = [],
+        transcriptV2: CodexTranscriptV2 = .init()
     ) {
         self.snapshot = snapshot
         self.hydration = hydration
         self.restoredChildThreadCount = restoredChildThreadCount
         self.paginationState = paginationState
         self.transcriptItemsV2 = transcriptItemsV2
+        self.transcriptV2 = transcriptV2
     }
 
     public var messageCount: Int {
@@ -208,11 +211,15 @@ public enum CodexThreadHistorySession {
 
         let snapshotSpan = trace?.begin("threadHistory.snapshot.project")
         let snapshot = CodexThreadHistorySnapshot(hydration: hydration)
+        let transcriptTurns = Self.transcriptTurns(from: parentRaw)
+        var reducer = CodexTranscriptReducerV2(threadID: hydration.parent.snapshot.id)
+        reducer.restoreHistory(turns: transcriptTurns)
         let result = CodexThreadHistoryRestoreResult(
             snapshot: snapshot,
             hydration: hydration,
             restoredChildThreadCount: hydration.restoredChildThreadCount,
-            transcriptItemsV2: Self.transcriptItems(from: parentRaw)
+            transcriptItemsV2: transcriptTurns.flatMap { $0.items.map(\.rawValue) },
+            transcriptV2: reducer.transcript
         )
         snapshotSpan?.end(metadata: metadata(for: result))
         return result
@@ -228,6 +235,14 @@ public enum CodexThreadHistorySession {
                   case .array(let items)? = object["items"] else { return [] }
             return items
         }
+    }
+
+    private static func transcriptTurns(from raw: CodexJSONValue) -> [CodexSchemaTurn] {
+        guard case .dictionary(let root) = raw else { return [] }
+        let threadValue = root["thread"] ?? raw
+        guard case .dictionary(let thread) = threadValue,
+              case .array(let turns)? = thread["turns"] else { return [] }
+        return turns.compactMap { try? $0.decode(CodexSchemaTurn.self) }
     }
 
     @discardableResult

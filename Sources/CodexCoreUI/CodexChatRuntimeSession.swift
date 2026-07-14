@@ -260,9 +260,10 @@ public final class CodexChatRuntimeSession {
     }
 
     public func applyHistoryRestore(_ result: CodexThreadHistoryRestoreResult) -> CodexActivity {
-        var reducer = CodexTranscriptReducerV2(threadID: result.hydration.parent.snapshot.id)
-        reducer.restoreHistory(items: result.transcriptItemsV2)
-        transcriptReducerV2 = reducer
+        transcriptReducerV2 = CodexTranscriptReducerV2(
+            threadID: result.hydration.parent.snapshot.id,
+            transcript: result.transcriptV2
+        )
         return state.applyHistoryRestore(result)
     }
 

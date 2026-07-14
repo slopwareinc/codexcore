@@ -208,6 +208,59 @@ struct CodexTranscriptV2Tests {
         #expect(try #require(reducer.transcript.turns.first?.finalAnswer?.text) == "Hello world")
     }
 
+    @Test func historyRestoresExactTurnEnvelopes() async throws {
+        let parent = json([
+            "thread": [
+                "id": "thread-1",
+                "status": ["type": "idle"],
+                "turns": [
+                    [
+                        "id": "turn-complete",
+                        "status": "completed",
+                        "startedAt": 100,
+                        "completedAt": 108,
+                        "durationMs": 8_000,
+                        "itemsView": "full",
+                        "items": [[
+                            "type": "agentMessage",
+                            "id": "answer",
+                            "phase": "final_answer",
+                            "text": "done"
+                        ]]
+                    ],
+                    [
+                        "id": "turn-failed-empty",
+                        "status": "failed",
+                        "startedAt": 200,
+                        "completedAt": 201,
+                        "error": [
+                            "message": "structured failure",
+                            "additionalDetails": "request id 42"
+                        ],
+                        "itemsView": "notLoaded",
+                        "items": []
+                    ]
+                ]
+            ]
+        ])
+
+        let result = await CodexThreadHistorySession.restore(parentRaw: parent) { _ in
+            throw Error.invalid
+        }
+        let turns = result.transcriptV2.turns
+
+        #expect(turns.map(\.id) == ["turn-complete", "turn-failed-empty"])
+        #expect(turns[0].wireStatus == .completed)
+        #expect(turns[0].startedAt == 100)
+        #expect(turns[0].completedAt == 108)
+        #expect(turns[0].durationMs == 8_000)
+        #expect(turns[0].itemsView == .full)
+        #expect(turns[1].wireStatus == .failed)
+        #expect(turns[1].error?.message == "structured failure")
+        #expect(turns[1].error?.additionalDetails == "request id 42")
+        #expect(turns[1].userMessage == nil)
+    }
+
     @Test func headersAndLiveTail() {
         func row(_ id: String, _ action: CodexWorkCategoryV2) -> CodexWorkRowV2 { .command(.init(id:id, command:id, label:id, action:action, status:.completed, exitCode:0, durationMs:nil, output:nil)) }
         #expect(CodexWorkGroupHeaderV2.synthesize(rows: [row("l",.list),row("1",.run),row("2",.run)]) == "Listed files, ran 2 commands")
