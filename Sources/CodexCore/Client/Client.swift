@@ -153,7 +153,8 @@ public actor CodexClient {
         await notificationRouter.registerLogin(loginId)
 
         for await notification in loginNotifications(loginId: loginId) {
-            if case .accountLoginCompleted(let payload) = notification.payload, payload.loginId == loginId {
+            if case .accountLoginCompleted(let payload) = notification.payload,
+               payload.loginId == nil || payload.loginId == loginId {
                 await notificationRouter.unregisterLogin(loginId)
                 return payload
             }

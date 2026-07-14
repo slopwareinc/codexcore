@@ -180,7 +180,9 @@ categorized inventory of all 66 handwritten/generated overlaps. Exact generated
 notifications adapt explicitly into ergonomic turn/error/item/login models;
 conversion tests retain timestamps, structured errors, items, and login failure.
 Nested non-agent drift in `ThreadSortKey.recencyAt` and
-`ThreadStartParams.mockExperimentalField` is also covered.
+`ThreadStartParams.mockExperimentalField` is also covered. The scoped public
+login wait now retains id-less completion failures instead of converting them to
+`loginStreamEnded`.
 
 Pinned drift checks validate generated files but not overlapping handwritten V2
 compatibility types.
@@ -213,7 +215,7 @@ duplicated:
 
 ## Scoped remediation verification
 
-- Full Swift suite: 234 XCTest cases and 22 Swift Testing cases passed.
+- Full Swift suite: 235 XCTest cases and 22 Swift Testing cases passed.
 - Transcript V2: 18 cases passed, including ingress, envelope, and retry errors.
 - History/cache: 4 cases passed, including partial-page retry and lease release.
 - Notification router: 7 cases passed, including global bounds and login failure.

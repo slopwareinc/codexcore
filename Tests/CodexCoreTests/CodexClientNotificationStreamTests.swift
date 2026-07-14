@@ -3,6 +3,28 @@ import XCTest
 
 final class CodexClientNotificationStreamTests: XCTestCase {
 
+    func testLoginWaitAcceptsScopedFailureWithoutLoginID() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        let wait = Task {
+            try await client.waitForLoginCompleted(loginId: "login-1")
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        await transport.receiveMessage(
+            #"{"jsonrpc":"2.0","method":"account/login/completed","params":{"success":false,"error":"denied"}}"#
+        )
+
+        let completion = try await wait.value
+        XCTAssertNil(completion.loginId)
+        XCTAssertFalse(completion.success)
+        XCTAssertEqual(completion.error, "denied")
+
+        await client.disconnect()
+    }
+
     func testGenericStructuredErrorsRemainActiveWhileRetrying() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()
