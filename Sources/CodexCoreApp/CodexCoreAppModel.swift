@@ -1248,7 +1248,9 @@ final class CodexCoreAppModel {
         let result = CodexThreadHistoryRestoreResult(
             snapshot: snapshot,
             hydration: hydration,
-            restoredChildThreadCount: snapshot.subagentThreadIDs.count
+            restoredChildThreadCount: snapshot.subagentThreadIDs.count,
+            paginationState: threadHistoryPaginationState,
+            transcriptV2: runtimeSession.transcriptV2
         )
         threadHistoryCache.store(result, protected: protected)
     }

@@ -49,6 +49,10 @@ state updates.
 
 ### 2. Protected cache refresh erases Transcript V2 — critical
 
+Disposition: fixed. Restore results require an explicit lossless Transcript V2
+payload, and protected live refreshes snapshot the runtime transcript and current
+pagination state instead of constructing a default-empty replacement.
+
 `refreshThreadHistoryCache` constructs a restore result without V2 items. The
 default empty array overwrites the populated protected entry. Switching away and
 back restores an empty reducer.

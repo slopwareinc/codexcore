@@ -48,7 +48,7 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
         restoredChildThreadCount: Int = 0,
         paginationState: CodexThreadHistoryPaginationState = .idle,
         transcriptItemsV2: [CodexJSONValue] = [],
-        transcriptV2: CodexTranscriptV2 = .init()
+        transcriptV2: CodexTranscriptV2
     ) {
         self.snapshot = snapshot
         self.hydration = hydration
