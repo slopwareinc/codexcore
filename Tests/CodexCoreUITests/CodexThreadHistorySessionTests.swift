@@ -130,6 +130,21 @@ struct CodexThreadHistorySessionTests {
         #expect(cache.result(for: "thread-a") == nil)
     }
 
+    @Test func historyRestoreMessageCountUsesCanonicalTranscript() {
+        let result = CodexThreadHistoryRestoreResult(
+            snapshot: .init(),
+            hydration: .init(parent: .init(snapshot: .init(id: "thread-1"))),
+            transcriptItemsV2: [],
+            transcriptV2: CodexTranscriptV2(turns: [
+                CodexTurnV2(id: "turn-1", status: .done(durationMs: nil)),
+                CodexTurnV2(id: "turn-2", status: .done(durationMs: nil))
+            ])
+        )
+
+        #expect(result.messageCount == 2)
+        #expect(result.activity.detail == "2 messages restored")
+    }
+
     @Test func protectedCacheStoresTheExactLiveTranscript() throws {
         let hydration = CodexThreadHistoryHydrationResult(
             parent: CodexHydratedThread(snapshot: CodexThreadSnapshot(id: "thread-1"))

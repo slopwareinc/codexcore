@@ -68,7 +68,7 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
     }
 
     public var messageCount: Int {
-        transcriptItemsV2.count
+        transcriptV2.turns.isEmpty ? transcriptItemsV2.count : transcriptV2.turns.count
     }
 
     public var activity: CodexActivity {
