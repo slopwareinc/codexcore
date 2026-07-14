@@ -66,6 +66,10 @@ final class CodexCoreAppModel {
     var modelIDByThread: [String: String]
     var lastManualModelID: String?
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
+    private var threadHistoryCacheProtectionLeases = CodexThreadHistoryCacheProtectionLeases()
+    private var mainTurnHistoryCacheProtectionLeases: [CodexThreadHistoryCacheProtectionLease] = []
+    private var sideChatHistoryCacheProtectionLeases: [CodexThreadHistoryCacheProtectionLease] = []
+    private var goalHistoryCacheProtectionLeases: [CodexThreadHistoryCacheProtectionLease] = []
     private(set) var threadHistoryPaginationState: CodexThreadHistoryPaginationState = .idle
     private var threadHistoryPaginationRaw: CodexJSONValue?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
@@ -256,7 +260,10 @@ final class CodexCoreAppModel {
                 submission,
                 start: {
                     let thread = try await self.ensureThread()
-                    self.protectThreadHistoryCache(threadID: thread.id)
+                    self.protectThreadHistoryCache(
+                        threadID: thread.id,
+                        ownedBy: &self.mainTurnHistoryCacheProtectionLeases
+                    )
                     var configuration = self.turnLaunchConfiguration
                     configuration.parameters["clientUserMessageId"] = .string(submission.clientID)
                     return try await thread.turn(submission.turnInput, configuration: configuration)
@@ -266,7 +273,7 @@ final class CodexCoreAppModel {
             )
             if !didStart {
                 composerSession.restore(submission)
-                releaseCurrentThreadHistoryCacheProtection()
+                releaseThreadHistoryCacheProtection(ownedBy: &mainTurnHistoryCacheProtectionLeases)
             }
         }
     }
@@ -307,7 +314,12 @@ final class CodexCoreAppModel {
         ) else {
             return
         }
-        protectCurrentThreadHistoryCache()
+        if let currentThreadID {
+            protectThreadHistoryCache(
+                threadID: currentThreadID,
+                ownedBy: &mainTurnHistoryCacheProtectionLeases
+            )
+        }
         appendActivity(submission.activity)
 
         Task { [weak self] in
@@ -326,7 +338,7 @@ final class CodexCoreAppModel {
                         message: self.friendlyError(error),
                         composerSession: &self.composerSession
                     ))
-                    self.releaseCurrentThreadHistoryCacheProtection()
+                    self.releaseThreadHistoryCacheProtection(ownedBy: &self.mainTurnHistoryCacheProtectionLeases)
                 }
             }
         }
@@ -337,7 +349,10 @@ final class CodexCoreAppModel {
             submission,
             start: {
                 let thread = try await self.ensureThread()
-                self.protectThreadHistoryCache(threadID: thread.id)
+                self.protectThreadHistoryCache(
+                    threadID: thread.id,
+                    ownedBy: &self.goalHistoryCacheProtectionLeases
+                )
                 let response = try await thread.setGoal(objective: submission.prompt, status: .active)
                 return response.goal
             },
@@ -347,7 +362,7 @@ final class CodexCoreAppModel {
         if !didStart {
             composerSession.restore(submission)
         }
-        releaseCurrentThreadHistoryCacheProtection()
+        releaseThreadHistoryCacheProtection(ownedBy: &goalHistoryCacheProtectionLeases)
     }
 
     func setGoalPursuitEnabled(_ enabled: Bool) {
@@ -1215,20 +1230,33 @@ final class CodexCoreAppModel {
         return true
     }
 
-    private func protectCurrentThreadHistoryCache() {
-        guard let currentThreadID else { return }
-        protectThreadHistoryCache(threadID: currentThreadID)
-    }
-
-    private func protectThreadHistoryCache(threadID: String) {
-        threadHistoryCache.protect(threadID: threadID)
+    private func protectThreadHistoryCache(
+        threadID: String,
+        ownedBy leases: inout [CodexThreadHistoryCacheProtectionLease]
+    ) {
+        leases.append(threadHistoryCacheProtectionLeases.acquire(
+            threadID: threadID,
+            cache: &threadHistoryCache
+        ))
         refreshThreadHistoryCache(threadID: threadID)
     }
 
-    private func releaseCurrentThreadHistoryCacheProtection() {
-        guard let currentThreadID else { return }
-        refreshThreadHistoryCache(threadID: currentThreadID)
-        threadHistoryCache.unprotect(threadID: currentThreadID)
+    private func releaseThreadHistoryCacheProtection(
+        ownedBy leases: inout [CodexThreadHistoryCacheProtectionLease]
+    ) {
+        guard let lease = leases.popLast() else { return }
+        let threadID = lease.threadID
+        if threadID == currentThreadID {
+            refreshThreadHistoryCache(threadID: threadID)
+        }
+        threadHistoryCacheProtectionLeases.release(lease, cache: &threadHistoryCache)
+    }
+
+    private func releaseAllThreadHistoryCacheProtections() {
+        threadHistoryCacheProtectionLeases.releaseAll(cache: &threadHistoryCache)
+        mainTurnHistoryCacheProtectionLeases.removeAll()
+        sideChatHistoryCacheProtectionLeases.removeAll()
+        goalHistoryCacheProtectionLeases.removeAll()
     }
 
     private func syncCurrentThreadHistoryCacheAfterMutation() {
@@ -1330,13 +1358,20 @@ final class CodexCoreAppModel {
             prompt: prompt,
             start: {
                 let thread = try await self.ensureSideChatThread()
-                self.protectCurrentThreadHistoryCache()
+                if let currentThreadID = self.currentThreadID {
+                    self.protectThreadHistoryCache(
+                        threadID: currentThreadID,
+                        ownedBy: &self.sideChatHistoryCacheProtectionLeases
+                    )
+                }
                 return try await thread.turn([.text(prompt)], configuration: self.turnLaunchConfiguration)
             },
             onActivity: { [weak self] activity in self?.appendActivity(activity) },
             errorMessage: CodexErrorFormat.localizedDescription
         )
-        if !didStart { releaseCurrentThreadHistoryCacheProtection() }
+        if !didStart {
+            releaseThreadHistoryCacheProtection(ownedBy: &sideChatHistoryCacheProtectionLeases)
+        }
     }
 
     func interruptSideChat() async {
@@ -1406,7 +1441,7 @@ final class CodexCoreAppModel {
             syncCurrentThreadHistoryCacheAfterMutation()
         }
         if result.didApplyTranscriptIngress, !isSending {
-            releaseCurrentThreadHistoryCacheProtection()
+            releaseThreadHistoryCacheProtection(ownedBy: &mainTurnHistoryCacheProtectionLeases)
         }
         for activity in result.activities {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
@@ -1428,7 +1463,7 @@ final class CodexCoreAppModel {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         }
         if !runtimeSession.isSideChatSending {
-            releaseCurrentThreadHistoryCacheProtection()
+            releaseThreadHistoryCacheProtection(ownedBy: &sideChatHistoryCacheProtectionLeases)
         }
     }
 
@@ -1573,6 +1608,7 @@ final class CodexCoreAppModel {
     }
 
     private func clearThreadState(keepCurrentThread: Bool = false) {
+        releaseAllThreadHistoryCacheProtections()
         if !keepCurrentThread {
             threadSession.reset()
         }
@@ -1588,6 +1624,7 @@ final class CodexCoreAppModel {
     }
 
     private func resetSessionState() {
+        releaseAllThreadHistoryCacheProtections()
         Task { await stopBottomTerminalSession() }
         runtimeSession.cancelGlobalNotifications()
         promptRuntime.reset()

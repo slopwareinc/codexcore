@@ -172,6 +172,51 @@ public struct CodexThreadHistoryCache: Sendable {
     }
 }
 
+public struct CodexThreadHistoryCacheProtectionLease: Sendable, Equatable {
+    fileprivate let id: UInt64
+    public let threadID: String
+}
+
+public struct CodexThreadHistoryCacheProtectionLeases: Sendable, Equatable {
+    private var nextLeaseID: UInt64 = 0
+    private var activeThreadIDsByLeaseID: [UInt64: String] = [:]
+
+    public init() {}
+
+    public var isEmpty: Bool {
+        activeThreadIDsByLeaseID.isEmpty
+    }
+
+    public mutating func acquire(
+        threadID: String,
+        cache: inout CodexThreadHistoryCache
+    ) -> CodexThreadHistoryCacheProtectionLease {
+        let lease = CodexThreadHistoryCacheProtectionLease(id: nextLeaseID, threadID: threadID)
+        nextLeaseID &+= 1
+        activeThreadIDsByLeaseID[lease.id] = threadID
+        cache.protect(threadID: threadID)
+        return lease
+    }
+
+    @discardableResult
+    public mutating func release(
+        _ lease: CodexThreadHistoryCacheProtectionLease,
+        cache: inout CodexThreadHistoryCache
+    ) -> String? {
+        guard let threadID = activeThreadIDsByLeaseID.removeValue(forKey: lease.id),
+              threadID == lease.threadID else { return nil }
+        cache.unprotect(threadID: threadID)
+        return threadID
+    }
+
+    public mutating func releaseAll(cache: inout CodexThreadHistoryCache) {
+        for threadID in activeThreadIDsByLeaseID.values {
+            cache.unprotect(threadID: threadID)
+        }
+        activeThreadIDsByLeaseID.removeAll()
+    }
+}
+
 public enum CodexThreadHistorySession {
     public static func load(
         threadID: String,

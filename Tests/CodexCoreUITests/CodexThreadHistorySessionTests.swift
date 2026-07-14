@@ -96,6 +96,40 @@ struct CodexThreadHistorySessionTests {
         #expect(cache.result(for: "recent") != nil)
     }
 
+    @Test func protectionLeaseReleasesAcquiredThreadAfterSelectionSwitch() {
+        var cache = CodexThreadHistoryCache(capacity: 1)
+        var leases = CodexThreadHistoryCacheProtectionLeases()
+        cache.store(result("thread-a"))
+        let lease = leases.acquire(threadID: "thread-a", cache: &cache)
+        cache.store(result("thread-b"))
+        cache.store(result("thread-c"))
+        #expect(cache.isProtected(threadID: "thread-a"))
+
+        leases.release(lease, cache: &cache)
+
+        #expect(cache.result(for: "thread-a") == nil)
+        #expect(cache.result(for: "thread-c") != nil)
+    }
+
+    @Test func protectionLeaseBalancesRepeatedAcquisitions() {
+        var cache = CodexThreadHistoryCache(capacity: 1)
+        var leases = CodexThreadHistoryCacheProtectionLeases()
+        cache.store(result("thread-a"))
+
+        let firstLease = leases.acquire(threadID: "thread-a", cache: &cache)
+        let secondLease = leases.acquire(threadID: "thread-a", cache: &cache)
+        cache.store(result("thread-b"))
+
+        leases.release(firstLease, cache: &cache)
+        #expect(cache.isProtected(threadID: "thread-a"))
+        #expect(cache.result(for: "thread-a") != nil)
+
+        leases.release(secondLease, cache: &cache)
+        #expect(!cache.isProtected(threadID: "thread-a"))
+        cache.store(result("thread-c"))
+        #expect(cache.result(for: "thread-a") == nil)
+    }
+
     @Test func protectedCacheStoresTheExactLiveTranscript() throws {
         let hydration = CodexThreadHistoryHydrationResult(
             parent: CodexHydratedThread(snapshot: CodexThreadSnapshot(id: "thread-1"))
@@ -122,6 +156,14 @@ struct CodexThreadHistorySessionTests {
             transcriptV2: .init()
         ))
         #expect(try #require(cache.result(for: "thread-1")?.transcriptV2).turns.isEmpty)
+    }
+
+    private func result(_ id: String) -> CodexThreadHistoryRestoreResult {
+        .init(
+            snapshot: .init(),
+            hydration: .init(parent: .init(snapshot: .init(id: id))),
+            transcriptV2: .init()
+        )
     }
 
     private func json(_ value: Any) -> CodexJSONValue {
