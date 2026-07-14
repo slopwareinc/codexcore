@@ -133,9 +133,10 @@ status from the child thread/latest owned turn.
 
 ### 10. Cache and notification buffers lack complete lifecycle bounds — medium
 
-Disposition: partially fixed. Pending turn replay is now bounded per turn,
-globally by unknown turn ID count, and globally by event count with deterministic
-oldest-first eviction. Cache protection lifecycle remains in progress.
+Disposition: fixed. Pending turn replay is bounded per turn, globally by unknown
+turn ID count, and globally by event count with deterministic oldest-first
+eviction. Cache protection uses balanced reference-counted leases that release
+on completion and submission failure before capacity eviction resumes.
 
 Protected cache entries never unprotect, so capacity only bounds unprotected
 entries. Pending notifications are capped per turn but not by number of unknown

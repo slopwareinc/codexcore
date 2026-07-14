@@ -265,6 +265,7 @@ final class CodexCoreAppModel {
             )
             if !didStart {
                 composerSession.restore(submission)
+                releaseCurrentThreadHistoryCacheProtection()
             }
         }
     }
@@ -281,10 +282,8 @@ final class CodexCoreAppModel {
         ) {
         case .queued(_, let activity):
             appendActivity(activity)
-            protectCurrentThreadHistoryCache()
         case .steer(let prompt, let activity):
             appendActivity(activity)
-            protectCurrentThreadHistoryCache()
             guard let activeTurn else { return }
             do {
                 _ = try await activeTurn.steer(prompt)
@@ -314,7 +313,6 @@ final class CodexCoreAppModel {
             guard let self else { return }
             do {
                 let thread = try await ensureThread()
-                protectThreadHistoryCache(threadID: thread.id)
                 let handle = try await thread.turn(submission.input, configuration: turnLaunchConfiguration)
                 await CodexMainActorProjection.run {
                     self.runtimeSession.startMainTurn(handle)
@@ -327,6 +325,7 @@ final class CodexCoreAppModel {
                         message: self.friendlyError(error),
                         composerSession: &self.composerSession
                     ))
+                    self.releaseCurrentThreadHistoryCacheProtection()
                 }
             }
         }
@@ -347,6 +346,7 @@ final class CodexCoreAppModel {
         if !didStart {
             composerSession.restore(submission)
         }
+        releaseCurrentThreadHistoryCacheProtection()
     }
 
     func setGoalPursuitEnabled(_ enabled: Bool) {
@@ -1219,7 +1219,13 @@ final class CodexCoreAppModel {
 
     private func protectThreadHistoryCache(threadID: String) {
         threadHistoryCache.protect(threadID: threadID)
-        refreshThreadHistoryCache(threadID: threadID, protected: true)
+        refreshThreadHistoryCache(threadID: threadID)
+    }
+
+    private func releaseCurrentThreadHistoryCacheProtection() {
+        guard let currentThreadID else { return }
+        refreshThreadHistoryCache(threadID: currentThreadID)
+        threadHistoryCache.unprotect(threadID: currentThreadID)
     }
 
     private func syncCurrentThreadHistoryCacheAfterMutation() {
@@ -1315,7 +1321,7 @@ final class CodexCoreAppModel {
         let prompt = composerSession.trimmedSideChatDraft
         guard !prompt.isEmpty else { return }
         composerSession.clearSideChatDraft()
-        await runtimeSession.submitSideChat(
+        let didStart = await runtimeSession.submitSideChat(
             prompt: prompt,
             start: {
                 let thread = try await self.ensureSideChatThread()
@@ -1325,6 +1331,7 @@ final class CodexCoreAppModel {
             onActivity: { [weak self] activity in self?.appendActivity(activity) },
             errorMessage: CodexErrorFormat.localizedDescription
         )
+        if !didStart { releaseCurrentThreadHistoryCacheProtection() }
     }
 
     func interruptSideChat() async {
@@ -1393,6 +1400,9 @@ final class CodexCoreAppModel {
         if result.syncMainTranscript || result.syncAgentState {
             syncCurrentThreadHistoryCacheAfterMutation()
         }
+        if result.didApplyTranscriptIngress, !isSending {
+            releaseCurrentThreadHistoryCacheProtection()
+        }
         for activity in result.activities {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         }
@@ -1411,6 +1421,9 @@ final class CodexCoreAppModel {
     private func applySideChat(_ update: CodexSideChatSessionUpdate) {
         if let activity = update.activity {
             appendActivity(activity.kind, title: activity.title, detail: activity.detail)
+        }
+        if !runtimeSession.isSideChatSending {
+            releaseCurrentThreadHistoryCacheProtection()
         }
     }
 

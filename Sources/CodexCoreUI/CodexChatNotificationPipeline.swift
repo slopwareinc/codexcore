@@ -15,17 +15,20 @@ public enum CodexChatNotificationPipelineAction: Equatable, Sendable {
 public struct CodexChatNotificationPipelineResult: Equatable, Sendable {
     public var syncMainTranscript: Bool
     public var syncAgentState: Bool
+    public var didApplyTranscriptIngress: Bool
     public var activities: [CodexActivity]
     public var actions: [CodexChatNotificationPipelineAction]
 
     public init(
         syncMainTranscript: Bool = false,
         syncAgentState: Bool = false,
+        didApplyTranscriptIngress: Bool = false,
         activities: [CodexActivity] = [],
         actions: [CodexChatNotificationPipelineAction] = []
     ) {
         self.syncMainTranscript = syncMainTranscript
         self.syncAgentState = syncAgentState
+        self.didApplyTranscriptIngress = didApplyTranscriptIngress
         self.activities = activities
         self.actions = actions
     }
@@ -33,6 +36,7 @@ public struct CodexChatNotificationPipelineResult: Equatable, Sendable {
     public mutating func merge(_ other: CodexChatNotificationPipelineResult) {
         syncMainTranscript = syncMainTranscript || other.syncMainTranscript
         syncAgentState = syncAgentState || other.syncAgentState
+        didApplyTranscriptIngress = didApplyTranscriptIngress || other.didApplyTranscriptIngress
         activities.append(contentsOf: other.activities)
         actions.append(contentsOf: other.actions)
     }

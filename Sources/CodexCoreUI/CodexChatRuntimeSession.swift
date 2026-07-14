@@ -433,12 +433,14 @@ public final class CodexChatRuntimeSession {
             notifications,
             routeNotification: { [weak self] notification in
                 self?.applyToTranscriptV2(notification, threadID: currentThreadID())
-                return self?.state.apply(
+                var result = self?.state.apply(
                     notification,
                     mode: .globalStream,
                     currentThreadID: currentThreadID(),
                     store: store
                 )
+                result?.didApplyTranscriptIngress = true
+                return result
             },
             applyResult: applyResult
         )

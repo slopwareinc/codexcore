@@ -9,6 +9,8 @@ struct CodexTranscriptV2Tests {
         let global = AsyncStream.makeStream(of: CodexNotification.self)
         let scoped = AsyncStream.makeStream(of: CodexNotification.self)
         var scopedResultCount = 0
+        var globalAppliedTranscriptIngress = false
+        var scopedAppliedTranscriptIngress = false
         let notifications = [
             notification("turn/started", [
                 "threadId": .string("thread-1"),
@@ -36,14 +38,17 @@ struct CodexTranscriptV2Tests {
             global.stream,
             store: nil,
             currentThreadID: { "thread-1" },
-            applyResult: { _ in }
+            applyResult: { globalAppliedTranscriptIngress = globalAppliedTranscriptIngress || $0.didApplyTranscriptIngress }
         )
         runtime.consumeMainTurnStream(
             id: "turn-1",
             notifications: scoped.stream,
             currentThreadID: { "thread-1" },
             store: { nil },
-            applyResult: { _ in scopedResultCount += 1 }
+            applyResult: {
+                scopedResultCount += 1
+                scopedAppliedTranscriptIngress = scopedAppliedTranscriptIngress || $0.didApplyTranscriptIngress
+            }
         )
 
         for notification in notifications {
@@ -56,6 +61,8 @@ struct CodexTranscriptV2Tests {
 
         #expect(try #require(runtime.transcriptV2.turns.first?.finalAnswer?.text) == "WIRE")
         #expect(scopedResultCount > 0)
+        #expect(globalAppliedTranscriptIngress)
+        #expect(!scopedAppliedTranscriptIngress)
     }
 
     @Test func repoInspectReplay() throws {

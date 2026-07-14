@@ -76,7 +76,7 @@ public struct CodexThreadHistoryCache: Sendable {
     private let capacity: Int
     private var entries: [String: CodexThreadHistoryRestoreResult] = [:]
     private var order: [String] = []
-    private var protectedThreadIDs: Set<String> = []
+    private var protectionCounts: [String: Int] = [:]
 
     public init(capacity: Int = 20) {
         self.capacity = max(0, capacity)
@@ -87,7 +87,7 @@ public struct CodexThreadHistoryCache: Sendable {
     }
 
     public func isProtected(threadID: String) -> Bool {
-        protectedThreadIDs.contains(threadID)
+        protectionCounts[threadID, default: 0] > 0
     }
 
     public mutating func result(for threadID: String) -> CodexThreadHistoryRestoreResult? {
@@ -98,13 +98,13 @@ public struct CodexThreadHistoryCache: Sendable {
 
     public mutating func store(_ result: CodexThreadHistoryRestoreResult, protected: Bool = false) {
         let threadID = result.hydration.parent.snapshot.id
-        let isProtected = protected || protectedThreadIDs.contains(threadID)
-        guard capacity > 0 || isProtected else {
+        let shouldKeep = protected || isProtected(threadID: threadID)
+        guard capacity > 0 || shouldKeep else {
             evictUnprotectedEntries()
             return
         }
         if protected {
-            protectedThreadIDs.insert(threadID)
+            protect(threadID: threadID)
         }
         entries[threadID] = result
         touch(threadID)
@@ -112,20 +112,27 @@ public struct CodexThreadHistoryCache: Sendable {
     }
 
     public mutating func protect(threadID: String) {
-        protectedThreadIDs.insert(threadID)
+        protectionCounts[threadID, default: 0] += 1
+        evictOverflow()
+    }
+
+    public mutating func unprotect(threadID: String) {
+        let count = protectionCounts[threadID, default: 0]
+        if count <= 1 { protectionCounts.removeValue(forKey: threadID) }
+        else { protectionCounts[threadID] = count - 1 }
         evictOverflow()
     }
 
     public mutating func remove(threadID: String) {
         entries.removeValue(forKey: threadID)
         order.removeAll { $0 == threadID }
-        protectedThreadIDs.remove(threadID)
+        protectionCounts.removeValue(forKey: threadID)
     }
 
     public mutating func removeAll() {
         entries.removeAll()
         order.removeAll()
-        protectedThreadIDs.removeAll()
+        protectionCounts.removeAll()
     }
 
     private mutating func touch(_ threadID: String) {
@@ -135,7 +142,7 @@ public struct CodexThreadHistoryCache: Sendable {
 
     private mutating func evictOverflow() {
         while unprotectedEntryCount > capacity,
-              let evicted = order.first(where: { !protectedThreadIDs.contains($0) }) {
+              let evicted = order.first(where: { !isProtected(threadID: $0) }) {
             order.removeAll { $0 == evicted }
             entries.removeValue(forKey: evicted)
         }
@@ -143,11 +150,12 @@ public struct CodexThreadHistoryCache: Sendable {
 
     private var unprotectedEntryCount: Int {
         entries.keys.reduce(0) { count, threadID in
-            count + (protectedThreadIDs.contains(threadID) ? 0 : 1)
+            count + (isProtected(threadID: threadID) ? 0 : 1)
         }
     }
 
     private mutating func evictUnprotectedEntries() {
+        let protectedThreadIDs = Set(protectionCounts.keys)
         for threadID in Array(entries.keys) where !protectedThreadIDs.contains(threadID) {
             entries.removeValue(forKey: threadID)
         }
