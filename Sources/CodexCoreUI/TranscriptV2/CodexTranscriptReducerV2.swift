@@ -105,8 +105,11 @@ public struct CodexTranscriptReducerV2: Sendable {
 
     private mutating func completeTurn(_ root: [String: CodexJSONValue]) {
         guard let turn = root.object("turn"), let id = turn.string("id"), let index = turnIndex(id) else { return }
-        if let error = turn.string("error"), !error.isEmpty { failTurn(at: index, message: error) }
+        let error = CodexTurnErrorAdapter.decode(turn["error"])
+        transcript.turns[index].error = error
+        if let error { failTurn(at: index, message: error.message) }
         else { finishTurn(at: index, duration: completionDuration(turn, turnID: id)) }
+        transcript.turns[index].wireStatus = error == nil ? .completed : .failed
         transcript.turns[index].completedAt = turn.int("completedAt")
         transcript.turns[index].durationMs = turn.int("durationMs") ?? completionDuration(turn, turnID: id)
     }
@@ -115,7 +118,12 @@ public struct CodexTranscriptReducerV2: Sendable {
         let turn = root.object("turn") ?? root
         guard let id = turn.string("id") ?? root.string("turnId") else { return }
         ensureTurn(id, since: nil)
-        if let index = turnIndex(id) { failTurn(at: index, message: turn.string("error") ?? root.string("message") ?? "Turn failed") }
+        if let index = turnIndex(id) {
+            let error = CodexTurnErrorAdapter.decode(turn["error"] ?? root["error"])
+            transcript.turns[index].error = error
+            transcript.turns[index].wireStatus = .failed
+            failTurn(at: index, message: error?.message ?? root.string("message") ?? "Turn failed")
+        }
     }
 
     private mutating func applyItem(_ root: [String: CodexJSONValue], completed: Bool) {
@@ -306,7 +314,11 @@ public struct CodexTranscriptReducerV2: Sendable {
 
     private mutating func applyError(_ root: [String: CodexJSONValue]) {
         guard let id = root.string("turnId"), let index = turnIndex(id) else { return }
-        failTurn(at: index, message: root.string("message") ?? "Turn failed")
+        guard root.bool("willRetry") != true else { return }
+        let error = CodexTurnErrorAdapter.decode(root["error"])
+        transcript.turns[index].error = error
+        transcript.turns[index].wireStatus = .failed
+        failTurn(at: index, message: error?.message ?? root.string("message") ?? "Turn failed")
     }
 
     private mutating func ensureTurn(_ id: String, since: Int64?) {

@@ -276,9 +276,7 @@ public enum CodexThreadHistoryHydrator {
     }
 
     private static func turnErrorMessage(from turn: [String: CodexJSONValue]) -> String? {
-        guard let error = turn["error"] else { return nil }
-        if case .null = error { return nil }
-        return string(from: error)
+        CodexTurnErrorAdapter.message(from: turn["error"])
     }
 
     private static func date(from value: CodexJSONValue?) -> Date? {

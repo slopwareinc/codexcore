@@ -133,6 +133,7 @@ public enum CodexServerEvent: Sendable {
     case turnPlanUpdated(threadId: String, turnId: String, plan: [TurnPlanStep], explanation: String?)
     case turnDiffUpdated(threadId: String, turnId: String, diff: String)
     case tokenUsageUpdated(threadId: String, turnId: String?, usage: ThreadTokenUsage)
+    case turnError(threadId: String, turnId: String, error: CodexSchemaTurnError, willRetry: Bool)
     case serverError(message: String, threadId: String?)
     case unknown(method: String, params: [String: CodexJSONValue])
 }

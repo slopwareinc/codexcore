@@ -96,6 +96,10 @@ status, duration, timestamps, structured error, and empty/no-user turns.
 
 ### 6. Structured errors are misread — high
 
+Disposition: fixed for non-agent live and history paths. A shared exact
+`TurnError` adapter feeds client/store and Transcript V2 projections; generic
+errors retain their turn identity and `willRetry` keeps retrying turns active.
+
 Live completion, generic error notifications, thread hydration, and historical
 agent projection look for a string where the protocol supplies `TurnError`.
 

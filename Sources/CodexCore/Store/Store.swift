@@ -608,6 +608,23 @@ public final class CodexCoreStore {
             thread.turns[idx].usage = usage
             storeThread(thread)
 
+        case .turnError(let threadId, let turnId, let error, let willRetry):
+            guard !willRetry else { return }
+            var thread = snapshotForMutation(threadID: threadId)
+            let idx: Int
+            if let existing = thread.turns.firstIndex(where: { $0.id == turnId }) {
+                idx = existing
+            } else {
+                thread.turns.append(CodexTurnSnapshot(id: turnId))
+                idx = thread.turns.count - 1
+            }
+            thread.turns[idx].status = .failed
+            thread.turns[idx].error = error.message
+            thread.turns[idx].completedAt = Date()
+            thread.status = .idle
+            if activeThread?.id == threadId { isThinking = false }
+            storeThread(thread)
+
         case .serverError(_, _):
             break
 

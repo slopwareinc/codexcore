@@ -25,6 +25,19 @@ public enum CodexStatusHeuristics {
     }
 }
 
+/// Exact adapter for the structured `TurnError` wire value.
+public enum CodexTurnErrorAdapter {
+    public static func decode(_ value: CodexJSONValue?) -> CodexSchemaTurnError? {
+        guard let value else { return nil }
+        if case .null = value { return nil }
+        return try? value.decode(CodexSchemaTurnError.self)
+    }
+
+    public static func message(from value: CodexJSONValue?) -> String? {
+        decode(value)?.message.nilIfBlank
+    }
+}
+
 /// Pure path presentation helpers.
 public enum CodexPathFormatter {
     /// Abbreviates the user's home-directory prefix of `path` to `~`.

@@ -3,6 +3,43 @@ import XCTest
 
 final class CodexClientNotificationStreamTests: XCTestCase {
 
+    func testGenericStructuredErrorsRemainActiveWhileRetrying() async throws {
+        let transport = MockTransport()
+        let store = await CodexCoreStore()
+        let client = CodexClient(transport: transport, store: store)
+        try await client.connect()
+
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"thread-1","status":{"type":"idle"}}}}"#)
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"inProgress","items":[]}}}"#)
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"error","params":{"threadId":"thread-1","turnId":"turn-1","willRetry":true,"error":{"message":"temporary overload"}}}"#)
+
+        for _ in 0..<20 where await store.activeThread?.turns.first?.status != .running {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        var activeTurn = await store.activeThread?.turns.first
+        XCTAssertEqual(activeTurn?.status, .running)
+        XCTAssertNil(activeTurn?.error)
+
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"error","params":{"threadId":"thread-1","turnId":"turn-1","willRetry":false,"error":{"message":"terminal overload"}}}"#)
+        for _ in 0..<20 where await store.activeThread?.turns.first?.status != .failed {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        activeTurn = await store.activeThread?.turns.first
+        XCTAssertEqual(activeTurn?.status, .failed)
+        XCTAssertEqual(activeTurn?.error, "terminal overload")
+
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","status":"inProgress","items":[]}}}"#)
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-2","status":"failed","error":{"message":"completion failure"},"items":[]}}}"#)
+        for _ in 0..<20 where await store.activeThread?.turns.last?.status != .failed {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let completedTurn = await store.activeThread?.turns.last
+        XCTAssertEqual(completedTurn?.status, .failed)
+        XCTAssertEqual(completedTurn?.error, "completion failure")
+
+        await client.disconnect()
+    }
+
     func testNotificationStreamsRouteGlobalAndReplayTurnEvents() async throws {
         let transport = MockTransport()
         let store = await CodexCoreStore()

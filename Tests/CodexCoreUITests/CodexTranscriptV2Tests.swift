@@ -261,6 +261,51 @@ struct CodexTranscriptV2Tests {
         #expect(turns[1].userMessage == nil)
     }
 
+    @Test func structuredErrorsRespectRetrySemantics() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "thread-1")
+        reducer.apply(method: "turn/started", params: json([
+            "threadId": "thread-1", "turn": ["id": "turn-1", "status": "inProgress"]
+        ]))
+        reducer.apply(method: "error", params: json([
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "willRetry": true,
+            "error": ["message": "temporary overload"]
+        ]))
+
+        guard case .working = try #require(reducer.transcript.turns.first).status else {
+            Issue.record("A retrying error must keep the turn active")
+            return
+        }
+
+        reducer.apply(method: "error", params: json([
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "willRetry": false,
+            "error": ["message": "terminal overload", "additionalDetails": "retry budget exhausted"]
+        ]))
+
+        let turn = try #require(reducer.transcript.turns.first)
+        #expect(turn.error?.message == "terminal overload")
+        #expect(turn.error?.additionalDetails == "retry budget exhausted")
+        #expect(turn.status == .failed(message: "terminal overload"))
+
+        var completionReducer = CodexTranscriptReducerV2(threadID: "thread-1")
+        completionReducer.apply(method: "turn/started", params: json([
+            "threadId": "thread-1", "turn": ["id": "turn-2", "status": "inProgress"]
+        ]))
+        completionReducer.apply(method: "turn/completed", params: json([
+            "threadId": "thread-1",
+            "turn": [
+                "id": "turn-2",
+                "status": "failed",
+                "error": ["message": "completion failure"],
+                "items": []
+            ]
+        ]))
+        #expect(completionReducer.transcript.turns.first?.status == .failed(message: "completion failure"))
+    }
+
     @Test func headersAndLiveTail() {
         func row(_ id: String, _ action: CodexWorkCategoryV2) -> CodexWorkRowV2 { .command(.init(id:id, command:id, label:id, action:action, status:.completed, exitCode:0, durationMs:nil, output:nil)) }
         #expect(CodexWorkGroupHeaderV2.synthesize(rows: [row("l",.list),row("1",.run),row("2",.run)]) == "Listed files, ran 2 commands")

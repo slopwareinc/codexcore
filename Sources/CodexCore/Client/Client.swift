@@ -1296,7 +1296,8 @@ public actor CodexClient {
             return .turnStarted(threadId: threadId, turnId: turnId)
 
         case "turn/completed":
-            let error = optionalString(params["error"]) ?? optionalString(nestedValue("turn", "error"))
+            let error = CodexTurnErrorAdapter.message(from: params["error"])
+                ?? CodexTurnErrorAdapter.message(from: nestedValue("turn", "error"))
             return .turnCompleted(threadId: threadId, turnId: turnId, error: error)
 
         case "item/started":
@@ -1353,7 +1354,18 @@ public actor CodexClient {
             return extractTokenUsage(params, threadId: threadId, turnId: turnId.isEmpty ? nil : turnId)
 
         case "error":
-            return .serverError(message: str("message"), threadId: threadId.isEmpty ? nil : threadId)
+            if let payload = try? params.decode(CodexSchemaErrorNotification.self) {
+                return .turnError(
+                    threadId: payload.threadID,
+                    turnId: payload.turnID,
+                    error: payload.error,
+                    willRetry: payload.willRetry
+                )
+            }
+            return .serverError(
+                message: CodexTurnErrorAdapter.message(from: params["error"]) ?? str("message"),
+                threadId: threadId.isEmpty ? nil : threadId
+            )
 
         default:
             break
