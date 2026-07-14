@@ -1,0 +1,1563 @@
+{
+  "generated": {
+    "Account": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "AccountLoginCompletedNotification": {
+      "fields": [
+        {
+          "codingKey": "error",
+          "name": "error",
+          "type": "String?"
+        },
+        {
+          "codingKey": "loginId",
+          "name": "loginID",
+          "type": "String?"
+        },
+        {
+          "codingKey": "success",
+          "name": "success",
+          "type": "Bool"
+        }
+      ],
+      "kind": "struct"
+    },
+    "AgentMessageDeltaNotification": {
+      "fields": [
+        {
+          "codingKey": "delta",
+          "name": "delta",
+          "type": "String"
+        },
+        {
+          "codingKey": "itemId",
+          "name": "itemID",
+          "type": "String"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ApprovalsReviewer": {
+      "cases": [
+        {
+          "name": "autoReview",
+          "rawValue": "auto_review"
+        },
+        {
+          "name": "guardianSubagent",
+          "rawValue": "guardian_subagent"
+        },
+        {
+          "name": "user",
+          "rawValue": "user"
+        }
+      ],
+      "kind": "enum"
+    },
+    "AskForApproval": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "CancelLoginAccountResponse": {
+      "fields": [
+        {
+          "codingKey": "status",
+          "name": "status",
+          "type": "CodexSchemaCancelLoginAccountStatus"
+        }
+      ],
+      "kind": "struct"
+    },
+    "FuzzyFileSearchMatchType": {
+      "cases": [
+        {
+          "name": "directory",
+          "rawValue": "directory"
+        },
+        {
+          "name": "file",
+          "rawValue": "file"
+        }
+      ],
+      "kind": "enum"
+    },
+    "FuzzyFileSearchResult": {
+      "fields": [
+        {
+          "codingKey": "file_name",
+          "name": "fileName",
+          "type": "String"
+        },
+        {
+          "codingKey": "indices",
+          "name": "indices",
+          "type": "[Int]?"
+        },
+        {
+          "codingKey": "match_type",
+          "name": "matchType",
+          "type": "CodexSchemaFuzzyFileSearchMatchType"
+        },
+        {
+          "codingKey": "path",
+          "name": "path",
+          "type": "String"
+        },
+        {
+          "codingKey": "root",
+          "name": "root",
+          "type": "String"
+        },
+        {
+          "codingKey": "score",
+          "name": "score",
+          "type": "Int"
+        }
+      ],
+      "kind": "struct"
+    },
+    "GetAccountParams": {
+      "fields": [
+        {
+          "codingKey": "refreshToken",
+          "name": "refreshToken",
+          "type": "Bool?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "GetAccountResponse": {
+      "fields": [
+        {
+          "codingKey": "account",
+          "name": "account",
+          "type": "CodexSchemaAccount?"
+        },
+        {
+          "codingKey": "requiresOpenaiAuth",
+          "name": "requiresOpenAIAuth",
+          "type": "Bool"
+        }
+      ],
+      "kind": "struct"
+    },
+    "InitializeCapabilities": {
+      "fields": [
+        {
+          "codingKey": "experimentalApi",
+          "name": "experimentalAPI",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "mcpServerOpenaiFormElicitation",
+          "name": "mcpServerOpenAIFormElicitation",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "optOutNotificationMethods",
+          "name": "optOutNotificationMethods",
+          "type": "[String]?"
+        },
+        {
+          "codingKey": "requestAttestation",
+          "name": "requestAttestation",
+          "type": "Bool?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ItemCompletedNotification": {
+      "fields": [
+        {
+          "codingKey": "completedAtMs",
+          "name": "completedAtMs",
+          "type": "Int"
+        },
+        {
+          "codingKey": "item",
+          "name": "item",
+          "type": "CodexSchemaThreadItem"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ItemStartedNotification": {
+      "fields": [
+        {
+          "codingKey": "item",
+          "name": "item",
+          "type": "CodexSchemaThreadItem"
+        },
+        {
+          "codingKey": "startedAtMs",
+          "name": "startedAtMs",
+          "type": "Int"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "LoginAccountParams": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "LoginAccountResponse": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "LogoutAccountResponse": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ModelListResponse": {
+      "fields": [
+        {
+          "codingKey": "data",
+          "name": "data",
+          "type": "[CodexSchemaModel]"
+        },
+        {
+          "codingKey": "nextCursor",
+          "name": "nextCursor",
+          "type": "String?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "Personality": {
+      "cases": [
+        {
+          "name": "friendly",
+          "rawValue": "friendly"
+        },
+        {
+          "name": "none",
+          "rawValue": "none"
+        },
+        {
+          "name": "pragmatic",
+          "rawValue": "pragmatic"
+        }
+      ],
+      "kind": "enum"
+    },
+    "ReasoningEffort": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ReasoningSummary": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "SandboxMode": {
+      "cases": [
+        {
+          "name": "dangerFullAccess",
+          "rawValue": "danger-full-access"
+        },
+        {
+          "name": "readOnly",
+          "rawValue": "read-only"
+        },
+        {
+          "name": "workspaceWrite",
+          "rawValue": "workspace-write"
+        }
+      ],
+      "kind": "enum"
+    },
+    "SortDirection": {
+      "cases": [
+        {
+          "name": "asc",
+          "rawValue": "asc"
+        },
+        {
+          "name": "desc",
+          "rawValue": "desc"
+        }
+      ],
+      "kind": "enum"
+    },
+    "ThreadArchiveResponse": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ThreadCompactStartResponse": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ThreadForkParams": {
+      "fields": [
+        {
+          "codingKey": "approvalPolicy",
+          "name": "approvalPolicy",
+          "type": "CodexSchemaAskForApproval?"
+        },
+        {
+          "codingKey": "approvalsReviewer",
+          "name": "approvalsReviewer",
+          "type": "CodexSchemaApprovalsReviewer?"
+        },
+        {
+          "codingKey": "baseInstructions",
+          "name": "baseInstructions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "config",
+          "name": "config",
+          "type": "CodexJSONValue?"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "String?"
+        },
+        {
+          "codingKey": "developerInstructions",
+          "name": "developerInstructions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "ephemeral",
+          "name": "ephemeral",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "excludeTurns",
+          "name": "excludeTurns",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "lastTurnId",
+          "name": "lastTurnID",
+          "type": "String?"
+        },
+        {
+          "codingKey": "model",
+          "name": "model",
+          "type": "String?"
+        },
+        {
+          "codingKey": "modelProvider",
+          "name": "modelProvider",
+          "type": "String?"
+        },
+        {
+          "codingKey": "path",
+          "name": "path",
+          "type": "String?"
+        },
+        {
+          "codingKey": "permissions",
+          "name": "permissions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "runtimeWorkspaceRoots",
+          "name": "runtimeWorkspaceRoots",
+          "type": "[CodexSchemaAbsolutePathBuf]?"
+        },
+        {
+          "codingKey": "sandbox",
+          "name": "sandbox",
+          "type": "CodexSchemaSandboxMode?"
+        },
+        {
+          "codingKey": "serviceTier",
+          "name": "serviceTier",
+          "type": "String?"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "threadSource",
+          "name": "threadSource",
+          "type": "CodexSchemaThreadSource?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadForkResponse": {
+      "fields": [
+        {
+          "codingKey": "activePermissionProfile",
+          "name": "activePermissionProfile",
+          "type": "CodexSchemaActivePermissionProfile?"
+        },
+        {
+          "codingKey": "approvalPolicy",
+          "name": "approvalPolicy",
+          "type": "CodexSchemaAskForApproval"
+        },
+        {
+          "codingKey": "approvalsReviewer",
+          "name": "approvalsReviewer",
+          "type": "CodexSchemaApprovalsReviewer"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "CodexSchemaAbsolutePathBuf"
+        },
+        {
+          "codingKey": "instructionSources",
+          "name": "instructionSources",
+          "type": "[CodexSchemaLegacyAppPathString]?"
+        },
+        {
+          "codingKey": "model",
+          "name": "model",
+          "type": "String"
+        },
+        {
+          "codingKey": "modelProvider",
+          "name": "modelProvider",
+          "type": "String"
+        },
+        {
+          "codingKey": "multiAgentMode",
+          "name": "multiAgentMode",
+          "type": "CodexSchemaMultiAgentMode?"
+        },
+        {
+          "codingKey": "reasoningEffort",
+          "name": "reasoningEffort",
+          "type": "CodexSchemaReasoningEffort?"
+        },
+        {
+          "codingKey": "runtimeWorkspaceRoots",
+          "name": "runtimeWorkspaceRoots",
+          "type": "[CodexSchemaAbsolutePathBuf]?"
+        },
+        {
+          "codingKey": "sandbox",
+          "name": "sandbox",
+          "type": "CodexSchemaSandboxPolicy"
+        },
+        {
+          "codingKey": "serviceTier",
+          "name": "serviceTier",
+          "type": "String?"
+        },
+        {
+          "codingKey": "thread",
+          "name": "thread",
+          "type": "CodexSchemaThread"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoal": {
+      "fields": [
+        {
+          "codingKey": "createdAt",
+          "name": "createdAt",
+          "type": "Int"
+        },
+        {
+          "codingKey": "objective",
+          "name": "objective",
+          "type": "String"
+        },
+        {
+          "codingKey": "status",
+          "name": "status",
+          "type": "CodexSchemaThreadGoalStatus"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "timeUsedSeconds",
+          "name": "timeUsedSeconds",
+          "type": "Int"
+        },
+        {
+          "codingKey": "tokenBudget",
+          "name": "tokenBudget",
+          "type": "Int?"
+        },
+        {
+          "codingKey": "tokensUsed",
+          "name": "tokensUsed",
+          "type": "Int"
+        },
+        {
+          "codingKey": "updatedAt",
+          "name": "updatedAt",
+          "type": "Int"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalClearParams": {
+      "fields": [
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalClearResponse": {
+      "fields": [
+        {
+          "codingKey": "cleared",
+          "name": "cleared",
+          "type": "Bool"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalClearedNotification": {
+      "fields": [
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalGetParams": {
+      "fields": [
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalGetResponse": {
+      "fields": [
+        {
+          "codingKey": "goal",
+          "name": "goal",
+          "type": "CodexSchemaThreadGoal?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalSetParams": {
+      "fields": [
+        {
+          "codingKey": "objective",
+          "name": "objective",
+          "type": "String?"
+        },
+        {
+          "codingKey": "status",
+          "name": "status",
+          "type": "CodexSchemaThreadGoalStatus?"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "tokenBudget",
+          "name": "tokenBudget",
+          "type": "Int?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalSetResponse": {
+      "fields": [
+        {
+          "codingKey": "goal",
+          "name": "goal",
+          "type": "CodexSchemaThreadGoal"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadGoalStatus": {
+      "cases": [
+        {
+          "name": "active",
+          "rawValue": "active"
+        },
+        {
+          "name": "blocked",
+          "rawValue": "blocked"
+        },
+        {
+          "name": "budgetLimited",
+          "rawValue": "budgetLimited"
+        },
+        {
+          "name": "complete",
+          "rawValue": "complete"
+        },
+        {
+          "name": "paused",
+          "rawValue": "paused"
+        },
+        {
+          "name": "usageLimited",
+          "rawValue": "usageLimited"
+        }
+      ],
+      "kind": "enum"
+    },
+    "ThreadGoalUpdatedNotification": {
+      "fields": [
+        {
+          "codingKey": "goal",
+          "name": "goal",
+          "type": "CodexSchemaThreadGoal"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadHistoryMode": {
+      "cases": [
+        {
+          "name": "legacy",
+          "rawValue": "legacy"
+        },
+        {
+          "name": "paginated",
+          "rawValue": "paginated"
+        }
+      ],
+      "kind": "enum"
+    },
+    "ThreadItem": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ThreadListCwdFilter": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ThreadListParams": {
+      "fields": [
+        {
+          "codingKey": "ancestorThreadId",
+          "name": "ancestorThreadID",
+          "type": "String?"
+        },
+        {
+          "codingKey": "archived",
+          "name": "archived",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "cursor",
+          "name": "cursor",
+          "type": "String?"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "CodexSchemaThreadListCwdFilter?"
+        },
+        {
+          "codingKey": "limit",
+          "name": "limit",
+          "type": "Int?"
+        },
+        {
+          "codingKey": "modelProviders",
+          "name": "modelProviders",
+          "type": "[String]?"
+        },
+        {
+          "codingKey": "parentThreadId",
+          "name": "parentThreadID",
+          "type": "String?"
+        },
+        {
+          "codingKey": "searchTerm",
+          "name": "searchTerm",
+          "type": "String?"
+        },
+        {
+          "codingKey": "sortDirection",
+          "name": "sortDirection",
+          "type": "CodexSchemaSortDirection?"
+        },
+        {
+          "codingKey": "sortKey",
+          "name": "sortKey",
+          "type": "CodexSchemaThreadSortKey?"
+        },
+        {
+          "codingKey": "sourceKinds",
+          "name": "sourceKinds",
+          "type": "[CodexSchemaThreadSourceKind]?"
+        },
+        {
+          "codingKey": "useStateDbOnly",
+          "name": "useStateDBOnly",
+          "type": "Bool?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadListResponse": {
+      "fields": [
+        {
+          "codingKey": "backwardsCursor",
+          "name": "backwardsCursor",
+          "type": "String?"
+        },
+        {
+          "codingKey": "data",
+          "name": "data",
+          "type": "[CodexSchemaThread]"
+        },
+        {
+          "codingKey": "nextCursor",
+          "name": "nextCursor",
+          "type": "String?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadReadResponse": {
+      "fields": [
+        {
+          "codingKey": "thread",
+          "name": "thread",
+          "type": "CodexSchemaThread"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadResumeParams": {
+      "fields": [
+        {
+          "codingKey": "approvalPolicy",
+          "name": "approvalPolicy",
+          "type": "CodexSchemaAskForApproval?"
+        },
+        {
+          "codingKey": "approvalsReviewer",
+          "name": "approvalsReviewer",
+          "type": "CodexSchemaApprovalsReviewer?"
+        },
+        {
+          "codingKey": "baseInstructions",
+          "name": "baseInstructions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "config",
+          "name": "config",
+          "type": "CodexJSONValue?"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "String?"
+        },
+        {
+          "codingKey": "developerInstructions",
+          "name": "developerInstructions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "excludeTurns",
+          "name": "excludeTurns",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "history",
+          "name": "history",
+          "type": "[CodexSchemaResponseItem]?"
+        },
+        {
+          "codingKey": "initialTurnsPage",
+          "name": "initialTurnsPage",
+          "type": "CodexSchemaThreadResumeInitialTurnsPageParams?"
+        },
+        {
+          "codingKey": "model",
+          "name": "model",
+          "type": "String?"
+        },
+        {
+          "codingKey": "modelProvider",
+          "name": "modelProvider",
+          "type": "String?"
+        },
+        {
+          "codingKey": "path",
+          "name": "path",
+          "type": "String?"
+        },
+        {
+          "codingKey": "permissions",
+          "name": "permissions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "personality",
+          "name": "personality",
+          "type": "CodexSchemaPersonality?"
+        },
+        {
+          "codingKey": "runtimeWorkspaceRoots",
+          "name": "runtimeWorkspaceRoots",
+          "type": "[CodexSchemaAbsolutePathBuf]?"
+        },
+        {
+          "codingKey": "sandbox",
+          "name": "sandbox",
+          "type": "CodexSchemaSandboxMode?"
+        },
+        {
+          "codingKey": "serviceTier",
+          "name": "serviceTier",
+          "type": "String?"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadResumeResponse": {
+      "fields": [
+        {
+          "codingKey": "activePermissionProfile",
+          "name": "activePermissionProfile",
+          "type": "CodexSchemaActivePermissionProfile?"
+        },
+        {
+          "codingKey": "approvalPolicy",
+          "name": "approvalPolicy",
+          "type": "CodexSchemaAskForApproval"
+        },
+        {
+          "codingKey": "approvalsReviewer",
+          "name": "approvalsReviewer",
+          "type": "CodexSchemaApprovalsReviewer"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "CodexSchemaAbsolutePathBuf"
+        },
+        {
+          "codingKey": "initialTurnsPage",
+          "name": "initialTurnsPage",
+          "type": "CodexSchemaTurnsPage?"
+        },
+        {
+          "codingKey": "instructionSources",
+          "name": "instructionSources",
+          "type": "[CodexSchemaLegacyAppPathString]?"
+        },
+        {
+          "codingKey": "model",
+          "name": "model",
+          "type": "String"
+        },
+        {
+          "codingKey": "modelProvider",
+          "name": "modelProvider",
+          "type": "String"
+        },
+        {
+          "codingKey": "multiAgentMode",
+          "name": "multiAgentMode",
+          "type": "CodexSchemaMultiAgentMode?"
+        },
+        {
+          "codingKey": "reasoningEffort",
+          "name": "reasoningEffort",
+          "type": "CodexSchemaReasoningEffort?"
+        },
+        {
+          "codingKey": "runtimeWorkspaceRoots",
+          "name": "runtimeWorkspaceRoots",
+          "type": "[CodexSchemaAbsolutePathBuf]?"
+        },
+        {
+          "codingKey": "sandbox",
+          "name": "sandbox",
+          "type": "CodexSchemaSandboxPolicy"
+        },
+        {
+          "codingKey": "serviceTier",
+          "name": "serviceTier",
+          "type": "String?"
+        },
+        {
+          "codingKey": "thread",
+          "name": "thread",
+          "type": "CodexSchemaThread"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadSetNameResponse": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ThreadSortKey": {
+      "cases": [
+        {
+          "name": "createdAt",
+          "rawValue": "created_at"
+        },
+        {
+          "name": "recencyAt",
+          "rawValue": "recency_at"
+        },
+        {
+          "name": "updatedAt",
+          "rawValue": "updated_at"
+        }
+      ],
+      "kind": "enum"
+    },
+    "ThreadSource": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "ThreadSourceKind": {
+      "cases": [
+        {
+          "name": "appServer",
+          "rawValue": "appServer"
+        },
+        {
+          "name": "cli",
+          "rawValue": "cli"
+        },
+        {
+          "name": "exec",
+          "rawValue": "exec"
+        },
+        {
+          "name": "subAgent",
+          "rawValue": "subAgent"
+        },
+        {
+          "name": "subAgentCompact",
+          "rawValue": "subAgentCompact"
+        },
+        {
+          "name": "subAgentOther",
+          "rawValue": "subAgentOther"
+        },
+        {
+          "name": "subAgentReview",
+          "rawValue": "subAgentReview"
+        },
+        {
+          "name": "subAgentThreadSpawn",
+          "rawValue": "subAgentThreadSpawn"
+        },
+        {
+          "name": "unknown",
+          "rawValue": "unknown"
+        },
+        {
+          "name": "vscode",
+          "rawValue": "vscode"
+        }
+      ],
+      "kind": "enum"
+    },
+    "ThreadStartParams": {
+      "fields": [
+        {
+          "codingKey": "allowProviderModelFallback",
+          "name": "allowProviderModelFallback",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "approvalPolicy",
+          "name": "approvalPolicy",
+          "type": "CodexSchemaAskForApproval?"
+        },
+        {
+          "codingKey": "approvalsReviewer",
+          "name": "approvalsReviewer",
+          "type": "CodexSchemaApprovalsReviewer?"
+        },
+        {
+          "codingKey": "baseInstructions",
+          "name": "baseInstructions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "config",
+          "name": "config",
+          "type": "CodexJSONValue?"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "String?"
+        },
+        {
+          "codingKey": "developerInstructions",
+          "name": "developerInstructions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "dynamicTools",
+          "name": "dynamicTools",
+          "type": "[CodexSchemaDynamicToolSpec]?"
+        },
+        {
+          "codingKey": "environments",
+          "name": "environments",
+          "type": "[CodexSchemaTurnEnvironmentParams]?"
+        },
+        {
+          "codingKey": "ephemeral",
+          "name": "ephemeral",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "experimentalRawEvents",
+          "name": "experimentalRawEvents",
+          "type": "Bool?"
+        },
+        {
+          "codingKey": "historyMode",
+          "name": "historyMode",
+          "type": "CodexSchemaThreadHistoryMode?"
+        },
+        {
+          "codingKey": "mockExperimentalField",
+          "name": "mockExperimentalField",
+          "type": "String?"
+        },
+        {
+          "codingKey": "model",
+          "name": "model",
+          "type": "String?"
+        },
+        {
+          "codingKey": "modelProvider",
+          "name": "modelProvider",
+          "type": "String?"
+        },
+        {
+          "codingKey": "multiAgentMode",
+          "name": "multiAgentMode",
+          "type": "CodexSchemaMultiAgentMode?"
+        },
+        {
+          "codingKey": "permissions",
+          "name": "permissions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "personality",
+          "name": "personality",
+          "type": "CodexSchemaPersonality?"
+        },
+        {
+          "codingKey": "runtimeWorkspaceRoots",
+          "name": "runtimeWorkspaceRoots",
+          "type": "[CodexSchemaAbsolutePathBuf]?"
+        },
+        {
+          "codingKey": "sandbox",
+          "name": "sandbox",
+          "type": "CodexSchemaSandboxMode?"
+        },
+        {
+          "codingKey": "selectedCapabilityRoots",
+          "name": "selectedCapabilityRoots",
+          "type": "[CodexSchemaSelectedCapabilityRoot]?"
+        },
+        {
+          "codingKey": "serviceName",
+          "name": "serviceName",
+          "type": "String?"
+        },
+        {
+          "codingKey": "serviceTier",
+          "name": "serviceTier",
+          "type": "String?"
+        },
+        {
+          "codingKey": "sessionStartSource",
+          "name": "sessionStartSource",
+          "type": "CodexSchemaThreadStartSource?"
+        },
+        {
+          "codingKey": "threadSource",
+          "name": "threadSource",
+          "type": "CodexSchemaThreadSource?"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadStartResponse": {
+      "fields": [
+        {
+          "codingKey": "activePermissionProfile",
+          "name": "activePermissionProfile",
+          "type": "CodexSchemaActivePermissionProfile?"
+        },
+        {
+          "codingKey": "approvalPolicy",
+          "name": "approvalPolicy",
+          "type": "CodexSchemaAskForApproval"
+        },
+        {
+          "codingKey": "approvalsReviewer",
+          "name": "approvalsReviewer",
+          "type": "CodexSchemaApprovalsReviewer"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "CodexSchemaAbsolutePathBuf"
+        },
+        {
+          "codingKey": "instructionSources",
+          "name": "instructionSources",
+          "type": "[CodexSchemaLegacyAppPathString]?"
+        },
+        {
+          "codingKey": "model",
+          "name": "model",
+          "type": "String"
+        },
+        {
+          "codingKey": "modelProvider",
+          "name": "modelProvider",
+          "type": "String"
+        },
+        {
+          "codingKey": "multiAgentMode",
+          "name": "multiAgentMode",
+          "type": "CodexSchemaMultiAgentMode?"
+        },
+        {
+          "codingKey": "reasoningEffort",
+          "name": "reasoningEffort",
+          "type": "CodexSchemaReasoningEffort?"
+        },
+        {
+          "codingKey": "runtimeWorkspaceRoots",
+          "name": "runtimeWorkspaceRoots",
+          "type": "[CodexSchemaAbsolutePathBuf]?"
+        },
+        {
+          "codingKey": "sandbox",
+          "name": "sandbox",
+          "type": "CodexSchemaSandboxPolicy"
+        },
+        {
+          "codingKey": "serviceTier",
+          "name": "serviceTier",
+          "type": "String?"
+        },
+        {
+          "codingKey": "thread",
+          "name": "thread",
+          "type": "CodexSchemaThread"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadStartSource": {
+      "cases": [
+        {
+          "name": "clear",
+          "rawValue": "clear"
+        },
+        {
+          "name": "startup",
+          "rawValue": "startup"
+        }
+      ],
+      "kind": "enum"
+    },
+    "ThreadTokenUsage": {
+      "fields": [
+        {
+          "codingKey": "last",
+          "name": "last",
+          "type": "CodexSchemaTokenUsageBreakdown"
+        },
+        {
+          "codingKey": "modelContextWindow",
+          "name": "modelContextWindow",
+          "type": "Int?"
+        },
+        {
+          "codingKey": "total",
+          "name": "total",
+          "type": "CodexSchemaTokenUsageBreakdown"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadTokenUsageUpdatedNotification": {
+      "fields": [
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "tokenUsage",
+          "name": "tokenUsage",
+          "type": "CodexSchemaThreadTokenUsage"
+        },
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "ThreadUnarchiveResponse": {
+      "fields": [
+        {
+          "codingKey": "thread",
+          "name": "thread",
+          "type": "CodexSchemaThread"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnCompletedNotification": {
+      "fields": [
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turn",
+          "name": "turn",
+          "type": "CodexSchemaTurn"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnDiffUpdatedNotification": {
+      "fields": [
+        {
+          "codingKey": "diff",
+          "name": "diff",
+          "type": "String"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnError": {
+      "fields": [
+        {
+          "codingKey": "additionalDetails",
+          "name": "additionalDetails",
+          "type": "String?"
+        },
+        {
+          "codingKey": "codexErrorInfo",
+          "name": "codexErrorInfo",
+          "type": "CodexSchemaCodexErrorInfo?"
+        },
+        {
+          "codingKey": "message",
+          "name": "message",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnInterruptResponse": {
+      "kind": "typealias",
+      "target": "CodexAppServerSchemaValue"
+    },
+    "TurnPlanStep": {
+      "fields": [
+        {
+          "codingKey": "status",
+          "name": "status",
+          "type": "CodexSchemaTurnPlanStepStatus"
+        },
+        {
+          "codingKey": "step",
+          "name": "step",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnPlanStepStatus": {
+      "cases": [
+        {
+          "name": "completed",
+          "rawValue": "completed"
+        },
+        {
+          "name": "inProgress",
+          "rawValue": "inProgress"
+        },
+        {
+          "name": "pending",
+          "rawValue": "pending"
+        }
+      ],
+      "kind": "enum"
+    },
+    "TurnPlanUpdatedNotification": {
+      "fields": [
+        {
+          "codingKey": "explanation",
+          "name": "explanation",
+          "type": "String?"
+        },
+        {
+          "codingKey": "plan",
+          "name": "plan",
+          "type": "[CodexSchemaTurnPlanStep]"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnStartParams": {
+      "fields": [
+        {
+          "codingKey": "additionalContext",
+          "name": "additionalContext",
+          "type": "[String: CodexSchemaAdditionalContextEntry]?"
+        },
+        {
+          "codingKey": "approvalPolicy",
+          "name": "approvalPolicy",
+          "type": "CodexSchemaAskForApproval?"
+        },
+        {
+          "codingKey": "approvalsReviewer",
+          "name": "approvalsReviewer",
+          "type": "CodexSchemaApprovalsReviewer?"
+        },
+        {
+          "codingKey": "clientUserMessageId",
+          "name": "clientUserMessageID",
+          "type": "String?"
+        },
+        {
+          "codingKey": "collaborationMode",
+          "name": "collaborationMode",
+          "type": "CodexSchemaCollaborationMode?"
+        },
+        {
+          "codingKey": "cwd",
+          "name": "cwd",
+          "type": "String?"
+        },
+        {
+          "codingKey": "effort",
+          "name": "effort",
+          "type": "CodexSchemaReasoningEffort?"
+        },
+        {
+          "codingKey": "environments",
+          "name": "environments",
+          "type": "[CodexSchemaTurnEnvironmentParams]?"
+        },
+        {
+          "codingKey": "input",
+          "name": "input",
+          "type": "[CodexSchemaUserInput]"
+        },
+        {
+          "codingKey": "model",
+          "name": "model",
+          "type": "String?"
+        },
+        {
+          "codingKey": "multiAgentMode",
+          "name": "multiAgentMode",
+          "type": "CodexSchemaMultiAgentMode?"
+        },
+        {
+          "codingKey": "outputSchema",
+          "name": "outputSchema",
+          "type": "CodexJSONValue?"
+        },
+        {
+          "codingKey": "permissions",
+          "name": "permissions",
+          "type": "String?"
+        },
+        {
+          "codingKey": "personality",
+          "name": "personality",
+          "type": "CodexSchemaPersonality?"
+        },
+        {
+          "codingKey": "responsesapiClientMetadata",
+          "name": "responsesapiClientMetadata",
+          "type": "[String: String]?"
+        },
+        {
+          "codingKey": "runtimeWorkspaceRoots",
+          "name": "runtimeWorkspaceRoots",
+          "type": "[CodexSchemaAbsolutePathBuf]?"
+        },
+        {
+          "codingKey": "sandboxPolicy",
+          "name": "sandboxPolicy",
+          "type": "CodexSchemaSandboxPolicy?"
+        },
+        {
+          "codingKey": "serviceTier",
+          "name": "serviceTier",
+          "type": "String?"
+        },
+        {
+          "codingKey": "summary",
+          "name": "summary",
+          "type": "CodexSchemaReasoningSummary?"
+        },
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnStartResponse": {
+      "fields": [
+        {
+          "codingKey": "turn",
+          "name": "turn",
+          "type": "CodexSchemaTurn"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnStartedNotification": {
+      "fields": [
+        {
+          "codingKey": "threadId",
+          "name": "threadID",
+          "type": "String"
+        },
+        {
+          "codingKey": "turn",
+          "name": "turn",
+          "type": "CodexSchemaTurn"
+        }
+      ],
+      "kind": "struct"
+    },
+    "TurnStatus": {
+      "cases": [
+        {
+          "name": "completed",
+          "rawValue": "completed"
+        },
+        {
+          "name": "failed",
+          "rawValue": "failed"
+        },
+        {
+          "name": "inProgress",
+          "rawValue": "inProgress"
+        },
+        {
+          "name": "interrupted",
+          "rawValue": "interrupted"
+        }
+      ],
+      "kind": "enum"
+    },
+    "TurnSteerResponse": {
+      "fields": [
+        {
+          "codingKey": "turnId",
+          "name": "turnID",
+          "type": "String"
+        }
+      ],
+      "kind": "struct"
+    }
+  },
+  "version": 1
+}
