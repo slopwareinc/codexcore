@@ -97,18 +97,23 @@ struct CodexThreadHistorySessionTests {
     }
 
     @Test func protectionLeaseReleasesAcquiredThreadAfterSelectionSwitch() {
-        var cache = CodexThreadHistoryCache(capacity: 1)
-        var leases = CodexThreadHistoryCacheProtectionLeases()
-        cache.store(result("thread-a"))
-        let lease = leases.acquire(threadID: "thread-a", cache: &cache)
-        cache.store(result("thread-b"))
-        cache.store(result("thread-c"))
-        #expect(cache.isProtected(threadID: "thread-a"))
+        for changedSelection: String? in ["thread-b", nil] {
+            var currentThreadID: String? = "thread-a"
+            var cache = CodexThreadHistoryCache(capacity: 1)
+            var leases = CodexThreadHistoryCacheProtectionLeases()
+            cache.store(result("thread-a"))
+            let lease = leases.acquire(threadID: "thread-a", cache: &cache)
+            cache.store(result("thread-b"))
+            cache.store(result("thread-c"))
+            #expect(cache.isProtected(threadID: "thread-a"))
 
-        leases.release(lease, cache: &cache)
+            currentThreadID = changedSelection
+            #expect(currentThreadID != "thread-a")
+            leases.release(lease, cache: &cache)
 
-        #expect(cache.result(for: "thread-a") == nil)
-        #expect(cache.result(for: "thread-c") != nil)
+            #expect(cache.result(for: "thread-a") == nil)
+            #expect(cache.result(for: "thread-c") != nil)
+        }
     }
 
     @Test func protectionLeaseBalancesRepeatedAcquisitions() {
