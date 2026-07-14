@@ -33,6 +33,10 @@ worktree so implementation decisions remain reviewable with the code.
 
 ### 1. Transcript V2 has two live ingress owners — critical
 
+Disposition: fixed on `codex/architecture-protocol-integrity`. The global stream
+is the sole Transcript V2 ingress; the scoped main-turn stream retains lifecycle
+and focused-state projection.
+
 `NotificationRouter` yields one notification to the global stream and its turn
 stream. `CodexChatRuntimeSession` currently invokes `applyToTranscriptV2` in both
 consumers. A deterministic reproduction routed one `WIRE` delta and produced

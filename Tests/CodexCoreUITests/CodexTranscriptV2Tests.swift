@@ -1,9 +1,63 @@
-import CodexCore
+@testable import CodexCore
 @testable import CodexCoreUI
 import Foundation
 import Testing
 
 struct CodexTranscriptV2Tests {
+    @Test @MainActor func globalStreamOwnsTranscriptIngress() async throws {
+        let runtime = CodexChatRuntimeSession()
+        let global = AsyncStream.makeStream(of: CodexNotification.self)
+        let scoped = AsyncStream.makeStream(of: CodexNotification.self)
+        var scopedResultCount = 0
+        let notifications = [
+            notification("turn/started", [
+                "threadId": .string("thread-1"),
+                "turn": .dictionary(["id": .string("turn-1")])
+            ]),
+            notification("item/started", [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "item": .dictionary([
+                    "type": .string("agentMessage"),
+                    "id": .string("answer"),
+                    "phase": .string("final_answer"),
+                    "text": .string("")
+                ])
+            ]),
+            notification("item/agentMessage/delta", [
+                "threadId": .string("thread-1"),
+                "turnId": .string("turn-1"),
+                "itemId": .string("answer"),
+                "delta": .string("WIRE")
+            ])
+        ]
+
+        runtime.consumeGlobalNotificationStream(
+            global.stream,
+            store: nil,
+            currentThreadID: { "thread-1" },
+            applyResult: { _ in }
+        )
+        runtime.consumeMainTurnStream(
+            id: "turn-1",
+            notifications: scoped.stream,
+            currentThreadID: { "thread-1" },
+            store: { nil },
+            applyResult: { _ in scopedResultCount += 1 }
+        )
+
+        for notification in notifications {
+            global.continuation.yield(notification)
+            scoped.continuation.yield(notification)
+        }
+        global.continuation.finish()
+        scoped.continuation.finish()
+        for _ in 0..<10 { await Task.yield() }
+
+        #expect(try #require(runtime.transcriptV2.turns.first?.finalAnswer?.text) == "WIRE")
+        #expect(scopedResultCount > 0)
+    }
+
     @Test func repoInspectReplay() throws {
         let transcript = try replay("turn-repo-inspect")
         let turn = try #require(transcript.turns.first)
@@ -313,6 +367,9 @@ struct CodexTranscriptV2Tests {
         return (reducer.transcript, subagents)
     }
     private func json(_ value: Any) -> CodexJSONValue { try! JSONDecoder().decode(CodexJSONValue.self, from:JSONSerialization.data(withJSONObject:value)) }
+    private func notification(_ method: String, _ params: [String: CodexJSONValue]) -> CodexNotification {
+        CodexNotification(method: method, payload: .unknown(method: method, params: params), rawParams: params)
+    }
     enum Error: Swift.Error { case invalid }
 }
 

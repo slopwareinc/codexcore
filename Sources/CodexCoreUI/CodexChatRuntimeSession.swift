@@ -332,7 +332,6 @@ public final class CodexChatRuntimeSession {
             id: turnID,
             notifications: notifications,
             routeNotification: { [weak self] notification in
-                self?.applyToTranscriptV2(notification, threadID: currentThreadID())
                 return self?.state.apply(
                     notification,
                     mode: .mainTurnStream,
