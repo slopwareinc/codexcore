@@ -61,6 +61,50 @@ final class NotificationRouterTests: XCTestCase {
         XCTAssertEqual(buffered, 512, "replay buffers must be capped")
     }
 
+    func testPendingTurnIDsAreGloballyBoundedOldestFirst() async {
+        let router = CodexNotificationRouter(
+            maxPendingNotificationsPerTurn: 8,
+            maxPendingTurnIDs: 2,
+            maxPendingTurnEvents: 8
+        )
+
+        for id in ["oldest", "middle", "newest"] {
+            await router.route(turnNotification(
+                method: "item/agentMessage/delta",
+                turnId: id,
+                extra: ["delta": .string(id), "itemId": .string("i1")]
+            ))
+        }
+
+        let oldestCount = await router.pendingTurnNotificationCount(turnId: "oldest")
+        let middleCount = await router.pendingTurnNotificationCount(turnId: "middle")
+        let newestCount = await router.pendingTurnNotificationCount(turnId: "newest")
+        let idCount = await router.pendingTurnIDCount()
+        XCTAssertEqual(oldestCount, 0)
+        XCTAssertEqual(middleCount, 1)
+        XCTAssertEqual(newestCount, 1)
+        XCTAssertEqual(idCount, 2)
+    }
+
+    func testPendingTurnEventsAreGloballyBoundedOldestFirst() async {
+        let router = CodexNotificationRouter(
+            maxPendingNotificationsPerTurn: 8,
+            maxPendingTurnIDs: 8,
+            maxPendingTurnEvents: 2
+        )
+
+        await router.route(turnNotification(method: "item/agentMessage/delta", turnId: "a", extra: ["delta": .string("a1"), "itemId": .string("i1")]))
+        await router.route(turnNotification(method: "item/agentMessage/delta", turnId: "b", extra: ["delta": .string("b1"), "itemId": .string("i1")]))
+        await router.route(turnNotification(method: "item/agentMessage/delta", turnId: "a", extra: ["delta": .string("a2"), "itemId": .string("i1")]))
+
+        let aCount = await router.pendingTurnNotificationCount(turnId: "a")
+        let bCount = await router.pendingTurnNotificationCount(turnId: "b")
+        let eventCount = await router.pendingTurnEventCount()
+        XCTAssertEqual(aCount, 1)
+        XCTAssertEqual(bCount, 1)
+        XCTAssertEqual(eventCount, 2)
+    }
+
     func testLiveSubscriberStreamsAndFinishesOnCompletion() async {
         let router = CodexNotificationRouter()
         await router.registerTurn("turn-live")

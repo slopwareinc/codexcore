@@ -71,12 +71,26 @@ public actor CodexNotificationRouter {
     private var registeredTurns: Set<String> = []
     private var turnContinuations: [String: [UUID: AsyncStream<CodexNotification>.Continuation]] = [:]
     private var pendingTurnNotifications: [String: [CodexNotification]] = [:]
+    private var pendingTurnIDOrder: [String] = []
+    private var pendingTurnEventOrder: [String] = []
 
     private var registeredLogins: Set<String> = []
     private var loginContinuations: [String: [UUID: AsyncStream<CodexNotification>.Continuation]] = [:]
     private var pendingLoginNotifications: [String: [CodexNotification]] = [:]
 
-    public init() {}
+    private let maxPendingNotificationsPerTurn: Int
+    private let maxPendingTurnIDs: Int
+    private let maxPendingTurnEvents: Int
+
+    public init(
+        maxPendingNotificationsPerTurn: Int = 512,
+        maxPendingTurnIDs: Int = 128,
+        maxPendingTurnEvents: Int = 4_096
+    ) {
+        self.maxPendingNotificationsPerTurn = max(0, maxPendingNotificationsPerTurn)
+        self.maxPendingTurnIDs = max(0, maxPendingTurnIDs)
+        self.maxPendingTurnEvents = max(0, maxPendingTurnEvents)
+    }
 
     public nonisolated func globalNotifications() -> AsyncStream<CodexNotification> {
         AsyncStream { continuation in
@@ -114,7 +128,7 @@ public actor CodexNotificationRouter {
 
     public func unregisterTurn(_ turnId: String) {
         registeredTurns.remove(turnId)
-        pendingTurnNotifications.removeValue(forKey: turnId)
+        removePendingTurn(turnId)
         if let continuations = turnContinuations.removeValue(forKey: turnId) {
             for continuation in continuations.values {
                 continuation.finish()
@@ -171,7 +185,7 @@ public actor CodexNotificationRouter {
     private func addTurnContinuation(id: UUID, turnId: String, continuation: AsyncStream<CodexNotification>.Continuation) {
         registeredTurns.insert(turnId)
         turnContinuations[turnId, default: [:]][id] = continuation
-        let pending = pendingTurnNotifications.removeValue(forKey: turnId) ?? []
+        let pending = takePendingTurn(turnId)
         for notification in pending {
             continuation.yield(notification)
             if notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue {
@@ -208,19 +222,25 @@ public actor CodexNotificationRouter {
         }
     }
 
-    /// Per-turn replay buffers are capped so a chatty turn nobody subscribes
-    /// to cannot grow without bound. Oldest notifications are dropped first.
-    private static let maxPendingNotificationsPerStream = 512
-
     private func routeTurn(_ notification: CodexNotification, turnId: String) {
-        routeScoped(
-            notification,
-            id: turnId,
-            isCompletion: notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue,
-            registered: &registeredTurns,
-            continuations: &turnContinuations,
-            pending: &pendingTurnNotifications
-        )
+        let isCompletion = notification.method == CodexAppServerNotificationMethod.turnCompleted.rawValue
+        if let scopedContinuations = turnContinuations[turnId], !scopedContinuations.isEmpty {
+            for continuation in scopedContinuations.values {
+                continuation.yield(notification)
+                if isCompletion { continuation.finish() }
+            }
+        } else if registeredTurns.contains(turnId) {
+            appendPendingTurn(notification, turnId: turnId)
+        } else if isCompletion {
+            removePendingTurn(turnId)
+        } else {
+            appendPendingTurn(notification, turnId: turnId)
+        }
+
+        if isCompletion {
+            registeredTurns.remove(turnId)
+            turnContinuations.removeValue(forKey: turnId)
+        }
     }
 
     private func routeLogin(_ notification: CodexNotification, loginId: String) {
@@ -265,15 +285,71 @@ public actor CodexNotificationRouter {
 
     private func appendPending(_ notification: CodexNotification, to buffer: inout [CodexNotification]) {
         buffer.append(notification)
-        if buffer.count > Self.maxPendingNotificationsPerStream {
-            buffer.removeFirst(buffer.count - Self.maxPendingNotificationsPerStream)
+        if buffer.count > maxPendingNotificationsPerTurn {
+            buffer.removeFirst(buffer.count - maxPendingNotificationsPerTurn)
         }
+    }
+
+    private func appendPendingTurn(_ notification: CodexNotification, turnId: String) {
+        guard maxPendingNotificationsPerTurn > 0,
+              maxPendingTurnIDs > 0,
+              maxPendingTurnEvents > 0 else {
+            removePendingTurn(turnId)
+            return
+        }
+        if pendingTurnNotifications[turnId] == nil {
+            while pendingTurnIDOrder.count >= maxPendingTurnIDs,
+                  let oldest = pendingTurnIDOrder.first {
+                removePendingTurn(oldest)
+            }
+            pendingTurnNotifications[turnId] = []
+            pendingTurnIDOrder.append(turnId)
+        }
+
+        pendingTurnNotifications[turnId, default: []].append(notification)
+        pendingTurnEventOrder.append(turnId)
+        while (pendingTurnNotifications[turnId]?.count ?? 0) > maxPendingNotificationsPerTurn {
+            pendingTurnNotifications[turnId]?.removeFirst()
+            removeFirstPendingEvent(for: turnId)
+        }
+        while pendingTurnEventOrder.count > maxPendingTurnEvents,
+              let oldestTurnID = pendingTurnEventOrder.first {
+            pendingTurnEventOrder.removeFirst()
+            pendingTurnNotifications[oldestTurnID]?.removeFirst()
+            removePendingTurnIfEmpty(oldestTurnID)
+        }
+    }
+
+    private func takePendingTurn(_ turnId: String) -> [CodexNotification] {
+        let pending = pendingTurnNotifications[turnId] ?? []
+        removePendingTurn(turnId)
+        return pending
+    }
+
+    private func removePendingTurn(_ turnId: String) {
+        pendingTurnNotifications.removeValue(forKey: turnId)
+        pendingTurnIDOrder.removeAll { $0 == turnId }
+        pendingTurnEventOrder.removeAll { $0 == turnId }
+    }
+
+    private func removePendingTurnIfEmpty(_ turnId: String) {
+        guard pendingTurnNotifications[turnId]?.isEmpty != false else { return }
+        pendingTurnNotifications.removeValue(forKey: turnId)
+        pendingTurnIDOrder.removeAll { $0 == turnId }
+    }
+
+    private func removeFirstPendingEvent(for turnId: String) {
+        guard let index = pendingTurnEventOrder.firstIndex(of: turnId) else { return }
+        pendingTurnEventOrder.remove(at: index)
     }
 
     /// Number of buffered notifications awaiting replay for a turn. Test hook.
     func pendingTurnNotificationCount(turnId: String) -> Int {
         pendingTurnNotifications[turnId]?.count ?? 0
     }
+
+    func pendingTurnIDCount() -> Int { pendingTurnNotifications.count }
+    func pendingTurnEventCount() -> Int { pendingTurnEventOrder.count }
 
     private static func payload(method: String, params: [String: CodexJSONValue]) -> CodexNotificationPayload {
         let knownMethod = CodexAppServerNotificationMethod(rawValue: method)
