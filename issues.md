@@ -51,7 +51,9 @@ state updates.
 
 Disposition: fixed. Restore results require an explicit lossless Transcript V2
 payload, and protected live refreshes snapshot the runtime transcript and current
-pagination state instead of constructing a default-empty replacement.
+pagination state instead of constructing a default-empty replacement. Cached
+restore activity now also counts the canonical restored Transcript V2 turns,
+falling back to the legacy item list only when no canonical turns are present.
 
 `refreshThreadHistoryCache` constructs a restore result without V2 items. The
 default empty array overwrites the populated protected entry. Switching away and
@@ -150,10 +152,13 @@ status from the child thread/latest owned turn.
 
 ### 10. Cache and notification buffers lack complete lifecycle bounds — medium
 
-Disposition: fixed. Pending turn replay is bounded per turn, globally by unknown
-turn ID count, and globally by event count with deterministic oldest-first
-eviction. Cache protection uses balanced reference-counted leases that release
-on completion and submission failure before capacity eviction resumes.
+Disposition: fixed and independently corrected. Pending turn replay is bounded
+per turn, globally by unknown turn ID count, and globally by event count with
+deterministic oldest-first eviction. Cache protection now returns an owned lease
+token for the exact acquired thread. Main-turn, side-chat, and goal lifecycles
+retain separate tokens and release their own acquisition on completion,
+submission failure, cancellation/reset, and session teardown before capacity
+eviction resumes; selection changes cannot redirect a release.
 
 Protected cache entries never unprotect, so capacity only bounds unprotected
 entries. Pending notifications are capped per turn but not by number of unknown
@@ -177,8 +182,13 @@ metadata, and allow retry from the remaining cursor.
 
 ### 12. Handwritten and generated protocol types can drift — risk
 
-Disposition: fixed with bounded coverage. Pinned drift now also validates a
-categorized inventory of all 66 handwritten/generated overlaps. Exact generated
+Disposition: fixed with bounded coverage and independently strengthened. Pinned
+drift validates a categorized inventory of all 66 handwritten/generated
+overlaps, exact handwritten/generated structure for the reviewed exact-wire
+set, and committed generated declaration fingerprints for every inventoried
+overlap. The fingerprints cover declaration kind plus struct field names, field
+types and CodingKeys; enum case names/raw values; and typealias targets. Fixture
+self-tests prove field-type and CodingKey changes fail. Exact generated
 notifications adapt explicitly into ergonomic turn/error/item/login models;
 conversion tests retain timestamps, structured errors, items, and login failure.
 Nested non-agent drift in `ThreadSortKey.recencyAt` and
@@ -217,11 +227,15 @@ duplicated:
 
 ## Scoped remediation verification
 
-- Full Swift suite: 235 XCTest cases and 22 Swift Testing cases passed.
+- Full Swift suite: 235 XCTest cases and 25 Swift Testing cases passed.
 - Transcript V2: 18 cases passed, including ingress, envelope, and retry errors.
-- History/cache: 4 cases passed, including partial-page retry and lease release.
+- History/cache: 7 cases passed, including partial-page retry, exact lease
+  ownership/balancing, and canonical cached-restore message counts.
 - Notification router: 7 cases passed, including global bounds and login failure.
-- Pinned drift: 102 enums, 389 structs, 95 raw aliases; 66 handwritten overlaps.
+- Pinned drift: 102 enums, 389 structs, 95 raw aliases; 66 inventoried
+  handwritten overlaps and 66 generated structural fingerprints.
+- Structural compatibility checker: 4 fixture self-tests passed, including
+  field-type and CodingKey drift failures.
 - Pinned version: `codex-cli 0.144.1`.
 
 ## Commit plan
