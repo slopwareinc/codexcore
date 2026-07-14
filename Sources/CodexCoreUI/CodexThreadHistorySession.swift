@@ -14,17 +14,23 @@ public struct CodexThreadHistoryPaginationState: Sendable, Equatable {
     public var nextCursorByTurnID: [String: String]
     public var loadedItemCount: Int
     public var errorMessage: String?
+    public var retryTurnID: String?
+    public var retryCursor: String?
 
     public init(
         phase: Phase = .idle,
         nextCursorByTurnID: [String: String] = [:],
         loadedItemCount: Int = 0,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        retryTurnID: String? = nil,
+        retryCursor: String? = nil
     ) {
         self.phase = phase
         self.nextCursorByTurnID = nextCursorByTurnID
         self.loadedItemCount = loadedItemCount
         self.errorMessage = errorMessage
+        self.retryTurnID = retryTurnID
+        self.retryCursor = retryCursor
     }
 
     public var isLoading: Bool { phase == .loading }
@@ -41,6 +47,7 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
     public var paginationState: CodexThreadHistoryPaginationState
     public var transcriptItemsV2: [CodexJSONValue]
     public var transcriptV2: CodexTranscriptV2
+    public var paginationRaw: CodexJSONValue?
 
     public init(
         snapshot: CodexThreadHistorySnapshot,
@@ -48,7 +55,8 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
         restoredChildThreadCount: Int = 0,
         paginationState: CodexThreadHistoryPaginationState = .idle,
         transcriptItemsV2: [CodexJSONValue] = [],
-        transcriptV2: CodexTranscriptV2
+        transcriptV2: CodexTranscriptV2,
+        paginationRaw: CodexJSONValue? = nil
     ) {
         self.snapshot = snapshot
         self.hydration = hydration
@@ -56,6 +64,7 @@ public struct CodexThreadHistoryRestoreResult: Sendable {
         self.paginationState = paginationState
         self.transcriptItemsV2 = transcriptItemsV2
         self.transcriptV2 = transcriptV2
+        self.paginationRaw = paginationRaw
     }
 
     public var messageCount: Int {
@@ -193,6 +202,7 @@ public enum CodexThreadHistorySession {
             try await readThreadRaw(threadID: childThreadID, using: codex)
         }
         result.paginationState = pagination.state
+        result.paginationRaw = pagination.raw
         return await hydrateStore(result, using: codex, trace: trace, activateParent: activateParent)
     }
 
@@ -286,14 +296,15 @@ public enum CodexThreadHistorySession {
         }
     }
 
-    static func paginate(
+    public static func paginate(
         parentRaw: CodexJSONValue,
+        retrying retryState: CodexThreadHistoryPaginationState? = nil,
         trace: CodexPerformanceTrace? = nil,
         loadPage: (String, String, String?) async throws -> CodexSchemaThreadItemsListResponse
     ) async -> (raw: CodexJSONValue, state: CodexThreadHistoryPaginationState) {
-        guard case .dictionary(var response) = parentRaw else { return (parentRaw, .idle) }
+        guard case .dictionary(let response) = parentRaw else { return (parentRaw, .idle) }
         let wrapsThread = response["thread"] != nil
-        guard case .dictionary(var thread) = wrapsThread ? response["thread"] : parentRaw,
+        guard case .dictionary(let thread) = wrapsThread ? response["thread"] : parentRaw,
               Self.string(thread["historyMode"]) == "paginated",
               let threadID = Self.string(thread["id"]),
               case .array(var turns)? = thread["turns"] else {
@@ -301,24 +312,50 @@ public enum CodexThreadHistorySession {
         }
 
         let span = trace?.begin("threadHistory.items.paginate", metadata: ["threadID": threadID])
-        var loadedItemCount = 0
+        var loadedItemCount = retryState?.loadedItemCount ?? 0
         var nextCursorByTurnID: [String: String] = [:]
+        var activeTurnID: String?
+        var activeCursor: String?
+
+        func responseValue() -> CodexJSONValue {
+            var updatedThread = thread
+            updatedThread["turns"] = .array(turns)
+            var updatedResponse = response
+            if wrapsThread { updatedResponse["thread"] = .dictionary(updatedThread) }
+            else { updatedResponse = updatedThread }
+            return .dictionary(updatedResponse)
+        }
+
+        let startIndex: Int
+        if let retryTurnID = retryState?.retryTurnID,
+           let index = turns.firstIndex(where: { value in
+               guard case .dictionary(let turn) = value else { return false }
+               return Self.string(turn["id"]) == retryTurnID
+           }) {
+            startIndex = index
+        } else {
+            startIndex = turns.startIndex
+        }
 
         do {
-            for turnIndex in turns.indices {
+            for turnIndex in turns.indices.dropFirst(startIndex) {
                 guard case .dictionary(var turn) = turns[turnIndex],
                       let turnID = Self.string(turn["id"]) else { continue }
-                let existingItems: [CodexJSONValue]
-                if case .array(let items)? = turn["items"] { existingItems = items } else { existingItems = [] }
+                activeTurnID = turnID
+                var mergedItems: [CodexJSONValue]
+                if case .array(let items)? = turn["items"] { mergedItems = items } else { mergedItems = [] }
 
-                var pagedItems: [CodexJSONValue] = []
-                var cursor: String?
+                var cursor = turnID == retryState?.retryTurnID ? retryState?.retryCursor : nil
                 var seenCursors: Set<String> = []
+                if let cursor { seenCursors.insert(cursor) }
                 repeat {
+                    activeCursor = cursor
                     let page = try await loadPage(threadID, turnID, cursor)
-                    pagedItems.append(contentsOf: page.data.map(\.rawValue))
+                    mergedItems = mergePage(page.data.map(\.rawValue), into: mergedItems)
                     loadedItemCount += page.data.count
                     cursor = page.nextCursor
+                    turn["items"] = .array(mergedItems)
+                    turns[turnIndex] = .dictionary(turn)
                     if let cursor {
                         guard seenCursors.insert(cursor).inserted else {
                             throw CodexSDKError.invalidResponse(
@@ -332,7 +369,6 @@ public enum CodexThreadHistorySession {
                     }
                 } while cursor != nil
 
-                turn["items"] = .array(mergeItems(pagedItems, with: existingItems))
                 turn["itemsView"] = .string("full")
                 turns[turnIndex] = .dictionary(turn)
             }
@@ -341,31 +377,43 @@ public enum CodexThreadHistorySession {
             span?.end(metadata: ["threadID": threadID, "outcome": "fallback", "error": message])
             let phase: CodexThreadHistoryPaginationState.Phase = isMethodUnavailable(error) ? .unavailable : .failed
             return (
-                parentRaw,
+                responseValue(),
                 CodexThreadHistoryPaginationState(
                     phase: phase,
                     nextCursorByTurnID: nextCursorByTurnID,
-                    loadedItemCount: 0,
-                    errorMessage: message
+                    loadedItemCount: loadedItemCount,
+                    errorMessage: message,
+                    retryTurnID: activeTurnID,
+                    retryCursor: activeCursor
                 )
             )
         }
 
-        thread["turns"] = .array(turns)
-        if wrapsThread { response["thread"] = .dictionary(thread) } else { response = thread }
         span?.end(metadata: ["threadID": threadID, "outcome": "success", "itemCount": "\(loadedItemCount)"])
         return (
-            .dictionary(response),
+            responseValue(),
             CodexThreadHistoryPaginationState(phase: .loaded, loadedItemCount: loadedItemCount)
         )
     }
 
-    private static func mergeItems(_ pagedItems: [CodexJSONValue], with existingItems: [CodexJSONValue]) -> [CodexJSONValue] {
-        var seenIDs: Set<String> = []
-        return (pagedItems + existingItems).filter { item in
-            guard case .dictionary(let object) = item, let id = string(object["id"]) else { return true }
-            return seenIDs.insert(id).inserted
+    private static func mergePage(_ page: [CodexJSONValue], into existing: [CodexJSONValue]) -> [CodexJSONValue] {
+        var result = existing
+        for item in page {
+            guard case .dictionary(let object) = item,
+                  let id = string(object["id"]) else {
+                result.append(item)
+                continue
+            }
+            if let index = result.firstIndex(where: { existingItem in
+                guard case .dictionary(let existingObject) = existingItem else { return false }
+                return string(existingObject["id"]) == id
+            }) {
+                result[index] = item
+            } else {
+                result.append(item)
+            }
         }
+        return result
     }
 
     private static func string(_ value: CodexJSONValue?) -> String? {

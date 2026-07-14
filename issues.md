@@ -147,6 +147,11 @@ budget with deterministic oldest-first eviction.
 
 ### 11. Pagination discards partial progress — medium
 
+Disposition: fixed. Every successful page is merged into the retained raw turn
+envelope immediately. Failure returns cumulative counts plus the failed turn and
+nullable cursor; the public pagination adapter retries from that point while
+skipping completed turns and deduplicating retained items.
+
 A failure on a later page/turn returns the original parent and discards earlier
 successful pages.
 

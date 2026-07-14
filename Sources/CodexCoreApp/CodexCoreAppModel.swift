@@ -67,6 +67,7 @@ final class CodexCoreAppModel {
     var lastManualModelID: String?
     private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
     private(set) var threadHistoryPaginationState: CodexThreadHistoryPaginationState = .idle
+    private var threadHistoryPaginationRaw: CodexJSONValue?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     private var chatSelectionGeneration = 0
     var isThreadLoading = false
@@ -1125,6 +1126,7 @@ final class CodexCoreAppModel {
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
         threadHistoryPaginationState = .loading
+        threadHistoryPaginationRaw = nil
         do {
             let result = try await CodexThreadHistorySession.load(
                 threadID: thread.id,
@@ -1159,6 +1161,7 @@ final class CodexCoreAppModel {
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
         threadHistoryPaginationState = .loading
+        threadHistoryPaginationRaw = nil
         do {
             let parentRaw = try resume.rawResponse()
             let result = await CodexThreadHistorySession.load(
@@ -1256,7 +1259,8 @@ final class CodexCoreAppModel {
             hydration: hydration,
             restoredChildThreadCount: snapshot.subagentThreadIDs.count,
             paginationState: threadHistoryPaginationState,
-            transcriptV2: runtimeSession.transcriptV2
+            transcriptV2: runtimeSession.transcriptV2,
+            paginationRaw: threadHistoryPaginationRaw
         )
         threadHistoryCache.store(result, protected: protected)
     }
@@ -1271,6 +1275,7 @@ final class CodexCoreAppModel {
         trace: CodexPerformanceTrace?
     ) -> [String: String] {
         threadHistoryPaginationState = result.paginationState
+        threadHistoryPaginationRaw = result.paginationRaw
         let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
         let activity = runtimeSession.applyHistoryRestore(result)
         appendActivity(activity.kind, title: activity.title, detail: activity.detail)
