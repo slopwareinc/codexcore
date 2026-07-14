@@ -7,19 +7,25 @@ public struct CodexThreadLaunchConfiguration: Equatable, Sendable {
     public var modelIdentifier: String?
     public var sandbox: Sandbox
     public var dynamicTools: [CodexDynamicToolSpec]?
+    public var baseInstructions: String?
+    public var developerInstructions: String?
 
     public init(
         approvalMode: ApprovalMode,
         cwd: String,
         modelIdentifier: String?,
         sandbox: Sandbox,
-        dynamicTools: [CodexDynamicToolSpec]? = nil
+        dynamicTools: [CodexDynamicToolSpec]? = nil,
+        baseInstructions: String? = nil,
+        developerInstructions: String? = nil
     ) {
         self.approvalMode = approvalMode
         self.cwd = cwd
         self.modelIdentifier = modelIdentifier
         self.sandbox = sandbox
         self.dynamicTools = dynamicTools
+        self.baseInstructions = baseInstructions
+        self.developerInstructions = developerInstructions
     }
 }
 
@@ -77,7 +83,9 @@ public final class CodexThreadSession {
 
         let thread = try await codex.threadStart(
             approvalMode: configuration.approvalMode,
+            baseInstructions: configuration.baseInstructions,
             cwd: configuration.cwd,
+            developerInstructions: configuration.developerInstructions,
             dynamicTools: configuration.dynamicTools,
             model: configuration.modelIdentifier,
             sandbox: configuration.sandbox
@@ -95,7 +103,9 @@ public final class CodexThreadSession {
         let thread = try await codex.threadResume(
             threadID,
             approvalMode: configuration.approvalMode,
+            baseInstructions: configuration.baseInstructions,
             cwd: configuration.cwd,
+            developerInstructions: configuration.developerInstructions,
             model: configuration.modelIdentifier,
             sandbox: configuration.sandbox
         )
@@ -115,7 +125,9 @@ public final class CodexThreadSession {
         let result = try await codex.threadResumeWithHistory(
             threadID,
             approvalMode: configuration.approvalMode,
+            baseInstructions: configuration.baseInstructions,
             cwd: configuration.cwd,
+            developerInstructions: configuration.developerInstructions,
             model: configuration.modelIdentifier,
             sandbox: configuration.sandbox,
             activateInStore: activate
@@ -157,7 +169,9 @@ public final class CodexThreadSession {
         let thread = try await codex.threadFork(
             sourceID,
             approvalMode: configuration.approvalMode,
+            baseInstructions: configuration.baseInstructions,
             cwd: configuration.cwd,
+            developerInstructions: configuration.developerInstructions,
             ephemeral: false,
             model: configuration.modelIdentifier,
             sandbox: configuration.sandbox,
