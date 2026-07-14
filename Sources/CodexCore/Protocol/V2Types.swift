@@ -163,6 +163,7 @@ public enum SortDirection: String, Codable, Sendable, Equatable {
 public enum ThreadSortKey: String, Codable, Sendable, Equatable {
     case createdAt = "created_at"
     case updatedAt = "updated_at"
+    case recencyAt = "recency_at"
 }
 
 public enum ThreadSource: String, Codable, Sendable, Equatable {
@@ -235,6 +236,7 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
     public var ephemeral: Bool?
     public var experimentalRawEvents: Bool?
     public var historyMode: ThreadHistoryMode?
+    public var mockExperimentalField: String?
     public var model: String?
     public var modelProvider: String?
     public var multiAgentMode: CodexSchemaMultiAgentMode?
@@ -269,6 +271,7 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
         environments: [CodexSchemaTurnEnvironmentParams]? = nil,
         experimentalRawEvents: Bool? = nil,
         historyMode: ThreadHistoryMode? = nil,
+        mockExperimentalField: String? = nil,
         multiAgentMode: CodexSchemaMultiAgentMode? = nil,
         permissions: String? = nil,
         runtimeWorkspaceRoots: [String]? = nil,
@@ -286,6 +289,7 @@ public struct ThreadStartParams: Codable, Sendable, Equatable {
         self.ephemeral = ephemeral
         self.experimentalRawEvents = experimentalRawEvents
         self.historyMode = historyMode
+        self.mockExperimentalField = mockExperimentalField
         self.model = model
         self.modelProvider = modelProvider
         self.multiAgentMode = multiAgentMode
@@ -561,29 +565,86 @@ public enum TurnStatus: Sendable, Equatable, Codable {
 
 public struct TurnError: Codable, Sendable, Equatable {
     public var message: String?
+    public var additionalDetails: String?
+    public var codexErrorInfo: CodexSchemaCodexErrorInfo?
     public var raw: CodexJSONValue?
 
-    public init(message: String? = nil, raw: CodexJSONValue? = nil) {
+    public init(
+        message: String? = nil,
+        additionalDetails: String? = nil,
+        codexErrorInfo: CodexSchemaCodexErrorInfo? = nil,
+        raw: CodexJSONValue? = nil
+    ) {
         self.message = message
+        self.additionalDetails = additionalDetails
+        self.codexErrorInfo = codexErrorInfo
         self.raw = raw
+    }
+
+    public init(_ wire: CodexSchemaTurnError) {
+        self.init(
+            message: wire.message,
+            additionalDetails: wire.additionalDetails,
+            codexErrorInfo: wire.codexErrorInfo
+        )
+    }
+
+    public var schemaValue: CodexSchemaTurnError {
+        CodexSchemaTurnError(
+            additionalDetails: additionalDetails,
+            codexErrorInfo: codexErrorInfo,
+            message: message ?? ""
+        )
     }
 }
 
 public struct AppServerTurn: Codable, Sendable, Equatable, Identifiable {
+    private enum CodingKeys: String, CodingKey {
+        case id, status, error, startedAt, completedAt, durationMs, items, itemsView
+    }
     public var id: String
     public var status: TurnStatus?
     public var error: TurnError?
     public var startedAt: Int?
     public var completedAt: Int?
     public var durationMs: Int?
+    public var items: [CodexSchemaThreadItem]
+    public var itemsView: CodexSchemaTurnItemsView?
 
-    public init(id: String, status: TurnStatus? = nil, error: TurnError? = nil, startedAt: Int? = nil, completedAt: Int? = nil, durationMs: Int? = nil) {
+    public init(id: String, status: TurnStatus? = nil, error: TurnError? = nil, startedAt: Int? = nil, completedAt: Int? = nil, durationMs: Int? = nil, items: [CodexSchemaThreadItem] = [], itemsView: CodexSchemaTurnItemsView? = nil) {
         self.id = id
         self.status = status
         self.error = error
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.durationMs = durationMs
+        self.items = items
+        self.itemsView = itemsView
+    }
+
+    public init(_ wire: CodexSchemaTurn) {
+        self.init(
+            id: wire.id,
+            status: TurnStatus(rawValue: wire.status.rawValue),
+            error: wire.error.map(TurnError.init),
+            startedAt: wire.startedAt,
+            completedAt: wire.completedAt,
+            durationMs: wire.durationMs,
+            items: wire.items,
+            itemsView: wire.itemsView
+        )
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.status = try container.decodeIfPresent(TurnStatus.self, forKey: .status)
+        self.error = try container.decodeIfPresent(TurnError.self, forKey: .error)
+        self.startedAt = try container.decodeIfPresent(Int.self, forKey: .startedAt)
+        self.completedAt = try container.decodeIfPresent(Int.self, forKey: .completedAt)
+        self.durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+        self.items = try container.decodeIfPresent([CodexSchemaThreadItem].self, forKey: .items) ?? []
+        self.itemsView = try container.decodeIfPresent(CodexSchemaTurnItemsView.self, forKey: .itemsView)
     }
 }
 
@@ -838,9 +899,37 @@ public struct ItemCompletedNotification: Codable, Sendable, Equatable {
     public var threadId: String
     public var turnId: String
     public var item: ThreadItem
+    public var completedAtMs: Int?
+
+    public init(threadId: String, turnId: String, item: ThreadItem, completedAtMs: Int? = nil) {
+        self.threadId = threadId; self.turnId = turnId; self.item = item; self.completedAtMs = completedAtMs
+    }
+
+    public init(_ wire: CodexSchemaItemCompletedNotification) throws {
+        self.threadId = wire.threadID
+        self.turnId = wire.turnID
+        self.item = try wire.item.rawValue.decode(ThreadItem.self)
+        self.completedAtMs = wire.completedAtMs
+    }
 }
 
-public typealias ItemStartedNotification = ItemCompletedNotification
+public struct ItemStartedNotification: Codable, Sendable, Equatable {
+    public var threadId: String
+    public var turnId: String
+    public var item: ThreadItem
+    public var startedAtMs: Int?
+
+    public init(threadId: String, turnId: String, item: ThreadItem, startedAtMs: Int? = nil) {
+        self.threadId = threadId; self.turnId = turnId; self.item = item; self.startedAtMs = startedAtMs
+    }
+
+    public init(_ wire: CodexSchemaItemStartedNotification) throws {
+        self.threadId = wire.threadID
+        self.turnId = wire.turnID
+        self.item = try wire.item.rawValue.decode(ThreadItem.self)
+        self.startedAtMs = wire.startedAtMs
+    }
+}
 
 public struct AgentMessageDeltaNotification: Codable, Sendable, Equatable {
     public var threadId: String
@@ -852,11 +941,29 @@ public struct AgentMessageDeltaNotification: Codable, Sendable, Equatable {
 public struct TurnStartedNotification: Codable, Sendable, Equatable {
     public var threadId: String?
     public var turn: AppServerTurn
+
+    public init(threadId: String?, turn: AppServerTurn) {
+        self.threadId = threadId; self.turn = turn
+    }
+
+    public init(_ wire: CodexSchemaTurnStartedNotification) {
+        self.threadId = wire.threadID
+        self.turn = AppServerTurn(wire.turn)
+    }
 }
 
 public struct TurnCompletedNotification: Codable, Sendable, Equatable {
     public var threadId: String
     public var turn: AppServerTurn
+
+    public init(threadId: String, turn: AppServerTurn) {
+        self.threadId = threadId; self.turn = turn
+    }
+
+    public init(_ wire: CodexSchemaTurnCompletedNotification) {
+        self.threadId = wire.threadID
+        self.turn = AppServerTurn(wire.turn)
+    }
 }
 
 public struct ThreadTokenUsageUpdatedNotification: Codable, Sendable, Equatable {
@@ -963,15 +1070,27 @@ public struct TurnDiffUpdatedNotification: Codable, Sendable, Equatable {
 }
 
 public struct AccountLoginCompletedNotification: Codable, Sendable, Equatable {
-    public var loginId: String
+    public var loginId: String?
+    public var success: Bool
+    public var error: String?
     public var raw: [String: CodexJSONValue]
+
+    public init(_ wire: CodexSchemaAccountLoginCompletedNotification) {
+        self.loginId = wire.loginID
+        self.success = wire.success
+        self.error = wire.error
+        self.raw = [
+            "success": .bool(wire.success),
+            "loginId": wire.loginID.map(CodexJSONValue.string) ?? .null,
+            "error": wire.error.map(CodexJSONValue.string) ?? .null
+        ]
+    }
 
     public init(from decoder: Decoder) throws {
         let object = try [String: CodexJSONValue](from: decoder)
-        guard case .string(let loginId)? = object["loginId"] else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "loginId missing"))
-        }
-        self.loginId = loginId
+        self.loginId = if case .string(let loginId)? = object["loginId"] { loginId } else { nil }
+        self.success = if case .bool(let success)? = object["success"] { success } else { true }
+        self.error = if case .string(let error)? = object["error"] { error } else { nil }
         self.raw = object
     }
 

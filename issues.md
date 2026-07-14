@@ -160,6 +160,13 @@ metadata, and allow retry from the remaining cursor.
 
 ### 12. Handwritten and generated protocol types can drift — risk
 
+Disposition: fixed with bounded coverage. Pinned drift now also validates a
+categorized inventory of all 66 handwritten/generated overlaps. Exact generated
+notifications adapt explicitly into ergonomic turn/error/item/login models;
+conversion tests retain timestamps, structured errors, items, and login failure.
+Nested non-agent drift in `ThreadSortKey.recencyAt` and
+`ThreadStartParams.mockExperimentalField` is also covered.
+
 Pinned drift checks validate generated files but not overlapping handwritten V2
 compatibility types.
 

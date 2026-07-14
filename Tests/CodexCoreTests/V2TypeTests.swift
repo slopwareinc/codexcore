@@ -2,6 +2,80 @@ import XCTest
 @testable import CodexCore
 
 final class V2TypeTests: XCTestCase {
+    func testGeneratedNotificationAdaptersRetainWireFields() throws {
+        let item = CodexAppServerSchemaValue(.dictionary([
+            "id": .string("item-1"),
+            "type": .string("agentMessage"),
+            "text": .string("hello")
+        ]))
+        let started = try ItemStartedNotification(.init(
+            item: item,
+            startedAtMs: 123,
+            threadID: "thread-1",
+            turnID: "turn-1"
+        ))
+        XCTAssertEqual(started.startedAtMs, 123)
+        XCTAssertEqual(started.item.id, "item-1")
+
+        let completed = try ItemCompletedNotification(.init(
+            completedAtMs: 456,
+            item: item,
+            threadID: "thread-1",
+            turnID: "turn-1"
+        ))
+        XCTAssertEqual(completed.completedAtMs, 456)
+
+        let login = AccountLoginCompletedNotification(.init(
+            error: "denied",
+            loginID: nil,
+            success: false
+        ))
+        XCTAssertNil(login.loginId)
+        XCTAssertFalse(login.success)
+        XCTAssertEqual(login.error, "denied")
+    }
+
+    func testGeneratedTurnAdapterRetainsStructuredEnvelope() throws {
+        let schemaError = CodexSchemaTurnError(
+            additionalDetails: "request 42",
+            message: "failed"
+        )
+        let domainError = TurnError(schemaError)
+        XCTAssertEqual(domainError.schemaValue, schemaError)
+
+        let item = CodexAppServerSchemaValue(.dictionary([
+            "id": .string("item-1"), "type": .string("agentMessage")
+        ]))
+        let turn = AppServerTurn(CodexSchemaTurn(
+            completedAt: 20,
+            durationMs: 10_000,
+            error: schemaError,
+            id: "turn-1",
+            items: [item],
+            itemsView: .full,
+            startedAt: 10,
+            status: .failed
+        ))
+
+        XCTAssertEqual(turn.id, "turn-1")
+        XCTAssertEqual(turn.status, .failed)
+        XCTAssertEqual(turn.error?.message, "failed")
+        XCTAssertEqual(turn.items, [item])
+        XCTAssertEqual(turn.itemsView, .full)
+        XCTAssertEqual(turn.startedAt, 10)
+        XCTAssertEqual(turn.completedAt, 20)
+        XCTAssertEqual(turn.durationMs, 10_000)
+    }
+
+    func testKnownGeneratedDriftFieldsAreRepresented() throws {
+        XCTAssertEqual(try CodexJSONValue(encoding: ThreadSortKey.recencyAt), .string("recency_at"))
+        let params = ThreadStartParams(mockExperimentalField: "probe")
+        XCTAssertEqual(
+            try CodexJSONValue(encoding: params).objectValue?["mockExperimentalField"],
+            .string("probe")
+        )
+    }
+
     func testCurrentThreadAndTurnOptionsEncodeWithWireNames() throws {
         let start = ThreadStartParams(
             cwd: "/tmp/project",

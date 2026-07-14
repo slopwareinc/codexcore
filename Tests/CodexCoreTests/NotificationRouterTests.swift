@@ -126,4 +126,26 @@ final class NotificationRouterTests: XCTestCase {
         let received = await collector.value
         XCTAssertEqual(received, ["item/started", "turn/completed"])
     }
+
+    func testLoginFailureWithoutLoginIDCompletesRegisteredLogin() async {
+        let router = CodexNotificationRouter()
+        await router.registerLogin("login-1")
+        await router.route(JSONRPCNotification(
+            jsonrpc: "2.0",
+            method: CodexAppServerNotificationMethod.accountLoginCompleted.rawValue,
+            params: ["success": .bool(false), "error": .string("denied")]
+        ))
+
+        var received: [AccountLoginCompletedNotification] = []
+        for await notification in router.loginNotifications(loginId: "login-1") {
+            if case .accountLoginCompleted(let payload) = notification.payload {
+                received.append(payload)
+            }
+        }
+
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received.first?.success, false)
+        XCTAssertEqual(received.first?.error, "denied")
+        XCTAssertNil(received.first?.loginId)
+    }
 }

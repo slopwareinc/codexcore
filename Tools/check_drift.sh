@@ -32,6 +32,10 @@ for file in AppServerProtocolMethods.swift AppServerSchemaTypes.swift; do
     fi
 done
 
+if ! python3 "$TOOLS_DIR/check_handwritten_protocol_compatibility.py"; then
+    status=1
+fi
+
 if [ "$status" -eq 0 ]; then
     echo "Generated protocol files match $("$CODEX_BIN" --version)."
 else

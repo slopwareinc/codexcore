@@ -166,6 +166,12 @@ public actor CodexNotificationRouter {
             routeLogin(routed, loginId: loginId)
             return
         }
+        if case .accountLoginCompleted = routed.payload {
+            for loginId in Array(registeredLogins) {
+                routeLogin(routed, loginId: loginId)
+            }
+            return
+        }
 
         if let turnId = Self.turnId(from: routed) {
             routeTurn(routed, turnId: turnId)
@@ -367,8 +373,16 @@ public actor CodexNotificationRouter {
 
         switch method {
         case CodexAppServerNotificationMethod.itemStarted.rawValue:
+            if let wire = decode(CodexSchemaItemStartedNotification.self),
+               let payload = try? ItemStartedNotification(wire) {
+                return .itemStarted(payload)
+            }
             return decode(ItemStartedNotification.self).map(CodexNotificationPayload.itemStarted) ?? knownFallback()
         case CodexAppServerNotificationMethod.itemCompleted.rawValue:
+            if let wire = decode(CodexSchemaItemCompletedNotification.self),
+               let payload = try? ItemCompletedNotification(wire) {
+                return .itemCompleted(payload)
+            }
             return decode(ItemCompletedNotification.self).map(CodexNotificationPayload.itemCompleted) ?? knownFallback()
         case CodexAppServerNotificationMethod.itemAgentMessageDelta.rawValue:
             return decode(AgentMessageDeltaNotification.self).map(CodexNotificationPayload.agentMessageDelta) ?? knownFallback()
@@ -379,14 +393,23 @@ public actor CodexNotificationRouter {
         case CodexAppServerNotificationMethod.threadGoalCleared.rawValue:
             return decode(ThreadGoalClearedNotification.self).map(CodexNotificationPayload.threadGoalCleared) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnStarted.rawValue:
+            if let wire = decode(CodexSchemaTurnStartedNotification.self) {
+                return .turnStarted(TurnStartedNotification(wire))
+            }
             return decode(TurnStartedNotification.self).map(CodexNotificationPayload.turnStarted) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnCompleted.rawValue:
+            if let wire = decode(CodexSchemaTurnCompletedNotification.self) {
+                return .turnCompleted(TurnCompletedNotification(wire))
+            }
             return decode(TurnCompletedNotification.self).map(CodexNotificationPayload.turnCompleted) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnPlanUpdated.rawValue:
             return decode(TurnPlanUpdatedNotification.self).map(CodexNotificationPayload.turnPlanUpdated) ?? knownFallback()
         case CodexAppServerNotificationMethod.turnDiffUpdated.rawValue:
             return decode(TurnDiffUpdatedNotification.self).map(CodexNotificationPayload.turnDiffUpdated) ?? knownFallback()
         case CodexAppServerNotificationMethod.accountLoginCompleted.rawValue:
+            if let wire = decode(CodexSchemaAccountLoginCompletedNotification.self) {
+                return .accountLoginCompleted(AccountLoginCompletedNotification(wire))
+            }
             return decode(AccountLoginCompletedNotification.self).map(CodexNotificationPayload.accountLoginCompleted) ?? knownFallback()
         default:
             return knownFallback()
