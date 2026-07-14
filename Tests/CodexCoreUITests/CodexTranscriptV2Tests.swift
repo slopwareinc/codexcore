@@ -311,6 +311,17 @@ struct CodexTranscriptV2Tests {
             ]
         ]))
         #expect(completionReducer.transcript.turns.first?.status == .failed(message: "completion failure"))
+
+        var statusOnlyFailure = CodexTranscriptReducerV2(threadID: "thread-1")
+        statusOnlyFailure.apply(method: "turn/started", params: json([
+            "threadId": "thread-1", "turn": ["id": "turn-3", "status": "inProgress"]
+        ]))
+        statusOnlyFailure.apply(method: "turn/completed", params: json([
+            "threadId": "thread-1",
+            "turn": ["id": "turn-3", "status": "failed", "items": []]
+        ]))
+        #expect(statusOnlyFailure.transcript.turns.first?.wireStatus == .failed)
+        #expect(statusOnlyFailure.transcript.turns.first?.status == .failed(message: "Turn failed"))
     }
 
     @Test func headersAndLiveTail() {

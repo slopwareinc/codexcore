@@ -464,7 +464,7 @@ public final class CodexCoreStore {
             }
             storeThread(thread)
 
-        case .turnCompleted(let threadId, let turnId, let error):
+        case .turnCompleted(let threadId, let turnId, let status, let error):
             var thread = snapshotForMutation(threadID: threadId)
             let idx: Int
             if let existing = thread.turns.firstIndex(where: { $0.id == turnId }) {
@@ -473,7 +473,7 @@ public final class CodexCoreStore {
                 thread.turns.append(CodexTurnSnapshot(id: turnId))
                 idx = thread.turns.count - 1
             }
-            thread.turns[idx].status = error == nil ? .completed : .failed
+            thread.turns[idx].status = status == .failed || error != nil ? .failed : .completed
             thread.turns[idx].error = error
             thread.turns[idx].completedAt = Date()
             thread.status = .idle

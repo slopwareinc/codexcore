@@ -1297,9 +1297,18 @@ public actor CodexClient {
             return .turnStarted(threadId: threadId, turnId: turnId)
 
         case "turn/completed":
+            if let payload = try? params.decode(CodexSchemaTurnCompletedNotification.self) {
+                return .turnCompleted(
+                    threadId: payload.threadID,
+                    turnId: payload.turn.id,
+                    status: payload.turn.status,
+                    error: payload.turn.error?.message
+                )
+            }
             let error = CodexTurnErrorAdapter.message(from: params["error"])
                 ?? CodexTurnErrorAdapter.message(from: nestedValue("turn", "error"))
-            return .turnCompleted(threadId: threadId, turnId: turnId, error: error)
+            let status = stringValue(nestedValue("turn", "status")).flatMap(CodexSchemaTurnStatus.init(rawValue:))
+            return .turnCompleted(threadId: threadId, turnId: turnId, status: status, error: error)
 
         case "item/started":
             return decodeItem(params).map { .itemStarted(threadId: threadId, turnId: turnId, item: $0) } ?? .unknown(method: method, params: params)

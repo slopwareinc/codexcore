@@ -120,7 +120,7 @@ public enum CodexServerEvent: Sendable {
     case threadGoalUpdated(threadId: String, goal: ThreadGoal)
     case threadGoalCleared(threadId: String)
     case turnStarted(threadId: String, turnId: String)
-    case turnCompleted(threadId: String, turnId: String, error: String?)
+    case turnCompleted(threadId: String, turnId: String, status: CodexSchemaTurnStatus?, error: String?)
     case itemStarted(threadId: String, turnId: String, item: CodexServerItem)
     case itemCompleted(threadId: String, turnId: String, item: CodexServerItem)
     case messageDelta(threadId: String, turnId: String, itemId: String, delta: String)

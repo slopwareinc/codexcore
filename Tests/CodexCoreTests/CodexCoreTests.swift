@@ -243,7 +243,7 @@ final class CodexCoreTests: XCTestCase {
         XCTAssertNil(store.activeThread?.turns.first?.itemDetails["item-a"])
 
         // 5. Complete Turn
-        store.dispatch(.turnCompleted(threadId: "thread-abc", turnId: "turn-1", error: nil))
+        store.dispatch(.turnCompleted(threadId: "thread-abc", turnId: "turn-1", status: .completed, error: nil))
         XCTAssertFalse(store.isThinking)
         XCTAssertEqual(store.activeThread?.turns.first?.status, .completed)
     }

@@ -106,10 +106,13 @@ public struct CodexTranscriptReducerV2: Sendable {
     private mutating func completeTurn(_ root: [String: CodexJSONValue]) {
         guard let turn = root.object("turn"), let id = turn.string("id"), let index = turnIndex(id) else { return }
         let error = CodexTurnErrorAdapter.decode(turn["error"])
+        let wireStatus = turn.string("status").flatMap(CodexSchemaTurnStatus.init(rawValue:))
         transcript.turns[index].error = error
-        if let error { failTurn(at: index, message: error.message) }
+        if wireStatus == .failed || error != nil {
+            failTurn(at: index, message: error?.message ?? "Turn failed")
+        }
         else { finishTurn(at: index, duration: completionDuration(turn, turnID: id)) }
-        transcript.turns[index].wireStatus = error == nil ? .completed : .failed
+        transcript.turns[index].wireStatus = wireStatus ?? (error == nil ? .completed : .failed)
         transcript.turns[index].completedAt = turn.int("completedAt")
         transcript.turns[index].durationMs = turn.int("durationMs") ?? completionDuration(turn, turnID: id)
     }

@@ -59,6 +59,15 @@ final class CodexClientNotificationStreamTests: XCTestCase {
         XCTAssertEqual(completedTurn?.status, .failed)
         XCTAssertEqual(completedTurn?.error, "completion failure")
 
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-3","status":"inProgress","items":[]}}}"#)
+        await transport.receiveMessage(#"{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-3","status":"failed","items":[]}}}"#)
+        for _ in 0..<20 where await store.activeThread?.turns.last?.status != .failed {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let statusOnlyFailure = await store.activeThread?.turns.last
+        XCTAssertEqual(statusOnlyFailure?.id, "turn-3")
+        XCTAssertEqual(statusOnlyFailure?.status, .failed)
+
         await client.disconnect()
     }
 
