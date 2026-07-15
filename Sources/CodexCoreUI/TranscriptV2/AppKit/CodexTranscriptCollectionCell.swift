@@ -1,61 +1,6 @@
 import AppKit
 import SwiftUI
 
-private final class CodexTranscriptFooterActionButton: NSButton {
-    var actionLabel = "" {
-        didSet {
-            toolTip = actionLabel
-            setAccessibilityLabel(actionLabel)
-            updateHoverPresentation()
-        }
-    }
-    var onHoverPresentationChange: (() -> Void)?
-    private(set) var isHovering = false
-
-    var preferredWidth: CGFloat {
-        guard isHovering, !actionLabel.isEmpty else { return 22 }
-        let titleWidth = ceil((actionLabel as NSString).size(withAttributes: [
-            .font: font ?? NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        ]).width)
-        return 22 + titleWidth + 12
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        setHovering(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        setHovering(false)
-    }
-
-    func setHovering(_ hovering: Bool) {
-        guard isHovering != hovering else { return }
-        isHovering = hovering
-        updateHoverPresentation()
-        onHoverPresentationChange?()
-    }
-
-    private func updateHoverPresentation() {
-        title = isHovering ? actionLabel : ""
-        imagePosition = isHovering ? .imageLeading : .imageOnly
-        wantsLayer = true
-        layer?.cornerRadius = 5
-        layer?.backgroundColor = isHovering
-            ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
-            : NSColor.clear.cgColor
-    }
-}
-
 private final class CodexTranscriptHoverView: NSView {
     var onHoverChange: ((Bool) -> Void)?
 
@@ -143,9 +88,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private let actionButton = NSButton()
     private let copyButton = NSButton()
     private let footerTimestampLabel = NSTextField(labelWithString: "")
-    private let footerCopyItemButton = CodexTranscriptFooterActionButton()
-    private let footerCopyTurnButton = CodexTranscriptFooterActionButton()
-    private let footerContextButton = CodexTranscriptFooterActionButton()
+    private let footerCopyItemButton = NSButton()
+    private let footerCopyTurnButton = NSButton()
+    private let footerContextButton = NSButton()
     private let backgroundView = NSView()
     private var hostedView: NSView?
     private var item: CodexTranscriptRenderItem?
@@ -164,7 +109,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var hasHostedViewForTesting: Bool { hostedView != nil }
     var footerCopyTurnIsVisibleForTesting: Bool { !footerCopyTurnButton.isHidden }
     var footerCopyItemTitleForTesting: String { footerCopyItemButton.title }
-    var footerCopyItemIsHighlightedForTesting: Bool { footerCopyItemButton.isHovering }
+    var footerCopyItemToolTipForTesting: String? { footerCopyItemButton.toolTip }
 
     func copyItemForTesting() { copyItem() }
     func copyTurnForTesting() { copyTurn() }
@@ -172,7 +117,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func editUserForTesting() { editUser() }
     func forkChatForTesting() { invokeForkChat() }
     func setHoveredForTesting(_ hovered: Bool) { setHovered(hovered) }
-    func setFooterCopyItemHoveredForTesting(_ hovered: Bool) { footerCopyItemButton.setHovering(hovered) }
 
     override func loadView() {
         let hoverView = CodexTranscriptHoverView()
@@ -253,9 +197,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
         footerContextButton.isHidden = true
-        footerCopyItemButton.setHovering(false)
-        footerCopyTurnButton.setHovering(false)
-        footerContextButton.setHovering(false)
         backgroundView.isHidden = true
         isHovered = false
         view.menu = nil
@@ -434,7 +375,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func configureFooterButton(
-        _ button: CodexTranscriptFooterActionButton,
+        _ button: NSButton,
         systemImage: String,
         toolTip: String,
         action: Selector
@@ -442,14 +383,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         button.isBordered = false
         button.bezelStyle = .inline
         button.focusRingType = .none
+        button.title = ""
         button.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: toolTip)
         button.imagePosition = .imageOnly
         button.target = self
         button.action = action
-        button.actionLabel = toolTip
-        button.onHoverPresentationChange = { [weak self] in
-            self?.view.needsLayout = true
-        }
+        button.toolTip = toolTip
+        button.setAccessibilityLabel(toolTip)
         view.addSubview(button)
     }
 
@@ -477,25 +417,22 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 accessibilityDescription: "Edit prompt"
             )
             footerContextButton.action = #selector(editUser)
-            footerContextButton.actionLabel = "Edit prompt"
+            footerContextButton.toolTip = "Edit prompt"
+            footerContextButton.setAccessibilityLabel("Edit prompt")
         case .finalAnswer:
             footerContextButton.image = NSImage(
                 systemSymbolName: "arrow.triangle.branch",
                 accessibilityDescription: "Fork chat"
             )
             footerContextButton.action = #selector(invokeForkChat)
-            footerContextButton.actionLabel = "Fork chat"
+            footerContextButton.toolTip = "Fork chat"
+            footerContextButton.setAccessibilityLabel("Fork chat")
         }
     }
 
     private func setHovered(_ hovered: Bool) {
         guard isHovered != hovered else { return }
         isHovered = hovered
-        if !hovered {
-            footerCopyItemButton.setHovering(false)
-            footerCopyTurnButton.setHovering(false)
-            footerContextButton.setHovering(false)
-        }
         updateFooterChromeVisibility()
         view.needsLayout = true
     }
@@ -525,7 +462,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         let labelY = frame.midY - labelSize.height / 2
         let visibleButtons = [footerCopyItemButton, footerCopyTurnButton, footerContextButton]
             .filter { !$0.isHidden }
-        let buttonsWidth = visibleButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
+        let buttonWidth: CGFloat = 22
+        let buttonsWidth = CGFloat(visibleButtons.count) * buttonWidth
             + CGFloat(max(visibleButtons.count - 1, 0)) * 2
 
         if trailing {
@@ -538,8 +476,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             )
             var buttonX = labelX - (visibleButtons.isEmpty ? 0 : buttonsWidth + 5)
             for button in visibleButtons {
-                button.frame = NSRect(x: buttonX, y: frame.midY - 10, width: button.preferredWidth, height: 20)
-                buttonX += button.preferredWidth + 2
+                button.frame = NSRect(x: buttonX, y: frame.midY - 10, width: buttonWidth, height: 20)
+                buttonX += buttonWidth + 2
             }
         } else {
             footerTimestampLabel.frame = NSRect(
@@ -550,8 +488,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             )
             var buttonX = footerTimestampLabel.frame.maxX + (visibleButtons.isEmpty ? 0 : 5)
             for button in visibleButtons {
-                button.frame = NSRect(x: buttonX, y: frame.midY - 10, width: button.preferredWidth, height: 20)
-                buttonX += button.preferredWidth + 2
+                button.frame = NSRect(x: buttonX, y: frame.midY - 10, width: buttonWidth, height: 20)
+                buttonX += buttonWidth + 2
             }
         }
     }

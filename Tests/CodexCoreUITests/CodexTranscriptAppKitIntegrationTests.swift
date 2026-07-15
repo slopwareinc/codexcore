@@ -240,9 +240,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         cell.setHoveredForTesting(true)
         #expect(cell.footerCopyTurnIsVisibleForTesting)
         #expect(cell.footerCopyItemTitleForTesting.isEmpty)
-        cell.setFooterCopyItemHoveredForTesting(true)
-        #expect(cell.footerCopyItemTitleForTesting == "Copy answer")
-        #expect(cell.footerCopyItemIsHighlightedForTesting)
+        #expect(cell.footerCopyItemToolTipForTesting == "Copy answer")
         cell.copyTurnForTesting()
         #expect(clipboard.lastValue == footer.copyTurnText)
     }
