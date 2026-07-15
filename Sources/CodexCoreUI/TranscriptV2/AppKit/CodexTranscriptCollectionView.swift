@@ -6,8 +6,11 @@ struct CodexTranscriptCollectionDiagnostics: Sendable, Equatable {
     var insertedItemCount = 0
     var deletedItemCount = 0
     var reconfiguredItemCount = 0
+    var targetedReconfigurePassCount = 0
     var broadReloadCount = 0
     var tickerTargetCount = 0
+    var lastSnapshotApplyDurationMilliseconds: Double = 0
+    var maximumSnapshotApplyDurationMilliseconds: Double = 0
     var render = CodexTranscriptRenderDiagnostics()
 }
 
@@ -80,6 +83,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var forceReconfigureAll = false
         private var activeTickerItemID: CodexTranscriptRenderItemID?
         private var ticker: Timer?
+        private var hostedPreferredHeightByID: [CodexTranscriptRenderItemID: (revision: Int, height: CGFloat)] = [:]
         private(set) var diagnostics = CodexTranscriptCollectionDiagnostics()
 
         func attach(to container: CodexTranscriptCollectionContainerView) {
@@ -95,23 +99,11 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             ) { [weak self] collectionView, indexPath, itemID in
                 guard let self,
                       let item = self.currentSnapshot?.itemsByID[itemID],
-                      let theme = self.appKitTheme,
                       let collectionItem = collectionView.makeItem(
                         withIdentifier: CodexTranscriptCollectionItem.reuseIdentifier,
                         for: indexPath
                       ) as? CodexTranscriptCollectionItem else { return nil }
-                collectionItem.configure(
-                    item: item,
-                    appKitTheme: theme,
-                    swiftUITheme: self.swiftUITheme,
-                    contentHorizontalOffset: self.contentHorizontalOffset,
-                    productToolRenderer: self.productToolRenderer,
-                    performAction: { [weak self] action in self?.perform(action) },
-                    copy: { [weak self] text in self?.clipboardService.copy(text) },
-                    editUserMessage: { [weak self] text in self?.onEditUserMessage(text) },
-                    forkChat: self.onForkChat,
-                    selectionChanged: { [weak self] id, selecting in self?.selectionChanged(id: id, selecting: selecting) }
-                )
+                self.configure(collectionItem, with: item)
                 return collectionItem
             }
             container.onJumpToLatest = { [weak self] in self?.jumpToLatest() }
@@ -181,6 +173,11 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             currentSnapshot?.itemsByID[id]
         }
 
+        func collectionItemForTesting(_ id: CodexTranscriptRenderItemID) -> CodexTranscriptCollectionItem? {
+            guard let indexPath = dataSource?.indexPath(for: id) else { return nil }
+            return container?.collectionView.item(at: indexPath) as? CodexTranscriptCollectionItem
+        }
+
         func setSelectingForTesting(_ selecting: Bool, id: CodexTranscriptRenderItemID) {
             selectionChanged(id: id, selecting: selecting)
         }
@@ -229,21 +226,75 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             }
         }
 
+        private func configure(
+            _ collectionItem: CodexTranscriptCollectionItem,
+            with item: CodexTranscriptRenderItem
+        ) {
+            guard let theme = appKitTheme else { return }
+            collectionItem.configure(
+                item: item,
+                appKitTheme: theme,
+                swiftUITheme: swiftUITheme,
+                contentHorizontalOffset: contentHorizontalOffset,
+                productToolRenderer: productToolRenderer,
+                performAction: { [weak self] action in self?.perform(action) },
+                copy: { [weak self] text in self?.clipboardService.copy(text) },
+                editUserMessage: { [weak self] text in self?.onEditUserMessage(text) },
+                forkChat: onForkChat,
+                selectionChanged: { [weak self] id, selecting in self?.selectionChanged(id: id, selecting: selecting) },
+                preferredHeightChanged: { [weak self] id, revision, height in
+                    self?.preferredHeightChanged(id: id, revision: revision, height: height)
+                }
+            )
+        }
+
         private func apply(
             _ projected: CodexTranscriptRenderSnapshot,
             presentation: CodexThreadUIPresentation
         ) {
+            var projected = projected
             guard currentPresentation?.threadID == projected.threadID,
                   let dataSource else { return }
+            for (id, preferred) in hostedPreferredHeightByID
+                where projected.itemsByID[id]?.revision == preferred.revision {
+                projected.itemsByID[id]?.measuredHeight = preferred.height
+            }
             let previous = currentSnapshot
             let previousIDs = Set(previous?.orderedItemIDs ?? [])
             let nextIDs = Set(projected.orderedItemIDs)
+            hostedPreferredHeightByID = hostedPreferredHeightByID.filter { nextIDs.contains($0.key) }
             var changedIDs = projected.changedItemIDs.intersection(previousIDs).intersection(nextIDs)
             if forceReconfigureAll {
                 changedIDs = previousIDs.intersection(nextIDs)
                 forceReconfigureAll = false
             }
             currentSnapshot = projected
+            diagnostics.insertedItemCount += nextIDs.subtracting(previousIDs).count
+            diagnostics.deletedItemCount += previousIDs.subtracting(nextIDs).count
+            diagnostics.reconfiguredItemCount += changedIDs.count
+            diagnostics.render = projected.diagnostics
+            let switchedThread = previous?.threadID != projected.threadID
+            if switchedThread { selectedItemIDs.removeAll(keepingCapacity: true) }
+            let shouldFollow = presentation.isPinnedToBottom && selectedItemIDs.isEmpty
+            let structureUnchanged = previous?.threadID == projected.threadID
+                && previous?.sectionIDs == projected.sectionIDs
+                && previous?.itemIDsBySection == projected.itemIDsBySection
+            let applyStartedAt = ContinuousClock.now
+
+            if structureUnchanged {
+                if !changedIDs.isEmpty {
+                    diagnostics.targetedReconfigurePassCount += 1
+                    reconfigure(changedIDs)
+                }
+                finishApply(
+                    projected,
+                    presentation: presentation,
+                    switchedThread: switchedThread,
+                    shouldFollow: shouldFollow,
+                    startedAt: applyStartedAt
+                )
+                return
+            }
 
             var diffable = NSDiffableDataSourceSnapshot<String, CodexTranscriptRenderItemID>()
             diffable.appendSections(projected.sectionIDs)
@@ -252,25 +303,78 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             }
             if !changedIDs.isEmpty { diffable.reloadItems(Array(changedIDs)) }
             diagnostics.snapshotApplyCount += 1
-            diagnostics.insertedItemCount += nextIDs.subtracting(previousIDs).count
-            diagnostics.deletedItemCount += previousIDs.subtracting(nextIDs).count
-            diagnostics.reconfiguredItemCount += changedIDs.count
-            diagnostics.render = projected.diagnostics
-            let switchedThread = previous?.threadID != projected.threadID
-            let shouldFollow = presentation.isPinnedToBottom && selectedItemIDs.isEmpty
             dataSource.apply(diffable, animatingDifferences: false) { [weak self] in
-                guard let self, let container = self.container else { return }
-                container.collectionView.collectionViewLayout?.invalidateLayout()
-                container.layoutSubtreeIfNeeded()
-                container.collectionView.layoutSubtreeIfNeeded()
-                if switchedThread {
-                    self.restoreScroll(presentation)
-                } else if shouldFollow {
-                    self.scrollToBottom(markPinned: true)
-                }
-                self.updateJumpButton()
-                self.updateTicker(projected)
+                self?.finishApply(
+                    projected,
+                    presentation: presentation,
+                    switchedThread: switchedThread,
+                    shouldFollow: shouldFollow,
+                    startedAt: applyStartedAt
+                )
             }
+        }
+
+        private func reconfigure(_ changedIDs: Set<CodexTranscriptRenderItemID>) {
+            guard let dataSource, let container else { return }
+            let indexPaths = changedIDs.compactMap { dataSource.indexPath(for: $0) }
+            for indexPath in indexPaths {
+                guard let id = dataSource.itemIdentifier(for: indexPath),
+                      let item = currentSnapshot?.itemsByID[id],
+                      let collectionItem = container.collectionView.item(at: indexPath) as? CodexTranscriptCollectionItem else { continue }
+                configure(collectionItem, with: item)
+            }
+            guard !indexPaths.isEmpty else { return }
+            let context = NSCollectionViewFlowLayoutInvalidationContext()
+            context.invalidateItems(at: Set(indexPaths))
+            container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
+        }
+
+        private func preferredHeightChanged(
+            id: CodexTranscriptRenderItemID,
+            revision: Int,
+            height: CGFloat
+        ) {
+            guard var item = currentSnapshot?.itemsByID[id],
+                  item.revision == revision,
+                  abs(item.measuredHeight - height) > 1 else { return }
+            hostedPreferredHeightByID[id] = (revision, height)
+            item.measuredHeight = height
+            currentSnapshot?.itemsByID[id] = item
+            guard let indexPath = dataSource?.indexPath(for: id), let container else { return }
+            let context = NSCollectionViewFlowLayoutInvalidationContext()
+            context.invalidateItems(at: [indexPath])
+            container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
+            container.collectionView.layoutSubtreeIfNeeded()
+            if currentPresentation?.isPinnedToBottom == true, selectedItemIDs.isEmpty {
+                scrollToBottom(markPinned: true)
+            }
+        }
+
+        private func finishApply(
+            _ projected: CodexTranscriptRenderSnapshot,
+            presentation: CodexThreadUIPresentation,
+            switchedThread: Bool,
+            shouldFollow: Bool,
+            startedAt: ContinuousClock.Instant
+        ) {
+            guard let container else { return }
+            container.layoutSubtreeIfNeeded()
+            container.collectionView.layoutSubtreeIfNeeded()
+            if switchedThread {
+                restoreScroll(presentation)
+            } else if shouldFollow {
+                scrollToBottom(markPinned: true)
+            }
+            updateJumpButton()
+            updateTicker(projected)
+            let elapsed = startedAt.duration(to: .now)
+            let milliseconds = Double(elapsed.components.seconds) * 1_000
+                + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
+            diagnostics.lastSnapshotApplyDurationMilliseconds = milliseconds
+            diagnostics.maximumSnapshotApplyDurationMilliseconds = max(
+                diagnostics.maximumSnapshotApplyDurationMilliseconds,
+                milliseconds
+            )
         }
 
         private func perform(_ action: CodexTranscriptRenderAction) {
@@ -301,6 +405,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         private func widthDidChange(_ width: CGFloat) {
             guard abs(width - lastProjectedWidth) > 1 else { return }
+            container?.collectionView.collectionViewLayout?.invalidateLayout()
             requestProjection(width: max(width, 320))
         }
 

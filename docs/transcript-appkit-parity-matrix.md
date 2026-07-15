@@ -9,6 +9,9 @@ Selection v1 is deliberately scoped to native selection within one user,
 prose, final-answer, code, or expanded-output surface. Continuous drag
 selection across turn boundaries is not part of this experiment.
 
+Reproducible verification and performance counters are recorded in
+`docs/transcript-appkit-experiment-results.md`.
+
 | Surface / behavior | V2 source of truth | Current behavior to preserve or restore | AppKit owner | Required evidence |
 |---|---|---|---|---|
 | User message | `CodexTurnV2.userMessage` | Right-aligned bubble, server echo reconciliation, optimistic text, stable timestamp, selection | user render block + TextKit cell | reducer reconcile test; render projection and copy tests |

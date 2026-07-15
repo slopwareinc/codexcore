@@ -71,6 +71,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var editUserMessage: ((String) -> Void)?
     private var forkChat: (() -> Void)?
     private var selectionChanged: ((CodexTranscriptRenderItemID, Bool) -> Void)?
+    private var preferredHeightChanged: ((CodexTranscriptRenderItemID, Int, CGFloat) -> Void)?
+    private var lastReportedPreferredHeight: CGFloat?
 
     var selectableTextViewForTesting: NSTextView { selectableTextView }
     var hasHostedViewForTesting: Bool { hostedView != nil }
@@ -122,6 +124,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         super.prepareForReuse()
         if let id = item?.id { selectionChanged?(id, false) }
         item = nil
+        lastReportedPreferredHeight = nil
         hostedView?.removeFromSuperview()
         hostedView = nil
         selectableTextView.string = ""
@@ -143,11 +146,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copy: @escaping (String) -> Void,
         editUserMessage: @escaping (String) -> Void,
         forkChat: (() -> Void)?,
-        selectionChanged: @escaping (CodexTranscriptRenderItemID, Bool) -> Void
+        selectionChanged: @escaping (CodexTranscriptRenderItemID, Bool) -> Void,
+        preferredHeightChanged: @escaping (CodexTranscriptRenderItemID, Int, CGFloat) -> Void = { _, _, _ in }
     ) {
-        let selectionToRestore = self.item?.id == item.id
+        let preservesIdentity = self.item?.id == item.id
+        let selectionToRestore = preservesIdentity
             ? selectableTextView.selectedRange()
             : NSRange(location: 0, length: 0)
+        if !preservesIdentity { lastReportedPreferredHeight = nil }
         self.item = item
         self.appKitTheme = appKitTheme
         self.contentHorizontalOffset = contentHorizontalOffset
@@ -156,6 +162,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.editUserMessage = editUserMessage
         self.forkChat = forkChat
         self.selectionChanged = selectionChanged
+        self.preferredHeightChanged = preferredHeightChanged
         hostedView?.removeFromSuperview()
         hostedView = nil
         backgroundView.isHidden = true
@@ -271,7 +278,20 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         } else {
             actionButton.frame = contentFrame
         }
-        hostedView?.frame = contentFrame
+        if let hostedView {
+            hostedView.frame = contentFrame
+            hostedView.layoutSubtreeIfNeeded()
+            let preferredHeight = max(44, ceil(hostedView.fittingSize.height))
+            if abs(preferredHeight - item.measuredHeight) > 1,
+               lastReportedPreferredHeight != preferredHeight {
+                lastReportedPreferredHeight = preferredHeight
+                let id = item.id
+                let revision = item.revision
+                Task { @MainActor [weak self] in
+                    self?.preferredHeightChanged?(id, revision, preferredHeight)
+                }
+            }
+        }
     }
 
     private func layoutSelectableText(in frame: NSRect, allowsHorizontalScrolling: Bool) {

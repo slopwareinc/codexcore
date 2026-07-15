@@ -54,10 +54,19 @@ struct CodexTranscriptAppKitIntegrationTests {
         await coordinator.waitForProjectionForTesting()
         try await Task.sleep(for: .milliseconds(20))
 
-        #expect(coordinator.diagnostics.snapshotApplyCount == 2)
+        #expect(coordinator.diagnostics.snapshotApplyCount == 1)
+        #expect(coordinator.diagnostics.targetedReconfigurePassCount == 1)
         #expect(coordinator.diagnostics.reconfiguredItemCount == 1)
         #expect(coordinator.diagnostics.broadReloadCount == 0)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
+        let applyLabel = String(format: "%.3f", coordinator.diagnostics.lastSnapshotApplyDurationMilliseconds)
+        let maximumApplyLabel = String(format: "%.3f", coordinator.diagnostics.maximumSnapshotApplyDurationMilliseconds)
+        print(
+            "APPKIT_TRANSCRIPT_DIFF items=1085 snapshots=\(coordinator.diagnostics.snapshotApplyCount) "
+                + "targeted=\(coordinator.diagnostics.targetedReconfigurePassCount) "
+                + "reconfigured=\(coordinator.diagnostics.reconfiguredItemCount) broad_reload=\(coordinator.diagnostics.broadReloadCount) "
+                + "last_apply_ms=\(applyLabel) max_apply_ms=\(maximumApplyLabel)"
+        )
         container.jumpButton.performClick(nil)
         #expect(container.jumpButton.isHidden)
         #expect(container.scrollView.contentView.bounds.origin.y > 250)
@@ -161,6 +170,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(coordinator.diagnostics.tickerTargetCount == 1)
 
         let selectableID = try #require(coordinator.renderedItemIDsForTesting.first { $0.rawValue.contains(":commentary:") })
+        let selectedCell = try #require(coordinator.collectionItemForTesting(selectableID))
+        selectedCell.selectableTextViewForTesting.setSelectedRange(NSRange(location: 0, length: 7))
         coordinator.setSelectingForTesting(true, id: selectableID)
         container.scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: 40))
         let preservedOffset = container.scrollView.contentView.bounds.origin.y
@@ -184,6 +195,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         await coordinator.waitForProjectionForTesting()
         try await Task.sleep(for: .milliseconds(20))
         #expect(abs(container.scrollView.contentView.bounds.origin.y - preservedOffset) < 1)
+        #expect(coordinator.collectionItemForTesting(selectableID) === selectedCell)
+        #expect(selectedCell.selectableTextViewForTesting.selectedRange() == NSRange(location: 0, length: 7))
 
         presentation.transcript.turns[0].status = .done(durationMs: 1_000)
         presentation.expandedWorkTurnIDs.insert("turn")
@@ -250,10 +263,16 @@ struct CodexTranscriptAppKitIntegrationTests {
         let final = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":final:final:block:") }?.value)
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: 44)
         var openedThreadID: String?
         var editedText: String?
         var forkCount = 0
-        func configure(_ item: CodexTranscriptRenderItem, renderer: CodexProductToolRendererV2? = nil) {
+        var preferredProductHeight: CGFloat?
+        func configure(
+            _ item: CodexTranscriptRenderItem,
+            renderer: CodexProductToolRendererV2? = nil,
+            preferredHeightChanged: @escaping (CodexTranscriptRenderItemID, Int, CGFloat) -> Void = { _, _, _ in }
+        ) {
             cell.configure(
                 item: item,
                 appKitTheme: theme,
@@ -266,7 +285,8 @@ struct CodexTranscriptAppKitIntegrationTests {
                 copy: { _ in },
                 editUserMessage: { editedText = $0 },
                 forkChat: { forkCount += 1 },
-                selectionChanged: { _, _ in }
+                selectionChanged: { _, _ in },
+                preferredHeightChanged: preferredHeightChanged
             )
         }
 
@@ -283,8 +303,15 @@ struct CodexTranscriptAppKitIntegrationTests {
         cell.forkChatForTesting()
         #expect(forkCount == 1)
 
-        configure(product, renderer: CodexProductToolRendererV2 { _ in AnyView(Text("Host-rendered tool")) })
+        configure(
+            product,
+            renderer: CodexProductToolRendererV2 { _ in AnyView(Text("Host-rendered tool").frame(height: 120)) },
+            preferredHeightChanged: { _, _, height in preferredProductHeight = height }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+        await Task.yield()
         #expect(cell.hasHostedViewForTesting)
+        #expect((preferredProductHeight ?? 0) >= 120)
     }
 
     @Test func warmThreadSwapRestoresExactRawOffset() async throws {
