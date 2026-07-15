@@ -28,7 +28,7 @@ struct CodexTranscriptRenderProjectionTests {
         let rawIDs = snapshot.orderedItemIDs.map(\.rawValue)
         #expect(rawIDs.contains { $0.contains(":user:user") })
         #expect(rawIDs.contains { $0.hasSuffix(":work-header") })
-        #expect(rawIDs.contains { $0.contains(":commentary:commentary:block:") })
+        #expect(rawIDs.contains { $0.contains(":commentary:commentary:selection-surface:") })
         #expect(rawIDs.contains { $0.contains(":group:group:header") })
         #expect(rawIDs.contains { $0.contains(":row:command") })
         #expect(rawIDs.contains { $0.contains(":row:command:detail") })
@@ -39,7 +39,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(rawIDs.contains { $0.contains(":row:other") })
         #expect(rawIDs.contains { $0.contains(":product:product") })
         #expect(rawIDs.contains { $0.contains(":notice:notice") })
-        #expect(rawIDs.contains { $0.contains(":final:final:block:") })
+        #expect(rawIDs.contains { $0.contains(":final:final:selection-surface:") })
 
         let commandDetail = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":row:command:detail") }?.value)
         #expect(commandDetail.textRole == .expandedOutput)
@@ -79,8 +79,12 @@ struct CodexTranscriptRenderProjectionTests {
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let first = try await projector.project(presentation: presentation(answer: "Hello"), availableWidth: 860, theme: theme)
         let second = try await projector.project(presentation: presentation(answer: "Hello world"), availableWidth: 860, theme: theme)
-        let firstFinal = try #require(first.orderedItemIDs.first { $0.rawValue.contains(":final:final:block:") })
-        let secondFinal = try #require(second.orderedItemIDs.first { $0.rawValue.contains(":final:final:block:") })
+        let firstFinal = try #require(first.orderedItemIDs.first {
+            $0.rawValue.contains(":final:final:selection-surface:")
+        })
+        let secondFinal = try #require(second.orderedItemIDs.first {
+            $0.rawValue.contains(":final:final:selection-surface:")
+        })
 
         #expect(firstFinal == secondFinal)
         #expect(second.changedItemIDs == [secondFinal])

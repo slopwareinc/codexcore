@@ -341,14 +341,26 @@ actor CodexTranscriptRenderProjector {
                             sourceID: sourceID
                         )
                         markdownProjections += 1
-                        for block in blocks {
+                        if blocks.count == 1, let block = blocks.first {
                             append(draft(
                                 block: block,
+                                itemID: block.isCodeV2 ? nil : "\(sourceID):selection-surface:0",
                                 role: .commentary,
                                 theme: theme,
                                 cacheHits: &preparedTextCacheHits,
                                 cacheMisses: &preparedTextCacheMisses
                             ))
+                        } else {
+                            for draft in messageDrafts(
+                                blocks: blocks,
+                                sourceID: sourceID,
+                                role: .commentary,
+                                theme: theme,
+                                cacheHits: &preparedTextCacheHits,
+                                cacheMisses: &preparedTextCacheMisses
+                            ) {
+                                append(draft)
+                            }
                         }
                     case .workGroup(let group):
                         let headerText = Self.preparePlain(group.header, font: theme.captionFont, color: theme.textSecondary, theme: theme)
@@ -444,14 +456,26 @@ actor CodexTranscriptRenderProjector {
                     sourceID: sourceID
                 )
                 markdownProjections += 1
-                for block in blocks {
+                if blocks.count == 1, let block = blocks.first {
                     append(draft(
                         block: block,
+                        itemID: block.isCodeV2 ? nil : "\(sourceID):selection-surface:0",
                         role: .finalAnswer,
                         theme: theme,
                         cacheHits: &preparedTextCacheHits,
                         cacheMisses: &preparedTextCacheMisses
                     ))
+                } else {
+                    for draft in messageDrafts(
+                        blocks: blocks,
+                        sourceID: sourceID,
+                        role: .finalAnswer,
+                        theme: theme,
+                        cacheHits: &preparedTextCacheHits,
+                        cacheMisses: &preparedTextCacheMisses
+                    ) {
+                        append(draft)
+                    }
                 }
                 append(timestampDraft(
                     id: "\(sectionID):final-timestamp",
@@ -590,8 +614,120 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
+    func messageDrafts(
+        blocks: [CodexBlock],
+        sourceID: String,
+        role: CodexTranscriptTextRole,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int
+    ) -> [ItemDraft] {
+        var drafts: [ItemDraft] = []
+        var textRun: [CodexBlock] = []
+        var textRunIndex = 0
+
+        for block in blocks {
+            if case .code = block {
+                if !textRun.isEmpty {
+                    drafts.append(textRunDraft(
+                        blocks: textRun,
+                        sourceID: sourceID,
+                        runIndex: textRunIndex,
+                        role: role,
+                        theme: theme,
+                        cacheHits: &cacheHits,
+                        cacheMisses: &cacheMisses
+                    ))
+                    textRun.removeAll(keepingCapacity: true)
+                    textRunIndex += 1
+                }
+                drafts.append(draft(
+                    block: block,
+                    role: role,
+                    theme: theme,
+                    cacheHits: &cacheHits,
+                    cacheMisses: &cacheMisses
+                ))
+            } else {
+                textRun.append(block)
+            }
+        }
+
+        if !textRun.isEmpty {
+            drafts.append(textRunDraft(
+                blocks: textRun,
+                sourceID: sourceID,
+                runIndex: textRunIndex,
+                role: role,
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ))
+        }
+        return drafts
+    }
+
+    func textRunDraft(
+        blocks: [CodexBlock],
+        sourceID: String,
+        runIndex: Int,
+        role: CodexTranscriptTextRole,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int
+    ) -> ItemDraft {
+        let runFingerprint = blocks.map { "\($0.id):\($0.contentDigest)" }.joined(separator: "|")
+        let prepared: CodexPreparedTranscriptText
+        if blocks.count == 1, let block = blocks.first {
+            prepared = cachedPreparedText(
+                content: block.contentDigest,
+                style: "block-\(role)-\(block.id)",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.prepare(block: block, role: role, theme: theme)
+            }
+        } else {
+            var preparedBlocks: [NSAttributedString] = []
+            preparedBlocks.reserveCapacity(blocks.count)
+            for block in blocks {
+                let blockText = cachedPreparedText(
+                    content: block.contentDigest,
+                    style: "block-\(role)-\(block.id)",
+                    theme: theme,
+                    cacheHits: &cacheHits,
+                    cacheMisses: &cacheMisses
+                ) {
+                    Self.prepare(block: block, role: role, theme: theme)
+                }
+                preparedBlocks.append(blockText.attributedString)
+            }
+            prepared = cachedPreparedText(
+                content: runFingerprint,
+                style: "selection-surface-\(role)-\(sourceID)-\(runIndex)",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.combine(preparedBlocks, role: role, theme: theme)
+            }
+        }
+        let text = prepared.attributedString.string
+        return ItemDraft(
+            id: "\(sourceID):selection-surface:\(runIndex)",
+            fingerprint: "selection-surface:\(role):\(runFingerprint)",
+            textRole: role,
+            preparedText: prepared,
+            copyText: text,
+            accessibilityLabel: "\(role == .finalAnswer ? "Assistant" : "Commentary"): \(text)",
+            maxWidthKind: .card
+        )
+    }
+
     func draft(
         block: CodexBlock,
+        itemID: String? = nil,
         role: CodexTranscriptTextRole,
         theme: CodexTranscriptAppKitTheme,
         cacheHits: inout Int,
@@ -600,7 +736,7 @@ private extension CodexTranscriptRenderProjector {
         switch block {
         case .code(let id, let language, let code, _):
             return ItemDraft(
-                id: id,
+                id: itemID ?? id,
                 fingerprint: "code:\(language ?? ""):\(code)",
                 code: CodexTranscriptCodeRender(language: language, code: code),
                 copyText: code,
@@ -618,7 +754,7 @@ private extension CodexTranscriptRenderProjector {
                 Self.prepare(block: block, role: role, theme: theme)
             }
             return ItemDraft(
-                id: block.id,
+                id: itemID ?? block.id,
                 fingerprint: "text:\(role):\(block.contentDigest)",
                 textRole: role,
                 preparedText: prepared,
@@ -720,6 +856,27 @@ private extension CodexTranscriptRenderProjector {
         case .code:
             return preparePlain("", font: theme.codeFont, color: theme.codeText, theme: theme)
         }
+    }
+
+    static func combine(
+        _ blocks: [NSAttributedString],
+        role: CodexTranscriptTextRole,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        let result = NSMutableAttributedString()
+        let separatorAttributes: [NSAttributedString.Key: Any] = [
+            .font: theme.bodyFont,
+            .foregroundColor: color(for: role, theme: theme),
+            .paragraphStyle: paragraphStyle(theme)
+        ]
+        for block in blocks where block.length > 0 {
+            if result.length > 0 {
+                let separator = result.string.hasSuffix("\n") ? "\n" : "\n\n"
+                result.append(NSAttributedString(string: separator, attributes: separatorAttributes))
+            }
+            result.append(block)
+        }
+        return CodexPreparedTranscriptText(result)
     }
 
     static func prepareMarkdown(
@@ -993,6 +1150,13 @@ private extension CodexTranscriptRenderProjector {
         if !work.isEmpty { parts.append("Work\n" + work.joined(separator: "\n")) }
         if let answer = turn.finalAnswer?.text.codexAppKitNilIfEmpty { parts.append("Assistant\n" + answer) }
         return parts.joined(separator: "\n\n")
+    }
+}
+
+private extension CodexBlock {
+    var isCodeV2: Bool {
+        if case .code = self { return true }
+        return false
     }
 }
 

@@ -87,7 +87,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let snapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
-        let finalID = try #require(snapshot.orderedItemIDs.first { $0.rawValue.contains(":final:final:block:") })
+        let finalID = try #require(snapshot.orderedItemIDs.first { $0.rawValue.contains(":final:final:selection-surface:") })
         var item = try #require(snapshot.itemsByID[finalID])
         let clipboard = RecordingClipboard()
         let cell = CodexTranscriptCollectionItem()
@@ -239,8 +239,76 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(!cell.footerCopyTurnIsVisibleForTesting)
         cell.setHoveredForTesting(true)
         #expect(cell.footerCopyTurnIsVisibleForTesting)
+        #expect(cell.footerCopyItemTitleForTesting.isEmpty)
+        cell.setFooterCopyItemHoveredForTesting(true)
+        #expect(cell.footerCopyItemTitleForTesting == "Copy answer")
+        #expect(cell.footerCopyItemIsHighlightedForTesting)
         cell.copyTurnForTesting()
         #expect(clipboard.lastValue == footer.copyTurnText)
+    }
+
+    @Test func completedFinalAnswerUsesOneNativeSurfaceForContiguousSelection() async throws {
+        let markdown = """
+        Intro paragraph with context.
+
+        Three highest-risk findings:
+
+        ## First finding
+
+        Body with a [file reference](https://example.com/file.swift#L42).
+
+        Final paragraph with the conclusion.
+        """
+        let projector = CodexTranscriptRenderProjector()
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "final", text: markdown, isStreaming: false),
+                status: .done(durationMs: 10)
+            )])
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
+        let answerItems = snapshot.itemsByID.values.filter {
+            $0.turnID == "turn" && ($0.textRole == .finalAnswer || $0.code != nil)
+        }
+
+        #expect(answerItems.count == 1)
+        let answerItem = try #require(answerItems.first)
+        let renderedText = try #require(answerItem.preparedText?.attributedString.string)
+        #expect(renderedText.contains("Intro paragraph with context."))
+        #expect(renderedText.contains("First finding"))
+        #expect(renderedText.contains("file reference"))
+        #expect(renderedText.contains("Final paragraph with the conclusion."))
+
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 500),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = cell.view
+        cell.configure(
+            item: answerItem,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        cell.selectableTextViewForTesting.setSelectedRange(NSRange(location: 0, length: renderedText.utf16.count))
+        #expect(cell.selectableTextViewForTesting.selectedRange().length == renderedText.utf16.count)
+        NSPasteboard.general.clearContents()
+        #expect(window.makeFirstResponder(cell.selectableTextViewForTesting))
+        cell.selectableTextViewForTesting.copy(nil)
+        #expect(NSPasteboard.general.string(forType: .string) == renderedText)
     }
 
     @Test func selectionSuppressesPinnedFollowAndTickerHasOneTarget() async throws {
@@ -362,7 +430,9 @@ struct CodexTranscriptAppKitIntegrationTests {
         let user = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":user:user") }?.value)
         let agent = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":row:agent") }?.value)
         let product = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":product:product") }?.value)
-        let final = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":final:final:block:") }?.value)
+        let final = try #require(snapshot.itemsByID.first {
+            $0.key.rawValue.contains(":final:final:selection-surface:")
+        }?.value)
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: 44)
