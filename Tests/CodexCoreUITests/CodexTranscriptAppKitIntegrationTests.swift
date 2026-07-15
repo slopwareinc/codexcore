@@ -73,14 +73,14 @@ struct CodexTranscriptAppKitIntegrationTests {
         coordinator.detach()
     }
 
-    @Test func nativeTextSelectionSurvivesAppendAndCopyActionsWork() async throws {
+    @Test func completedNativeTextSelectionSurvivesReconfigureAndCopyActionsWork() async throws {
         let projector = CodexTranscriptRenderProjector()
         let presentation = CodexThreadUIPresentation(
             threadID: "thread",
             transcript: .init(turns: [.init(
                 id: "turn",
                 userMessage: .init(id: "user", text: "Question"),
-                finalAnswer: .init(id: "final", text: "Hello world", isStreaming: true),
+                finalAnswer: .init(id: "final", text: "Hello world", isStreaming: false),
                 status: .done(durationMs: 10)
             )]),
             presentedAtByTurnID: ["turn": Date(timeIntervalSince1970: 100)]
@@ -143,6 +143,106 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(NSPasteboard.general.string(forType: .string) == "Hello")
     }
 
+    @Test func streamingTurnIsNotSelectableUntilCompletionWhileOlderTurnsRemainSelectable() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let completed = CodexTurnV2(
+            id: "completed",
+            userMessage: .init(id: "older-user", text: "Older question"),
+            finalAnswer: .init(id: "older-final", text: "Older answer", isStreaming: false),
+            status: .done(durationMs: 10)
+        )
+        var streaming = CodexTurnV2(
+            id: "streaming",
+            userMessage: .init(id: "live-user", text: "Current question"),
+            narrative: [.prose(.init(id: "live-commentary", text: "Working", isStreaming: true))],
+            finalAnswer: .init(id: "live-final", text: "Partial answer", isStreaming: true),
+            status: .working(since: 100)
+        )
+        var presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [completed, streaming]),
+            presentedAtByTurnID: ["completed": .distantPast, "streaming": .distantPast]
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let liveSnapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
+
+        let olderTextItems = liveSnapshot.itemsByID.values.filter {
+            $0.turnID == "completed" && ($0.preparedText != nil || $0.code != nil) && $0.footer == nil
+        }
+        let liveTextItems = liveSnapshot.itemsByID.values.filter {
+            $0.turnID == "streaming" && ($0.preparedText != nil || $0.code != nil) && $0.footer == nil
+        }
+        #expect(!olderTextItems.isEmpty)
+        #expect(olderTextItems.allSatisfy { $0.allowsTextSelection })
+        #expect(!liveTextItems.isEmpty)
+        #expect(liveTextItems.allSatisfy { !$0.allowsTextSelection })
+        let liveFooter = try #require(liveSnapshot.itemsByID.values.first {
+            $0.turnID == "streaming" && $0.footer?.kind == .finalAnswer
+        })
+        #expect(liveFooter.footer?.isTurnStreaming == true)
+
+        streaming.status = .done(durationMs: 500)
+        streaming.narrative[0] = .prose(.init(id: "live-commentary", text: "Working", isStreaming: false))
+        streaming.finalAnswer?.isStreaming = false
+        streaming.finalAnswer?.text = "Complete answer"
+        presentation.transcript.turns[1] = streaming
+        let completedSnapshot = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let completedLiveTextItems = completedSnapshot.itemsByID.values.filter {
+            $0.turnID == "streaming" && ($0.preparedText != nil || $0.code != nil) && $0.footer == nil
+        }
+        #expect(completedLiveTextItems.allSatisfy { $0.allowsTextSelection })
+        #expect(completedLiveTextItems.allSatisfy { completedSnapshot.changedItemIDs.contains($0.id) })
+        let completedFooter = try #require(completedSnapshot.itemsByID.values.first {
+            $0.turnID == "streaming" && $0.footer?.kind == .finalAnswer
+        })
+        #expect(completedFooter.footer?.isTurnStreaming == false)
+        #expect(completedFooter.copyText == "Complete answer")
+        #expect(completedSnapshot.changedItemIDs.contains(completedFooter.id))
+    }
+
+    @Test func timestampFooterRestoresHoverTurnActions() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: .init(id: "user", text: "Question"),
+                finalAnswer: .init(id: "final", text: "Answer", isStreaming: false),
+                status: .done(durationMs: 10)
+            )]),
+            presentedAtByTurnID: ["turn": Date(timeIntervalSince1970: 100)]
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
+        let footerID = try #require(snapshot.orderedItemIDs.first { $0.rawValue.hasSuffix(":final-timestamp") })
+        let footer = try #require(snapshot.itemsByID[footerID])
+        let clipboard = RecordingClipboard()
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.configure(
+            item: footer,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: clipboard.copy,
+            editUserMessage: { _ in },
+            forkChat: {},
+            selectionChanged: { _, _ in }
+        )
+
+        #expect(!cell.footerCopyTurnIsVisibleForTesting)
+        cell.setHoveredForTesting(true)
+        #expect(cell.footerCopyTurnIsVisibleForTesting)
+        cell.copyTurnForTesting()
+        #expect(clipboard.lastValue == footer.copyTurnText)
+    }
+
     @Test func selectionSuppressesPinnedFollowAndTickerHasOneTarget() async throws {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 500))
@@ -169,13 +269,15 @@ struct CodexTranscriptAppKitIntegrationTests {
         try await Task.sleep(for: .milliseconds(20))
         #expect(coordinator.diagnostics.tickerTargetCount == 1)
 
-        let selectableID = try #require(coordinator.renderedItemIDsForTesting.first { $0.rawValue.contains(":commentary:") })
+        let selectableID = try #require(coordinator.renderedItemIDsForTesting.first {
+            $0.rawValue.contains(":commentary:completed-commentary:")
+        })
         let selectedCell = try #require(coordinator.collectionItemForTesting(selectableID))
         selectedCell.selectableTextViewForTesting.setSelectedRange(NSRange(location: 0, length: 7))
         coordinator.setSelectingForTesting(true, id: selectableID)
         container.scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: 40))
         let preservedOffset = container.scrollView.contentView.bounds.origin.y
-        presentation.transcript.turns[0].narrative[0] = .prose(.init(
+        presentation.transcript.turns[1].narrative[0] = .prose(.init(
             id: "commentary",
             text: "Working commentary plus tokens",
             isStreaming: true
@@ -198,7 +300,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(coordinator.collectionItemForTesting(selectableID) === selectedCell)
         #expect(selectedCell.selectableTextViewForTesting.selectedRange() == NSRange(location: 0, length: 7))
 
-        presentation.transcript.turns[0].status = .done(durationMs: 1_000)
+        presentation.transcript.turns[1].status = .done(durationMs: 1_000)
         presentation.expandedWorkTurnIDs.insert("turn")
         coordinator.update(
             presentation: presentation,
@@ -377,6 +479,17 @@ struct CodexTranscriptAppKitIntegrationTests {
     }
 
     private func workingPresentation(date: Date) -> CodexThreadUIPresentation {
+        let completedTurn = CodexTurnV2(
+            id: "completed-turn",
+            userMessage: .init(id: "completed-user", text: "Earlier question"),
+            narrative: [.prose(.init(
+                id: "completed-commentary",
+                text: "Earlier completed commentary",
+                isStreaming: false
+            ))],
+            finalAnswer: .init(id: "completed-final", text: "Earlier answer", isStreaming: false),
+            status: .done(durationMs: 100)
+        )
         let turn = CodexTurnV2(
             id: "turn",
             userMessage: .init(id: "user", text: "Question"),
@@ -391,9 +504,10 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         return CodexThreadUIPresentation(
             threadID: "thread",
-            transcript: .init(turns: [turn]),
+            transcript: .init(turns: [completedTurn, turn]),
             isPinnedToBottom: true,
-            presentedAtByTurnID: [turn.id: date]
+            expandedWorkTurnIDs: [completedTurn.id],
+            presentedAtByTurnID: [completedTurn.id: date, turn.id: date]
         )
     }
 }

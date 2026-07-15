@@ -45,6 +45,17 @@ struct CodexTranscriptCodeRender: Sendable, Equatable {
     var code: String
 }
 
+struct CodexTranscriptFooterRender: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case user
+        case finalAnswer
+    }
+
+    var kind: Kind
+    var timestamp: String
+    var isTurnStreaming: Bool
+}
+
 final class CodexPreparedTranscriptText: @unchecked Sendable {
     let attributedString: NSAttributedString
 
@@ -63,10 +74,12 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var workHeader: CodexTranscriptWorkHeaderRender?
     var workRow: CodexTranscriptWorkRowRender?
     var code: CodexTranscriptCodeRender?
+    var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
     var action: CodexTranscriptRenderAction?
     var copyText: String?
     var copyTurnText: String
+    var allowsTextSelection: Bool
     var accessibilityLabel: String
     var indentation: CGFloat
     var isTrailingAligned: Bool
@@ -209,10 +222,16 @@ actor CodexTranscriptRenderProjector {
             var sectionItems: [CodexTranscriptRenderItemID] = []
             let copyTurnText = Self.copyText(for: turn)
             let presentedAt = presentation.presentedAtByTurnID[turn.id] ?? Date()
+            let turnIsStreaming = Self.isStreaming(turn)
 
             func append(_ draft: ItemDraft) {
                 let id = CodexTranscriptRenderItemID(rawValue: draft.id)
-                let contentFingerprint = CodexBlockDigest.digest(draft.fingerprint)
+                let allowsTextSelection = !turnIsStreaming
+                    && draft.footer == nil
+                    && (draft.preparedText != nil || draft.code != nil)
+                let contentFingerprint = CodexBlockDigest.digest(
+                    "\(draft.fingerprint):selectable:\(allowsTextSelection)"
+                )
                 let previous = revisionByID[id]
                 let revision: Int
                 if previous?.fingerprint == contentFingerprint {
@@ -248,10 +267,12 @@ actor CodexTranscriptRenderProjector {
                     workHeader: draft.workHeader,
                     workRow: draft.workRow,
                     code: draft.code,
+                    footer: draft.footer,
                     productTool: draft.productTool,
                     action: draft.action,
                     copyText: draft.copyText,
                     copyTurnText: copyTurnText,
+                    allowsTextSelection: allowsTextSelection,
                     accessibilityLabel: draft.accessibilityLabel,
                     indentation: draft.indentation,
                     isTrailingAligned: draft.isTrailingAligned,
@@ -287,9 +308,9 @@ actor CodexTranscriptRenderProjector {
                     id: "\(sectionID):user-timestamp",
                     date: presentedAt,
                     trailing: true,
-                    theme: theme,
-                    cacheHits: &preparedTextCacheHits,
-                    cacheMisses: &preparedTextCacheMisses
+                    kind: .user,
+                    isTurnStreaming: turnIsStreaming,
+                    copyText: user.text
                 ))
             }
 
@@ -436,9 +457,9 @@ actor CodexTranscriptRenderProjector {
                     id: "\(sectionID):final-timestamp",
                     date: presentedAt,
                     trailing: false,
-                    theme: theme,
-                    cacheHits: &preparedTextCacheHits,
-                    cacheMisses: &preparedTextCacheMisses
+                    kind: .finalAnswer,
+                    isTurnStreaming: turnIsStreaming,
+                    copyText: answer.text
                 ))
             }
             itemIDsBySection[sectionID] = sectionItems
@@ -514,6 +535,7 @@ private extension CodexTranscriptRenderProjector {
         var workHeader: CodexTranscriptWorkHeaderRender?
         var workRow: CodexTranscriptWorkRowRender?
         var code: CodexTranscriptCodeRender?
+        var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
         var action: CodexTranscriptRenderAction?
         var copyText: String?
@@ -531,6 +553,7 @@ private extension CodexTranscriptRenderProjector {
             workHeader: CodexTranscriptWorkHeaderRender? = nil,
             workRow: CodexTranscriptWorkRowRender? = nil,
             code: CodexTranscriptCodeRender? = nil,
+            footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
             action: CodexTranscriptRenderAction? = nil,
             copyText: String? = nil,
@@ -547,6 +570,7 @@ private extension CodexTranscriptRenderProjector {
             self.workHeader = workHeader
             self.workRow = workRow
             self.code = code
+            self.footer = footer
             self.productTool = productTool
             self.action = action
             self.copyText = copyText
@@ -609,29 +633,21 @@ private extension CodexTranscriptRenderProjector {
         id: String,
         date: Date,
         trailing: Bool,
-        theme: CodexTranscriptAppKitTheme,
-        cacheHits: inout Int,
-        cacheMisses: inout Int
+        kind: CodexTranscriptFooterRender.Kind,
+        isTurnStreaming: Bool,
+        copyText: String
     ) -> ItemDraft {
         let label = date.formatted(date: .omitted, time: .shortened)
-        let prepared = cachedPreparedText(
-            content: label,
-            style: "timestamp",
-            theme: theme,
-            cacheHits: &cacheHits,
-            cacheMisses: &cacheMisses
-        ) {
-            Self.preparePlain(label, font: theme.microFont, color: theme.textTertiary, theme: theme)
-        }
         return ItemDraft(
             id: id,
-            fingerprint: "timestamp:\(label)",
+            fingerprint: "timestamp:\(label):streaming:\(isTurnStreaming)",
             textRole: .timestamp,
-            preparedText: prepared,
+            footer: .init(kind: kind, timestamp: label, isTurnStreaming: isTurnStreaming),
+            copyText: copyText,
             accessibilityLabel: "Presented at \(label)",
             isTrailingAligned: trailing,
             maxWidthKind: trailing ? .user : .card,
-            fixedHeight: 18
+            fixedHeight: 22
         )
     }
 
@@ -824,6 +840,15 @@ private extension CodexTranscriptRenderProjector {
 
     static func color(for role: CodexTranscriptTextRole, theme: CodexTranscriptAppKitTheme) -> NSColor {
         role == .commentary ? theme.textSecondary : theme.textPrimary
+    }
+
+    static func isStreaming(_ turn: CodexTurnV2) -> Bool {
+        if case .working = turn.status { return true }
+        if turn.finalAnswer?.isStreaming == true { return true }
+        return turn.narrative.contains { entry in
+            if case .prose(let prose) = entry { return prose.isStreaming }
+            return false
+        }
     }
 
     static func shouldRenderWork(_ turn: CodexTurnV2) -> Bool {

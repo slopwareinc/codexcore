@@ -1,6 +1,28 @@
 import AppKit
 import SwiftUI
 
+private final class CodexTranscriptHoverView: NSView {
+    var onHoverChange: ((Bool) -> Void)?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChange?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChange?(false)
+    }
+}
+
 final class CodexSelectableTranscriptTextView: NSTextView {
     var onSelectionStateChange: ((Bool) -> Void)?
 
@@ -24,6 +46,10 @@ final class CodexSelectableTranscriptTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard isSelectable else {
+            super.mouseDown(with: event)
+            return
+        }
         onSelectionStateChange?(true)
         super.mouseDown(with: event)
         onSelectionStateChange?(selectedRange().length > 0)
@@ -61,6 +87,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private let textScrollView = NSScrollView()
     private let actionButton = NSButton()
     private let copyButton = NSButton()
+    private let footerTimestampLabel = NSTextField(labelWithString: "")
+    private let footerCopyItemButton = NSButton()
+    private let footerCopyTurnButton = NSButton()
+    private let footerContextButton = NSButton()
     private let backgroundView = NSView()
     private var hostedView: NSView?
     private var item: CodexTranscriptRenderItem?
@@ -73,18 +103,23 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var selectionChanged: ((CodexTranscriptRenderItemID, Bool) -> Void)?
     private var preferredHeightChanged: ((CodexTranscriptRenderItemID, Int, CGFloat) -> Void)?
     private var lastReportedPreferredHeight: CGFloat?
+    private var isHovered = false
 
     var selectableTextViewForTesting: NSTextView { selectableTextView }
     var hasHostedViewForTesting: Bool { hostedView != nil }
+    var footerCopyTurnIsVisibleForTesting: Bool { !footerCopyTurnButton.isHidden }
 
     func copyItemForTesting() { copyItem() }
     func copyTurnForTesting() { copyTurn() }
     func invokePrimaryActionForTesting() { invokePrimaryAction() }
     func editUserForTesting() { editUser() }
     func forkChatForTesting() { invokeForkChat() }
+    func setHoveredForTesting(_ hovered: Bool) { setHovered(hovered) }
 
     override func loadView() {
-        view = NSView()
+        let hoverView = CodexTranscriptHoverView()
+        hoverView.onHoverChange = { [weak self] hovered in self?.setHovered(hovered) }
+        view = hoverView
         view.wantsLayer = true
         backgroundView.wantsLayer = true
         view.addSubview(backgroundView)
@@ -118,6 +153,30 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copyButton.toolTip = "Copy"
         copyButton.setAccessibilityLabel("Copy")
         view.addSubview(copyButton)
+
+        footerTimestampLabel.isSelectable = false
+        footerTimestampLabel.drawsBackground = false
+        footerTimestampLabel.isBordered = false
+        view.addSubview(footerTimestampLabel)
+
+        configureFooterButton(
+            footerCopyItemButton,
+            systemImage: "doc.on.doc",
+            toolTip: "Copy answer",
+            action: #selector(copyItem)
+        )
+        configureFooterButton(
+            footerCopyTurnButton,
+            systemImage: "doc.on.doc.fill",
+            toolTip: "Copy turn",
+            action: #selector(copyTurn)
+        )
+        configureFooterButton(
+            footerContextButton,
+            systemImage: "square.and.pencil",
+            toolTip: "Edit prompt",
+            action: #selector(editUser)
+        )
     }
 
     override func prepareForReuse() {
@@ -128,10 +187,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         hostedView?.removeFromSuperview()
         hostedView = nil
         selectableTextView.string = ""
+        selectableTextView.isSelectable = false
         textScrollView.isHidden = true
         actionButton.isHidden = true
         copyButton.isHidden = true
+        footerTimestampLabel.isHidden = true
+        footerCopyItemButton.isHidden = true
+        footerCopyTurnButton.isHidden = true
+        footerContextButton.isHidden = true
         backgroundView.isHidden = true
+        isHovered = false
         view.menu = nil
         selectableTextView.menu = nil
     }
@@ -150,7 +215,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         preferredHeightChanged: @escaping (CodexTranscriptRenderItemID, Int, CGFloat) -> Void = { _, _, _ in }
     ) {
         let preservesIdentity = self.item?.id == item.id
-        let selectionToRestore = preservesIdentity
+        let selectionToRestore = preservesIdentity && item.allowsTextSelection
             ? selectableTextView.selectedRange()
             : NSRange(location: 0, length: 0)
         if !preservesIdentity { lastReportedPreferredHeight = nil }
@@ -169,8 +234,18 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         textScrollView.isHidden = true
         actionButton.isHidden = true
         copyButton.isHidden = true
+        footerTimestampLabel.isHidden = true
+        footerCopyItemButton.isHidden = true
+        footerCopyTurnButton.isHidden = true
+        footerContextButton.isHidden = true
+        if !item.allowsTextSelection, selectableTextView.selectedRange().length > 0 {
+            selectionChanged(item.id, false)
+        }
+        selectableTextView.isSelectable = item.allowsTextSelection
 
-        if let preparedText = item.preparedText {
+        if let footer = item.footer {
+            configureFooter(footer, item: item, theme: appKitTheme)
+        } else if let preparedText = item.preparedText {
             textScrollView.isHidden = false
             textScrollView.hasHorizontalScroller = false
             selectableTextView.isHorizontallyResizable = false
@@ -237,6 +312,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
 
         configureContextMenu()
+        updateFooterChromeVisibility()
         view.needsLayout = true
     }
 
@@ -258,7 +334,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         backgroundView.layer?.borderColor = Self.borderColor(item: item, theme: theme).cgColor
         backgroundView.layer?.borderWidth = backgroundView.isHidden ? 0 : 1
 
-        if item.code != nil {
+        if item.footer != nil {
+            layoutFooter(in: contentFrame, trailing: item.isTrailingAligned)
+        } else if item.code != nil {
             actionButton.frame = NSRect(x: contentX + 12, y: view.bounds.height - 35, width: contentWidth - 58, height: 28)
             copyButton.frame = NSRect(x: contentFrame.maxX - 36, y: view.bounds.height - 34, width: 28, height: 26)
             layoutSelectableText(
@@ -290,6 +368,119 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 Task { @MainActor [weak self] in
                     self?.preferredHeightChanged?(id, revision, preferredHeight)
                 }
+            }
+        }
+    }
+
+    private func configureFooterButton(
+        _ button: NSButton,
+        systemImage: String,
+        toolTip: String,
+        action: Selector
+    ) {
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.focusRingType = .none
+        button.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: toolTip)
+        button.imagePosition = .imageOnly
+        button.target = self
+        button.action = action
+        button.toolTip = toolTip
+        button.setAccessibilityLabel(toolTip)
+        view.addSubview(button)
+    }
+
+    private func configureFooter(
+        _ footer: CodexTranscriptFooterRender,
+        item: CodexTranscriptRenderItem,
+        theme: CodexTranscriptAppKitTheme
+    ) {
+        footerTimestampLabel.isHidden = false
+        footerTimestampLabel.stringValue = footer.timestamp
+        footerTimestampLabel.font = theme.microFont
+        footerTimestampLabel.textColor = theme.textTertiary
+        footerTimestampLabel.setAccessibilityLabel(item.accessibilityLabel)
+
+        switch footer.kind {
+        case .user:
+            footerContextButton.image = NSImage(
+                systemSymbolName: "square.and.pencil",
+                accessibilityDescription: "Edit prompt"
+            )
+            footerContextButton.action = #selector(editUser)
+            footerContextButton.toolTip = "Edit prompt"
+            footerContextButton.setAccessibilityLabel("Edit prompt")
+        case .finalAnswer:
+            footerContextButton.image = NSImage(
+                systemSymbolName: "arrow.triangle.branch",
+                accessibilityDescription: "Fork chat"
+            )
+            footerContextButton.action = #selector(invokeForkChat)
+            footerContextButton.toolTip = "Fork chat"
+            footerContextButton.setAccessibilityLabel("Fork chat")
+        }
+    }
+
+    private func setHovered(_ hovered: Bool) {
+        guard isHovered != hovered else { return }
+        isHovered = hovered
+        updateFooterChromeVisibility()
+        view.needsLayout = true
+    }
+
+    private func updateFooterChromeVisibility() {
+        guard let footer = item?.footer else {
+            footerCopyItemButton.isHidden = true
+            footerCopyTurnButton.isHidden = true
+            footerContextButton.isHidden = true
+            return
+        }
+        guard !footer.isTurnStreaming else {
+            footerCopyItemButton.isHidden = true
+            footerCopyTurnButton.isHidden = true
+            footerContextButton.isHidden = true
+            return
+        }
+        footerCopyTurnButton.isHidden = !isHovered
+        footerCopyItemButton.isHidden = !isHovered || footer.kind != .finalAnswer
+        footerContextButton.isHidden = !isHovered
+            || (footer.kind == .finalAnswer && forkChat == nil)
+    }
+
+    private func layoutFooter(in frame: NSRect, trailing: Bool) {
+        footerTimestampLabel.sizeToFit()
+        let labelSize = footerTimestampLabel.frame.size
+        let labelY = frame.midY - labelSize.height / 2
+        let buttonSize = NSSize(width: 22, height: 20)
+        let visibleButtons = [footerCopyItemButton, footerCopyTurnButton, footerContextButton]
+            .filter { !$0.isHidden }
+        let buttonsWidth = CGFloat(visibleButtons.count) * buttonSize.width
+            + CGFloat(max(visibleButtons.count - 1, 0)) * 2
+
+        if trailing {
+            let labelX = frame.maxX - labelSize.width
+            footerTimestampLabel.frame = NSRect(
+                x: labelX,
+                y: labelY,
+                width: labelSize.width,
+                height: labelSize.height
+            )
+            var buttonX = labelX - (visibleButtons.isEmpty ? 0 : buttonsWidth + 5)
+            for button in visibleButtons {
+                button.frame = NSRect(x: buttonX, y: frame.midY - 10, width: buttonSize.width, height: buttonSize.height)
+                buttonX += buttonSize.width + 2
+            }
+        } else {
+            footerTimestampLabel.frame = NSRect(
+                x: frame.minX,
+                y: labelY,
+                width: labelSize.width,
+                height: labelSize.height
+            )
+            var buttonX = footerTimestampLabel.frame.maxX + (visibleButtons.isEmpty ? 0 : 5)
+            for button in visibleButtons {
+                button.frame = NSRect(x: buttonX, y: frame.midY - 10, width: buttonSize.width, height: buttonSize.height)
+                buttonX += buttonSize.width + 2
             }
         }
     }
@@ -353,7 +544,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     @objc private func editUser() {
-        guard item?.textRole == .user, let text = item?.copyText else { return }
+        guard let item,
+              item.textRole == .user || item.footer?.kind == .user,
+              let text = item.copyText else { return }
         editUserMessage?(text)
     }
 
@@ -367,19 +560,19 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if item.copyText != nil {
             let title: String = if item.code != nil { "Copy code" }
                 else if item.textRole == .expandedOutput { "Copy output" }
-                else if item.textRole == .finalAnswer { "Copy final answer" }
+                else if item.textRole == .finalAnswer || item.footer?.kind == .finalAnswer { "Copy final answer" }
                 else { "Copy" }
-            let action = item.code != nil || item.textRole == .expandedOutput
+            let action = item.code != nil || item.textRole == .expandedOutput || item.footer != nil
                 ? #selector(copyItem)
                 : #selector(copySelectionOrItem)
             menu.addItem(withTitle: title, action: action, keyEquivalent: "")
         }
         menu.addItem(withTitle: "Copy turn", action: #selector(copyTurn), keyEquivalent: "")
-        if item.textRole == .user {
+        if item.textRole == .user || item.footer?.kind == .user {
             menu.addItem(NSMenuItem.separator())
             menu.addItem(withTitle: "Edit message", action: #selector(editUser), keyEquivalent: "")
         }
-        if item.textRole == .finalAnswer, forkChat != nil {
+        if (item.textRole == .finalAnswer || item.footer?.kind == .finalAnswer), forkChat != nil {
             menu.addItem(NSMenuItem.separator())
             menu.addItem(withTitle: "Fork chat", action: #selector(invokeForkChat), keyEquivalent: "")
         }
