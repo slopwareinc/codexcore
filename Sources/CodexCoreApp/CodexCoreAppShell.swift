@@ -190,6 +190,7 @@ struct CodexCoreAppShell: View {
         VStack(spacing: 0) {
             CodexChatWorkspaceView(
                 transcriptV2: model.transcriptV2,
+                transcriptSessionStore: model.runtimeSession.transcriptSessions,
                 lifecycleEvents: model.lifecycleEvents,
                 sideChat: model.sideChat,
                 subagents: model.subagents,

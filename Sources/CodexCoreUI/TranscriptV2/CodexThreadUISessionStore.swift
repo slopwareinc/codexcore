@@ -353,14 +353,19 @@ public final class CodexThreadStatusStore {
         entries[threadID] = entry
     }
 
-    public func apply(method: String, threadID: String, at date: Date = Date()) {
+    public func apply(
+        method: String,
+        params: CodexJSONValue? = nil,
+        threadID: String,
+        at date: Date = Date()
+    ) {
         var entry = entries[threadID] ?? CodexThreadStatusEntry(lastEventAt: date)
         entry.lastEventAt = date
         switch method {
         case "turn/started":
             entry.status = .running
         case "turn/completed":
-            entry.status = .idle
+            entry.status = Self.turnCompletionFailed(params) ? .failed : .idle
             if selectedThreadID != threadID { entry.hasUnreadWhileInactive = true }
         case "turn/failed", "error":
             entry.status = .failed
@@ -369,6 +374,14 @@ public final class CodexThreadStatusStore {
             break
         }
         entries[threadID] = entry
+    }
+
+    private static func turnCompletionFailed(_ params: CodexJSONValue?) -> Bool {
+        guard case .dictionary(let root) = params,
+              case .dictionary(let turn)? = root["turn"] else { return false }
+        if case .string(let error)? = turn["error"], !error.isEmpty { return true }
+        if case .string(let status)? = turn["status"] { return status == "failed" }
+        return false
     }
 
     public func remove(threadID: String) {

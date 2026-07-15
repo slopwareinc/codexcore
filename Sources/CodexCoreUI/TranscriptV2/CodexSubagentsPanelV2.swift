@@ -59,10 +59,8 @@ private struct CodexSubagentStopwatchV2: View {
         switch status {
         case .pending: Text("Starting").font(theme.fonts.caption)
         case .working(let since):
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(CodexWorkBlockViewV2.workingLabel(at: context.date, since: since, clientStartedAt: clientStartedAt))
-                    .font(theme.fonts.caption)
-            }
+            Text(CodexWorkBlockViewV2.workingLabel(at: Date(), since: since, clientStartedAt: clientStartedAt))
+                .font(theme.fonts.caption)
         case .completed(let duration): Text("Worked for \(CodexWorkBlockViewV2.duration(duration))").font(theme.fonts.caption)
         case .failed: Text("Failed").font(theme.fonts.caption).foregroundStyle(theme.colors.danger)
         }

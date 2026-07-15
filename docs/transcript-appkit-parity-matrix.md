@@ -42,7 +42,7 @@ selection across turn boundaries is not part of this experiment.
 | Thread failed state | turn failure | Failure remains visible independently of transcript visibility | independent thread-status store | status routing test |
 | Inactive unread | completed/failed lifecycle | Inactive completion/failure marks unread; selecting clears it | independent thread-status store | unread-clear test |
 | Streaming cadence | reducer mutations | Reducer truth updates immediately; active presentation applies at most 60 fps and collapses obsolete deltas | session publisher + diffable snapshot scheduler | burst diagnostics regression |
-| Diff scope | stable block IDs/revisions | Insert/delete/reconfigure only changed fine-grained blocks; never `reloadData` per token | table diffable data source | snapshot instrumentation test |
+| Diff scope | stable block IDs/revisions | Insert/delete/reconfigure only changed fine-grained blocks; never `reloadData` per token | collection diffable data source | snapshot instrumentation test |
 | Markdown cost | V2 assistant text | Block projection is incremental and off-main; cells bind prepared content | background projector | executor/instrumentation test |
 | Height cost | item/revision/width/font/theme | Reuse measured heights; invalidate only affected keys | height cache | cache-key/hit test |
 | Native selection | prepared selectable content | Standard responder-chain Copy; selection survives unrelated/delta snapshots when its item remains | read-only `NSTextView` | selection-preservation test/manual harness |
@@ -50,7 +50,7 @@ selection across turn boundaries is not part of this experiment.
 | Edit/action hooks | user/turn identity | Stable identities remain available for current/future edit and action affordances | render item action context | identity/action-context test |
 | Accessibility | semantic V2 item role/state | Readable labels, buttons/disclosures, selectable text, status values | cell accessibility roles/labels | accessibility-label tests/manual AX inspection |
 | Timers/animation | active work only | No shimmer tree or timer forest; at most one active work header ticks at 1 Hz | list controller | timer-count diagnostic |
-| Cell reuse | render block identity | Real reusable cells; no whole-turn `NSHostingView` row | `NSTableView` view reuse | reuse/snapshot diagnostics |
+| Cell reuse | render block identity | Real reusable cells; no whole-turn `NSHostingView` row | `NSCollectionView` item reuse | reuse/snapshot diagnostics |
 | Performance evidence | same long-thread/streaming shape as SwiftUI findings | Compare publication, reload, projection, height-cache, and main-thread work counters | diagnostics harness | reproducible results in draft PR |
 
 ## List choice

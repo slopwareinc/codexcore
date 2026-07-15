@@ -50,6 +50,7 @@ public struct CodexChatWorkspaceView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let transcriptV2: CodexTranscriptV2
+    private let transcriptSessionStore: CodexThreadUISessionStore?
     private let lifecycleEvents: [CodexAgentLifecycleEvent]
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
@@ -110,6 +111,7 @@ public struct CodexChatWorkspaceView: View {
 
     public init(
         transcriptV2: CodexTranscriptV2,
+        transcriptSessionStore: CodexThreadUISessionStore? = nil,
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState] = [],
@@ -165,6 +167,7 @@ public struct CodexChatWorkspaceView: View {
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil
     ) {
         self.transcriptV2 = transcriptV2
+        self.transcriptSessionStore = transcriptSessionStore
         self.lifecycleEvents = lifecycleEvents
         self.sideChat = sideChat
         self.subagents = subagents
@@ -300,9 +303,13 @@ public struct CodexChatWorkspaceView: View {
         return ZStack(alignment: .topTrailing) {
             CodexTranscriptViewV2(
                 transcript: transcriptV2,
+                threadID: currentThreadID ?? "unassigned",
+                sessionStore: transcriptSessionStore,
                 contentHorizontalOffset: -contentShift,
                 bottomContentInset: composerOverlayHeight + 20,
-                onOpenSubagent: openPanelTab
+                onOpenSubagent: openPanelTab,
+                onEditUserMessage: { draft = $0 },
+                onForkChat: chatActions.forkChat
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()

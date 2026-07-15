@@ -14,91 +14,90 @@ public struct CodexProductToolRendererV2 {
 
 /// A turn-centric transcript with automatic bottom anchoring.
 public struct CodexTranscriptViewV2<EmptyState: View>: View {
-    @Environment(\.codexAgentTheme) private var theme
-
     private let transcript: CodexTranscriptV2
+    private let threadID: String
+    private let sessionStore: CodexThreadUISessionStore?
     private let productToolRenderer: CodexProductToolRendererV2?
     private let emptyState: EmptyState
     private let contentHorizontalOffset: CGFloat
     private let bottomContentInset: CGFloat
     private let onOpenSubagent: (String) -> Void
+    private let onEditUserMessage: (String) -> Void
+    private let onForkChat: (() -> Void)?
+    @State private var fallbackPresentedAt = Date()
 
     public init(
         transcript: CodexTranscriptV2,
+        threadID: String = "standalone",
+        sessionStore: CodexThreadUISessionStore? = nil,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
         onOpenSubagent: @escaping (String) -> Void = { _ in },
+        onEditUserMessage: @escaping (String) -> Void = { _ in },
+        onForkChat: (() -> Void)? = nil,
         @ViewBuilder emptyState: () -> EmptyState
     ) {
         self.transcript = transcript
+        self.threadID = threadID
+        self.sessionStore = sessionStore
         self.productToolRenderer = productToolRenderer
         self.contentHorizontalOffset = contentHorizontalOffset
         self.onOpenSubagent = onOpenSubagent
+        self.onEditUserMessage = onEditUserMessage
+        self.onForkChat = onForkChat
         self.emptyState = emptyState()
         self.bottomContentInset = max(0, bottomContentInset)
     }
 
     public var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                if transcript.turns.isEmpty {
-                    emptyState
-                        .padding(.horizontal, 28)
-                        .padding(.top, 58)
-                        .padding(.bottom, 150)
-                        .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth)
-                        .frame(maxWidth: .infinity, minHeight: 420, alignment: .center)
-                        .offset(x: contentHorizontalOffset)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 28) {
-                        ForEach(transcript.turns) { turn in
-                            CodexTurnViewV2(turn: turn, productToolRenderer: productToolRenderer, onOpenSubagent: onOpenSubagent)
-                        }
-                        // The anchor must be the final content item. Keeping the
-                        // composer inset inside this spacer makes scroll-to-bottom
-                        // land at the absolute end while the last turn rests above
-                        // the overlaid composer.
-                        Color.clear.frame(height: bottomContentInset).id(Self.bottomID)
-                    }
-                    .frame(maxWidth: theme.spacing.transcriptOuterMaxWidth, alignment: .leading)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 58 + 20)
-                    .frame(maxWidth: .infinity)
+        Group {
+            if effectivePresentation.transcript.turns.isEmpty {
+                emptyState
+                    .padding(.horizontal, 28)
+                    .padding(.top, 58)
+                    .padding(.bottom, 150)
+                    .frame(maxWidth: .infinity, minHeight: 420, alignment: .center)
                     .offset(x: contentHorizontalOffset)
-                }
+            } else {
+                CodexTranscriptListHost(
+                    presentation: effectivePresentation,
+                    sessionStore: sessionStore,
+                    bottomContentInset: bottomContentInset,
+                    contentHorizontalOffset: contentHorizontalOffset,
+                    productToolRenderer: productToolRenderer,
+                    onOpenSubagent: onOpenSubagent,
+                    onEditUserMessage: onEditUserMessage,
+                    onForkChat: onForkChat
+                )
             }
-            .scrollContentBackground(.hidden)
-            .onAppear { scrollToBottom(proxy, animated: false) }
-            .onChange(of: transcript) { _, _ in scrollToBottom(proxy, animated: true) }
-            .onChange(of: bottomContentInset) { _, _ in scrollToBottom(proxy, animated: false) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private static var bottomID: String { "codex-transcript-v2-bottom" }
-
-    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
-        guard !transcript.turns.isEmpty else { return }
-        if animated {
-            withAnimation(.easeOut(duration: theme.animations.defaultDuration)) {
-                proxy.scrollTo(Self.bottomID, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(Self.bottomID, anchor: .bottom)
-        }
+    private var effectivePresentation: CodexThreadUIPresentation {
+        if let presentation = sessionStore?.activePresentation { return presentation }
+        return CodexThreadUIPresentation(
+            threadID: threadID,
+            transcript: transcript,
+            presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) })
+        )
     }
 }
 
 public extension CodexTranscriptViewV2 where EmptyState == EmptyView {
     init(
         transcript: CodexTranscriptV2,
+        threadID: String = "standalone",
+        sessionStore: CodexThreadUISessionStore? = nil,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170
     ) {
         self.init(
             transcript: transcript,
+            threadID: threadID,
+            sessionStore: sessionStore,
             productToolRenderer: productToolRenderer,
             contentHorizontalOffset: contentHorizontalOffset,
             bottomContentInset: bottomContentInset

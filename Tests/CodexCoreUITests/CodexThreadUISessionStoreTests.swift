@@ -109,6 +109,11 @@ struct CodexThreadUISessionStoreTests {
         status.apply(method: "turn/failed", threadID: "A", at: Date(timeIntervalSince1970: 3))
         #expect(status.entries["A"]?.status == .failed)
         #expect(status.entries["A"]?.hasUnreadWhileInactive == true)
+
+        status.apply(method: "turn/completed", params: json([
+            "threadId": "C", "turn": ["id": "turn-c", "error": "boom"]
+        ]), threadID: "C", at: Date(timeIntervalSince1970: 4))
+        #expect(status.entries["C"]?.status == .failed)
     }
 
     private func json(_ value: Any) -> CodexJSONValue {

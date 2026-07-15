@@ -1,0 +1,981 @@
+import AppKit
+import Foundation
+
+struct CodexTranscriptRenderItemID: Hashable, Sendable {
+    var rawValue: String
+}
+
+enum CodexTranscriptTextRole: Sendable, Equatable {
+    case user
+    case commentary
+    case finalAnswer
+    case notice
+    case expandedOutput
+    case liveTail
+    case timestamp
+}
+
+enum CodexTranscriptRenderAction: Sendable, Equatable {
+    case toggleWork(turnID: String)
+    case toggleRow(rowID: String)
+    case openSubagent(threadID: String)
+}
+
+struct CodexTranscriptWorkHeaderRender: Sendable, Equatable {
+    enum State: Sendable, Equatable {
+        case working(startedAt: Date, showsDuration: Bool)
+        case done(durationMs: Int?, isExpanded: Bool)
+        case failed(message: String)
+    }
+
+    var state: State
+}
+
+struct CodexTranscriptWorkRowRender: Sendable, Equatable {
+    var label: String
+    var status: CodexWorkItemStatusV2
+    var durationMs: Int?
+    var isExpanded: Bool
+    var hasDetail: Bool
+    var isSubagentLink: Bool
+}
+
+struct CodexTranscriptCodeRender: Sendable, Equatable {
+    var language: String?
+    var code: String
+}
+
+final class CodexPreparedTranscriptText: @unchecked Sendable {
+    let attributedString: NSAttributedString
+
+    init(_ attributedString: NSAttributedString) {
+        self.attributedString = attributedString
+    }
+}
+
+struct CodexTranscriptRenderItem: @unchecked Sendable {
+    var id: CodexTranscriptRenderItemID
+    var sectionID: String
+    var turnID: String
+    var revision: Int
+    var textRole: CodexTranscriptTextRole?
+    var preparedText: CodexPreparedTranscriptText?
+    var workHeader: CodexTranscriptWorkHeaderRender?
+    var workRow: CodexTranscriptWorkRowRender?
+    var code: CodexTranscriptCodeRender?
+    var productTool: CodexProductToolCallV2?
+    var action: CodexTranscriptRenderAction?
+    var copyText: String?
+    var copyTurnText: String
+    var accessibilityLabel: String
+    var indentation: CGFloat
+    var isTrailingAligned: Bool
+    var maxContentWidth: CGFloat
+    var measuredHeight: CGFloat
+}
+
+struct CodexTranscriptRenderDiagnostics: Sendable, Equatable {
+    var projectionCount = 0
+    var projectedItemCount = 0
+    var changedItemCount = 0
+    var heightCacheHitCount = 0
+    var heightCacheMissCount = 0
+    var preparedTextCacheHitCount = 0
+    var preparedTextCacheMissCount = 0
+    var markdownProjectionCount = 0
+    var projectionDurationMilliseconds: Double = 0
+}
+
+struct CodexTranscriptRenderSnapshot: @unchecked Sendable {
+    var threadID: String
+    var sectionIDs: [String]
+    var itemIDsBySection: [String: [CodexTranscriptRenderItemID]]
+    var itemsByID: [CodexTranscriptRenderItemID: CodexTranscriptRenderItem]
+    var changedItemIDs: Set<CodexTranscriptRenderItemID>
+    var diagnostics: CodexTranscriptRenderDiagnostics
+
+    var orderedItemIDs: [CodexTranscriptRenderItemID] {
+        sectionIDs.flatMap { itemIDsBySection[$0] ?? [] }
+    }
+}
+
+struct CodexTranscriptAppKitTheme: @unchecked Sendable {
+    var bodyFont: NSFont
+    var codeFont: NSFont
+    var captionFont: NSFont
+    var microFont: NSFont
+    var textPrimary: NSColor
+    var textSecondary: NSColor
+    var textTertiary: NSColor
+    var userBubble: NSColor
+    var userBubbleStroke: NSColor
+    var codeBackground: NSColor
+    var codeHeader: NSColor
+    var codeText: NSColor
+    var codeFaint: NSColor
+    var surfaceSunken: NSColor
+    var border: NSColor
+    var success: NSColor
+    var danger: NSColor
+    var running: NSColor
+    var accent: NSColor
+    var bubbleRadius: CGFloat
+    var cardRadius: CGFloat
+    var lineSpacing: CGFloat
+    var cardMaxWidth: CGFloat
+    var userBubbleMaxWidth: CGFloat
+    var transcriptOuterMaxWidth: CGFloat
+    var fingerprint: String
+
+    @MainActor
+    init(_ theme: CodexAgentTheme) {
+        bodyFont = theme.fonts.chatNSFont ?? .systemFont(ofSize: 15)
+        codeFont = theme.fonts.codeNSFont ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+        captionFont = .systemFont(ofSize: max(10, bodyFont.pointSize - 2))
+        microFont = .monospacedSystemFont(ofSize: max(9, bodyFont.pointSize - 3), weight: .semibold)
+        textPrimary = NSColor(theme.colors.textPrimary)
+        textSecondary = NSColor(theme.colors.textSecondary)
+        textTertiary = NSColor(theme.colors.textTertiary)
+        userBubble = NSColor(theme.colors.userBubble)
+        userBubbleStroke = NSColor(theme.colors.userBubbleStroke)
+        codeBackground = NSColor(theme.colors.codeBackground)
+        codeHeader = NSColor(theme.colors.codeHeader)
+        codeText = NSColor(theme.colors.codeText)
+        codeFaint = NSColor(theme.colors.codeFaint)
+        surfaceSunken = NSColor(theme.colors.surfaceSunken)
+        border = NSColor(theme.colors.border)
+        success = NSColor(theme.colors.success)
+        danger = NSColor(theme.colors.danger)
+        running = NSColor(theme.colors.running)
+        accent = NSColor(theme.colors.accent)
+        bubbleRadius = theme.radii.bubble
+        cardRadius = theme.radii.medium
+        lineSpacing = theme.spacing.chatLineSpacing
+        cardMaxWidth = theme.spacing.cardMaxWidth
+        userBubbleMaxWidth = theme.spacing.userBubbleMaxWidth
+        transcriptOuterMaxWidth = theme.spacing.transcriptOuterMaxWidth
+        fingerprint = [
+            bodyFont.fontName, String(describing: bodyFont.pointSize), codeFont.fontName,
+            String(describing: codeFont.pointSize), String(describing: textPrimary),
+            String(describing: userBubble), String(describing: lineSpacing)
+        ].joined(separator: ":")
+    }
+}
+
+actor CodexTranscriptRenderProjector {
+    private struct RevisionState {
+        var fingerprint: String
+        var revision: Int
+    }
+
+    private struct HeightKey: Hashable {
+        var id: CodexTranscriptRenderItemID
+        var revision: Int
+        var widthPixels: Int
+        var theme: String
+    }
+
+    private var previousBlocksBySourceID: [String: [CodexBlock]] = [:]
+    private var sourceTextBySourceID: [String: String] = [:]
+    private var revisionByID: [CodexTranscriptRenderItemID: RevisionState] = [:]
+    private var heightByKey: [HeightKey: CGFloat] = [:]
+    private var preparedTextByKey: [String: CodexPreparedTranscriptText] = [:]
+    private var preparedTextInsertionOrder: [String] = []
+    private var projectionCount = 0
+
+    func project(
+        presentation: CodexThreadUIPresentation,
+        availableWidth: CGFloat,
+        theme: CodexTranscriptAppKitTheme
+    ) throws -> CodexTranscriptRenderSnapshot {
+        try Task.checkCancellation()
+        let startedAt = ContinuousClock.now
+        let contentWidth = max(280, min(availableWidth - 48, theme.transcriptOuterMaxWidth))
+        var sections: [String] = []
+        var itemIDsBySection: [String: [CodexTranscriptRenderItemID]] = [:]
+        var itemsByID: [CodexTranscriptRenderItemID: CodexTranscriptRenderItem] = [:]
+        var changedIDs: Set<CodexTranscriptRenderItemID> = []
+        var liveIDs: Set<CodexTranscriptRenderItemID> = []
+        var cacheHits = 0
+        var cacheMisses = 0
+        var preparedTextCacheHits = 0
+        var preparedTextCacheMisses = 0
+        var markdownProjections = 0
+
+        for turn in presentation.transcript.turns {
+            try Task.checkCancellation()
+            let sectionID = "\(presentation.threadID):turn:\(turn.id)"
+            sections.append(sectionID)
+            var sectionItems: [CodexTranscriptRenderItemID] = []
+            let copyTurnText = Self.copyText(for: turn)
+            let presentedAt = presentation.presentedAtByTurnID[turn.id] ?? Date()
+
+            func append(_ draft: ItemDraft) {
+                let id = CodexTranscriptRenderItemID(rawValue: draft.id)
+                let contentFingerprint = CodexBlockDigest.digest(draft.fingerprint)
+                let previous = revisionByID[id]
+                let revision: Int
+                if previous?.fingerprint == contentFingerprint {
+                    revision = previous?.revision ?? 0
+                } else {
+                    revision = (previous?.revision ?? -1) + 1
+                    changedIDs.insert(id)
+                }
+                revisionByID[id] = RevisionState(fingerprint: contentFingerprint, revision: revision)
+                let maxWidth = draft.maxWidth(contentWidth, theme)
+                let heightKey = HeightKey(
+                    id: id,
+                    revision: revision,
+                    widthPixels: Int((maxWidth * 2).rounded()),
+                    theme: theme.fingerprint
+                )
+                let measuredHeight: CGFloat
+                if let cached = heightByKey[heightKey] {
+                    measuredHeight = cached
+                    cacheHits += 1
+                } else {
+                    measuredHeight = Self.measure(draft: draft, width: maxWidth, theme: theme)
+                    heightByKey[heightKey] = measuredHeight
+                    cacheMisses += 1
+                }
+                let item = CodexTranscriptRenderItem(
+                    id: id,
+                    sectionID: sectionID,
+                    turnID: turn.id,
+                    revision: revision,
+                    textRole: draft.textRole,
+                    preparedText: draft.preparedText,
+                    workHeader: draft.workHeader,
+                    workRow: draft.workRow,
+                    code: draft.code,
+                    productTool: draft.productTool,
+                    action: draft.action,
+                    copyText: draft.copyText,
+                    copyTurnText: copyTurnText,
+                    accessibilityLabel: draft.accessibilityLabel,
+                    indentation: draft.indentation,
+                    isTrailingAligned: draft.isTrailingAligned,
+                    maxContentWidth: maxWidth,
+                    measuredHeight: measuredHeight
+                )
+                sectionItems.append(id)
+                itemsByID[id] = item
+                liveIDs.insert(id)
+            }
+
+            if let user = turn.userMessage {
+                let prepared = cachedPreparedText(
+                    content: user.text,
+                    style: "user-markdown",
+                    theme: theme,
+                    cacheHits: &preparedTextCacheHits,
+                    cacheMisses: &preparedTextCacheMisses
+                ) {
+                    Self.prepareMarkdown(user.text, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
+                }
+                append(ItemDraft(
+                    id: "\(sectionID):user:\(user.id)",
+                    fingerprint: "user:\(user.text):\(user.isOptimistic)",
+                    textRole: .user,
+                    preparedText: prepared,
+                    copyText: user.text,
+                    accessibilityLabel: "You: \(user.text)",
+                    isTrailingAligned: true,
+                    maxWidthKind: .user
+                ))
+                append(timestampDraft(
+                    id: "\(sectionID):user-timestamp",
+                    date: presentedAt,
+                    trailing: true,
+                    theme: theme,
+                    cacheHits: &preparedTextCacheHits,
+                    cacheMisses: &preparedTextCacheMisses
+                ))
+            }
+
+            let showsWork = Self.shouldRenderWork(turn)
+            let workExpanded = Self.workIsExpanded(turn, presentation: presentation)
+            if showsWork {
+                let header = Self.workHeader(turn, expanded: workExpanded, presentedAt: presentedAt)
+                append(ItemDraft(
+                    id: "\(sectionID):work-header",
+                    fingerprint: "work:\(String(describing: header.state))",
+                    workHeader: header,
+                    action: Self.workHeaderIsActionable(header) ? .toggleWork(turnID: turn.id) : nil,
+                    accessibilityLabel: Self.workHeaderAccessibilityLabel(header),
+                    maxWidthKind: .card,
+                    fixedHeight: 28
+                ))
+            }
+
+            if showsWork && workExpanded {
+                for entry in turn.narrative {
+                    try Task.checkCancellation()
+                    switch entry {
+                    case .prose(let prose):
+                        let sourceID = "\(sectionID):commentary:\(prose.id)"
+                        let blocks = projectBlocks(
+                            prose.text,
+                            streaming: prose.isStreaming,
+                            sourceID: sourceID
+                        )
+                        markdownProjections += 1
+                        for block in blocks {
+                            append(draft(
+                                block: block,
+                                role: .commentary,
+                                theme: theme,
+                                cacheHits: &preparedTextCacheHits,
+                                cacheMisses: &preparedTextCacheMisses
+                            ))
+                        }
+                    case .workGroup(let group):
+                        let headerText = Self.preparePlain(group.header, font: theme.captionFont, color: theme.textSecondary, theme: theme)
+                        append(ItemDraft(
+                            id: "\(sectionID):group:\(group.id):header",
+                            fingerprint: "group-header:\(group.header)",
+                            textRole: .commentary,
+                            preparedText: headerText,
+                            accessibilityLabel: group.header,
+                            maxWidthKind: .card,
+                            fixedHeight: 24
+                        ))
+                        for row in group.rows {
+                            let rowID = row.id
+                            let detail = Self.detail(for: row)
+                            let subagentThreadID = Self.subagentThreadID(for: row)
+                            let rowRender = CodexTranscriptWorkRowRender(
+                                label: Self.label(for: row),
+                                status: Self.status(for: row),
+                                durationMs: Self.duration(for: row),
+                                isExpanded: presentation.expandedRowIDs.contains(rowID),
+                                hasDetail: detail != nil,
+                                isSubagentLink: subagentThreadID != nil
+                            )
+                            append(ItemDraft(
+                                id: "\(sectionID):row:\(rowID)",
+                                fingerprint: "row:\(String(describing: rowRender))",
+                                workRow: rowRender,
+                                action: subagentThreadID.map(CodexTranscriptRenderAction.openSubagent)
+                                    ?? (detail == nil ? nil : .toggleRow(rowID: rowID)),
+                                copyText: detail,
+                                accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
+                                indentation: 12,
+                                maxWidthKind: .card,
+                                fixedHeight: 30
+                            ))
+                            if presentation.expandedRowIDs.contains(rowID), let detail {
+                                let bounded = Self.bounded(detail, limit: 20_000)
+                                append(ItemDraft(
+                                    id: "\(sectionID):row:\(rowID):detail",
+                                    fingerprint: "detail:\(bounded)",
+                                    textRole: .expandedOutput,
+                                    preparedText: Self.preparePlain(bounded, font: theme.codeFont, color: theme.textSecondary, theme: theme),
+                                    copyText: detail,
+                                    accessibilityLabel: "Expanded output: \(bounded)",
+                                    indentation: 30,
+                                    maxWidthKind: .card
+                                ))
+                            }
+                        }
+                    case .productToolCall(let call):
+                        append(ItemDraft(
+                            id: "\(sectionID):product:\(call.id)",
+                            fingerprint: "product:\(String(describing: call))",
+                            productTool: call,
+                            accessibilityLabel: "Tool \([call.namespace, call.tool].compactMap { $0 }.joined(separator: " "))",
+                            maxWidthKind: .card,
+                            fixedHeight: 44
+                        ))
+                    case .notice(let notice):
+                        append(ItemDraft(
+                            id: "\(sectionID):notice:\(notice.id)",
+                            fingerprint: "notice:\(notice.message)",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(notice.message, font: theme.captionFont, color: theme.textTertiary, theme: theme),
+                            copyText: notice.message,
+                            accessibilityLabel: notice.message,
+                            maxWidthKind: .card
+                        ))
+                    }
+                }
+                if case .working = turn.status,
+                   let tail = turn.liveTail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !tail.isEmpty,
+                   !(tail == "Thinking" && turn.narrative.isEmpty) {
+                    append(ItemDraft(
+                        id: "\(sectionID):live-tail",
+                        fingerprint: "tail:\(tail)",
+                        textRole: .liveTail,
+                        preparedText: Self.preparePlain(tail, font: theme.captionFont, color: theme.textTertiary, theme: theme),
+                        accessibilityLabel: tail,
+                        maxWidthKind: .card,
+                        fixedHeight: 24
+                    ))
+                }
+            }
+
+            if let answer = turn.finalAnswer, !answer.text.isEmpty {
+                let sourceID = "\(sectionID):final:\(answer.id)"
+                let blocks = projectBlocks(
+                    answer.text,
+                    streaming: answer.isStreaming,
+                    sourceID: sourceID
+                )
+                markdownProjections += 1
+                for block in blocks {
+                    append(draft(
+                        block: block,
+                        role: .finalAnswer,
+                        theme: theme,
+                        cacheHits: &preparedTextCacheHits,
+                        cacheMisses: &preparedTextCacheMisses
+                    ))
+                }
+                append(timestampDraft(
+                    id: "\(sectionID):final-timestamp",
+                    date: presentedAt,
+                    trailing: false,
+                    theme: theme,
+                    cacheHits: &preparedTextCacheHits,
+                    cacheMisses: &preparedTextCacheMisses
+                ))
+            }
+            itemIDsBySection[sectionID] = sectionItems
+        }
+
+        revisionByID = revisionByID.filter { liveIDs.contains($0.key) }
+        heightByKey = heightByKey.filter { key, _ in
+            liveIDs.contains(key.id) && revisionByID[key.id]?.revision == key.revision
+        }
+        let liveSourcePrefixes = Set(itemsByID.keys.map { id in
+            id.rawValue.components(separatedBy: ":block:").first ?? id.rawValue
+        })
+        previousBlocksBySourceID = previousBlocksBySourceID.filter { liveSourcePrefixes.contains($0.key) }
+        sourceTextBySourceID = sourceTextBySourceID.filter { liveSourcePrefixes.contains($0.key) }
+        projectionCount += 1
+        let elapsed = startedAt.duration(to: .now)
+        let milliseconds = Double(elapsed.components.seconds) * 1_000
+            + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
+        let diagnostics = CodexTranscriptRenderDiagnostics(
+            projectionCount: projectionCount,
+            projectedItemCount: itemsByID.count,
+            changedItemCount: changedIDs.count,
+            heightCacheHitCount: cacheHits,
+            heightCacheMissCount: cacheMisses,
+            preparedTextCacheHitCount: preparedTextCacheHits,
+            preparedTextCacheMissCount: preparedTextCacheMisses,
+            markdownProjectionCount: markdownProjections,
+            projectionDurationMilliseconds: milliseconds
+        )
+        return CodexTranscriptRenderSnapshot(
+            threadID: presentation.threadID,
+            sectionIDs: sections,
+            itemIDsBySection: itemIDsBySection,
+            itemsByID: itemsByID,
+            changedItemIDs: changedIDs,
+            diagnostics: diagnostics
+        )
+    }
+
+    private func projectBlocks(
+        _ text: String,
+        streaming: Bool,
+        sourceID: String
+    ) -> [CodexBlock] {
+        if sourceTextBySourceID[sourceID] == text,
+           let previous = previousBlocksBySourceID[sourceID] {
+            return previous
+        }
+        let blocks = CodexBlockProjector.project(
+            text,
+            previous: previousBlocksBySourceID[sourceID],
+            streaming: streaming,
+            cacheNamespace: sourceID
+        )
+        sourceTextBySourceID[sourceID] = text
+        previousBlocksBySourceID[sourceID] = blocks
+        return blocks
+    }
+}
+
+private extension CodexTranscriptRenderProjector {
+    enum MaxWidthKind {
+        case full
+        case card
+        case user
+    }
+
+    struct ItemDraft {
+        var id: String
+        var fingerprint: String
+        var textRole: CodexTranscriptTextRole?
+        var preparedText: CodexPreparedTranscriptText?
+        var workHeader: CodexTranscriptWorkHeaderRender?
+        var workRow: CodexTranscriptWorkRowRender?
+        var code: CodexTranscriptCodeRender?
+        var productTool: CodexProductToolCallV2?
+        var action: CodexTranscriptRenderAction?
+        var copyText: String?
+        var accessibilityLabel: String
+        var indentation: CGFloat
+        var isTrailingAligned: Bool
+        var maxWidthKind: MaxWidthKind
+        var fixedHeight: CGFloat?
+
+        init(
+            id: String,
+            fingerprint: String,
+            textRole: CodexTranscriptTextRole? = nil,
+            preparedText: CodexPreparedTranscriptText? = nil,
+            workHeader: CodexTranscriptWorkHeaderRender? = nil,
+            workRow: CodexTranscriptWorkRowRender? = nil,
+            code: CodexTranscriptCodeRender? = nil,
+            productTool: CodexProductToolCallV2? = nil,
+            action: CodexTranscriptRenderAction? = nil,
+            copyText: String? = nil,
+            accessibilityLabel: String,
+            indentation: CGFloat = 0,
+            isTrailingAligned: Bool = false,
+            maxWidthKind: MaxWidthKind = .full,
+            fixedHeight: CGFloat? = nil
+        ) {
+            self.id = id
+            self.fingerprint = fingerprint
+            self.textRole = textRole
+            self.preparedText = preparedText
+            self.workHeader = workHeader
+            self.workRow = workRow
+            self.code = code
+            self.productTool = productTool
+            self.action = action
+            self.copyText = copyText
+            self.accessibilityLabel = accessibilityLabel
+            self.indentation = indentation
+            self.isTrailingAligned = isTrailingAligned
+            self.maxWidthKind = maxWidthKind
+            self.fixedHeight = fixedHeight
+        }
+
+        func maxWidth(_ contentWidth: CGFloat, _ theme: CodexTranscriptAppKitTheme) -> CGFloat {
+            switch maxWidthKind {
+            case .full: contentWidth
+            case .card: min(contentWidth, theme.cardMaxWidth)
+            case .user: min(contentWidth, theme.userBubbleMaxWidth)
+            }
+        }
+    }
+
+    func draft(
+        block: CodexBlock,
+        role: CodexTranscriptTextRole,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int
+    ) -> ItemDraft {
+        switch block {
+        case .code(let id, let language, let code, _):
+            return ItemDraft(
+                id: id,
+                fingerprint: "code:\(language ?? ""):\(code)",
+                code: CodexTranscriptCodeRender(language: language, code: code),
+                copyText: code,
+                accessibilityLabel: "Code block \(language ?? "code"): \(code)",
+                maxWidthKind: .card
+            )
+        default:
+            let prepared = cachedPreparedText(
+                content: block.contentDigest,
+                style: "block-\(role)-\(block.id)",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.prepare(block: block, role: role, theme: theme)
+            }
+            return ItemDraft(
+                id: block.id,
+                fingerprint: "text:\(role):\(block.contentDigest)",
+                textRole: role,
+                preparedText: prepared,
+                copyText: prepared.attributedString.string,
+                accessibilityLabel: "\(role == .finalAnswer ? "Assistant" : "Commentary"): \(prepared.attributedString.string)",
+                maxWidthKind: .card
+            )
+        }
+    }
+
+    func timestampDraft(
+        id: String,
+        date: Date,
+        trailing: Bool,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int
+    ) -> ItemDraft {
+        let label = date.formatted(date: .omitted, time: .shortened)
+        let prepared = cachedPreparedText(
+            content: label,
+            style: "timestamp",
+            theme: theme,
+            cacheHits: &cacheHits,
+            cacheMisses: &cacheMisses
+        ) {
+            Self.preparePlain(label, font: theme.microFont, color: theme.textTertiary, theme: theme)
+        }
+        return ItemDraft(
+            id: id,
+            fingerprint: "timestamp:\(label)",
+            textRole: .timestamp,
+            preparedText: prepared,
+            accessibilityLabel: "Presented at \(label)",
+            isTrailingAligned: trailing,
+            maxWidthKind: trailing ? .user : .card,
+            fixedHeight: 18
+        )
+    }
+
+    func cachedPreparedText(
+        content: String,
+        style: String,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int,
+        make: () -> CodexPreparedTranscriptText
+    ) -> CodexPreparedTranscriptText {
+        let key = theme.fingerprint + ":" + style + ":" + CodexBlockDigest.digest(content)
+        if let cached = preparedTextByKey[key] {
+            cacheHits += 1
+            return cached
+        }
+        let prepared = make()
+        preparedTextByKey[key] = prepared
+        preparedTextInsertionOrder.append(key)
+        cacheMisses += 1
+        if preparedTextInsertionOrder.count > 8_192 {
+            let expired = Array(preparedTextInsertionOrder.prefix(1_024))
+            preparedTextInsertionOrder.removeFirst(1_024)
+            for key in expired { preparedTextByKey.removeValue(forKey: key) }
+        }
+        return prepared
+    }
+
+    static func measure(
+        draft: ItemDraft,
+        width: CGFloat,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CGFloat {
+        if let fixedHeight = draft.fixedHeight { return fixedHeight }
+        let horizontalPadding: CGFloat = draft.textRole == .user ? 28 : (draft.textRole == .expandedOutput ? 54 : 0)
+        if let text = draft.preparedText?.attributedString {
+            let bounds = text.boundingRect(
+                with: NSSize(width: max(80, width - horizontalPadding - draft.indentation), height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            let verticalPadding: CGFloat = draft.textRole == .user ? 20 : (draft.textRole == .expandedOutput ? 16 : 4)
+            return max(18, ceil(bounds.height) + verticalPadding)
+        }
+        if let code = draft.code {
+            let text = preparePlain(code.code, font: theme.codeFont, color: theme.codeText, theme: theme).attributedString
+            let bounds = text.boundingRect(
+                with: NSSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            return max(82, ceil(bounds.height) + 58)
+        }
+        return 36
+    }
+
+    static func prepare(block: CodexBlock, role: CodexTranscriptTextRole, theme: CodexTranscriptAppKitTheme) -> CodexPreparedTranscriptText {
+        switch block {
+        case .prose(_, let text, _), .htmlFallback(_, let text):
+            return prepareMarkdown(text, font: theme.bodyFont, color: color(for: role, theme: theme), theme: theme)
+        case .heading(_, let level, let text, _):
+            let size: CGFloat = switch level { case 1: 20; case 2: 17; case 3: 15; default: 14 }
+            let font = NSFontManager.shared.convert(.systemFont(ofSize: size), toHaveTrait: .boldFontMask)
+            return preparePlain(text, font: font, color: theme.textPrimary, theme: theme)
+        case .list(_, let ordered, let items):
+            let text = items.enumerated().map { index, item in
+                String(repeating: "  ", count: item.depth) + (ordered ? "\(index + 1). " : "• ") + item.text
+            }.joined(separator: "\n")
+            return prepareMarkdown(text, font: theme.bodyFont, color: color(for: role, theme: theme), theme: theme)
+        case .table(_, let model):
+            return prepareTable(model, role: role, theme: theme)
+        case .code:
+            return preparePlain("", font: theme.codeFont, color: theme.codeText, theme: theme)
+        }
+    }
+
+    static func prepareMarkdown(
+        _ markdown: String,
+        font: NSFont,
+        color: NSColor,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        let parsed = (try? NSAttributedString(markdown: Data(markdown.utf8), options: .init(), baseURL: nil))
+            ?? NSAttributedString(string: markdown)
+        let result = NSMutableAttributedString(attributedString: parsed)
+        let fullRange = NSRange(location: 0, length: result.length)
+        result.addAttributes([
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraphStyle(theme)
+        ], range: fullRange)
+        parsed.enumerateAttribute(.inlinePresentationIntent, in: fullRange) { value, range, _ in
+            let raw = (value as? NSNumber)?.uintValue ?? (value as? UInt)
+            guard let raw else { return }
+            let intent = InlinePresentationIntent(rawValue: raw)
+            var resolved = font
+            if intent.contains(.code) {
+                resolved = theme.codeFont
+                result.addAttribute(.backgroundColor, value: theme.surfaceSunken, range: range)
+            } else {
+                var traits: NSFontTraitMask = []
+                if intent.contains(.stronglyEmphasized) { traits.insert(.boldFontMask) }
+                if intent.contains(.emphasized) { traits.insert(.italicFontMask) }
+                if !traits.isEmpty { resolved = NSFontManager.shared.convert(font, toHaveTrait: traits) }
+            }
+            result.addAttribute(.font, value: resolved, range: range)
+        }
+        return CodexPreparedTranscriptText(result)
+    }
+
+    static func preparePlain(
+        _ text: String,
+        font: NSFont,
+        color: NSColor,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        CodexPreparedTranscriptText(NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraphStyle(theme)
+        ]))
+    }
+
+    static func prepareTable(
+        _ model: CodexTableModel,
+        role: CodexTranscriptTextRole,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        guard !model.columns.isEmpty else {
+            return preparePlain("", font: theme.bodyFont, color: color(for: role, theme: theme), theme: theme)
+        }
+        let table = NSTextTable()
+        table.numberOfColumns = model.columns.count
+        table.collapsesBorders = true
+        table.hidesEmptyCells = false
+        let rows = [model.columns.map(\.header)] + model.rows
+        let result = NSMutableAttributedString()
+        for (rowIndex, row) in rows.enumerated() {
+            for columnIndex in model.columns.indices {
+                let block = NSTextTableBlock(
+                    table: table,
+                    startingRow: rowIndex,
+                    rowSpan: 1,
+                    startingColumn: columnIndex,
+                    columnSpan: 1
+                )
+                block.setWidth(6, type: .absoluteValueType, for: .padding)
+                block.setWidth(1, type: .absoluteValueType, for: .border)
+                block.setBorderColor(theme.border)
+                if rowIndex == 0 { block.backgroundColor = theme.surfaceSunken }
+                let style = NSMutableParagraphStyle()
+                style.lineSpacing = theme.lineSpacing
+                style.textBlocks = [block]
+                switch model.columns[columnIndex].alignment {
+                case .leading: style.alignment = .left
+                case .center: style.alignment = .center
+                case .trailing: style.alignment = .right
+                }
+                let text = columnIndex < row.count ? row[columnIndex] : ""
+                let prepared = NSMutableAttributedString(attributedString: prepareMarkdown(
+                    text,
+                    font: theme.bodyFont,
+                    color: color(for: role, theme: theme),
+                    theme: theme
+                ).attributedString)
+                if prepared.length > 0 {
+                    prepared.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: prepared.length))
+                    if rowIndex == 0 {
+                        prepared.addAttribute(
+                            .font,
+                            value: NSFontManager.shared.convert(theme.bodyFont, toHaveTrait: .boldFontMask),
+                            range: NSRange(location: 0, length: prepared.length)
+                        )
+                    }
+                }
+                prepared.append(NSAttributedString(string: "\n", attributes: [
+                    .font: theme.bodyFont,
+                    .foregroundColor: color(for: role, theme: theme),
+                    .paragraphStyle: style
+                ]))
+                result.append(prepared)
+            }
+        }
+        return CodexPreparedTranscriptText(result)
+    }
+
+    static func paragraphStyle(_ theme: CodexTranscriptAppKitTheme) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = theme.lineSpacing
+        return style
+    }
+
+    static func color(for role: CodexTranscriptTextRole, theme: CodexTranscriptAppKitTheme) -> NSColor {
+        role == .commentary ? theme.textSecondary : theme.textPrimary
+    }
+
+    static func shouldRenderWork(_ turn: CodexTurnV2) -> Bool {
+        switch turn.status {
+        case .working:
+            return turn.finalAnswer?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        case .done, .failed:
+            return !turn.narrative.isEmpty || turn.liveTail != nil
+        }
+    }
+
+    static func workIsExpanded(_ turn: CodexTurnV2, presentation: CodexThreadUIPresentation) -> Bool {
+        switch turn.status {
+        case .working: true
+        case .done: presentation.expandedWorkTurnIDs.contains(turn.id)
+        case .failed: false
+        }
+    }
+
+    static func workHeader(_ turn: CodexTurnV2, expanded: Bool, presentedAt: Date) -> CodexTranscriptWorkHeaderRender {
+        switch turn.status {
+        case .working(let since):
+            let start = since.map { Date(timeIntervalSince1970: TimeInterval($0)) } ?? presentedAt
+            return .init(state: .working(
+                startedAt: start,
+                showsDuration: CodexWorkBlockViewV2.showsWorkingDuration(narrative: turn.narrative, liveTail: turn.liveTail)
+            ))
+        case .done(let durationMs):
+            return .init(state: .done(durationMs: durationMs, isExpanded: expanded))
+        case .failed(let message):
+            return .init(state: .failed(message: message))
+        }
+    }
+
+    static func workHeaderIsActionable(_ header: CodexTranscriptWorkHeaderRender) -> Bool {
+        if case .done = header.state { return true }
+        return false
+    }
+
+    static func workHeaderAccessibilityLabel(_ header: CodexTranscriptWorkHeaderRender) -> String {
+        switch header.state {
+        case .working(_, let showsDuration): return showsDuration ? "Working" : "Thinking"
+        case .done(let duration, let expanded):
+            return "Worked for \(CodexWorkBlockViewV2.duration(duration)), \(expanded ? "expanded" : "collapsed")"
+        case .failed(let message): return message.isEmpty ? "Work failed" : message
+        }
+    }
+
+    static func label(for row: CodexWorkRowV2) -> String {
+        switch row {
+        case .command(let value):
+            return (value.status == .inProgress ? "Running " : "Ran ") + value.command.codexAppKitDisplayPrefix(limit: 280)
+        case .fileChange(let value): return "Edited " + value.files.joined(separator: " · ")
+        case .mcpToolCall(let value):
+            let app = value.appName.isEmpty ? value.server : value.appName
+            let base = "Called \(app) · \(value.tool)"
+            return value.errorFirstLine.map { base + " — " + $0 } ?? base
+        case .webSearch(let value): return "Searched \(value.query)"
+        case .collabAgent(let value): return value.label
+        case .other(let value): return value.label
+        }
+    }
+
+    static func status(for row: CodexWorkRowV2) -> CodexWorkItemStatusV2 {
+        switch row {
+        case .command(let value): value.status
+        case .fileChange(let value): value.status
+        case .mcpToolCall(let value): value.status
+        case .webSearch(let value): value.status
+        case .collabAgent(let value): value.status
+        case .other(let value): value.status
+        }
+    }
+
+    static func duration(for row: CodexWorkRowV2) -> Int? {
+        switch row {
+        case .command(let value): value.durationMs
+        case .fileChange(let value): value.durationMs
+        case .mcpToolCall(let value): value.durationMs
+        default: nil
+        }
+    }
+
+    static func detail(for row: CodexWorkRowV2) -> String? {
+        switch row {
+        case .command(let value): return value.output?.codexAppKitNilIfEmpty
+        case .fileChange(let value): return value.diff?.codexAppKitNilIfEmpty
+        case .mcpToolCall(let value):
+            let parts = [
+                value.arguments.map { "Arguments\n\($0.description)" },
+                value.result.map { "Result\n\($0.description)" }
+            ].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        case .collabAgent(let value):
+            guard value.action == .waited || value.action == .sentInput else { return nil }
+            let ordered = value.agentNames.filter { value.agentMessages[$0] != nil }
+                + value.agentMessages.keys.filter { !value.agentNames.contains($0) }.sorted()
+            let replies = ordered.compactMap { agent in
+                value.agentMessages[agent].map { "\(agent)\n\($0)" }
+            }.joined(separator: "\n\n")
+            let parts = [value.action == .sentInput ? value.instructions?.codexAppKitNilIfEmpty : nil, replies.codexAppKitNilIfEmpty].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        default: return nil
+        }
+    }
+
+    static func subagentThreadID(for row: CodexWorkRowV2) -> String? {
+        guard case .collabAgent(let value) = row else { return nil }
+        return value.agentThreadIDs.first
+    }
+
+    static func accessibilityLabel(for row: CodexWorkRowV2, render: CodexTranscriptWorkRowRender) -> String {
+        let state = switch render.status { case .inProgress: "in progress"; case .completed: "completed"; case .failed: "failed" }
+        return "\(render.label), \(state)"
+    }
+
+    static func bounded(_ text: String, limit: Int) -> String {
+        text.codexAppKitDisplayPrefix(limit: limit)
+    }
+
+    static func copyText(for turn: CodexTurnV2) -> String {
+        var parts: [String] = []
+        if let user = turn.userMessage?.text.codexAppKitNilIfEmpty { parts.append("You\n" + user) }
+        var work: [String] = []
+        for entry in turn.narrative {
+            switch entry {
+            case .prose(let prose): if !prose.text.isEmpty { work.append(prose.text) }
+            case .workGroup(let group):
+                work.append(group.header)
+                work.append(contentsOf: group.rows.map { row in
+                    [label(for: row), detail(for: row)].compactMap { $0 }.joined(separator: "\n")
+                })
+            case .productToolCall(let call):
+                let label = [call.namespace, call.tool].compactMap { $0 }.joined(separator: " · ")
+                let payload = [call.arguments.map(\.description), call.contentItems.isEmpty ? nil : call.contentItems.map(\.description).joined(separator: "\n")]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+                work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
+            case .notice(let notice): work.append(notice.message)
+            }
+        }
+        if !work.isEmpty { parts.append("Work\n" + work.joined(separator: "\n")) }
+        if let answer = turn.finalAnswer?.text.codexAppKitNilIfEmpty { parts.append("Assistant\n" + answer) }
+        return parts.joined(separator: "\n\n")
+    }
+}
+
+private extension String {
+    var codexAppKitNilIfEmpty: String? { isEmpty ? nil : self }
+
+    func codexAppKitDisplayPrefix(limit: Int) -> String {
+        guard let boundary = index(startIndex, offsetBy: limit, limitedBy: endIndex), boundary != endIndex else { return self }
+        return String(self[..<boundary]) + "\n… Output truncated for display"
+    }
+}

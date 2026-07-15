@@ -3,6 +3,16 @@ import CodexCore
 
 @MainActor
 public final class CodexChatRuntimeSession {
+    enum TranscriptIngressSource {
+        case mainTurn
+        case global
+    }
+
+    private struct PendingTranscriptIngress {
+        var mainTurn: [Date] = []
+        var global: [Date] = []
+    }
+
     private struct HostBindings {
         var currentThreadID: @MainActor () -> String?
         var store: @MainActor () -> CodexCoreStore?
@@ -18,6 +28,8 @@ public final class CodexChatRuntimeSession {
     private var subagentStoreV2 = CodexSubagentStoreV2()
     private var discoveryCodex: Codex?
     private var requestedSubagentIDs: Set<String> = []
+    private var pendingTranscriptIngressByFingerprint: [String: PendingTranscriptIngress] = [:]
+    public private(set) var transcriptIngressDeduplicationCount = 0
 
     public init(
         state: CodexChatRuntimeState = CodexChatRuntimeState(),
@@ -312,6 +324,8 @@ public final class CodexChatRuntimeSession {
         threadStatusStore.reset()
         subagentStoreV2 = CodexSubagentStoreV2()
         requestedSubagentIDs = []
+        pendingTranscriptIngressByFingerprint = [:]
+        transcriptIngressDeduplicationCount = 0
     }
 
     public func consumeMainTurn(
@@ -352,7 +366,11 @@ public final class CodexChatRuntimeSession {
             id: turnID,
             notifications: notifications,
             routeNotification: { [weak self] notification in
-                self?.applyToTranscriptV2(notification, threadID: currentThreadID())
+                self?.applyTranscriptNotification(
+                    notification,
+                    fallbackThreadID: currentThreadID(),
+                    source: .mainTurn
+                )
                 return self?.state.apply(
                     notification,
                     mode: .mainTurnStream,
@@ -452,7 +470,11 @@ public final class CodexChatRuntimeSession {
         streams.consumeGlobalNotificationResultStream(
             notifications,
             routeNotification: { [weak self] notification in
-                self?.applyToTranscriptV2(notification, threadID: currentThreadID())
+                self?.applyTranscriptNotification(
+                    notification,
+                    fallbackThreadID: currentThreadID(),
+                    source: .global
+                )
                 return self?.state.apply(
                     notification,
                     mode: .globalStream,
@@ -464,14 +486,72 @@ public final class CodexChatRuntimeSession {
         )
     }
 
-    private func applyToTranscriptV2(_ notification: CodexNotification, threadID fallbackThreadID: String?) {
+    func applyTranscriptNotification(
+        _ notification: CodexNotification,
+        fallbackThreadID: String?,
+        source: TranscriptIngressSource
+    ) {
+        guard shouldApplyTranscriptNotification(notification, source: source) else { return }
         let params = CodexJSONValue.dictionary(notification.rawParams)
         let discoveries = subagentStoreV2.apply(method: notification.method, params: params)
         for discovery in discoveries { discoverSubagent(discovery) }
         guard let threadID = CodexNotificationMetadata.threadID(from: notification) ?? fallbackThreadID else { return }
         guard !subagentStoreV2.contains(threadID: threadID) else { return }
         transcriptSessions.apply(method: notification.method, params: params, threadID: threadID)
-        threadStatusStore.apply(method: notification.method, threadID: threadID)
+        threadStatusStore.apply(method: notification.method, params: params, threadID: threadID)
+    }
+
+    private func shouldApplyTranscriptNotification(
+        _ notification: CodexNotification,
+        source: TranscriptIngressSource,
+        now: Date = Date()
+    ) -> Bool {
+        let fingerprint = Self.transcriptIngressFingerprint(notification)
+        let cutoff = now.addingTimeInterval(-5)
+        var pending = pendingTranscriptIngressByFingerprint[fingerprint] ?? PendingTranscriptIngress()
+        pending.mainTurn.removeAll { $0 < cutoff }
+        pending.global.removeAll { $0 < cutoff }
+
+        let shouldApply: Bool
+        switch source {
+        case .mainTurn:
+            if pending.global.isEmpty {
+                pending.mainTurn.append(now)
+                shouldApply = true
+            } else {
+                pending.global.removeFirst()
+                transcriptIngressDeduplicationCount &+= 1
+                shouldApply = false
+            }
+        case .global:
+            if pending.mainTurn.isEmpty {
+                pending.global.append(now)
+                shouldApply = true
+            } else {
+                pending.mainTurn.removeFirst()
+                transcriptIngressDeduplicationCount &+= 1
+                shouldApply = false
+            }
+        }
+
+        if pending.mainTurn.isEmpty && pending.global.isEmpty {
+            pendingTranscriptIngressByFingerprint.removeValue(forKey: fingerprint)
+        } else {
+            pendingTranscriptIngressByFingerprint[fingerprint] = pending
+        }
+        if pendingTranscriptIngressByFingerprint.count > 2_048 {
+            pendingTranscriptIngressByFingerprint = pendingTranscriptIngressByFingerprint.filter { _, value in
+                value.mainTurn.contains { $0 >= cutoff } || value.global.contains { $0 >= cutoff }
+            }
+        }
+        return shouldApply
+    }
+
+    private static func transcriptIngressFingerprint(_ notification: CodexNotification) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let params = (try? encoder.encode(CodexJSONValue.dictionary(notification.rawParams))) ?? Data()
+        return notification.method + "\u{0}" + params.base64EncodedString()
     }
 
     private var activeSubagentsV2: [CodexSubagentV2] {
