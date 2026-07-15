@@ -664,6 +664,7 @@ final class CodexCoreAppModel {
     }
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
+        runtimeSession.selectThread(chat.id)
         sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
         saveExpandedSidebarProjects()
         if let path = chat.workspacePath,
@@ -710,7 +711,9 @@ final class CodexCoreAppModel {
 
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
+        runtimeSession.selectThread(threadID)
         guard !threadSession.isCurrentThread(id: threadID) else { return }
+        let hasWarmTranscriptSession = runtimeSession.hasWarmTranscriptSession(threadID: threadID)
         applyPreferredModel(for: threadID)
         chatSelectionGeneration += 1
         let selectionGeneration = chatSelectionGeneration
@@ -735,7 +738,7 @@ final class CodexCoreAppModel {
         }
 
         let clearSpan = trace.begin("chatLoad.clearThreadState", metadata: ["threadID": threadID])
-        clearThreadState()
+        clearThreadState(preserveActiveTranscript: true)
         clearSpan.end(metadata: ["threadID": threadID])
         do {
             let resumeSpan = trace.begin("chatLoad.threadResume", metadata: ["threadID": threadID])
@@ -762,6 +765,7 @@ final class CodexCoreAppModel {
                 from: resumeResult,
                 using: codex,
                 trace: trace,
+                restoreTranscript: !hasWarmTranscriptSession,
                 shouldApply: { self.chatSelectionGeneration == selectionGeneration }
             ) {
                 threadHistoryCache.store(result)
@@ -1121,6 +1125,7 @@ final class CodexCoreAppModel {
         using codex: Codex,
         trace: CodexPerformanceTrace? = nil,
         activateParent: Bool = true,
+        restoreTranscript: Bool = true,
         shouldApply: () -> Bool = { true }
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
@@ -1136,7 +1141,7 @@ final class CodexCoreAppModel {
                 span?.end(metadata: ["threadID": thread.id, "outcome": "superseded"])
                 return nil
             }
-            let metadata = applyThreadHistoryRestore(result, trace: trace)
+            let metadata = applyThreadHistoryRestore(result, trace: trace, restoreTranscript: restoreTranscript)
             span?.end(metadata: metadata)
             return result
         } catch {
@@ -1155,6 +1160,7 @@ final class CodexCoreAppModel {
         from resume: CodexThreadResumeResult,
         using codex: Codex,
         trace: CodexPerformanceTrace? = nil,
+        restoreTranscript: Bool = true,
         shouldApply: () -> Bool = { true }
     ) async -> CodexThreadHistoryRestoreResult? {
         let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
@@ -1171,7 +1177,7 @@ final class CodexCoreAppModel {
                 span?.end(metadata: ["threadID": resume.thread.id, "outcome": "superseded"])
                 return nil
             }
-            let metadata = applyThreadHistoryRestore(result, trace: trace)
+            let metadata = applyThreadHistoryRestore(result, trace: trace, restoreTranscript: restoreTranscript)
             span?.end(metadata: metadata)
             return result
         } catch {
@@ -1196,11 +1202,16 @@ final class CodexCoreAppModel {
             return false
         }
         let cacheSpan = trace.begin("chatLoad.cache.restore", metadata: ["threadID": threadID])
-        clearThreadState()
+        let hasWarmTranscriptSession = runtimeSession.hasWarmTranscriptSession(threadID: threadID)
+        clearThreadState(preserveActiveTranscript: true)
         codex.store.hydrate(result.hydration)
         let thread = threadSession.activateCachedThread(id: threadID, using: codex)
         syncComposerThreadID()
-        let metadata = applyThreadHistoryRestore(result, trace: trace)
+        let metadata = applyThreadHistoryRestore(
+            result,
+            trace: trace,
+            restoreTranscript: !hasWarmTranscriptSession
+        )
         cacheSpan.end(metadata: metadata.merging(["threadID": thread.id, "outcome": "success"]) { _, new in new })
         sidebarNavigationSession.selectChat(thread.id, workspacePath: workspacePath)
         appendActivity(.notice, title: "Restored chat", detail: thread.id)
@@ -1260,11 +1271,12 @@ final class CodexCoreAppModel {
 
     private func applyThreadHistoryRestore(
         _ result: CodexThreadHistoryRestoreResult,
-        trace: CodexPerformanceTrace?
+        trace: CodexPerformanceTrace?,
+        restoreTranscript: Bool = true
     ) -> [String: String] {
         threadHistoryPaginationState = result.paginationState
         let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
-        let activity = runtimeSession.applyHistoryRestore(result)
+        let activity = runtimeSession.applyHistoryRestore(result, restoreTranscript: restoreTranscript)
         appendActivity(activity.kind, title: activity.title, detail: activity.detail)
         let metadata = historyMetadata(for: result).merging(["outcome": "success"]) { _, new in new }
         applySpan?.end(metadata: metadata)
@@ -1552,11 +1564,14 @@ final class CodexCoreAppModel {
         appendActivity(.notice, title: "Mentioned file", detail: result.path)
     }
 
-    private func clearThreadState(keepCurrentThread: Bool = false) {
+    private func clearThreadState(
+        keepCurrentThread: Bool = false,
+        preserveActiveTranscript: Bool = false
+    ) {
         if !keepCurrentThread {
             threadSession.reset()
         }
-        runtimeSession.resetThreadState()
+        runtimeSession.resetThreadState(deactivateTranscript: !preserveActiveTranscript)
         syncComposerThreadID()
         composerSession.clearThreadState()
         promptRuntime.reset()

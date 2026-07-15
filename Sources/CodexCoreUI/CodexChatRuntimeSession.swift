@@ -13,17 +13,22 @@ public final class CodexChatRuntimeSession {
     private var state: CodexChatRuntimeState
     private let streams: CodexChatStreamSession
     private var hostBindings: HostBindings?
-    private var transcriptReducerV2: CodexTranscriptReducerV2?
+    public let transcriptSessions: CodexThreadUISessionStore
+    public let threadStatusStore: CodexThreadStatusStore
     private var subagentStoreV2 = CodexSubagentStoreV2()
     private var discoveryCodex: Codex?
     private var requestedSubagentIDs: Set<String> = []
 
     public init(
         state: CodexChatRuntimeState = CodexChatRuntimeState(),
-        streams: CodexChatStreamSession = CodexChatStreamSession()
+        streams: CodexChatStreamSession = CodexChatStreamSession(),
+        transcriptSessions: CodexThreadUISessionStore = CodexThreadUISessionStore(),
+        threadStatusStore: CodexThreadStatusStore = CodexThreadStatusStore()
     ) {
         self.state = state
         self.streams = streams
+        self.transcriptSessions = transcriptSessions
+        self.threadStatusStore = threadStatusStore
     }
 
     public var integrationCatalogSession: CodexIntegrationCatalogSession {
@@ -34,7 +39,7 @@ public final class CodexChatRuntimeSession {
     public var lifecycleEvents: [CodexAgentLifecycleEvent] { state.lifecycleEvents }
     public var sideChat: CodexSideChatState? { state.sideChat }
     public var subagents: [CodexSubagentState] {
-        let nativeAgents = subagentStoreV2.agents.map { agent in
+        let nativeAgents = activeSubagentsV2.map { agent in
             CodexSubagentState(
                 id: agent.threadID,
                 name: agent.displayName,
@@ -58,8 +63,20 @@ public final class CodexChatRuntimeSession {
     public var activeGoalTurnID: String? { state.activeGoalTurnID }
     public var hasActiveGoal: Bool { state.hasActiveGoal }
     public var threadHistorySnapshot: CodexThreadHistorySnapshot { state.threadHistorySnapshot }
-    public var transcriptV2: CodexTranscriptV2 { transcriptReducerV2?.transcript ?? .init() }
+    public var transcriptV2: CodexTranscriptV2 { transcriptSessions.activeTruthTranscript }
+    public var presentedTranscriptV2: CodexTranscriptV2 {
+        transcriptSessions.activePresentation?.transcript ?? .init()
+    }
     public var subagentsV2: CodexSubagentStoreV2 { subagentStoreV2 }
+
+    public func selectThread(_ threadID: String?) {
+        transcriptSessions.activate(threadID: threadID)
+        threadStatusStore.select(threadID: threadID)
+    }
+
+    public func hasWarmTranscriptSession(threadID: String) -> Bool {
+        transcriptSessions.containsWarmSession(for: threadID)
+    }
 
     public func bindHost(
         currentThreadID: @escaping @MainActor () -> String?,
@@ -163,15 +180,15 @@ public final class CodexChatRuntimeSession {
         onActivity(state.beginTurnSubmission(submission))
         var optimisticThreadID: String?
         if let threadID = currentThreadID() {
-            prepareTranscriptReducerV2(for: threadID)
-            transcriptReducerV2?.submitLocalUserMessage(text: submission.prompt, clientID: submission.clientID)
+            selectThread(threadID)
+            transcriptSessions.submitLocalUserMessage(text: submission.prompt, clientID: submission.clientID, threadID: threadID)
             optimisticThreadID = threadID
         }
         do {
             let handle = try await start()
             if optimisticThreadID != handle.threadId {
-                prepareTranscriptReducerV2(for: handle.threadId)
-                transcriptReducerV2?.submitLocalUserMessage(text: submission.prompt, clientID: submission.clientID)
+                selectThread(handle.threadId)
+                transcriptSessions.submitLocalUserMessage(text: submission.prompt, clientID: submission.clientID, threadID: handle.threadId)
             }
             state.startMainTurn(handle)
             consumeMainTurn(
@@ -259,10 +276,15 @@ public final class CodexChatRuntimeSession {
         }
     }
 
-    public func applyHistoryRestore(_ result: CodexThreadHistoryRestoreResult) -> CodexActivity {
-        var reducer = CodexTranscriptReducerV2(threadID: result.hydration.parent.snapshot.id)
-        reducer.restoreHistory(items: result.transcriptItemsV2)
-        transcriptReducerV2 = reducer
+    public func applyHistoryRestore(
+        _ result: CodexThreadHistoryRestoreResult,
+        restoreTranscript: Bool = true
+    ) -> CodexActivity {
+        let threadID = result.hydration.parent.snapshot.id
+        selectThread(threadID)
+        if restoreTranscript {
+            transcriptSessions.restoreHistory(items: result.transcriptItemsV2, threadID: threadID)
+        }
         return state.applyHistoryRestore(result)
     }
 
@@ -274,12 +296,9 @@ public final class CodexChatRuntimeSession {
         state.resetGoal()
     }
 
-    public func resetThreadState() {
-        streams.cancelTurnStreams()
+    public func resetThreadState(deactivateTranscript: Bool = true) {
         state.resetThreadState()
-        transcriptReducerV2 = nil
-        subagentStoreV2 = CodexSubagentStoreV2()
-        requestedSubagentIDs = []
+        if deactivateTranscript { selectThread(nil) }
     }
 
     public func cancelGlobalNotifications() {
@@ -289,7 +308,8 @@ public final class CodexChatRuntimeSession {
     public func reset() {
         streams.reset()
         state.resetThreadState()
-        transcriptReducerV2 = nil
+        transcriptSessions.reset()
+        threadStatusStore.reset()
         subagentStoreV2 = CodexSubagentStoreV2()
         requestedSubagentIDs = []
     }
@@ -444,19 +464,28 @@ public final class CodexChatRuntimeSession {
         )
     }
 
-    private func prepareTranscriptReducerV2(for threadID: String) {
-        if transcriptReducerV2?.threadID != threadID {
-            transcriptReducerV2 = CodexTranscriptReducerV2(threadID: threadID)
-        }
-    }
-
-    private func applyToTranscriptV2(_ notification: CodexNotification, threadID: String?) {
-        guard let threadID else { return }
-        prepareTranscriptReducerV2(for: threadID)
+    private func applyToTranscriptV2(_ notification: CodexNotification, threadID fallbackThreadID: String?) {
         let params = CodexJSONValue.dictionary(notification.rawParams)
-        transcriptReducerV2?.apply(method: notification.method, params: params)
         let discoveries = subagentStoreV2.apply(method: notification.method, params: params)
         for discovery in discoveries { discoverSubagent(discovery) }
+        guard let threadID = CodexNotificationMetadata.threadID(from: notification) ?? fallbackThreadID else { return }
+        guard !subagentStoreV2.contains(threadID: threadID) else { return }
+        transcriptSessions.apply(method: notification.method, params: params, threadID: threadID)
+        threadStatusStore.apply(method: notification.method, threadID: threadID)
+    }
+
+    private var activeSubagentsV2: [CodexSubagentV2] {
+        guard let parentThreadID = transcriptSessions.activeThreadID else { return [] }
+        let allAgents = subagentStoreV2.agents
+        var includedParents: Set<String> = [parentThreadID]
+        var changed = true
+        while changed {
+            changed = false
+            for agent in allAgents where agent.parentThreadID.map(includedParents.contains) == true {
+                if includedParents.insert(agent.threadID).inserted { changed = true }
+            }
+        }
+        return allAgents.filter { includedParents.contains($0.threadID) }
     }
 
     private func discoverSubagent(_ discovery: CodexSubagentDiscoveryV2) {
