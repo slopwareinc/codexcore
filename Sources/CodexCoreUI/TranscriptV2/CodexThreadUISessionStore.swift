@@ -10,6 +10,7 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
     public var expandedWorkTurnIDs: Set<String>
     public var expandedRowIDs: Set<String>
     public var presentedAtByTurnID: [String: Date]
+    public var pendingApprovals: [CodexApprovalPrompt]
 
     public init(
         threadID: String,
@@ -18,7 +19,8 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         isPinnedToBottom: Bool = true,
         expandedWorkTurnIDs: Set<String> = [],
         expandedRowIDs: Set<String> = [],
-        presentedAtByTurnID: [String: Date] = [:]
+        presentedAtByTurnID: [String: Date] = [:],
+        pendingApprovals: [CodexApprovalPrompt] = []
     ) {
         self.threadID = threadID
         self.transcript = transcript
@@ -27,6 +29,7 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         self.expandedWorkTurnIDs = expandedWorkTurnIDs
         self.expandedRowIDs = expandedRowIDs
         self.presentedAtByTurnID = presentedAtByTurnID
+        self.pendingApprovals = pendingApprovals
     }
 }
 

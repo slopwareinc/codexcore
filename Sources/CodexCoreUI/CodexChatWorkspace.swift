@@ -102,6 +102,8 @@ public struct CodexChatWorkspaceView: View {
     private let onDisconnect: () -> Void
     private let onPromptSelected: ((String) -> Void)?
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
+    private let approvalPrompts: [CodexApprovalPrompt]
+    private let onResolveApproval: (String, Bool) -> Void
     @ObservedObject private var panel: CodexWorkspacePanelState
     private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
@@ -164,7 +166,9 @@ public struct CodexChatWorkspaceView: View {
         onToggleSidebar: @escaping () -> Void = {},
         onDisconnect: @escaping () -> Void,
         onPromptSelected: ((String) -> Void)? = nil,
-        onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil
+        onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
+        approvalPrompts: [CodexApprovalPrompt] = [],
+        onResolveApproval: @escaping (String, Bool) -> Void = { _, _ in }
     ) {
         self.transcriptV2 = transcriptV2
         self.transcriptSessionStore = transcriptSessionStore
@@ -221,6 +225,8 @@ public struct CodexChatWorkspaceView: View {
         self.onDisconnect = onDisconnect
         self.onPromptSelected = onPromptSelected
         self.onSlashCommandSelected = onSlashCommandSelected
+        self.approvalPrompts = approvalPrompts
+        self.onResolveApproval = onResolveApproval
     }
 
     public var body: some View {
@@ -309,7 +315,9 @@ public struct CodexChatWorkspaceView: View {
                 bottomContentInset: composerOverlayHeight + 20,
                 onOpenSubagent: openPanelTab,
                 onEditUserMessage: { draft = $0 },
-                onForkChat: chatActions.forkChat
+                onForkChat: chatActions.forkChat,
+                pendingApprovals: approvalPrompts,
+                onResolveApproval: onResolveApproval
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()

@@ -155,6 +155,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private let chipLabel = CodexShimmerTextField(frame: .zero)
     private let chipDurationLabel = NSTextField(labelWithString: "")
     private let chipDisclosureView = NSImageView()
+    private let approvalAllowButton = NSButton(title: "Allow", target: nil, action: nil)
+    private let approvalDenyButton = NSButton(title: "Deny", target: nil, action: nil)
     private let footerTimestampLabel = NSTextField(labelWithString: "")
     private let footerCopyItemButton = NSButton()
     private let footerCopyTurnButton = NSButton()
@@ -189,6 +191,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var chipLabelForTesting: String { chipLabel.stringValue }
     var chipIconDescriptionForTesting: String? { chipIconView.image?.accessibilityDescription }
     var chipIsActionableForTesting: Bool { !actionButton.isHidden && actionButton.isEnabled }
+    var approvalButtonsVisibleForTesting: Bool { !approvalAllowButton.isHidden && !approvalDenyButton.isHidden }
 
     func copyItemForTesting() { copyItem(copyButton) }
     func copyTurnForTesting() { copyTurn(footerCopyTurnButton) }
@@ -196,6 +199,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func editUserForTesting() { editUser() }
     func forkChatForTesting() { invokeForkChat() }
     func setHoveredForTesting(_ hovered: Bool) { setHovered(hovered) }
+    func allowApprovalForTesting() { allowApproval() }
+    func denyApprovalForTesting() { denyApproval() }
 
     override func loadView() {
         let hoverView = CodexTranscriptHoverView()
@@ -221,6 +226,18 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipBackground.addSubview(chipLabel)
         chipBackground.addSubview(chipDurationLabel)
         chipBackground.addSubview(chipDisclosureView)
+
+        approvalAllowButton.target = self
+        approvalAllowButton.action = #selector(allowApproval)
+        approvalAllowButton.bezelStyle = .rounded
+        approvalAllowButton.keyEquivalent = "\r"
+        approvalAllowButton.isHidden = true
+        view.addSubview(approvalAllowButton)
+        approvalDenyButton.target = self
+        approvalDenyButton.action = #selector(denyApproval)
+        approvalDenyButton.bezelStyle = .rounded
+        approvalDenyButton.isHidden = true
+        view.addSubview(approvalDenyButton)
 
         selectableTextView.delegate = self
         selectableTextView.onSelectionStateChange = { [weak self] (selecting: Bool) in
@@ -292,8 +309,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         codeHeaderView.isHidden = true
         chipBackground.isHidden = true
         chipLabel.stopShimmer()
+        approvalAllowButton.isHidden = true
+        approvalDenyButton.isHidden = true
         chipDurationLabel.stringValue = ""
         chipDisclosureView.image = nil
+        approvalAllowButton.isHidden = true
+        approvalDenyButton.isHidden = true
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
@@ -356,6 +377,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
         if let footer = item.footer {
             configureFooter(footer, item: item, theme: appKitTheme)
+        } else if let approval = item.approval {
+            configureApproval(approval, item: item, theme: appKitTheme)
         } else if let directive = item.directive {
             configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
         } else if let code = item.code {
@@ -478,6 +501,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
         if item.footer != nil {
             layoutFooter(in: contentFrame, trailing: item.isTrailingAligned)
+        } else if item.approval != nil {
+            layoutApproval(in: contentFrame)
         } else if let directive = item.directive {
             layoutDirective(directive, item: item, in: contentFrame)
         } else if item.code != nil {
@@ -570,6 +595,37 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         button.toolTip = toolTip
         button.setAccessibilityLabel(toolTip)
         view.addSubview(button)
+    }
+
+    private func configureApproval(
+        _ approval: CodexTranscriptApprovalRender,
+        item: CodexTranscriptRenderItem,
+        theme: CodexTranscriptAppKitTheme
+    ) {
+        chipBackground.isHidden = false
+        chipBackground.layer?.cornerRadius = theme.cardRadius
+        chipBackground.layer?.backgroundColor = theme.warning.withAlphaComponent(0.10).cgColor
+        chipBackground.layer?.borderColor = theme.warning.withAlphaComponent(0.35).cgColor
+        chipBackground.layer?.borderWidth = 1
+        chipIconView.image = NSImage(systemSymbolName: "hand.raised", accessibilityDescription: "Approval needed")
+        chipIconView.contentTintColor = theme.warning
+        chipLabel.stringValue = "Approval needed — \(approval.summary)"
+        chipLabel.font = theme.captionFont
+        chipLabel.textColor = theme.textPrimary
+        approvalAllowButton.isHidden = false
+        approvalDenyButton.isHidden = false
+        approvalAllowButton.font = theme.captionFont
+        approvalDenyButton.font = theme.captionFont
+        approvalAllowButton.setAccessibilityLabel("Allow \(approval.summary)")
+        approvalDenyButton.setAccessibilityLabel("Deny \(approval.summary)")
+    }
+
+    private func layoutApproval(in contentFrame: NSRect) {
+        chipBackground.frame = contentFrame
+        chipIconView.frame = NSRect(x: 10, y: contentFrame.height - 28, width: 16, height: 16)
+        chipLabel.frame = NSRect(x: 34, y: contentFrame.height - 31, width: max(80, contentFrame.width - 44), height: 22)
+        approvalDenyButton.frame = NSRect(x: contentFrame.maxX - 156, y: 8, width: 68, height: 26)
+        approvalAllowButton.frame = NSRect(x: contentFrame.maxX - 80, y: 8, width: 70, height: 26)
     }
 
     private func configureDirective(
@@ -858,6 +914,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     @objc private func invokePrimaryAction() {
         guard let action = item?.action else { return }
         performAction?(action)
+    }
+
+    @objc private func allowApproval() {
+        guard let requestID = item?.approval?.requestID else { return }
+        performAction?(.resolveApproval(requestID: requestID, approve: true))
+    }
+
+    @objc private func denyApproval() {
+        guard let requestID = item?.approval?.requestID else { return }
+        performAction?(.resolveApproval(requestID: requestID, approve: false))
     }
 
     @objc private func copyItem(_ sender: Any?) {

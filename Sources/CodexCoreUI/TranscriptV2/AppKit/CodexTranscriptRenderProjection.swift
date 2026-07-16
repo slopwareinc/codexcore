@@ -39,6 +39,12 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openSubagent(threadID: String)
     case openURL(String)
     case openFile(path: String, line: Int?)
+    case resolveApproval(requestID: String, approve: Bool)
+}
+
+struct CodexTranscriptApprovalRender: Sendable, Equatable {
+    var requestID: String
+    var summary: String
 }
 
 struct CodexTranscriptDirectiveRender: Sendable, Equatable {
@@ -116,6 +122,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
     var directive: CodexTranscriptDirectiveRender?
+    var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
     var copyText: String?
     var copyTurnText: String
@@ -173,6 +180,7 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
     var success: NSColor
     var danger: NSColor
     var running: NSColor
+    var warning: NSColor
     var accent: NSColor
     var codeKeyword: NSColor
     var codeString: NSColor
@@ -206,6 +214,7 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
         success = NSColor(theme.colors.success)
         danger = NSColor(theme.colors.danger)
         running = NSColor(theme.colors.running)
+        warning = NSColor(theme.colors.warning)
         accent = NSColor(theme.colors.accent)
         codeKeyword = NSColor(theme.colors.codeKeyword)
         codeString = NSColor(theme.colors.codeString)
@@ -223,7 +232,7 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
             String(describing: userBubble), String(describing: codeHeader),
             String(describing: codeKeyword), String(describing: codeString),
             String(describing: codeComment), String(describing: codeNumber),
-            String(describing: accent), String(describing: lineSpacing)
+            String(describing: accent), String(describing: warning), String(describing: lineSpacing)
         ].joined(separator: ":")
     }
 }
@@ -321,6 +330,7 @@ actor CodexTranscriptRenderProjector {
                     footer: draft.footer,
                     productTool: draft.productTool,
                     directive: draft.directive,
+                    approval: draft.approval,
                     action: draft.action,
                     copyText: draft.copyText,
                     copyTurnText: copyTurnText,
@@ -388,6 +398,21 @@ actor CodexTranscriptRenderProjector {
                     maxWidthKind: .card,
                     fixedHeight: 32
                 ))
+                if turn.id == presentation.transcript.turns.last?.id,
+                   case .working = turn.status {
+                    for prompt in presentation.pendingApprovals {
+                        let summary = (prompt.primaryValue ?? prompt.detail)
+                            .split(separator: "\n", maxSplits: 1).first.map(String.init) ?? prompt.title
+                        append(ItemDraft(
+                            id: "\(sectionID):approval:\(prompt.id)",
+                            fingerprint: "approval:\(prompt.id):\(summary)",
+                            approval: .init(requestID: prompt.id, summary: summary),
+                            accessibilityLabel: "Approval needed — \(summary)",
+                            maxWidthKind: .card,
+                            fixedHeight: 74
+                        ))
+                    }
+                }
             }
 
             if showsWork && workExpanded {
@@ -611,6 +636,7 @@ private extension CodexTranscriptRenderProjector {
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
         var directive: CodexTranscriptDirectiveRender?
+        var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
         var copyText: String?
         var accessibilityLabel: String
@@ -631,6 +657,7 @@ private extension CodexTranscriptRenderProjector {
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
             directive: CodexTranscriptDirectiveRender? = nil,
+            approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
             copyText: String? = nil,
             accessibilityLabel: String,
@@ -650,6 +677,7 @@ private extension CodexTranscriptRenderProjector {
             self.footer = footer
             self.productTool = productTool
             self.directive = directive
+            self.approval = approval
             self.action = action
             self.copyText = copyText
             self.accessibilityLabel = accessibilityLabel

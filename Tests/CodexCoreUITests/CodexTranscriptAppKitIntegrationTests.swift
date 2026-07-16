@@ -6,6 +6,41 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func pendingApprovalRendersInlineAndRoutesBothDecisions() async throws {
+        let prompt = CodexApprovalPrompt(
+            id: "approval-1", method: "item/commandExecution/requestApproval", kind: .command,
+            title: "Approve command?", detail: "Run tests", primaryValue: "swift test", threadId: "thread"
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(id: "turn", status: .working(since: 1))]),
+                pendingApprovals: [prompt]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+        let approval = try #require(snapshot.itemsByID.values.first { $0.approval != nil })
+        #expect(approval.approval?.summary == "swift test")
+        var actions: [CodexTranscriptRenderAction] = []
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: approval.measuredHeight)
+        cell.configure(
+            item: approval, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { actions.append($0) }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        #expect(cell.approvalButtonsVisibleForTesting)
+        cell.allowApprovalForTesting()
+        cell.denyApprovalForTesting()
+        #expect(actions == [
+            .resolveApproval(requestID: "approval-1", approve: true),
+            .resolveApproval(requestID: "approval-1", approve: false)
+        ])
+    }
+
     @Test func workChipUsesSemanticIconAndOnlyEnablesRealActions() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)

@@ -24,6 +24,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onOpenSubagent: (String) -> Void
     private let onEditUserMessage: (String) -> Void
     private let onForkChat: (() -> Void)?
+    private let pendingApprovals: [CodexApprovalPrompt]
+    private let onResolveApproval: (String, Bool) -> Void
     @State private var fallbackPresentedAt = Date()
 
     public init(
@@ -36,6 +38,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
+        pendingApprovals: [CodexApprovalPrompt] = [],
+        onResolveApproval: @escaping (String, Bool) -> Void = { _, _ in },
         @ViewBuilder emptyState: () -> EmptyState
     ) {
         self.transcript = transcript
@@ -46,6 +50,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
+        self.pendingApprovals = pendingApprovals
+        self.onResolveApproval = onResolveApproval
         self.emptyState = emptyState()
         self.bottomContentInset = max(0, bottomContentInset)
     }
@@ -68,7 +74,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                     productToolRenderer: productToolRenderer,
                     onOpenSubagent: onOpenSubagent,
                     onEditUserMessage: onEditUserMessage,
-                    onForkChat: onForkChat
+                    onForkChat: onForkChat,
+                    onResolveApproval: onResolveApproval
                 )
             }
         }
@@ -76,11 +83,15 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     }
 
     private var effectivePresentation: CodexThreadUIPresentation {
-        if let presentation = sessionStore?.activePresentation { return presentation }
+        if var presentation = sessionStore?.activePresentation {
+            presentation.pendingApprovals = pendingApprovals.filter { $0.threadId == nil || $0.threadId == presentation.threadID }
+            return presentation
+        }
         return CodexThreadUIPresentation(
             threadID: threadID,
             transcript: transcript,
-            presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) })
+            presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) }),
+            pendingApprovals: pendingApprovals
         )
     }
 }

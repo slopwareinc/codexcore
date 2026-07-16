@@ -26,6 +26,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onOpenSubagent: (String) -> Void
     var onEditUserMessage: (String) -> Void
     var onForkChat: (() -> Void)?
+    var onResolveApproval: (String, Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -48,7 +49,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             productToolRenderer: productToolRenderer,
             onOpenSubagent: onOpenSubagent,
             onEditUserMessage: onEditUserMessage,
-            onForkChat: onForkChat
+            onForkChat: onForkChat,
+            onResolveApproval: onResolveApproval
         )
     }
 
@@ -74,6 +76,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onOpenSubagent: (String) -> Void = { _ in }
         private var onEditUserMessage: (String) -> Void = { _ in }
         private var onForkChat: (() -> Void)?
+        private var onResolveApproval: (String, Bool) -> Void = { _, _ in }
         private var contentHorizontalOffset: CGFloat = 0
         private var projectionTask: Task<Void, Never>?
         private var scrollRestorationTask: Task<Void, Never>?
@@ -126,7 +129,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             productToolRenderer: CodexProductToolRendererV2?,
             onOpenSubagent: @escaping (String) -> Void,
             onEditUserMessage: @escaping (String) -> Void,
-            onForkChat: (() -> Void)?
+            onForkChat: (() -> Void)?,
+            onResolveApproval: @escaping (String, Bool) -> Void = { _, _ in }
         ) {
             guard let container else { return }
             let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme)
@@ -143,6 +147,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.onOpenSubagent = onOpenSubagent
             self.onEditUserMessage = onEditUserMessage
             self.onForkChat = onForkChat
+            self.onResolveApproval = onResolveApproval
             self.contentHorizontalOffset = contentHorizontalOffset
             container.bottomContentInset = max(0, bottomContentInset)
             container.layoutSubtreeIfNeeded()
@@ -406,6 +411,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             case .openFile(let path, _):
                 let resolved = (path as NSString).expandingTildeInPath
                 NSWorkspace.shared.selectFile(resolved, inFileViewerRootedAtPath: "")
+                return
+            case .resolveApproval(let requestID, let approve):
+                onResolveApproval(requestID, approve)
                 return
             }
             currentPresentation = presentation
