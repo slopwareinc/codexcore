@@ -27,6 +27,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let pendingApprovals: [CodexApprovalPrompt]
     private let onResolveApproval: (String, Bool) -> Void
     @State private var fallbackPresentedAt = Date()
+    @State private var projectionError: String?
+    @State private var projectionRetryRevision = 0
 
     public init(
         transcript: CodexTranscriptV2,
@@ -75,11 +77,30 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                     onOpenSubagent: onOpenSubagent,
                     onEditUserMessage: onEditUserMessage,
                     onForkChat: onForkChat,
-                    onResolveApproval: onResolveApproval
+                    onResolveApproval: onResolveApproval,
+                    retryRevision: projectionRetryRevision,
+                    onProjectionError: { projectionError = $0 }
                 )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) {
+            if let projectionError {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text(projectionError).lineLimit(2)
+                    Button("Retry") {
+                        self.projectionError = nil
+                        projectionRetryRevision &+= 1
+                    }
+                }
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .padding(.top, 12)
+            }
+        }
     }
 
     private var effectivePresentation: CodexThreadUIPresentation {
