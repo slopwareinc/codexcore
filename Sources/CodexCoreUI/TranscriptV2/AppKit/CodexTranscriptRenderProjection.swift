@@ -7,15 +7,15 @@ struct CodexTranscriptRenderItemID: Hashable, Sendable {
 
 struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let horizontalMargin: CGFloat = 24
+    static let flowLayoutHorizontalAllowance: CGFloat = 32
     static let turnGap: CGFloat = 16
     static let itemGap: CGFloat = 4
 
     var viewportWidth: CGFloat
 
-    // NSCollectionViewFlowLayout requires item width to be strictly less than its
-    // available width. A four-point allowance remains visually full-width and keeps
-    // the cell centered without undefined-layout warnings.
-    var cellWidth: CGFloat { max(1, viewportWidth - 4) }
+    // NSCollectionViewFlowLayout requires a bounded item width below the viewport.
+    // Cells retain the full viewport width separately for content centering.
+    var cellWidth: CGFloat { max(1, viewportWidth - Self.flowLayoutHorizontalAllowance) }
 
     func outerWidth(_ theme: CodexTranscriptAppKitTheme) -> CGFloat {
         max(280, min(viewportWidth - Self.horizontalMargin * 2, theme.transcriptOuterMaxWidth))
@@ -49,12 +49,18 @@ struct CodexTranscriptWorkHeaderRender: Sendable, Equatable {
 }
 
 struct CodexTranscriptWorkRowRender: Sendable, Equatable {
+    var kind: CodexWorkRowKind
     var label: String
     var status: CodexWorkItemStatusV2
     var durationMs: Int?
     var isExpanded: Bool
     var hasDetail: Bool
     var isSubagentLink: Bool
+    var isActionable: Bool
+}
+
+enum CodexWorkRowKind: Sendable, Equatable {
+    case command, fileChange, mcp, webSearch, agent, other
 }
 
 struct CodexTranscriptCodeRender: Sendable, Equatable {
@@ -102,6 +108,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var isTrailingAligned: Bool
     var maxContentWidth: CGFloat
     var intrinsicContentWidth: CGFloat?
+    var viewportWidth: CGFloat
     var measuredHeight: CGFloat
 }
 
@@ -305,6 +312,7 @@ actor CodexTranscriptRenderProjector {
                     isTrailingAligned: draft.isTrailingAligned,
                     maxContentWidth: maxWidth,
                     intrinsicContentWidth: draft.intrinsicContentWidth,
+                    viewportWidth: availableWidth,
                     measuredHeight: measuredHeight
                 )
                 sectionItems.append(id)
@@ -349,6 +357,7 @@ actor CodexTranscriptRenderProjector {
             }
 
             let showsWork = Self.shouldRenderWork(turn)
+            let tailMode = Self.isWorkTailMode(turn)
             let workExpanded = Self.workIsExpanded(turn, presentation: presentation)
             if showsWork {
                 let header = Self.workHeader(turn, expanded: workExpanded, presentedAt: presentedAt)
@@ -368,6 +377,7 @@ actor CodexTranscriptRenderProjector {
                     try Task.checkCancellation()
                     switch entry {
                     case .prose(let prose):
+                        if tailMode { continue }
                         let sourceID = "\(sectionID):commentary:\(prose.id)"
                         let blocks = projectBlocks(
                             prose.text,
@@ -397,27 +407,32 @@ actor CodexTranscriptRenderProjector {
                             }
                         }
                     case .workGroup(let group):
-                        let headerText = Self.preparePlain(group.header, font: theme.captionFont, color: theme.textSecondary, theme: theme)
+                        let rows = tailMode ? group.rows.filter(\.isInProgress) : group.rows
+                        if rows.isEmpty { continue }
+                        let groupHeader = tailMode ? CodexWorkGroupHeaderV2.synthesize(rows: rows) : group.header
+                        let headerText = Self.preparePlain(groupHeader, font: theme.captionFont, color: theme.textSecondary, theme: theme)
                         append(ItemDraft(
                             id: "\(sectionID):group:\(group.id):header",
-                            fingerprint: "group-header:\(group.header)",
+                            fingerprint: "group-header:\(groupHeader)",
                             textRole: .commentary,
                             preparedText: headerText,
-                            accessibilityLabel: group.header,
+                            accessibilityLabel: groupHeader,
                             maxWidthKind: .card,
                             fixedHeight: 28
                         ))
-                        for row in group.rows {
+                        for row in rows {
                             let rowID = row.id
                             let detail = Self.detail(for: row)
                             let subagentThreadID = Self.subagentThreadID(for: row)
                             let rowRender = CodexTranscriptWorkRowRender(
+                                kind: Self.kind(for: row),
                                 label: Self.label(for: row),
                                 status: Self.status(for: row),
                                 durationMs: Self.duration(for: row),
                                 isExpanded: presentation.expandedRowIDs.contains(rowID),
                                 hasDetail: detail != nil,
-                                isSubagentLink: subagentThreadID != nil
+                                isSubagentLink: subagentThreadID != nil,
+                                isActionable: subagentThreadID != nil || detail != nil
                             )
                             append(ItemDraft(
                                 id: "\(sectionID):row:\(rowID)",
@@ -446,6 +461,7 @@ actor CodexTranscriptRenderProjector {
                             }
                         }
                     case .productToolCall(let call):
+                        if tailMode, call.status != .inProgress { continue }
                         append(ItemDraft(
                             id: "\(sectionID):product:\(call.id)",
                             fingerprint: "product:\(String(describing: call))",
@@ -455,6 +471,7 @@ actor CodexTranscriptRenderProjector {
                             fixedHeight: 44
                         ))
                     case .notice(let notice):
+                        if tailMode { continue }
                         append(ItemDraft(
                             id: "\(sectionID):notice:\(notice.id)",
                             fingerprint: "notice:\(notice.message)",
@@ -1105,8 +1122,35 @@ private extension CodexTranscriptRenderProjector {
         switch turn.status {
         case .working:
             return turn.finalAnswer?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                || hasInProgressWork(turn)
         case .done, .failed:
             return !turn.narrative.isEmpty || turn.liveTail != nil
+        }
+    }
+
+    static func isWorkTailMode(_ turn: CodexTurnV2) -> Bool {
+        guard case .working = turn.status else { return false }
+        return turn.finalAnswer?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    static func hasInProgressWork(_ turn: CodexTurnV2) -> Bool {
+        turn.narrative.contains { entry in
+            switch entry {
+            case .workGroup(let group): group.rows.contains(where: \.isInProgress)
+            case .productToolCall(let call): call.status == .inProgress
+            default: false
+            }
+        }
+    }
+
+    static func kind(for row: CodexWorkRowV2) -> CodexWorkRowKind {
+        switch row {
+        case .command: .command
+        case .fileChange: .fileChange
+        case .mcpToolCall: .mcp
+        case .webSearch: .webSearch
+        case .collabAgent: .agent
+        case .other: .other
         }
     }
 

@@ -6,6 +6,46 @@ import Testing
 
 @MainActor
 struct CodexTranscriptRenderProjectionTests {
+    @Test func streamingAnswerKeepsOnlyLiveWorkChipVisible() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(
+                id: "work",
+                rows: [
+                    .command(.init(
+                        id: "done",
+                        command: "pwd",
+                        label: "Ran pwd",
+                        action: .run,
+                        status: .completed,
+                        exitCode: 0
+                    )),
+                    .command(.init(
+                        id: "live",
+                        command: "swift test",
+                        label: "Running tests",
+                        action: .run,
+                        status: .inProgress
+                    ))
+                ]
+            ))],
+            finalAnswer: .init(id: "answer", text: "Partial answer", isStreaming: true),
+            status: .working(since: 1)
+        )
+        let snapshot = try await projector.project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+        let rowIDs = snapshot.orderedItemIDs.filter { $0.rawValue.contains(":row:") }
+        #expect(rowIDs.count == 1)
+        #expect(rowIDs.first?.rawValue.hasSuffix(":row:live") == true)
+        #expect(snapshot.itemsByID[rowIDs[0]]?.workRow?.kind == .command)
+        #expect(snapshot.itemsByID[rowIDs[0]]?.workRow?.isActionable == false)
+        #expect(snapshot.itemsByID.values.contains { $0.textRole == .finalAnswer })
+    }
+
     @Test func markdownLinksNestedListsAndCompletedCodeCarryExplicitStyling() async throws {
         let projector = CodexTranscriptRenderProjector()
         let markdown = """

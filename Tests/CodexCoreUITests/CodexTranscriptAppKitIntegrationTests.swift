@@ -6,6 +6,52 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func workChipUsesSemanticIconAndOnlyEnablesRealActions() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                narrative: [.workGroup(.init(id: "group", rows: [
+                    .command(.init(
+                        id: "command",
+                        command: "swift test",
+                        label: "Running tests",
+                        action: .run,
+                        status: .inProgress
+                    ))
+                ]))],
+                status: .working(since: 1)
+            )])
+        )
+        let snapshot = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let row = try #require(snapshot.itemsByID.values.first { $0.workRow != nil })
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: row.measuredHeight)
+        cell.configure(
+            item: row,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+
+        #expect(cell.chipLabelForTesting.contains("Running swift test"))
+        #expect(cell.chipIconDescriptionForTesting == "In progress")
+        #expect(!cell.chipIsActionableForTesting)
+    }
+
     @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)

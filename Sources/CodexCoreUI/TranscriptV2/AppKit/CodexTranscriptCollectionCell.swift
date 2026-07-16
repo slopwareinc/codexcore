@@ -3,6 +3,7 @@ import SwiftUI
 
 private final class CodexTranscriptHoverView: NSView {
     var onHoverChange: ((Bool) -> Void)?
+    var usesPointingHand = false { didSet { window?.invalidateCursorRects(for: self) } }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -20,6 +21,57 @@ private final class CodexTranscriptHoverView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         onHoverChange?(false)
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: usesPointingHand ? .pointingHand : .arrow)
+    }
+}
+
+private final class CodexShimmerTextField: NSTextField {
+    private let shimmerLayer = CAGradientLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isEditable = false
+        isSelectable = false
+        isBordered = false
+        drawsBackground = false
+        lineBreakMode = .byTruncatingTail
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        shimmerLayer.frame = bounds
+    }
+
+    func startShimmer() {
+        wantsLayer = true
+        shimmerLayer.colors = [
+            NSColor.white.withAlphaComponent(0.45).cgColor,
+            NSColor.white.cgColor,
+            NSColor.white.withAlphaComponent(0.45).cgColor
+        ]
+        shimmerLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        shimmerLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        shimmerLayer.locations = [-0.5, 0, 0.5]
+        shimmerLayer.frame = bounds
+        layer?.mask = shimmerLayer
+        let animation = CABasicAnimation(keyPath: "locations")
+        animation.fromValue = [-0.5, 0, 0.5]
+        animation.toValue = [0.5, 1, 1.5]
+        animation.duration = 1.35
+        animation.repeatCount = .infinity
+        shimmerLayer.add(animation, forKey: "codex-shimmer")
+    }
+
+    func stopShimmer() {
+        shimmerLayer.removeAllAnimations()
+        layer?.mask = nil
     }
 }
 
@@ -98,6 +150,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private let copyButton = NSButton()
     private let codeHeaderView = NSView()
     private let codeLanguageLabel = NSTextField(labelWithString: "")
+    private let chipBackground = NSView()
+    private let chipIconView = NSImageView()
+    private let chipLabel = CodexShimmerTextField(frame: .zero)
+    private let chipDurationLabel = NSTextField(labelWithString: "")
+    private let chipDisclosureView = NSImageView()
     private let footerTimestampLabel = NSTextField(labelWithString: "")
     private let footerCopyItemButton = NSButton()
     private let footerCopyTurnButton = NSButton()
@@ -129,6 +186,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var footerCopyTurnAccessibilityDescriptionForTesting: String? {
         footerCopyTurnButton.image?.accessibilityDescription
     }
+    var chipLabelForTesting: String { chipLabel.stringValue }
+    var chipIconDescriptionForTesting: String? { chipIconView.image?.accessibilityDescription }
+    var chipIsActionableForTesting: Bool { !actionButton.isHidden && actionButton.isEnabled }
 
     func copyItemForTesting() { copyItem(copyButton) }
     func copyTurnForTesting() { copyTurn(footerCopyTurnButton) }
@@ -153,6 +213,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         codeLanguageLabel.drawsBackground = false
         codeLanguageLabel.isBordered = false
         codeHeaderView.addSubview(codeLanguageLabel)
+
+        chipBackground.wantsLayer = true
+        chipBackground.isHidden = true
+        view.addSubview(chipBackground)
+        chipBackground.addSubview(chipIconView)
+        chipBackground.addSubview(chipLabel)
+        chipBackground.addSubview(chipDurationLabel)
+        chipBackground.addSubview(chipDisclosureView)
 
         selectableTextView.delegate = self
         selectableTextView.onSelectionStateChange = { [weak self] (selecting: Bool) in
@@ -222,6 +290,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         actionButton.isHidden = true
         copyButton.isHidden = true
         codeHeaderView.isHidden = true
+        chipBackground.isHidden = true
+        chipLabel.stopShimmer()
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
@@ -231,6 +301,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         resetCopyConfirmation(footerCopyItemButton, imageName: "doc.on.doc", accessibilityDescription: "Copy answer")
         resetCopyConfirmation(footerCopyTurnButton, imageName: "doc.on.doc.fill", accessibilityDescription: "Copy turn")
         isHovered = false
+        (view as? CodexTranscriptHoverView)?.usesPointingHand = false
         view.menu = nil
         selectableTextView.menu = nil
     }
@@ -269,6 +340,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         actionButton.isHidden = true
         copyButton.isHidden = true
         codeHeaderView.isHidden = true
+        chipBackground.isHidden = true
+        chipLabel.stopShimmer()
+        (view as? CodexTranscriptHoverView)?.usesPointingHand = false
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
@@ -331,11 +405,28 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             actionButton.isEnabled = item.action != nil
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
         } else if let row = item.workRow {
-            actionButton.isHidden = false
-            actionButton.font = appKitTheme.captionFont
-            actionButton.attributedTitle = Self.workRowTitle(row, theme: appKitTheme)
-            actionButton.isEnabled = true
+            chipBackground.isHidden = false
+            chipBackground.layer?.cornerRadius = appKitTheme.cardRadius
+            chipIconView.image = NSImage(
+                systemSymbolName: Self.chipIconName(row),
+                accessibilityDescription: Self.chipIconAccessibilityDescription(row)
+            )
+            chipIconView.contentTintColor = Self.statusColor(row.status, theme: appKitTheme)
+            chipLabel.stringValue = row.label
+            chipLabel.font = appKitTheme.captionFont
+            chipLabel.textColor = appKitTheme.textTertiary
+            if row.status == .inProgress { chipLabel.startShimmer() }
+            chipDurationLabel.stringValue = row.durationMs.map(CodexWorkBlockViewV2.duration) ?? ""
+            chipDurationLabel.font = appKitTheme.microFont
+            chipDurationLabel.textColor = appKitTheme.textTertiary
+            chipDisclosureView.image = Self.chipDisclosureImage(row)
+            chipDisclosureView.contentTintColor = appKitTheme.textTertiary
+            actionButton.isHidden = !row.isActionable
+            actionButton.isEnabled = row.isActionable
+            actionButton.title = ""
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
+            (view as? CodexTranscriptHoverView)?.usesPointingHand = row.isActionable
+            updateChipAppearance()
         } else if let productTool = item.productTool {
             if let rendered = productToolRenderer?.render(productTool) {
                 let hosting = NSHostingView(rootView: AnyView(rendered.codexAgentTheme(swiftUITheme)))
@@ -362,9 +453,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     override func viewDidLayout() {
         super.viewDidLayout()
         guard let item, let theme = appKitTheme else { return }
-        let metrics = CodexTranscriptColumnMetrics(viewportWidth: view.bounds.width)
+        let metrics = CodexTranscriptColumnMetrics(viewportWidth: item.viewportWidth)
         let outerWidth = metrics.outerWidth(theme)
-        let centerX = view.bounds.midX + contentHorizontalOffset
+        let centerX = item.viewportWidth / 2 + contentHorizontalOffset
         let outerMinX = centerX - outerWidth / 2
         let contentWidth = min(
             item.intrinsicContentWidth ?? item.maxContentWidth,
@@ -410,6 +501,33 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 allowsHorizontalScrolling: false
             )
             copyButton.frame = NSRect(x: contentFrame.maxX - 30, y: contentFrame.maxY - 28, width: 26, height: 24)
+        } else if let row = item.workRow {
+            chipBackground.frame = contentFrame
+            let iconSize: CGFloat = 16
+            chipIconView.frame = NSRect(x: 8, y: contentFrame.midY - iconSize / 2, width: iconSize, height: iconSize)
+            chipDurationLabel.sizeToFit()
+            let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
+            let disclosureWidth: CGFloat = row.isActionable ? 16 : 0
+            chipDisclosureView.frame = NSRect(
+                x: contentFrame.width - 8 - disclosureWidth,
+                y: contentFrame.midY - 8,
+                width: disclosureWidth,
+                height: 16
+            )
+            chipDurationLabel.frame = NSRect(
+                x: chipDisclosureView.frame.minX - (durationWidth > 0 ? durationWidth + 8 : 0),
+                y: contentFrame.midY - 9,
+                width: durationWidth,
+                height: 18
+            )
+            let labelX: CGFloat = 32
+            chipLabel.frame = NSRect(
+                x: labelX,
+                y: contentFrame.midY - 10,
+                width: max(20, chipDurationLabel.frame.minX - labelX - 8),
+                height: 20
+            )
+            actionButton.frame = contentFrame
         } else {
             actionButton.frame = contentFrame
         }
@@ -489,7 +607,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         guard isHovered != hovered else { return }
         isHovered = hovered
         updateFooterChromeVisibility()
+        updateChipAppearance()
         view.needsLayout = true
+    }
+
+    private func updateChipAppearance() {
+        guard let theme = appKitTheme, let row = item?.workRow else { return }
+        let alpha: CGFloat = row.isActionable && isHovered ? 0.9 : 0.45
+        chipBackground.layer?.backgroundColor = theme.surfaceSunken.withAlphaComponent(alpha).cgColor
     }
 
     private func updateFooterChromeVisibility() {
@@ -703,6 +828,32 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             attributes: [.font: theme.captionFont, .foregroundColor: theme.textTertiary]
         ))
         return result
+    }
+
+    private static func chipIconName(_ row: CodexTranscriptWorkRowRender) -> String {
+        if row.status == .failed { return "exclamationmark.triangle" }
+        return switch row.kind {
+        case .command: "terminal"
+        case .fileChange: "doc.text"
+        case .mcp: "app.connected.to.app.below.fill"
+        case .webSearch: "magnifyingglass"
+        case .agent: "person.2"
+        case .other: row.status == .inProgress ? "arrow.triangle.2.circlepath" : "checkmark.circle"
+        }
+    }
+
+    private static func chipIconAccessibilityDescription(_ row: CodexTranscriptWorkRowRender) -> String {
+        switch row.status {
+        case .inProgress: "In progress"
+        case .completed: "Completed"
+        case .failed: "Failed"
+        }
+    }
+
+    private static func chipDisclosureImage(_ row: CodexTranscriptWorkRowRender) -> NSImage? {
+        guard row.isActionable else { return nil }
+        let name = row.isSubagentLink ? "arrow.up.right" : (row.isExpanded ? "chevron.down" : "chevron.right")
+        return NSImage(systemSymbolName: name, accessibilityDescription: row.isSubagentLink ? "Open agent" : "Show details")
     }
 
     private static func statusColor(
