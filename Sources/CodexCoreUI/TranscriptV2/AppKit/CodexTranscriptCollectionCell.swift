@@ -87,6 +87,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private let textScrollView = NSScrollView()
     private let actionButton = NSButton()
     private let copyButton = NSButton()
+    private let codeHeaderView = NSView()
+    private let codeLanguageLabel = NSTextField(labelWithString: "")
     private let footerTimestampLabel = NSTextField(labelWithString: "")
     private let footerCopyItemButton = NSButton()
     private let footerCopyTurnButton = NSButton()
@@ -104,6 +106,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var preferredHeightChanged: ((CodexTranscriptRenderItemID, Int, CGFloat) -> Void)?
     private var lastReportedPreferredHeight: CGFloat?
     private var isHovered = false
+    private var copyConfirmationTokens: [ObjectIdentifier: UUID] = [:]
 
     var selectableTextViewForTesting: NSTextView { selectableTextView }
     var hasHostedViewForTesting: Bool { hostedView != nil }
@@ -111,9 +114,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var footerCopyItemTitleForTesting: String { footerCopyItemButton.title }
     var footerCopyItemToolTipForTesting: String? { footerCopyItemButton.toolTip }
     var contentFrameForTesting: NSRect { backgroundView.frame }
+    var codeHeaderIsVisibleForTesting: Bool { !codeHeaderView.isHidden }
+    var codeLanguageForTesting: String { codeLanguageLabel.stringValue }
+    var copyButtonAccessibilityDescriptionForTesting: String? { copyButton.image?.accessibilityDescription }
+    var footerCopyTurnAccessibilityDescriptionForTesting: String? {
+        footerCopyTurnButton.image?.accessibilityDescription
+    }
 
-    func copyItemForTesting() { copyItem() }
-    func copyTurnForTesting() { copyTurn() }
+    func copyItemForTesting() { copyItem(copyButton) }
+    func copyTurnForTesting() { copyTurn(footerCopyTurnButton) }
     func invokePrimaryActionForTesting() { invokePrimaryAction() }
     func editUserForTesting() { editUser() }
     func forkChatForTesting() { invokeForkChat() }
@@ -126,6 +135,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         view.wantsLayer = true
         backgroundView.wantsLayer = true
         view.addSubview(backgroundView)
+
+        codeHeaderView.wantsLayer = true
+        codeHeaderView.isHidden = true
+        view.addSubview(codeHeaderView)
+
+        codeLanguageLabel.isSelectable = false
+        codeLanguageLabel.drawsBackground = false
+        codeLanguageLabel.isBordered = false
+        codeHeaderView.addSubview(codeLanguageLabel)
 
         selectableTextView.delegate = self
         selectableTextView.onSelectionStateChange = { [weak self] (selecting: Bool) in
@@ -152,7 +170,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
         copyButton.imagePosition = .imageOnly
         copyButton.target = self
-        copyButton.action = #selector(copyItem)
+        copyButton.action = #selector(copyItem(_:))
         copyButton.toolTip = "Copy"
         copyButton.setAccessibilityLabel("Copy")
         view.addSubview(copyButton)
@@ -166,13 +184,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             footerCopyItemButton,
             systemImage: "doc.on.doc",
             toolTip: "Copy answer",
-            action: #selector(copyItem)
+            action: #selector(copyItem(_:))
         )
         configureFooterButton(
             footerCopyTurnButton,
             systemImage: "doc.on.doc.fill",
             toolTip: "Copy turn",
-            action: #selector(copyTurn)
+            action: #selector(copyTurn(_:))
         )
         configureFooterButton(
             footerContextButton,
@@ -194,11 +212,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         textScrollView.isHidden = true
         actionButton.isHidden = true
         copyButton.isHidden = true
+        codeHeaderView.isHidden = true
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
         footerContextButton.isHidden = true
         backgroundView.isHidden = true
+        resetCopyConfirmation(copyButton, imageName: "doc.on.doc", accessibilityDescription: "Copy")
+        resetCopyConfirmation(footerCopyItemButton, imageName: "doc.on.doc", accessibilityDescription: "Copy answer")
+        resetCopyConfirmation(footerCopyTurnButton, imageName: "doc.on.doc.fill", accessibilityDescription: "Copy turn")
         isHovered = false
         view.menu = nil
         selectableTextView.menu = nil
@@ -237,6 +259,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         textScrollView.isHidden = true
         actionButton.isHidden = true
         copyButton.isHidden = true
+        codeHeaderView.isHidden = true
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
@@ -277,11 +300,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 preserving: selectionToRestore
             )
             backgroundView.isHidden = false
-            actionButton.isHidden = false
-            actionButton.title = code.language?.isEmpty == false ? code.language! : "code"
-            actionButton.font = appKitTheme.captionFont
-            actionButton.contentTintColor = appKitTheme.codeFaint
-            actionButton.isEnabled = false
+            codeHeaderView.isHidden = false
+            codeLanguageLabel.stringValue = code.language?.isEmpty == false ? code.language! : "code"
+            codeLanguageLabel.font = appKitTheme.captionFont
+            codeLanguageLabel.textColor = appKitTheme.codeFaint
             copyButton.isHidden = false
         } else if let header = item.workHeader {
             actionButton.isHidden = false
@@ -344,10 +366,20 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if item.footer != nil {
             layoutFooter(in: contentFrame, trailing: item.isTrailingAligned)
         } else if item.code != nil {
-            actionButton.frame = NSRect(x: contentX + 12, y: view.bounds.height - 35, width: contentWidth - 58, height: 28)
-            copyButton.frame = NSRect(x: contentFrame.maxX - 36, y: view.bounds.height - 34, width: 28, height: 26)
+            let headerHeight: CGFloat = 32
+            codeHeaderView.frame = NSRect(
+                x: contentX,
+                y: contentFrame.maxY - headerHeight,
+                width: contentWidth,
+                height: headerHeight
+            )
+            codeHeaderView.layer?.backgroundColor = theme.codeHeader.cgColor
+            codeHeaderView.layer?.cornerRadius = theme.cardRadius
+            codeHeaderView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            codeLanguageLabel.frame = NSRect(x: 12, y: 5, width: max(40, contentWidth - 58), height: 22)
+            copyButton.frame = NSRect(x: contentFrame.maxX - 36, y: contentFrame.maxY - 29, width: 28, height: 26)
             layoutSelectableText(
-                in: NSRect(x: contentX + 12, y: 10, width: contentWidth - 24, height: max(20, view.bounds.height - 50)),
+                in: NSRect(x: contentX + 12, y: 10, width: contentWidth - 24, height: max(20, view.bounds.height - 52)),
                 allowsHorizontalScrolling: true
             )
         } else if item.preparedText != nil {
@@ -539,22 +571,24 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         performAction?(action)
     }
 
-    @objc private func copyItem() {
+    @objc private func copyItem(_ sender: Any?) {
         guard let text = item?.copyText else { return }
         copy?(text)
+        if let button = sender as? NSButton { flashCopyConfirmation(button) }
     }
 
     @objc private func copySelectionOrItem() {
         if selectableTextView.selectedRange().length > 0 {
             selectableTextView.copy(nil)
         } else {
-            copyItem()
+            copyItem(nil)
         }
     }
 
-    @objc private func copyTurn() {
+    @objc private func copyTurn(_ sender: Any?) {
         guard let text = item?.copyTurnText else { return }
         copy?(text)
+        if let button = sender as? NSButton { flashCopyConfirmation(button) }
     }
 
     @objc private func editUser() {
@@ -577,11 +611,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 else if item.textRole == .finalAnswer || item.footer?.kind == .finalAnswer { "Copy final answer" }
                 else { "Copy" }
             let action = item.code != nil || item.textRole == .expandedOutput || item.footer != nil
-                ? #selector(copyItem)
+                ? #selector(copyItem(_:))
                 : #selector(copySelectionOrItem)
             menu.addItem(withTitle: title, action: action, keyEquivalent: "")
         }
-        menu.addItem(withTitle: "Copy turn", action: #selector(copyTurn), keyEquivalent: "")
+        menu.addItem(withTitle: "Copy turn", action: #selector(copyTurn(_:)), keyEquivalent: "")
         if item.textRole == .user || item.footer?.kind == .user {
             menu.addItem(NSMenuItem.separator())
             menu.addItem(withTitle: "Edit message", action: #selector(editUser), keyEquivalent: "")
@@ -593,6 +627,35 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         for menuItem in menu.items { menuItem.target = self }
         view.menu = menu
         selectableTextView.menu = menu
+    }
+
+    private func flashCopyConfirmation(_ button: NSButton) {
+        let key = ObjectIdentifier(button)
+        let token = UUID()
+        let originalImage = button.image
+        let originalTint = button.contentTintColor
+        copyConfirmationTokens[key] = token
+        button.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
+        button.contentTintColor = appKitTheme?.success
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self, weak button] in
+            guard let self, let button, self.copyConfirmationTokens[key] == token else { return }
+            self.copyConfirmationTokens.removeValue(forKey: key)
+            button.image = originalImage
+            button.contentTintColor = originalTint ?? self.appKitTheme?.textTertiary
+        }
+    }
+
+    private func resetCopyConfirmation(
+        _ button: NSButton,
+        imageName: String,
+        accessibilityDescription: String
+    ) {
+        copyConfirmationTokens.removeValue(forKey: ObjectIdentifier(button))
+        button.image = NSImage(
+            systemSymbolName: imageName,
+            accessibilityDescription: accessibilityDescription
+        )
+        button.contentTintColor = appKitTheme?.textTertiary
     }
 
     private static func workHeaderTitle(_ header: CodexTranscriptWorkHeaderRender, at date: Date) -> String {

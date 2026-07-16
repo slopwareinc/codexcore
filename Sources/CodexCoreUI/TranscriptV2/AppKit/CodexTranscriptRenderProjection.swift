@@ -861,7 +861,7 @@ private extension CodexTranscriptRenderProjector {
                 with: NSSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
-            return max(82, ceil(bounds.height) + 58)
+            return max(76, ceil(bounds.height) + 52)
         }
         return 36
     }

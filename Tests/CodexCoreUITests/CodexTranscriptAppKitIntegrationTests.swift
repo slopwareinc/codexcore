@@ -6,6 +6,48 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "final", text: "```swift\nlet value = 1\n```", isStreaming: false),
+                status: .done(durationMs: 1)
+            )])
+        )
+        let snapshot = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let code = try #require(snapshot.itemsByID.values.first { $0.code != nil })
+        let clipboard = RecordingClipboard()
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: code.measuredHeight)
+        cell.configure(
+            item: code,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: clipboard.copy,
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+
+        #expect(cell.codeHeaderIsVisibleForTesting)
+        #expect(cell.codeLanguageForTesting == "swift")
+        cell.copyItemForTesting()
+        #expect(clipboard.lastValue == "let value = 1")
+        #expect(cell.copyButtonAccessibilityDescriptionForTesting == "Copied")
+    }
+
     @Test func userBubbleIsRightAlignedWithinCenteredTranscriptColumn() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)
@@ -283,6 +325,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.footerCopyItemToolTipForTesting == "Copy answer")
         cell.copyTurnForTesting()
         #expect(clipboard.lastValue == footer.copyTurnText)
+        #expect(cell.footerCopyTurnAccessibilityDescriptionForTesting == "Copied")
     }
 
     @Test func completedFinalAnswerUsesOneNativeSurfaceForContiguousSelection() async throws {
