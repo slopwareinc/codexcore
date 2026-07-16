@@ -194,7 +194,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             let viewportWidth = collectionView.enclosingScrollView?.contentSize.width
                 ?? collectionView.bounds.width
             let availableWidth = min(collectionView.bounds.width, viewportWidth)
-            return NSSize(width: max(1, availableWidth - 32), height: item.measuredHeight)
+            let metrics = CodexTranscriptColumnMetrics(viewportWidth: availableWidth)
+            return NSSize(width: metrics.cellWidth, height: item.measuredHeight)
         }
 
         func collectionView(
@@ -202,7 +203,12 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             layout collectionViewLayout: NSCollectionViewLayout,
             insetForSectionAt section: Int
         ) -> NSEdgeInsets {
-            NSEdgeInsets(top: section == 0 ? 0 : 14, left: 0, bottom: 14, right: 0)
+            NSEdgeInsets(
+                top: section == 0 ? 0 : CodexTranscriptColumnMetrics.turnGap,
+                left: 0,
+                bottom: 0,
+                right: 0
+            )
         }
 
         private func requestProjection(width: CGFloat) {
@@ -405,6 +411,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         private func widthDidChange(_ width: CGFloat) {
             guard abs(width - lastProjectedWidth) > 1 else { return }
+            forceReconfigureAll = true
             container?.collectionView.collectionViewLayout?.invalidateLayout()
             requestProjection(width: max(width, 320))
         }

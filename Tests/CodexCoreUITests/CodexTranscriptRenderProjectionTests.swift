@@ -6,6 +6,29 @@ import Testing
 
 @MainActor
 struct CodexTranscriptRenderProjectionTests {
+    @Test func shortUserMessageIsPlainTextAndUsesIntrinsicBubbleWidth() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: .init(id: "user", text: "*stars* # heading `ticks`"),
+                status: .done(durationMs: 1)
+            )])
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
+
+        #expect(user.preparedText?.attributedString.string == "*stars* # heading `ticks`")
+        #expect(try #require(user.intrinsicContentWidth) < user.maxContentWidth)
+        #expect(user.maxContentWidth <= theme.transcriptOuterMaxWidth * 0.77)
+    }
+
     @Test func allV2KindsProjectToFineGrainedStableItems() async throws {
         let projector = CodexTranscriptRenderProjector()
         let turn = allKindsTurn()

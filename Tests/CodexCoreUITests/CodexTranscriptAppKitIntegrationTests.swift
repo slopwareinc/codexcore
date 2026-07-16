@@ -6,6 +6,46 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func userBubbleIsRightAlignedWithinCenteredTranscriptColumn() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: .init(id: "user", text: "Hi"),
+                status: .done(durationMs: 1)
+            )])
+        )
+        let snapshot = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: user.measuredHeight)
+        cell.configure(
+            item: user,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+
+        let metrics = CodexTranscriptColumnMetrics(viewportWidth: cell.view.bounds.width)
+        let expectedTrailingEdge = cell.view.bounds.midX + metrics.outerWidth(theme) / 2
+        #expect(abs(cell.contentFrameForTesting.maxX - expectedTrailingEdge) < 0.5)
+        #expect(cell.contentFrameForTesting.width < user.maxContentWidth)
+    }
+
     @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async throws {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))

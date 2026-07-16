@@ -110,6 +110,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var footerCopyTurnIsVisibleForTesting: Bool { !footerCopyTurnButton.isHidden }
     var footerCopyItemTitleForTesting: String { footerCopyItemButton.title }
     var footerCopyItemToolTipForTesting: String? { footerCopyItemButton.toolTip }
+    var contentFrameForTesting: NSRect { backgroundView.frame }
 
     func copyItemForTesting() { copyItem() }
     func copyTurnForTesting() { copyTurn() }
@@ -321,10 +322,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     override func viewDidLayout() {
         super.viewDidLayout()
         guard let item, let theme = appKitTheme else { return }
-        let outerWidth = max(200, min(view.bounds.width - 48, theme.transcriptOuterMaxWidth))
+        let metrics = CodexTranscriptColumnMetrics(viewportWidth: view.bounds.width)
+        let outerWidth = metrics.outerWidth(theme)
         let centerX = view.bounds.midX + contentHorizontalOffset
         let outerMinX = centerX - outerWidth / 2
-        let contentWidth = min(item.maxContentWidth, outerWidth - item.indentation)
+        let contentWidth = min(
+            item.intrinsicContentWidth ?? item.maxContentWidth,
+            outerWidth - item.indentation
+        )
         let contentX = item.isTrailingAligned
             ? outerMinX + outerWidth - contentWidth
             : outerMinX + item.indentation

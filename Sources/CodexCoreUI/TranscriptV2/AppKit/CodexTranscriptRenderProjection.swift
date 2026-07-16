@@ -5,6 +5,23 @@ struct CodexTranscriptRenderItemID: Hashable, Sendable {
     var rawValue: String
 }
 
+struct CodexTranscriptColumnMetrics: Sendable, Equatable {
+    static let horizontalMargin: CGFloat = 24
+    static let turnGap: CGFloat = 16
+    static let itemGap: CGFloat = 4
+
+    var viewportWidth: CGFloat
+
+    // NSCollectionViewFlowLayout requires item width to be strictly less than its
+    // available width. A four-point allowance remains visually full-width and keeps
+    // the cell centered without undefined-layout warnings.
+    var cellWidth: CGFloat { max(1, viewportWidth - 4) }
+
+    func outerWidth(_ theme: CodexTranscriptAppKitTheme) -> CGFloat {
+        max(280, min(viewportWidth - Self.horizontalMargin * 2, theme.transcriptOuterMaxWidth))
+    }
+}
+
 enum CodexTranscriptTextRole: Sendable, Equatable {
     case user
     case commentary
@@ -84,6 +101,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var indentation: CGFloat
     var isTrailingAligned: Bool
     var maxContentWidth: CGFloat
+    var intrinsicContentWidth: CGFloat?
     var measuredHeight: CGFloat
 }
 
@@ -203,7 +221,7 @@ actor CodexTranscriptRenderProjector {
     ) throws -> CodexTranscriptRenderSnapshot {
         try Task.checkCancellation()
         let startedAt = ContinuousClock.now
-        let contentWidth = max(280, min(availableWidth - 48, theme.transcriptOuterMaxWidth))
+        let contentWidth = CodexTranscriptColumnMetrics(viewportWidth: availableWidth).outerWidth(theme)
         var sections: [String] = []
         var itemIDsBySection: [String: [CodexTranscriptRenderItemID]] = [:]
         var itemsByID: [CodexTranscriptRenderItemID: CodexTranscriptRenderItem] = [:]
@@ -277,6 +295,7 @@ actor CodexTranscriptRenderProjector {
                     indentation: draft.indentation,
                     isTrailingAligned: draft.isTrailingAligned,
                     maxContentWidth: maxWidth,
+                    intrinsicContentWidth: draft.intrinsicContentWidth,
                     measuredHeight: measuredHeight
                 )
                 sectionItems.append(id)
@@ -287,13 +306,18 @@ actor CodexTranscriptRenderProjector {
             if let user = turn.userMessage {
                 let prepared = cachedPreparedText(
                     content: user.text,
-                    style: "user-markdown",
+                    style: "user-plain",
                     theme: theme,
                     cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses
                 ) {
-                    Self.prepareMarkdown(user.text, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
+                    Self.preparePlain(user.text, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
                 }
+                let userMaxWidth = min(contentWidth * 0.77, theme.userBubbleMaxWidth)
+                let textBounds = prepared.attributedString.boundingRect(
+                    with: NSSize(width: max(1, userMaxWidth - 28), height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading]
+                )
                 append(ItemDraft(
                     id: "\(sectionID):user:\(user.id)",
                     fingerprint: "user:\(user.text):\(user.isOptimistic)",
@@ -302,7 +326,8 @@ actor CodexTranscriptRenderProjector {
                     copyText: user.text,
                     accessibilityLabel: "You: \(user.text)",
                     isTrailingAligned: true,
-                    maxWidthKind: .user
+                    maxWidthKind: .user,
+                    intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + 28)
                 ))
                 append(timestampDraft(
                     id: "\(sectionID):user-timestamp",
@@ -325,7 +350,7 @@ actor CodexTranscriptRenderProjector {
                     action: Self.workHeaderIsActionable(header) ? .toggleWork(turnID: turn.id) : nil,
                     accessibilityLabel: Self.workHeaderAccessibilityLabel(header),
                     maxWidthKind: .card,
-                    fixedHeight: 28
+                    fixedHeight: 32
                 ))
             }
 
@@ -371,7 +396,7 @@ actor CodexTranscriptRenderProjector {
                             preparedText: headerText,
                             accessibilityLabel: group.header,
                             maxWidthKind: .card,
-                            fixedHeight: 24
+                            fixedHeight: 28
                         ))
                         for row in group.rows {
                             let rowID = row.id
@@ -443,7 +468,7 @@ actor CodexTranscriptRenderProjector {
                         preparedText: Self.preparePlain(tail, font: theme.captionFont, color: theme.textTertiary, theme: theme),
                         accessibilityLabel: tail,
                         maxWidthKind: .card,
-                        fixedHeight: 24
+                        fixedHeight: 28
                     ))
                 }
             }
@@ -568,6 +593,7 @@ private extension CodexTranscriptRenderProjector {
         var isTrailingAligned: Bool
         var maxWidthKind: MaxWidthKind
         var fixedHeight: CGFloat?
+        var intrinsicContentWidth: CGFloat?
 
         init(
             id: String,
@@ -585,7 +611,8 @@ private extension CodexTranscriptRenderProjector {
             indentation: CGFloat = 0,
             isTrailingAligned: Bool = false,
             maxWidthKind: MaxWidthKind = .full,
-            fixedHeight: CGFloat? = nil
+            fixedHeight: CGFloat? = nil,
+            intrinsicContentWidth: CGFloat? = nil
         ) {
             self.id = id
             self.fingerprint = fingerprint
@@ -603,13 +630,14 @@ private extension CodexTranscriptRenderProjector {
             self.isTrailingAligned = isTrailingAligned
             self.maxWidthKind = maxWidthKind
             self.fixedHeight = fixedHeight
+            self.intrinsicContentWidth = intrinsicContentWidth
         }
 
         func maxWidth(_ contentWidth: CGFloat, _ theme: CodexTranscriptAppKitTheme) -> CGFloat {
             switch maxWidthKind {
             case .full: contentWidth
             case .card: min(contentWidth, theme.cardMaxWidth)
-            case .user: min(contentWidth, theme.userBubbleMaxWidth)
+            case .user: min(contentWidth * 0.77, theme.userBubbleMaxWidth)
             }
         }
     }
