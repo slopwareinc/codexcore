@@ -70,7 +70,9 @@ public struct CodexTranscriptReducerV2: Sendable {
                 guard let object = item.object else { continue }
                 applyHistoryItem(object, turnID: id)
             }
-            finishTurn(at: index, duration: historyCompletionDuration(turn))
+            if historyTurnIsComplete(turn) {
+                finishTurn(at: index, duration: historyCompletionDuration(turn))
+            }
         }
     }
 
@@ -461,6 +463,13 @@ public struct CodexTranscriptReducerV2: Sendable {
         guard let start = turn.int64("startedAt"),
               let end = turn.int64("completedAt") else { return nil }
         return max(0, Int(end - start) * 1_000)
+    }
+    private func historyTurnIsComplete(_ turn: [String: CodexJSONValue]) -> Bool {
+        if turn.int("durationMs") != nil || turn.int64("completedAt") != nil { return true }
+        switch turn.string("status") {
+        case "completed", "failed", "interrupted", "cancelled": return true
+        default: return false
+        }
     }
     private func mcpError(_ item: [String: CodexJSONValue]) -> String? { if let error = item.string("error") { return error.firstLine }; if let result = item.object("result"), let error = result.object("structuredContent")?.string("error") { return error.firstLine }; return item.object("result")?.array("content")?.compactMap { $0.object?.string("text") }.first?.firstLine }
     private func shortAgentName(_ threadID: String) -> String {

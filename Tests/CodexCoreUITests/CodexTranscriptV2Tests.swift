@@ -327,6 +327,41 @@ struct CodexTranscriptV2Tests {
         #expect(CodexWorkBlockViewV2.completedLabel(durationMs) == "Worked for 8s")
     }
 
+    @Test func historyRestoreKeepsInProgressTurnWorkingForQueuedLiveReplay() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.restoreHistory(turns: [json([
+            "id": "live-turn",
+            "status": "inProgress",
+            "startedAt": 100,
+            "completedAt": NSNull(),
+            "durationMs": NSNull(),
+            "items": []
+        ])])
+
+        let restored = try #require(reducer.transcript.turns.first)
+        guard case .working(let since) = restored.status else {
+            Issue.record("Expected in-progress history turn to remain working")
+            return
+        }
+        #expect(since == 100)
+
+        reducer.apply(method: "item/completed", params: json([
+            "threadId": "t",
+            "turnId": "live-turn",
+            "item": [
+                "type": "agentMessage",
+                "id": "answer",
+                "phase": "final_answer",
+                "text": "Live answer"
+            ]
+        ]))
+        #expect(reducer.transcript.turns.first?.finalAnswer?.text == "Live answer")
+        guard case .working = reducer.transcript.turns[0].status else {
+            Issue.record("Queued item replay must not complete the live turn")
+            return
+        }
+    }
+
     private func replay(_ name: String, threadID explicitThreadID: String? = nil) throws -> CodexTranscriptV2 {
         struct Event: Decodable { let method: String; let params: CodexJSONValue }
         let url = try #require(Bundle.module.url(forResource:name, withExtension:"jsonl"))
