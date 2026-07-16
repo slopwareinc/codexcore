@@ -6,6 +6,41 @@ import Testing
 
 @MainActor
 struct CodexTranscriptRenderProjectionTests {
+    @Test func fableTranscriptGeometryUsesReferenceSpacing() async throws {
+        #expect(CodexTranscriptColumnMetrics.horizontalMargin == 24)
+        #expect(CodexTranscriptColumnMetrics.turnGap == 16)
+        #expect(CodexTranscriptColumnMetrics.itemGap == 4)
+        #expect(CodexTranscriptColumnMetrics.userBubbleHorizontalPadding == 12)
+        #expect(CodexTranscriptColumnMetrics.userBubbleVerticalPadding == 8)
+        #expect(CodexTranscriptColumnMetrics.topContentInset == 0)
+
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        #expect(theme.bubbleRadius == 16)
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: .init(id: "user", text: "hello", isOptimistic: false),
+                status: .done(durationMs: nil)
+            )])),
+            availableWidth: 860,
+            theme: theme
+        )
+        let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
+        let textHeight = try #require(user.preparedText).attributedString.boundingRect(
+            with: NSSize(
+                width: user.maxContentWidth - CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2,
+                height: .greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        ).height
+        #expect(user.measuredHeight == ceil(textHeight) + 16)
+    }
+
+    @Test func missingCompletedDurationNeverRendersAsZeroSeconds() {
+        #expect(CodexWorkBlockViewV2.completedLabel(nil) == "Worked")
+        #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
+    }
+
     @Test func inlineDirectivesInterleaveWithAssistantProse() async throws {
         let projector = CodexTranscriptRenderProjector()
         let text = """

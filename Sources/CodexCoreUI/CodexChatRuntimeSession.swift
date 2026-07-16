@@ -295,7 +295,7 @@ public final class CodexChatRuntimeSession {
         let threadID = result.hydration.parent.snapshot.id
         selectThread(threadID)
         if restoreTranscript {
-            transcriptSessions.restoreHistory(items: result.transcriptItemsV2, threadID: threadID)
+            transcriptSessions.restoreHistory(turns: result.transcriptTurnsV2, threadID: threadID)
         }
         return state.applyHistoryRestore(result)
     }

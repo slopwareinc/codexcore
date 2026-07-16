@@ -55,6 +55,25 @@ public struct CodexTranscriptReducerV2: Sendable {
         }
     }
 
+    /// Restores `thread/read(includeTurns: true)` envelopes without discarding
+    /// the server's authoritative turn timing metadata.
+    public mutating func restoreHistory(turns: [CodexJSONValue]) {
+        transcript = .init(); reasoningText = [:]; turnStartedAt = [:]
+        for value in turns {
+            guard let turn = value.object,
+                  let id = turn.string("id") else { continue }
+            let startedAt = turn.int64("startedAt")
+            if let startedAt { turnStartedAt[id] = startedAt }
+            transcript.turns.append(.init(id: id, status: .working(since: startedAt)))
+            let index = transcript.turns.count - 1
+            for item in turn.array("items") ?? [] {
+                guard let object = item.object else { continue }
+                applyHistoryItem(object, turnID: id)
+            }
+            finishTurn(at: index, duration: historyCompletionDuration(turn))
+        }
+    }
+
     public mutating func restoreHistory(params: CodexJSONValue) {
         guard let root = params.object, let items = root.array("items") else { return }
         restoreHistory(items: items)
@@ -435,6 +454,12 @@ public struct CodexTranscriptReducerV2: Sendable {
         if let duration = turn.int("durationMs") { return max(0, duration) }
         let start = turn.int64("startedAt") ?? turnStartedAt[turnID] ?? Int64(Date().timeIntervalSince1970)
         let end = turn.int64("completedAt") ?? Int64(Date().timeIntervalSince1970)
+        return max(0, Int(end - start) * 1_000)
+    }
+    private func historyCompletionDuration(_ turn: [String: CodexJSONValue]) -> Int? {
+        if let duration = turn.int("durationMs") { return max(0, duration) }
+        guard let start = turn.int64("startedAt"),
+              let end = turn.int64("completedAt") else { return nil }
         return max(0, Int(end - start) * 1_000)
     }
     private func mcpError(_ item: [String: CodexJSONValue]) -> String? { if let error = item.string("error") { return error.firstLine }; if let result = item.object("result"), let error = result.object("structuredContent")?.string("error") { return error.firstLine }; return item.object("result")?.array("content")?.compactMap { $0.object?.string("text") }.first?.firstLine }

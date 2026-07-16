@@ -5,6 +5,30 @@ import Testing
 
 @MainActor
 struct CodexThreadUISessionStoreTests {
+    @Test func turnEnvelopeHistoryKeepsAuthoritativeDuration() throws {
+        let store = CodexThreadUISessionStore()
+        store.activate(threadID: "thread")
+        #expect(store.restoreHistory(turns: [json([
+            "id": "historical-turn",
+            "startedAt": 100,
+            "completedAt": 108,
+            "durationMs": 8_000,
+            "items": [[
+                "type": "agentMessage",
+                "id": "answer",
+                "phase": "final_answer",
+                "text": "Done"
+            ]]
+        ])], threadID: "thread"))
+
+        let turn = try #require(store.activeTruthTranscript.turns.first)
+        guard case .done(let durationMs) = turn.status else {
+            Issue.record("Expected restored turn to be complete")
+            return
+        }
+        #expect(durationMs == 8_000)
+    }
+
     @Test func warmSwitchRestoresExactTranscriptAndUIState() throws {
         let store = CodexThreadUISessionStore(capacity: 12)
         store.activate(threadID: "A")

@@ -527,8 +527,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 allowsHorizontalScrolling: true
             )
         } else if item.preparedText != nil {
-            let insetX: CGFloat = item.textRole == .user ? 14 : (item.textRole == .expandedOutput ? 12 : 0)
-            let insetY: CGFloat = item.textRole == .user ? 10 : (item.textRole == .expandedOutput ? 8 : 2)
+            let insetX: CGFloat = item.textRole == .user
+                ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding
+                : (item.textRole == .expandedOutput ? 12 : 0)
+            let insetY: CGFloat = item.textRole == .user
+                ? CodexTranscriptColumnMetrics.userBubbleVerticalPadding
+                : (item.textRole == .expandedOutput ? 8 : CodexTranscriptColumnMetrics.itemGap / 2)
             var textFrame = contentFrame.insetBy(dx: insetX, dy: insetY)
             if item.textRole == .expandedOutput { textFrame.size.width = max(40, textFrame.width - 30) }
             layoutSelectableText(
@@ -1022,7 +1026,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .working(let startedAt, let showsDuration):
             return showsDuration ? "Working for \(max(0, Int(date.timeIntervalSince(startedAt))))s" : "Thinking"
         case .done(let durationMs, let isExpanded):
-            return "Worked for \(CodexWorkBlockViewV2.duration(durationMs))  \(isExpanded ? "⌄" : "›")"
+            return "\(CodexWorkBlockViewV2.completedLabel(durationMs))  \(isExpanded ? "⌄" : "›")"
         case .failed(let message):
             return message.isEmpty ? "Work failed" : message
         }

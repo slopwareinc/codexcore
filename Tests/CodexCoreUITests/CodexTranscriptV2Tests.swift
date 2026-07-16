@@ -302,6 +302,31 @@ struct CodexTranscriptV2Tests {
         #expect(CodexWorkBlockViewV2.duration(durationMs) == "8s")
     }
 
+    @Test func historyRestorePreservesTurnDurationFromThreadReadEnvelope() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.restoreHistory(turns: [json([
+            "id": "historical-turn",
+            "startedAt": 100,
+            "completedAt": 108,
+            "durationMs": 8_000,
+            "items": [[
+                "type": "agentMessage",
+                "id": "answer",
+                "text": "Done",
+                "phase": "final_answer"
+            ]]
+        ])])
+
+        let turn = try #require(reducer.transcript.turns.first)
+        #expect(turn.id == "historical-turn")
+        guard case .done(let durationMs) = turn.status else {
+            Issue.record("Expected restored turn to be complete")
+            return
+        }
+        #expect(durationMs == 8_000)
+        #expect(CodexWorkBlockViewV2.completedLabel(durationMs) == "Worked for 8s")
+    }
+
     private func replay(_ name: String, threadID explicitThreadID: String? = nil) throws -> CodexTranscriptV2 {
         struct Event: Decodable { let method: String; let params: CodexJSONValue }
         let url = try #require(Bundle.module.url(forResource:name, withExtension:"jsonl"))

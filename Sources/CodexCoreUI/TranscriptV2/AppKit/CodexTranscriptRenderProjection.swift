@@ -11,11 +11,14 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let flowLayoutHorizontalAllowance: CGFloat = 32
     static let turnGap: CGFloat = 16
     static let itemGap: CGFloat = 4
+    static let userBubbleHorizontalPadding: CGFloat = 12
+    static let userBubbleVerticalPadding: CGFloat = 8
+    static let topContentInset: CGFloat = 0
 
     var viewportWidth: CGFloat
 
-    // NSCollectionViewFlowLayout requires a bounded item width below the viewport.
-    // Cells retain the full viewport width separately for content centering.
+    // This is only an AppKit flow-layout constraint. Cells position visible
+    // content against the preserved full `viewportWidth`, so it is not a gutter.
     var cellWidth: CGFloat { max(1, viewportWidth - Self.flowLayoutHorizontalAllowance) }
 
     func outerWidth(_ theme: CodexTranscriptAppKitTheme) -> CGFloat {
@@ -359,8 +362,9 @@ actor CodexTranscriptRenderProjector {
                     Self.preparePlain(user.text, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
                 }
                 let userMaxWidth = min(contentWidth * 0.77, theme.userBubbleMaxWidth)
+                let horizontalPadding = CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
                 let textBounds = prepared.attributedString.boundingRect(
-                    with: NSSize(width: max(1, userMaxWidth - 28), height: .greatestFiniteMagnitude),
+                    with: NSSize(width: max(1, userMaxWidth - horizontalPadding), height: .greatestFiniteMagnitude),
                     options: [.usesLineFragmentOrigin, .usesFontLeading]
                 )
                 append(ItemDraft(
@@ -372,7 +376,7 @@ actor CodexTranscriptRenderProjector {
                     accessibilityLabel: "You: \(user.text)",
                     isTrailingAligned: true,
                     maxWidthKind: .user,
-                    intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + 28)
+                    intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
                 ))
                 append(timestampDraft(
                     id: "\(sectionID):user-timestamp",
@@ -1068,7 +1072,9 @@ private extension CodexTranscriptRenderProjector {
             )
             return max(76, ceil(bounds.height) + 52)
         }
-        let horizontalPadding: CGFloat = draft.textRole == .user ? 28 : (draft.textRole == .expandedOutput ? 54 : 0)
+        let horizontalPadding: CGFloat = draft.textRole == .user
+            ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
+            : (draft.textRole == .expandedOutput ? 54 : 0)
         if let text = draft.preparedText?.attributedString {
             let bounds = text.boundingRect(
                 with: NSSize(width: max(80, width - horizontalPadding - draft.indentation), height: .greatestFiniteMagnitude),
@@ -1076,7 +1082,11 @@ private extension CodexTranscriptRenderProjector {
             )
             let isCodeComment: Bool
             if case .codeComment = draft.directive?.kind { isCodeComment = true } else { isCodeComment = false }
-            let verticalPadding: CGFloat = isCodeComment ? 64 : (draft.textRole == .user ? 20 : (draft.textRole == .expandedOutput ? 16 : 4))
+            let verticalPadding: CGFloat = isCodeComment
+                ? 64
+                : (draft.textRole == .user
+                    ? CodexTranscriptColumnMetrics.userBubbleVerticalPadding * 2
+                    : (draft.textRole == .expandedOutput ? 16 : CodexTranscriptColumnMetrics.itemGap))
             return max(18, ceil(bounds.height) + verticalPadding)
         }
         return 36
@@ -1360,7 +1370,7 @@ private extension CodexTranscriptRenderProjector {
         switch header.state {
         case .working(_, let showsDuration): return showsDuration ? "Working" : "Thinking"
         case .done(let duration, let expanded):
-            return "Worked for \(CodexWorkBlockViewV2.duration(duration)), \(expanded ? "expanded" : "collapsed")"
+            return "\(CodexWorkBlockViewV2.completedLabel(duration)), \(expanded ? "expanded" : "collapsed")"
         case .failed(let message): return message.isEmpty ? "Work failed" : message
         }
     }

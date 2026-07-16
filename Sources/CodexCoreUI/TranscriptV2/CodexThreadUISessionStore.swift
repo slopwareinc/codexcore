@@ -158,6 +158,29 @@ public final class CodexThreadUISessionStore {
         threadID: String,
         force: Bool = false
     ) -> Bool {
+        restoreHistory(threadID: threadID, force: force) { reducer in
+            reducer.restoreHistory(items: items)
+        }
+    }
+
+    /// Preferred history path for `thread/read`: keeps each turn envelope so
+    /// duration and timestamp metadata survive projection.
+    @discardableResult
+    public func restoreHistory(
+        turns: [CodexJSONValue],
+        threadID: String,
+        force: Bool = false
+    ) -> Bool {
+        restoreHistory(threadID: threadID, force: force) { reducer in
+            reducer.restoreHistory(turns: turns)
+        }
+    }
+
+    private func restoreHistory(
+        threadID: String,
+        force: Bool,
+        restore: (inout CodexTranscriptReducerV2) -> Void
+    ) -> Bool {
         ensureSession(threadID)
         guard var session = sessions[threadID] else { return false }
         guard force || !session.isHydrated else {
@@ -167,7 +190,7 @@ public final class CodexThreadUISessionStore {
 
         let pendingEvents = session.pendingEvents
         var reducer = CodexTranscriptReducerV2(threadID: threadID)
-        reducer.restoreHistory(items: items)
+        restore(&reducer)
         for event in pendingEvents {
             reducer.apply(method: event.method, params: event.params)
         }

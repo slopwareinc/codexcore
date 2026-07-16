@@ -615,7 +615,12 @@ final class CodexTranscriptCollectionContainerView: NSView {
     var bottomContentInset: CGFloat = 0 {
         didSet {
             guard bottomContentInset != oldValue else { return }
-            scrollView.contentInsets = NSEdgeInsets(top: 78, left: 0, bottom: bottomContentInset, right: 0)
+            scrollView.contentInsets = NSEdgeInsets(
+                top: CodexTranscriptColumnMetrics.topContentInset,
+                left: 0,
+                bottom: bottomContentInset,
+                right: 0
+            )
             needsLayout = true
         }
     }
@@ -637,7 +642,12 @@ final class CodexTranscriptCollectionContainerView: NSView {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.drawsBackground = false
         scrollView.contentView.postsBoundsChangedNotifications = true
-        scrollView.contentInsets = NSEdgeInsets(top: 78, left: 0, bottom: 0, right: 0)
+        scrollView.contentInsets = NSEdgeInsets(
+            top: CodexTranscriptColumnMetrics.topContentInset,
+            left: 0,
+            bottom: 0,
+            right: 0
+        )
         addSubview(scrollView)
 
         jumpButton.image = NSImage(systemSymbolName: "arrow.down", accessibilityDescription: "Jump to latest")

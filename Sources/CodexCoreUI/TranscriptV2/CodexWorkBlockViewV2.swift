@@ -72,7 +72,7 @@ public struct CodexWorkBlockViewV2: View {
                         withAnimation(.snappy(duration: theme.animations.snappyDuration)) { isExpanded.toggle() }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(verbatim: "Worked for " + Self.duration(durationMs))
+                            Text(verbatim: Self.completedLabel(durationMs))
                             Image(systemName: "chevron.right")
                                 .font(theme.fonts.micro)
                                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -163,6 +163,11 @@ public struct CodexWorkBlockViewV2: View {
         return minutes > 0
             ? String(minutes) + "m " + String(remainder) + "s"
             : String(remainder) + "s"
+    }
+
+    nonisolated static func completedLabel(_ milliseconds: Int?) -> String {
+        guard let milliseconds else { return "Worked" }
+        return "Worked for " + duration(milliseconds)
     }
 }
 
