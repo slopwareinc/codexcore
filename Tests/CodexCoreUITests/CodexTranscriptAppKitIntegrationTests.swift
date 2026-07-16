@@ -14,7 +14,14 @@ struct CodexTranscriptAppKitIntegrationTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "thread",
-                transcript: .init(turns: [.init(id: "turn", status: .working(since: 1))]),
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.workGroup(.init(id: "work", rows: [.command(.init(
+                        id: "command", command: "swift test", label: "Running tests",
+                        action: .run, status: .inProgress
+                    ))]))],
+                    status: .working(since: 1)
+                )]),
                 pendingApprovals: [prompt]
             ),
             availableWidth: 860,
@@ -39,6 +46,14 @@ struct CodexTranscriptAppKitIntegrationTests {
             .resolveApproval(requestID: "approval-1", approve: true),
             .resolveApproval(requestID: "approval-1", approve: false)
         ])
+        let workRow = try #require(snapshot.itemsByID.values.first { $0.workRow != nil })
+        cell.configure(
+            item: workRow, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        #expect(!cell.approvalButtonsVisibleForTesting)
     }
 
     @Test func workChipUsesSemanticIconAndOnlyEnablesRealActions() async throws {

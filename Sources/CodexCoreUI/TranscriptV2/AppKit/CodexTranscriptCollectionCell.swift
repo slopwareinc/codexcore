@@ -314,12 +314,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipDisclosureView.image = nil
         approvalAllowButton.isHidden = true
         approvalDenyButton.isHidden = true
-        approvalAllowButton.isHidden = true
-        approvalDenyButton.isHidden = true
-        chipDurationLabel.stringValue = ""
-        chipDisclosureView.image = nil
-        approvalAllowButton.isHidden = true
-        approvalDenyButton.isHidden = true
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
@@ -369,7 +363,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copyButton.isHidden = true
         codeHeaderView.isHidden = true
         chipBackground.isHidden = true
+        chipBackground.layer?.borderWidth = 0
         chipLabel.stopShimmer()
+        chipDurationLabel.stringValue = ""
+        chipDisclosureView.image = nil
+        approvalAllowButton.isHidden = true
+        approvalDenyButton.isHidden = true
         (view as? CodexTranscriptHoverView)?.usesPointingHand = false
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
