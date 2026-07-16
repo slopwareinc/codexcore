@@ -1059,6 +1059,15 @@ private extension CodexTranscriptRenderProjector {
         theme: CodexTranscriptAppKitTheme
     ) -> CGFloat {
         if let fixedHeight = draft.fixedHeight { return fixedHeight }
+        if let code = draft.code {
+            let text = draft.preparedText?.attributedString
+                ?? preparePlain(code.code, font: theme.codeFont, color: theme.codeText, theme: theme).attributedString
+            let bounds = text.boundingRect(
+                with: NSSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            return max(76, ceil(bounds.height) + 52)
+        }
         let horizontalPadding: CGFloat = draft.textRole == .user ? 28 : (draft.textRole == .expandedOutput ? 54 : 0)
         if let text = draft.preparedText?.attributedString {
             let bounds = text.boundingRect(
@@ -1069,14 +1078,6 @@ private extension CodexTranscriptRenderProjector {
             if case .codeComment = draft.directive?.kind { isCodeComment = true } else { isCodeComment = false }
             let verticalPadding: CGFloat = isCodeComment ? 64 : (draft.textRole == .user ? 20 : (draft.textRole == .expandedOutput ? 16 : 4))
             return max(18, ceil(bounds.height) + verticalPadding)
-        }
-        if let code = draft.code {
-            let text = preparePlain(code.code, font: theme.codeFont, color: theme.codeText, theme: theme).attributedString
-            let bounds = text.boundingRect(
-                with: NSSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading]
-            )
-            return max(76, ceil(bounds.height) + 52)
         }
         return 36
     }

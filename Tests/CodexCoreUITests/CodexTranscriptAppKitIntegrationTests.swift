@@ -124,6 +124,11 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(cell.codeHeaderIsVisibleForTesting)
         #expect(cell.codeLanguageForTesting == "swift")
+        let codeBounds = try #require(code.preparedText?.attributedString).boundingRect(
+            with: NSSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        #expect(code.measuredHeight >= ceil(codeBounds.height) + 52)
         cell.copyItemForTesting()
         #expect(clipboard.lastValue == "let value = 1")
         #expect(cell.copyButtonAccessibilityDescriptionForTesting == "Copied")
