@@ -292,6 +292,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         codeHeaderView.isHidden = true
         chipBackground.isHidden = true
         chipLabel.stopShimmer()
+        chipDurationLabel.stringValue = ""
+        chipDisclosureView.image = nil
         footerTimestampLabel.isHidden = true
         footerCopyItemButton.isHidden = true
         footerCopyTurnButton.isHidden = true
@@ -354,6 +356,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
         if let footer = item.footer {
             configureFooter(footer, item: item, theme: appKitTheme)
+        } else if let directive = item.directive {
+            configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
         } else if let code = item.code {
             textScrollView.isHidden = false
             textScrollView.hasHorizontalScroller = true
@@ -474,6 +478,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
         if item.footer != nil {
             layoutFooter(in: contentFrame, trailing: item.isTrailingAligned)
+        } else if let directive = item.directive {
+            layoutDirective(directive, item: item, in: contentFrame)
         } else if item.code != nil {
             let headerHeight: CGFloat = 32
             codeHeaderView.frame = NSRect(
@@ -564,6 +570,146 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         button.toolTip = toolTip
         button.setAccessibilityLabel(toolTip)
         view.addSubview(button)
+    }
+
+    private func configureDirective(
+        _ directive: CodexTranscriptDirectiveRender,
+        item: CodexTranscriptRenderItem,
+        theme: CodexTranscriptAppKitTheme,
+        preserving selection: NSRange
+    ) {
+        chipBackground.isHidden = false
+        chipBackground.layer?.cornerRadius = theme.cardRadius
+        chipBackground.layer?.backgroundColor = theme.surfaceSunken.withAlphaComponent(0.65).cgColor
+        chipIconView.image = NSImage(
+            systemSymbolName: Self.directiveIconName(directive.kind),
+            accessibilityDescription: item.accessibilityLabel
+        )
+        chipIconView.contentTintColor = Self.directiveTint(directive.kind, theme: theme)
+        chipLabel.stringValue = Self.directiveLabel(directive.kind)
+        chipLabel.font = theme.captionFont
+        chipLabel.textColor = theme.textSecondary
+        chipDurationLabel.font = theme.microFont
+        chipDurationLabel.textColor = theme.textTertiary
+        chipDisclosureView.contentTintColor = theme.textTertiary
+        chipDisclosureView.image = item.action == nil ? nil : NSImage(
+            systemSymbolName: "arrow.up.right", accessibilityDescription: "Open"
+        )
+        actionButton.isHidden = item.action == nil
+        actionButton.isEnabled = item.action != nil
+        actionButton.title = ""
+        actionButton.setAccessibilityLabel(item.accessibilityLabel)
+        actionButton.toolTip = Self.directiveToolTip(directive.kind, raw: directive.raw)
+        (view as? CodexTranscriptHoverView)?.usesPointingHand = item.action != nil
+
+        if case .codeComment(_, _, let file, let start, _, let priority) = directive.kind {
+            chipDurationLabel.stringValue = priority.map { "P\($0)" } ?? ""
+            chipDisclosureView.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Open file")
+            if let prepared = item.preparedText?.attributedString {
+                textScrollView.isHidden = false
+                textScrollView.hasHorizontalScroller = false
+                selectableTextView.isHorizontallyResizable = false
+                selectableTextView.textContainer?.widthTracksTextView = true
+                selectableTextView.configureLinkAppearance(theme: theme, automaticDetection: false)
+                selectableTextView.bind(prepared, accessibilityLabel: item.accessibilityLabel, preserving: selection)
+            }
+            actionButton.toolTip = file + (start.map { ":\($0)" } ?? "")
+        }
+    }
+
+    private func layoutDirective(
+        _ directive: CodexTranscriptDirectiveRender,
+        item: CodexTranscriptRenderItem,
+        in contentFrame: NSRect
+    ) {
+        chipBackground.frame = contentFrame
+        chipIconView.frame = NSRect(x: 8, y: contentFrame.midY - 8, width: 16, height: 16)
+        chipDurationLabel.sizeToFit()
+        let badgeWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width + 10
+        let disclosureWidth: CGFloat = item.action == nil ? 0 : 16
+        chipDisclosureView.frame = NSRect(
+            x: contentFrame.width - 10 - disclosureWidth, y: contentFrame.midY - 8,
+            width: disclosureWidth, height: 16
+        )
+        chipDurationLabel.frame = NSRect(
+            x: chipDisclosureView.frame.minX - badgeWidth - 6, y: contentFrame.midY - 9,
+            width: badgeWidth, height: 18
+        )
+        chipLabel.frame = NSRect(
+            x: 32, y: contentFrame.midY - 10,
+            width: max(20, chipDurationLabel.frame.minX - 40), height: 20
+        )
+        actionButton.frame = contentFrame
+
+        if case .codeComment(_, _, let file, let start, _, _) = directive.kind {
+            chipIconView.frame.origin.y = contentFrame.height - 26
+            chipLabel.frame = NSRect(x: 32, y: contentFrame.height - 28, width: max(20, contentFrame.width - 100), height: 20)
+            chipDurationLabel.frame = NSRect(x: contentFrame.width - badgeWidth - 10, y: contentFrame.height - 28, width: badgeWidth, height: 18)
+            layoutSelectableText(
+                in: NSRect(x: contentFrame.minX + 12, y: 26, width: contentFrame.width - 24, height: max(20, contentFrame.height - 62)),
+                allowsHorizontalScrolling: false
+            )
+            chipDisclosureView.frame = NSRect(x: 10, y: 5, width: 16, height: 16)
+            chipDisclosureView.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: "Open file")
+            actionButton.title = file + (start.map { ":\($0)" } ?? "")
+            actionButton.font = appKitTheme?.microFont
+            actionButton.contentTintColor = appKitTheme?.textTertiary
+            actionButton.alignment = .left
+            actionButton.frame = NSRect(x: contentFrame.minX + 30, y: 2, width: contentFrame.width - 40, height: 22)
+        }
+    }
+
+    private static func directiveLabel(_ kind: CodexTranscriptDirectiveRender.Kind) -> String {
+        switch kind {
+        case .createdThread(let threadID, let pendingID):
+            return "Created thread · " + shortIdentifier(threadID ?? pendingID ?? "pending")
+        case .gitAction(let verb, let branch, _):
+            return switch verb {
+            case "stage": "Staged changes"
+            case "commit": "Committed"
+            case "create-branch": "Created branch" + (branch.map { " \($0)" } ?? "")
+            case "push": "Pushed" + (branch.map { " \($0)" } ?? "")
+            default: "Git · \(verb)"
+            }
+        case .pullRequest(_, let branch, let isDraft):
+            return "PR" + (branch.map { " · \($0)" } ?? "") + (isDraft ? " · draft" : "")
+        case .codeComment(let title, _, _, _, _, _): return title
+        case .unknown(let name): return "<\(name)>"
+        }
+    }
+
+    private static func directiveIconName(_ kind: CodexTranscriptDirectiveRender.Kind) -> String {
+        switch kind {
+        case .createdThread: "arrow.triangle.branch"
+        case .gitAction(let verb, _, _):
+            switch verb {
+            case "push": "tray.and.arrow.up"
+            case "create-branch": "arrow.triangle.branch"
+            case "stage": "square.stack.3d.up"
+            default: "checkmark.seal"
+            }
+        case .pullRequest: "arrow.up.right.square"
+        case .codeComment: "text.bubble"
+        case .unknown: "ellipsis.curlybraces"
+        }
+    }
+
+    private static func directiveTint(_ kind: CodexTranscriptDirectiveRender.Kind, theme: CodexTranscriptAppKitTheme) -> NSColor {
+        if case .codeComment(_, _, _, _, _, let priority) = kind, let priority, priority <= 1 { return theme.danger }
+        if case .unknown = kind { return theme.textTertiary }
+        return theme.success
+    }
+
+    private static func directiveToolTip(_ kind: CodexTranscriptDirectiveRender.Kind, raw: String) -> String {
+        switch kind {
+        case .createdThread(_, let pendingID) where pendingID != nil: "Thread pending"
+        case .unknown: raw
+        default: directiveLabel(kind)
+        }
+    }
+
+    private static func shortIdentifier(_ value: String) -> String {
+        String((value.split(separator: "-").last.map(String.init) ?? value).prefix(8))
     }
 
     private func configureFooter(

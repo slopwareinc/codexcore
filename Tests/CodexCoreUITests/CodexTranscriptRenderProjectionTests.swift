@@ -6,6 +6,34 @@ import Testing
 
 @MainActor
 struct CodexTranscriptRenderProjectionTests {
+    @Test func inlineDirectivesInterleaveWithAssistantProse() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let text = """
+        Before the handoff.
+        ::created-thread{threadId="019f670d-ce61-7cb2-a1eb-3b9bc5256026"}
+        After the handoff.
+        """
+        let snapshot = try await projector.project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "final", text: text, isStreaming: false),
+                status: .done(durationMs: 1)
+            )])),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+        let content = snapshot.orderedItemIDs.compactMap { snapshot.itemsByID[$0] }.filter { $0.footer == nil }
+        #expect(content.count == 3)
+        #expect(content[0].preparedText?.attributedString.string.contains("Before the handoff") == true)
+        guard case .createdThread(let threadID, _) = content[1].directive?.kind else {
+            Issue.record("Expected a created-thread render item")
+            return
+        }
+        #expect(threadID == "019f670d-ce61-7cb2-a1eb-3b9bc5256026")
+        #expect(content[1].action == .openSubagent(threadID: threadID!))
+        #expect(content[2].preparedText?.attributedString.string.contains("After the handoff") == true)
+    }
+
     @Test func streamingAnswerKeepsOnlyLiveWorkChipVisible() async throws {
         let projector = CodexTranscriptRenderProjector()
         let turn = CodexTurnV2(

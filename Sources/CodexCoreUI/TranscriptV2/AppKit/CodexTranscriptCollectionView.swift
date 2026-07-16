@@ -399,6 +399,14 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             case .openSubagent(let threadID):
                 onOpenSubagent(threadID)
                 return
+            case .openURL(let value):
+                guard let url = URL(string: value), url.scheme?.lowercased() == "https" else { return }
+                NSWorkspace.shared.open(url)
+                return
+            case .openFile(let path, _):
+                let resolved = (path as NSString).expandingTildeInPath
+                NSWorkspace.shared.selectFile(resolved, inFileViewerRootedAtPath: "")
+                return
             }
             currentPresentation = presentation
             requestProjection(width: max(container?.scrollView.contentSize.width ?? lastProjectedWidth, 320))

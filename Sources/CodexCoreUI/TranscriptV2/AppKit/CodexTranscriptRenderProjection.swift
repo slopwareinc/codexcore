@@ -1,4 +1,5 @@
 import AppKit
+import CodexCore
 import Foundation
 
 struct CodexTranscriptRenderItemID: Hashable, Sendable {
@@ -36,6 +37,21 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case toggleWork(turnID: String)
     case toggleRow(rowID: String)
     case openSubagent(threadID: String)
+    case openURL(String)
+    case openFile(path: String, line: Int?)
+}
+
+struct CodexTranscriptDirectiveRender: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case createdThread(threadID: String?, pendingWorktreeID: String?)
+        case gitAction(verb: String, branch: String?, cwd: String?)
+        case pullRequest(url: String, branch: String?, isDraft: Bool)
+        case codeComment(title: String, body: String, file: String, start: Int?, end: Int?, priority: Int?)
+        case unknown(name: String)
+    }
+
+    var kind: Kind
+    var raw: String
 }
 
 struct CodexTranscriptWorkHeaderRender: Sendable, Equatable {
@@ -99,6 +115,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
+    var directive: CodexTranscriptDirectiveRender?
     var action: CodexTranscriptRenderAction?
     var copyText: String?
     var copyTurnText: String
@@ -303,6 +320,7 @@ actor CodexTranscriptRenderProjector {
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
+                    directive: draft.directive,
                     action: draft.action,
                     copyText: draft.copyText,
                     copyTurnText: copyTurnText,
@@ -379,33 +397,11 @@ actor CodexTranscriptRenderProjector {
                     case .prose(let prose):
                         if tailMode { continue }
                         let sourceID = "\(sectionID):commentary:\(prose.id)"
-                        let blocks = projectBlocks(
-                            prose.text,
-                            streaming: prose.isStreaming,
-                            sourceID: sourceID
-                        )
-                        markdownProjections += 1
-                        if blocks.count == 1, let block = blocks.first {
-                            append(draft(
-                                block: block,
-                                itemID: block.isCodeV2 ? nil : "\(sourceID):selection-surface:0",
-                                role: .commentary,
-                                theme: theme,
-                                cacheHits: &preparedTextCacheHits,
-                                cacheMisses: &preparedTextCacheMisses
-                            ))
-                        } else {
-                            for draft in messageDrafts(
-                                blocks: blocks,
-                                sourceID: sourceID,
-                                role: .commentary,
-                                theme: theme,
-                                cacheHits: &preparedTextCacheHits,
-                                cacheMisses: &preparedTextCacheMisses
-                            ) {
-                                append(draft)
-                            }
-                        }
+                        for draft in contentDrafts(
+                            text: prose.text, streaming: prose.isStreaming, sourceID: sourceID,
+                            role: .commentary, theme: theme, cacheHits: &preparedTextCacheHits,
+                            cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
+                        ) { append(draft) }
                     case .workGroup(let group):
                         let rows = tailMode ? group.rows.filter(\.isInProgress) : group.rows
                         if rows.isEmpty { continue }
@@ -501,33 +497,11 @@ actor CodexTranscriptRenderProjector {
 
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 let sourceID = "\(sectionID):final:\(answer.id)"
-                let blocks = projectBlocks(
-                    answer.text,
-                    streaming: answer.isStreaming,
-                    sourceID: sourceID
-                )
-                markdownProjections += 1
-                if blocks.count == 1, let block = blocks.first {
-                    append(draft(
-                        block: block,
-                        itemID: block.isCodeV2 ? nil : "\(sourceID):selection-surface:0",
-                        role: .finalAnswer,
-                        theme: theme,
-                        cacheHits: &preparedTextCacheHits,
-                        cacheMisses: &preparedTextCacheMisses
-                    ))
-                } else {
-                    for draft in messageDrafts(
-                        blocks: blocks,
-                        sourceID: sourceID,
-                        role: .finalAnswer,
-                        theme: theme,
-                        cacheHits: &preparedTextCacheHits,
-                        cacheMisses: &preparedTextCacheMisses
-                    ) {
-                        append(draft)
-                    }
-                }
+                for draft in contentDrafts(
+                    text: answer.text, streaming: answer.isStreaming, sourceID: sourceID,
+                    role: .finalAnswer, theme: theme, cacheHits: &preparedTextCacheHits,
+                    cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
+                ) { append(draft) }
                 append(timestampDraft(
                     id: "\(sectionID):final-timestamp",
                     date: presentedAt,
@@ -612,6 +586,7 @@ private extension CodexTranscriptRenderProjector {
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
+        var directive: CodexTranscriptDirectiveRender?
         var action: CodexTranscriptRenderAction?
         var copyText: String?
         var accessibilityLabel: String
@@ -631,6 +606,7 @@ private extension CodexTranscriptRenderProjector {
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
+            directive: CodexTranscriptDirectiveRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
             copyText: String? = nil,
             accessibilityLabel: String,
@@ -649,6 +625,7 @@ private extension CodexTranscriptRenderProjector {
             self.code = code
             self.footer = footer
             self.productTool = productTool
+            self.directive = directive
             self.action = action
             self.copyText = copyText
             self.accessibilityLabel = accessibilityLabel
@@ -666,6 +643,148 @@ private extension CodexTranscriptRenderProjector {
             case .user: min(contentWidth * 0.77, theme.userBubbleMaxWidth)
             }
         }
+    }
+
+    func contentDrafts(
+        text: String,
+        streaming: Bool,
+        sourceID: String,
+        role: CodexTranscriptTextRole,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int,
+        markdownProjections: inout Int
+    ) -> [ItemDraft] {
+        let partitions = CodexInlineDirectiveParser.split(text: text)
+        guard partitions.contains(where: { $0.directive != nil }) else {
+            return ordinaryMessageDrafts(
+                text: text, streaming: streaming, sourceID: sourceID, role: role, theme: theme,
+                cacheHits: &cacheHits, cacheMisses: &cacheMisses,
+                markdownProjections: &markdownProjections
+            )
+        }
+
+        var result: [ItemDraft] = []
+        var directiveIndex = 0
+        for (partitionIndex, partition) in partitions.enumerated() {
+            if let directive = partition.directive {
+                result.append(directiveDraft(
+                    directive, raw: partition.text,
+                    itemID: "\(sourceID):directive:\(directiveIndex)", theme: theme,
+                    cacheHits: &cacheHits, cacheMisses: &cacheMisses
+                ))
+                directiveIndex += 1
+            } else if !partition.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                result.append(contentsOf: ordinaryMessageDrafts(
+                    text: partition.text, streaming: streaming,
+                    sourceID: "\(sourceID):segment:\(partitionIndex)", role: role, theme: theme,
+                    cacheHits: &cacheHits, cacheMisses: &cacheMisses,
+                    markdownProjections: &markdownProjections
+                ))
+            }
+        }
+        return result
+    }
+
+    func ordinaryMessageDrafts(
+        text: String,
+        streaming: Bool,
+        sourceID: String,
+        role: CodexTranscriptTextRole,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int,
+        markdownProjections: inout Int
+    ) -> [ItemDraft] {
+        let blocks = projectBlocks(text, streaming: streaming, sourceID: sourceID)
+        markdownProjections += 1
+        if blocks.count == 1, let block = blocks.first {
+            return [draft(
+                block: block,
+                itemID: block.isCodeV2 ? nil : "\(sourceID):selection-surface:0",
+                role: role, theme: theme, cacheHits: &cacheHits, cacheMisses: &cacheMisses
+            )]
+        }
+        return messageDrafts(
+            blocks: blocks, sourceID: sourceID, role: role, theme: theme,
+            cacheHits: &cacheHits, cacheMisses: &cacheMisses
+        )
+    }
+
+    func directiveDraft(
+        _ directive: CodexInlineDirective,
+        raw: String,
+        itemID: String,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int
+    ) -> ItemDraft {
+        let attributes = directive.attributes
+        let render: CodexTranscriptDirectiveRender
+        let action: CodexTranscriptRenderAction?
+        let label: String
+        var preparedText: CodexPreparedTranscriptText?
+        var fixedHeight: CGFloat? = 32
+
+        switch directive.name {
+        case "created-thread":
+            let legacy = attributes["clientThreadId"]?.replacingOccurrences(of: "client-new-thread:", with: "")
+            let threadID = attributes["threadId"] ?? attributes["threadID"] ?? legacy
+            let pendingID = attributes["pendingWorktreeId"] ?? attributes["pendingWorktreeID"]
+            render = .init(kind: .createdThread(threadID: threadID, pendingWorktreeID: pendingID), raw: raw)
+            action = pendingID == nil ? threadID.map(CodexTranscriptRenderAction.openSubagent) : nil
+            label = "Created thread · \(Self.shortIdentifier(threadID ?? pendingID ?? "pending"))"
+        case "git-stage", "git-commit", "git-create-branch", "git-push":
+            let verb = String(directive.name.dropFirst(4))
+            let branch = attributes["branch"]
+            render = .init(kind: .gitAction(verb: verb, branch: branch, cwd: attributes["cwd"]), raw: raw)
+            action = nil
+            label = switch verb {
+            case "stage": "Staged changes"
+            case "commit": "Committed"
+            case "create-branch": "Created branch \(branch ?? "")".trimmingCharacters(in: .whitespaces)
+            case "push": "Pushed \(branch ?? "")".trimmingCharacters(in: .whitespaces)
+            default: "Git · \(verb)"
+            }
+        case "git-create-pr":
+            let url = attributes["url"] ?? ""
+            let branch = attributes["branch"]
+            let isDraft = attributes["isDraft"] == "true"
+            render = .init(kind: .pullRequest(url: url, branch: branch, isDraft: isDraft), raw: raw)
+            action = url.isEmpty ? nil : .openURL(url)
+            label = "PR" + (branch.map { " · \($0)" } ?? "") + (isDraft ? " · draft" : "")
+        case "code-comment":
+            let title = attributes["title"] ?? "Code comment"
+            let body = attributes["body"] ?? ""
+            let file = attributes["file"] ?? ""
+            let start = attributes["start"].flatMap(Int.init)
+            let end = attributes["end"].flatMap(Int.init)
+            let priority = attributes["priority"].flatMap(Int.init)
+            render = .init(kind: .codeComment(
+                title: title, body: body, file: file, start: start, end: end, priority: priority
+            ), raw: raw)
+            action = file.isEmpty ? nil : .openFile(path: file, line: start)
+            label = title
+            preparedText = cachedPreparedText(
+                content: body, style: "directive-code-comment", theme: theme,
+                cacheHits: &cacheHits, cacheMisses: &cacheMisses
+            ) { Self.prepareMarkdown(body, font: theme.bodyFont, color: theme.textSecondary, theme: theme) }
+            fixedHeight = nil
+        default:
+            render = .init(kind: .unknown(name: directive.name), raw: raw)
+            action = nil
+            label = "<\(directive.name)>"
+        }
+        return ItemDraft(
+            id: itemID, fingerprint: "directive:\(raw)", preparedText: preparedText,
+            directive: render, action: action, copyText: raw, accessibilityLabel: label,
+            maxWidthKind: .card, fixedHeight: fixedHeight
+        )
+    }
+
+    static func shortIdentifier(_ value: String) -> String {
+        let tail = value.split(separator: "-").last.map(String.init) ?? value
+        return String(tail.prefix(8))
     }
 
     func messageDrafts(
@@ -894,7 +1013,9 @@ private extension CodexTranscriptRenderProjector {
                 with: NSSize(width: max(80, width - horizontalPadding - draft.indentation), height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
-            let verticalPadding: CGFloat = draft.textRole == .user ? 20 : (draft.textRole == .expandedOutput ? 16 : 4)
+            let isCodeComment: Bool
+            if case .codeComment = draft.directive?.kind { isCodeComment = true } else { isCodeComment = false }
+            let verticalPadding: CGFloat = isCodeComment ? 64 : (draft.textRole == .user ? 20 : (draft.textRole == .expandedOutput ? 16 : 4))
             return max(18, ceil(bounds.height) + verticalPadding)
         }
         if let code = draft.code {
