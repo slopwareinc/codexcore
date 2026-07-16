@@ -419,10 +419,15 @@ actor CodexTranscriptRenderProjector {
                         for row in rows {
                             let rowID = row.id
                             let detail = Self.detail(for: row)
+                            let diffFiles: [CodexDiffFile]? = {
+                                guard case .fileChange(let value) = row,
+                                      let diff = value.diff?.codexAppKitNilIfEmpty else { return nil }
+                                return CodexUnifiedDiffParser.parse(diff)
+                            }()
                             let subagentThreadID = Self.subagentThreadID(for: row)
                             let rowRender = CodexTranscriptWorkRowRender(
                                 kind: Self.kind(for: row),
-                                label: Self.label(for: row),
+                                label: Self.label(for: row, diffFiles: diffFiles),
                                 status: Self.status(for: row),
                                 durationMs: Self.duration(for: row),
                                 isExpanded: presentation.expandedRowIDs.contains(rowID),
@@ -442,7 +447,26 @@ actor CodexTranscriptRenderProjector {
                                 maxWidthKind: .card,
                                 fixedHeight: 30
                             ))
-                            if presentation.expandedRowIDs.contains(rowID), let detail {
+                            if presentation.expandedRowIDs.contains(rowID), let diffFiles {
+                                for (fileIndex, file) in diffFiles.enumerated() {
+                                    let fullPatch = Self.patchText(for: file)
+                                    let displayPatch = Self.boundedLines(fullPatch, limit: 400)
+                                    let prepared = cachedPreparedText(
+                                        content: displayPatch, style: "diff-file", theme: theme,
+                                        cacheHits: &preparedTextCacheHits, cacheMisses: &preparedTextCacheMisses
+                                    ) { Self.prepareDiffFile(file, displayedPatch: displayPatch, theme: theme) }
+                                    append(ItemDraft(
+                                        id: "\(sectionID):row:\(rowID):diff:\(fileIndex)",
+                                        fingerprint: "diff-file:\(file.path):\(fullPatch)",
+                                        preparedText: prepared,
+                                        code: .init(language: "diff", code: displayPatch),
+                                        copyText: fullPatch,
+                                        accessibilityLabel: "Patch for \(file.path), \(file.added) additions and \(file.removed) removals",
+                                        indentation: 30,
+                                        maxWidthKind: .card
+                                    ))
+                                }
+                            } else if presentation.expandedRowIDs.contains(rowID), let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
@@ -1312,11 +1336,16 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
-    static func label(for row: CodexWorkRowV2) -> String {
+    static func label(for row: CodexWorkRowV2, diffFiles: [CodexDiffFile]? = nil) -> String {
         switch row {
         case .command(let value):
             return (value.status == .inProgress ? "Running " : "Ran ") + value.command.codexAppKitDisplayPrefix(limit: 280)
-        case .fileChange(let value): return "Edited " + value.files.joined(separator: " · ")
+        case .fileChange(let value):
+            guard let diffFiles else { return "Edited " + value.files.joined(separator: " · ") }
+            let added = diffFiles.reduce(0) { $0 + $1.added }
+            let removed = diffFiles.reduce(0) { $0 + $1.removed }
+            let count = max(value.files.count, diffFiles.count)
+            return "Edited \(count) \(count == 1 ? "file" : "files") · +\(added) −\(removed)"
         case .mcpToolCall(let value):
             let app = value.appName.isEmpty ? value.server : value.appName
             let base = "Called \(app) · \(value.tool)"
@@ -1368,6 +1397,47 @@ private extension CodexTranscriptRenderProjector {
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         default: return nil
         }
+    }
+
+    static func patchText(for file: CodexDiffFile) -> String {
+        var lines = ["\(file.path) · +\(file.added) −\(file.removed)"]
+        for hunk in file.hunks {
+            if !hunk.header.isEmpty { lines.append(hunk.header) }
+            lines.append(contentsOf: hunk.lines.map(\.text))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func boundedLines(_ text: String, limit: Int) -> String {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > limit else { return text }
+        return lines.prefix(limit).joined(separator: "\n") + "\n… \(lines.count - limit) more lines"
+    }
+
+    static func prepareDiffFile(
+        _ file: CodexDiffFile,
+        displayedPatch: String,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        let result = NSMutableAttributedString()
+        let lines = displayedPatch.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, lineValue) in lines.enumerated() {
+            let line = String(lineValue)
+            let color: NSColor
+            if index == 0 { color = theme.textPrimary }
+            else if line.hasPrefix("+") && !line.hasPrefix("+++") { color = theme.success }
+            else if line.hasPrefix("-") && !line.hasPrefix("---") { color = theme.danger }
+            else if line.hasPrefix("@@") || line.hasPrefix("… ") { color = theme.textTertiary }
+            else { color = theme.codeText }
+            let font = index == 0
+                ? NSFontManager.shared.convert(theme.codeFont, toHaveTrait: .boldFontMask)
+                : theme.codeFont
+            result.append(NSAttributedString(
+                string: line + (index == lines.count - 1 ? "" : "\n"),
+                attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraphStyle(theme)]
+            ))
+        }
+        return CodexPreparedTranscriptText(result)
     }
 
     static func subagentThreadID(for row: CodexWorkRowV2) -> String? {

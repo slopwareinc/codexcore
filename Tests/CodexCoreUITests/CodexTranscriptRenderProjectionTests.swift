@@ -34,6 +34,44 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(content[2].preparedText?.attributedString.string.contains("After the handoff") == true)
     }
 
+    @Test func expandedFileChangeProjectsOneColoredPatchItemPerFile() async throws {
+        let diff = """
+        diff --git a/A.swift b/A.swift
+        --- a/A.swift
+        +++ b/A.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        diff --git a/B.swift b/B.swift
+        --- a/B.swift
+        +++ b/B.swift
+        @@ -0,0 +1 @@
+        +added
+        """
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "work", rows: [.fileChange(.init(
+                id: "files", files: ["A.swift", "B.swift"], status: .completed, diff: diff
+            ))]))],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread", transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: ["turn"], expandedRowIDs: ["files"]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+        let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange })
+        #expect(row.workRow?.label == "Edited 2 files · +2 −1")
+        let patches = snapshot.orderedItemIDs.compactMap { snapshot.itemsByID[$0] }.filter { $0.code?.language == "diff" }
+        #expect(patches.count == 2)
+        #expect(patches[0].copyText?.contains("A.swift") == true)
+        #expect(patches[1].copyText?.contains("B.swift") == true)
+    }
+
+
     @Test func streamingAnswerKeepsOnlyLiveWorkChipVisible() async throws {
         let projector = CodexTranscriptRenderProjector()
         let turn = CodexTurnV2(
