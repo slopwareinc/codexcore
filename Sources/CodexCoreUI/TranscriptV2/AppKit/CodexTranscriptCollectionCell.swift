@@ -70,6 +70,15 @@ final class CodexSelectableTranscriptTextView: NSTextView {
         }
         setAccessibilityLabel(accessibilityLabel)
     }
+
+    func configureLinkAppearance(theme: CodexTranscriptAppKitTheme, automaticDetection: Bool) {
+        isAutomaticLinkDetectionEnabled = automaticDetection
+        linkTextAttributes = [
+            .foregroundColor: theme.accent,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+        displaysLinkToolTips = true
+    }
 }
 
 @MainActor
@@ -271,31 +280,22 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
         if let footer = item.footer {
             configureFooter(footer, item: item, theme: appKitTheme)
-        } else if let preparedText = item.preparedText {
-            textScrollView.isHidden = false
-            textScrollView.hasHorizontalScroller = false
-            selectableTextView.isHorizontallyResizable = false
-            selectableTextView.textContainer?.widthTracksTextView = true
-            selectableTextView.bind(
-                preparedText.attributedString,
-                accessibilityLabel: item.accessibilityLabel,
-                preserving: selectionToRestore
-            )
-            if item.textRole == .user || item.textRole == .expandedOutput {
-                backgroundView.isHidden = false
-            }
-            copyButton.isHidden = item.textRole != .expandedOutput
         } else if let code = item.code {
             textScrollView.isHidden = false
             textScrollView.hasHorizontalScroller = true
             selectableTextView.isHorizontallyResizable = true
             selectableTextView.textContainer?.widthTracksTextView = false
-            selectableTextView.bind(
-                NSAttributedString(string: code.code, attributes: [
+            let codeText = item.preparedText?.attributedString ?? NSAttributedString(
+                string: code.code,
+                attributes: [
                     .font: appKitTheme.codeFont,
                     .foregroundColor: appKitTheme.codeText,
                     .paragraphStyle: Self.paragraphStyle(appKitTheme)
-                ]),
+                ]
+            )
+            selectableTextView.configureLinkAppearance(theme: appKitTheme, automaticDetection: false)
+            selectableTextView.bind(
+                codeText,
                 accessibilityLabel: item.accessibilityLabel,
                 preserving: selectionToRestore
             )
@@ -305,6 +305,24 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             codeLanguageLabel.font = appKitTheme.captionFont
             codeLanguageLabel.textColor = appKitTheme.codeFaint
             copyButton.isHidden = false
+        } else if let preparedText = item.preparedText {
+            textScrollView.isHidden = false
+            textScrollView.hasHorizontalScroller = false
+            selectableTextView.isHorizontallyResizable = false
+            selectableTextView.textContainer?.widthTracksTextView = true
+            selectableTextView.configureLinkAppearance(
+                theme: appKitTheme,
+                automaticDetection: item.textRole == .expandedOutput
+            )
+            selectableTextView.bind(
+                preparedText.attributedString,
+                accessibilityLabel: item.accessibilityLabel,
+                preserving: selectionToRestore
+            )
+            if item.textRole == .user || item.textRole == .expandedOutput {
+                backgroundView.isHidden = false
+            }
+            copyButton.isHidden = item.textRole != .expandedOutput
         } else if let header = item.workHeader {
             actionButton.isHidden = false
             actionButton.font = appKitTheme.captionFont

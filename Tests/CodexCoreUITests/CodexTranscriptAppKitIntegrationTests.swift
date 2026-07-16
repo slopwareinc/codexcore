@@ -225,7 +225,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(NSPasteboard.general.string(forType: .string) == "Hello")
     }
 
-    @Test func streamingTurnIsNotSelectableUntilCompletionWhileOlderTurnsRemainSelectable() async throws {
+    @Test func streamingAndCompletedTurnsRemainSelectableWithoutCompletionReconfigure() async throws {
         let projector = CodexTranscriptRenderProjector()
         let completed = CodexTurnV2(
             id: "completed",
@@ -257,7 +257,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(!olderTextItems.isEmpty)
         #expect(olderTextItems.allSatisfy { $0.allowsTextSelection })
         #expect(!liveTextItems.isEmpty)
-        #expect(liveTextItems.allSatisfy { !$0.allowsTextSelection })
+        #expect(liveTextItems.allSatisfy { $0.allowsTextSelection })
         let liveFooter = try #require(liveSnapshot.itemsByID.values.first {
             $0.turnID == "streaming" && $0.footer?.kind == .finalAnswer
         })
@@ -277,7 +277,8 @@ struct CodexTranscriptAppKitIntegrationTests {
             $0.turnID == "streaming" && ($0.preparedText != nil || $0.code != nil) && $0.footer == nil
         }
         #expect(completedLiveTextItems.allSatisfy { $0.allowsTextSelection })
-        #expect(completedLiveTextItems.allSatisfy { completedSnapshot.changedItemIDs.contains($0.id) })
+        let stableUserID = try #require(liveTextItems.first { $0.textRole == .user }?.id)
+        #expect(!completedSnapshot.changedItemIDs.contains(stableUserID))
         let completedFooter = try #require(completedSnapshot.itemsByID.values.first {
             $0.turnID == "streaming" && $0.footer?.kind == .finalAnswer
         })

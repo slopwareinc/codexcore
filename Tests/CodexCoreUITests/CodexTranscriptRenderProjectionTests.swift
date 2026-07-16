@@ -6,6 +6,83 @@ import Testing
 
 @MainActor
 struct CodexTranscriptRenderProjectionTests {
+    @Test func markdownLinksNestedListsAndCompletedCodeCarryExplicitStyling() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let markdown = """
+        Read [the docs](https://example.com/docs).
+
+        1. first
+        2. second
+           1. nested one
+           2. nested two
+        3. third
+
+        ```swift
+        let answer = "forty two"
+        ```
+        """
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "final", text: markdown, isStreaming: false),
+                status: .done(durationMs: 1)
+            )])
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let prose = try #require(snapshot.itemsByID.values.first { $0.textRole == .finalAnswer })
+        let attributed = try #require(prose.preparedText?.attributedString)
+        let docsRange = (attributed.string as NSString).range(of: "the docs")
+        #expect(attributed.attribute(.link, at: docsRange.location, effectiveRange: nil) != nil)
+        #expect(attributed.attribute(.foregroundColor, at: docsRange.location, effectiveRange: nil) as? NSColor == theme.accent)
+        #expect((attributed.attribute(.underlineStyle, at: docsRange.location, effectiveRange: nil) as? Int) == NSUnderlineStyle.single.rawValue)
+
+        let nestedRange = (attributed.string as NSString).range(of: "nested one")
+        let nestedStyle = try #require(attributed.attribute(
+            .paragraphStyle,
+            at: nestedRange.location,
+            effectiveRange: nil
+        ) as? NSParagraphStyle)
+        #expect(nestedStyle.firstLineHeadIndent == 24)
+        #expect(nestedStyle.headIndent == 48)
+        #expect(attributed.string.contains("1.\tnested one\n2.\tnested two"))
+
+        let code = try #require(snapshot.itemsByID.values.first { $0.code != nil })
+        let highlighted = try #require(code.preparedText?.attributedString)
+        let keywordRange = (highlighted.string as NSString).range(of: "let")
+        let stringRange = (highlighted.string as NSString).range(of: "\"forty two\"")
+        #expect(highlighted.attribute(.foregroundColor, at: keywordRange.location, effectiveRange: nil) as? NSColor == theme.codeKeyword)
+        #expect(highlighted.attribute(.foregroundColor, at: stringRange.location, effectiveRange: nil) as? NSColor == theme.codeString)
+    }
+
+    @Test func incompleteStreamingCodeStaysPlainUntilStable() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "final", text: "```swift\nlet answer = 42", isStreaming: true),
+                status: .working(since: 1)
+            )])
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let code = try #require(snapshot.itemsByID.values.first { $0.code != nil })
+        let attributed = try #require(code.preparedText?.attributedString)
+        let keywordRange = (attributed.string as NSString).range(of: "let")
+        #expect(attributed.attribute(.foregroundColor, at: keywordRange.location, effectiveRange: nil) as? NSColor == theme.codeText)
+        #expect(code.allowsTextSelection)
+    }
+
     @Test func shortUserMessageIsPlainTextAndUsesIntrinsicBubbleWidth() async throws {
         let projector = CodexTranscriptRenderProjector()
         let presentation = CodexThreadUIPresentation(

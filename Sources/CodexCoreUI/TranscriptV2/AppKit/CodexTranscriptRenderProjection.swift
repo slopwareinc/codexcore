@@ -150,6 +150,10 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
     var danger: NSColor
     var running: NSColor
     var accent: NSColor
+    var codeKeyword: NSColor
+    var codeString: NSColor
+    var codeComment: NSColor
+    var codeNumber: NSColor
     var bubbleRadius: CGFloat
     var cardRadius: CGFloat
     var lineSpacing: CGFloat
@@ -179,6 +183,10 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
         danger = NSColor(theme.colors.danger)
         running = NSColor(theme.colors.running)
         accent = NSColor(theme.colors.accent)
+        codeKeyword = NSColor(theme.colors.codeKeyword)
+        codeString = NSColor(theme.colors.codeString)
+        codeComment = NSColor(theme.colors.codeComment)
+        codeNumber = NSColor(theme.colors.codeNumber)
         bubbleRadius = theme.radii.bubble
         cardRadius = theme.radii.medium
         lineSpacing = theme.spacing.chatLineSpacing
@@ -188,7 +196,10 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
         fingerprint = [
             bodyFont.fontName, String(describing: bodyFont.pointSize), codeFont.fontName,
             String(describing: codeFont.pointSize), String(describing: textPrimary),
-            String(describing: userBubble), String(describing: lineSpacing)
+            String(describing: userBubble), String(describing: codeHeader),
+            String(describing: codeKeyword), String(describing: codeString),
+            String(describing: codeComment), String(describing: codeNumber),
+            String(describing: accent), String(describing: lineSpacing)
         ].joined(separator: ":")
     }
 }
@@ -213,6 +224,7 @@ actor CodexTranscriptRenderProjector {
     private var preparedTextByKey: [String: CodexPreparedTranscriptText] = [:]
     private var preparedTextInsertionOrder: [String] = []
     private var projectionCount = 0
+    private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
 
     func project(
         presentation: CodexThreadUIPresentation,
@@ -244,12 +256,9 @@ actor CodexTranscriptRenderProjector {
 
             func append(_ draft: ItemDraft) {
                 let id = CodexTranscriptRenderItemID(rawValue: draft.id)
-                let allowsTextSelection = !turnIsStreaming
-                    && draft.footer == nil
+                let allowsTextSelection = draft.footer == nil
                     && (draft.preparedText != nil || draft.code != nil)
-                let contentFingerprint = CodexBlockDigest.digest(
-                    "\(draft.fingerprint):selectable:\(allowsTextSelection)"
-                )
+                let contentFingerprint = CodexBlockDigest.digest(draft.fingerprint)
                 let previous = revisionByID[id]
                 let revision: Int
                 if previous?.fingerprint == contentFingerprint {
@@ -762,11 +771,27 @@ private extension CodexTranscriptRenderProjector {
         cacheMisses: inout Int
     ) -> ItemDraft {
         switch block {
-        case .code(let id, let language, let code, _):
+        case .code(let id, let language, let code, let complete):
+            let displayCode = code.count > 40_000 ? Self.bounded(code, limit: 40_000) : code
+            let prepared = cachedPreparedText(
+                content: displayCode,
+                style: "code-\(language ?? "plain")-\(complete ? "stable" : "streaming")",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) { [codeHighlighter] in
+                if complete,
+                   code.count <= 40_000,
+                   let highlighted = codeHighlighter.highlight(code, language: language, theme: theme) {
+                    return CodexPreparedTranscriptText(highlighted)
+                }
+                return Self.preparePlain(displayCode, font: theme.codeFont, color: theme.codeText, theme: theme)
+            }
             return ItemDraft(
                 id: itemID ?? id,
-                fingerprint: "code:\(language ?? ""):\(code)",
-                code: CodexTranscriptCodeRender(language: language, code: code),
+                fingerprint: "code:\(complete):\(language ?? ""):\(code)",
+                preparedText: prepared,
+                code: CodexTranscriptCodeRender(language: language, code: displayCode),
                 copyText: code,
                 accessibilityLabel: "Code block \(language ?? "code"): \(code)",
                 maxWidthKind: .card
@@ -875,10 +900,42 @@ private extension CodexTranscriptRenderProjector {
             let font = NSFontManager.shared.convert(.systemFont(ofSize: size), toHaveTrait: .boldFontMask)
             return preparePlain(text, font: font, color: theme.textPrimary, theme: theme)
         case .list(_, let ordered, let items):
-            let text = items.enumerated().map { index, item in
-                String(repeating: "  ", count: item.depth) + (ordered ? "\(index + 1). " : "• ") + item.text
-            }.joined(separator: "\n")
-            return prepareMarkdown(text, font: theme.bodyFont, color: color(for: role, theme: theme), theme: theme)
+            let result = NSMutableAttributedString()
+            var counters: [Int: Int] = [:]
+            for item in items {
+                counters.keys.filter { $0 > item.depth }.forEach { counters.removeValue(forKey: $0) }
+                counters[item.depth, default: 0] += 1
+                let marker = ordered ? "\(counters[item.depth]!).\t" : "•\t"
+                let style = NSMutableParagraphStyle()
+                style.lineSpacing = theme.lineSpacing
+                style.paragraphSpacing = 4
+                let indent = CGFloat(item.depth) * 24
+                style.firstLineHeadIndent = indent
+                style.headIndent = indent + 24
+                style.tabStops = [NSTextTab(textAlignment: .left, location: indent + 24)]
+                let line = NSMutableAttributedString(string: marker, attributes: [
+                    .font: theme.bodyFont,
+                    .foregroundColor: color(for: role, theme: theme),
+                    .paragraphStyle: style
+                ])
+                let content = NSMutableAttributedString(attributedString: prepareMarkdown(
+                    item.text,
+                    font: theme.bodyFont,
+                    color: color(for: role, theme: theme),
+                    theme: theme
+                ).attributedString)
+                if content.length > 0 {
+                    content.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: content.length))
+                }
+                line.append(content)
+                line.append(NSAttributedString(string: "\n", attributes: [
+                    .font: theme.bodyFont,
+                    .foregroundColor: color(for: role, theme: theme),
+                    .paragraphStyle: style
+                ]))
+                result.append(line)
+            }
+            return CodexPreparedTranscriptText(result)
         case .table(_, let model):
             return prepareTable(model, role: role, theme: theme)
         case .code:
@@ -899,7 +956,7 @@ private extension CodexTranscriptRenderProjector {
         ]
         for block in blocks where block.length > 0 {
             if result.length > 0 {
-                let separator = result.string.hasSuffix("\n") ? "\n" : "\n\n"
+                let separator = "\n"
                 result.append(NSAttributedString(string: separator, attributes: separatorAttributes))
             }
             result.append(block)
@@ -937,6 +994,13 @@ private extension CodexTranscriptRenderProjector {
                 if !traits.isEmpty { resolved = NSFontManager.shared.convert(font, toHaveTrait: traits) }
             }
             result.addAttribute(.font, value: resolved, range: range)
+        }
+        parsed.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+            guard value != nil else { return }
+            result.addAttributes([
+                .foregroundColor: theme.accent,
+                .underlineStyle: NSUnderlineStyle.single.rawValue
+            ], range: range)
         }
         return CodexPreparedTranscriptText(result)
     }
@@ -1020,6 +1084,7 @@ private extension CodexTranscriptRenderProjector {
     static func paragraphStyle(_ theme: CodexTranscriptAppKitTheme) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = theme.lineSpacing
+        style.paragraphSpacing = 10
         return style
     }
 
