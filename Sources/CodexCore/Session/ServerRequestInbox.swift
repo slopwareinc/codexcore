@@ -1,15 +1,13 @@
 import Foundation
 
-/// Revisioned sanitized ledger view used by atomic session-state projections.
-/// Unlike the typed inbox below, this contains placement/correlation metadata
-/// only and is safe for transcript and attention-state projection.
+/// Revisioned pending-only view used by atomic session-state projections.
 public struct CodexServerRequestSnapshotBatch: Sendable, Equatable {
     public let revision: StateRevision
-    public let requests: [CodexServerRequestSnapshot]
+    public let requests: [CodexPendingInteractionSnapshot]
 
     public init(
         revision: StateRevision,
-        requests: [CodexServerRequestSnapshot]
+        requests: [CodexPendingInteractionSnapshot]
     ) {
         self.revision = revision
         self.requests = requests
@@ -55,20 +53,20 @@ public extension CodexServerRequestInboxObserving {
     }
 }
 
-/// One pending inbox entry. The ledger snapshot provides stable placement and
+/// One pending inbox entry. The snapshot provides stable placement and
 /// correlation metadata; the body is a deliberately smaller presentation
-/// projection with no handler, continuation, response, or terminal result.
+/// projection with no handler, continuation, or response value.
 public struct CodexServerRequestInboxEntry: Sendable, Equatable {
     public let key: CodexServerRequestKey
-    public let ledgerSnapshot: CodexServerRequestSnapshot
+    public let snapshot: CodexPendingInteractionSnapshot
     public let body: CodexServerRequestInboxBody
 
     public init(
-        ledgerSnapshot: CodexServerRequestSnapshot,
+        snapshot: CodexPendingInteractionSnapshot,
         body: CodexServerRequestInboxBody
     ) {
-        self.key = ledgerSnapshot.key
-        self.ledgerSnapshot = ledgerSnapshot
+        self.key = snapshot.key
+        self.snapshot = snapshot
         self.body = body
     }
 }

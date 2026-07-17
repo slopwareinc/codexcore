@@ -321,7 +321,7 @@ private func inbox(
     .init(revision: StateRevision(revision), requests: entries)
 }
 
-private func ledgerSnapshot(
+private func pendingSnapshot(
     key: CodexServerRequestKey,
     kind: CodexServerRequestKind,
     sequence: UInt64,
@@ -330,16 +330,14 @@ private func ledgerSnapshot(
         turnID: "turn-1",
         itemID: "item-1"
     )
-) -> CodexServerRequestSnapshot {
+) -> CodexPendingInteractionSnapshot {
     .init(
         key: key,
         method: kind.method,
         kind: kind,
         scope: scope,
         approvalCorrelation: nil,
-        registrationSequence: sequence,
-        registeredRevision: sequence + 1,
-        state: .pending
+        arrivalOrdinal: sequence
     )
 }
 
@@ -350,7 +348,7 @@ private func commandEntry(
 ) -> CodexServerRequestInboxEntry {
     let kind: CodexServerRequestKind = legacy ? .legacyExecCommandApproval : .commandApproval
     return .init(
-        ledgerSnapshot: ledgerSnapshot(key: key, kind: kind, sequence: sequence),
+        snapshot: pendingSnapshot(key: key, kind: kind, sequence: sequence),
         body: .commandApproval(.init(
             callID: legacy ? "legacy-call" : nil,
             command: "git status",
@@ -381,7 +379,7 @@ private func fileEntry(
 ) -> CodexServerRequestInboxEntry {
     let kind: CodexServerRequestKind = legacy ? .legacyApplyPatchApproval : .fileChangeApproval
     return .init(
-        ledgerSnapshot: ledgerSnapshot(key: key, kind: kind, sequence: sequence),
+        snapshot: pendingSnapshot(key: key, kind: kind, sequence: sequence),
         body: .fileChangeApproval(.init(
             callID: legacy ? "patch-call" : nil,
             fileChanges: legacy ? ["Sources/App.swift": .add(content: "new file")] : nil,
@@ -397,7 +395,7 @@ private func permissionsEntry(
     sequence: UInt64
 ) -> CodexServerRequestInboxEntry {
     .init(
-        ledgerSnapshot: ledgerSnapshot(key: key, kind: .permissionsApproval, sequence: sequence),
+        snapshot: pendingSnapshot(key: key, kind: .permissionsApproval, sequence: sequence),
         body: .permissionsApproval(.init(
             cwd: "/tmp/project",
             permissions: requestedPermissions,
@@ -414,7 +412,7 @@ private func userInputEntry(
     isSecret: Bool = false
 ) -> CodexServerRequestInboxEntry {
     .init(
-        ledgerSnapshot: ledgerSnapshot(key: key, kind: .userInput, sequence: sequence),
+        snapshot: pendingSnapshot(key: key, kind: .userInput, sequence: sequence),
         body: .userInput(.init(
             questions: [.init(
                 id: isSecret ? "secret" : "confirm",
@@ -442,7 +440,7 @@ private func mcpEntry(
     ]))
 ) -> CodexServerRequestInboxEntry {
     .init(
-        ledgerSnapshot: ledgerSnapshot(key: key, kind: .mcpElicitation, sequence: sequence),
+        snapshot: pendingSnapshot(key: key, kind: .mcpElicitation, sequence: sequence),
         body: .mcpElicitation(.init(
             serverName: "calendar",
             message: "Allow calendar access?",
@@ -457,7 +455,7 @@ private func unsupportedEntry(
     kind: CodexServerRequestKind
 ) -> CodexServerRequestInboxEntry {
     .init(
-        ledgerSnapshot: ledgerSnapshot(
+        snapshot: pendingSnapshot(
             key: key,
             kind: kind,
             sequence: sequence,
@@ -534,7 +532,7 @@ private actor PromptAdapterFake: CodexPromptSessionAdapter {
         result: CodexJSONValue
     ) throws {
         guard terminalKeys.insert(key).inserted else {
-            throw CodexSessionError.serverRequestAlreadyTerminal(key)
+            throw CodexSessionError.unknownServerRequest(key)
         }
         resolutions.append(.init(key: key, result: result))
     }
@@ -544,7 +542,7 @@ private actor PromptAdapterFake: CodexPromptSessionAdapter {
         error: CodexServerRequestResponseError
     ) throws {
         guard terminalKeys.insert(key).inserted else {
-            throw CodexSessionError.serverRequestAlreadyTerminal(key)
+            throw CodexSessionError.unknownServerRequest(key)
         }
         failures.append(.init(key: key, error: error))
     }
@@ -583,7 +581,7 @@ private extension Result where Success == CodexPromptStateActivity?, Failure == 
     var isAlreadyTerminal: Bool {
         guard case .failure(let error) = self,
               let sessionError = error as? CodexSessionError,
-              case .serverRequestAlreadyTerminal = sessionError else { return false }
+              case .unknownServerRequest = sessionError else { return false }
         return true
     }
 }

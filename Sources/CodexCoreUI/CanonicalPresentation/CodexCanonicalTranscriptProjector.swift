@@ -12,7 +12,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
     public func rebuild(
         snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
-        requests: [CodexServerRequestSnapshot] = [],
+        requests: [CodexPendingInteractionSnapshot] = [],
         requestRevision: UInt64 = 0
     ) -> CodexCanonicalTranscriptProjectionResult {
         // A nil previous value cannot produce a stale-revision error.
@@ -28,7 +28,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
     public func project(
         snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
-        requests: [CodexServerRequestSnapshot] = [],
+        requests: [CodexPendingInteractionSnapshot] = [],
         requestRevision: UInt64 = 0,
         previous: CodexCanonicalTranscriptPresentation?
     ) throws -> CodexCanonicalTranscriptProjectionResult {
@@ -44,16 +44,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
             )
         }
 
-        let effectiveRequestRevision = requests.reduce(requestRevision) { revision, request in
-            let lifecycleRevision: UInt64
-            switch request.state {
-            case .pending:
-                lifecycleRevision = request.registeredRevision
-            case .terminal(let terminal):
-                lifecycleRevision = terminal.revision
-            }
-            return max(revision, lifecycleRevision)
-        }
+        let effectiveRequestRevision = requestRevision
         if let previous,
            previous.threadID == threadID,
            effectiveRequestRevision < previous.requestSourceRevision {
@@ -267,15 +258,15 @@ private extension CodexCanonicalTranscriptProjector {
     }
 
     func requestPresentations(
-        _ requests: [CodexServerRequestSnapshot],
+        _ requests: [CodexPendingInteractionSnapshot],
         threadID: ThreadID
     ) -> [CodexTranscriptRequestPresentation] {
-        let pending: [CodexServerRequestSnapshot] = requests.filter { request in
-            request.isPending && request.scope.threadID.map { ThreadID($0) } == threadID
+        let pending: [CodexPendingInteractionSnapshot] = requests.filter { request in
+            request.scope.threadID.map { ThreadID($0) } == threadID
         }
-        let sorted: [CodexServerRequestSnapshot] = pending.sorted { lhs, rhs in
-                if lhs.registrationSequence != rhs.registrationSequence {
-                    return lhs.registrationSequence < rhs.registrationSequence
+        let sorted: [CodexPendingInteractionSnapshot] = pending.sorted { lhs, rhs in
+                if lhs.arrivalOrdinal != rhs.arrivalOrdinal {
+                    return lhs.arrivalOrdinal < rhs.arrivalOrdinal
                 }
                 if lhs.key.connectionEpoch != rhs.key.connectionEpoch {
                     return lhs.key.connectionEpoch < rhs.key.connectionEpoch

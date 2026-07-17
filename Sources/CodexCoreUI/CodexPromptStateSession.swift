@@ -36,12 +36,9 @@ public struct CodexPromptStateSession: Equatable, Sendable {
     ) -> [CodexPromptStateActivity] {
         if let revision, snapshot.revision < revision { return [] }
 
-        let entries = snapshot.requests
-            .filter(\.ledgerSnapshot.isPending)
-            .sorted {
-                $0.ledgerSnapshot.registrationSequence
-                    < $1.ledgerSnapshot.registrationSequence
-            }
+        let entries = snapshot.requests.sorted {
+            $0.snapshot.arrivalOrdinal < $1.snapshot.arrivalOrdinal
+        }
         let currentKeys = Set(entries.map(\.key))
         presentedAtByKey = presentedAtByKey.filter { currentKeys.contains($0.key) }
 

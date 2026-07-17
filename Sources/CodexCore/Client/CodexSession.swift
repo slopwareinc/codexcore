@@ -151,7 +151,6 @@ public enum CodexSessionError: Error, Sendable, Equatable, LocalizedError {
     case stateCommitFailed(String)
     case historyReconciliationFailed(threadID: ThreadID, message: String)
     case unknownServerRequest(CodexServerRequestKey)
-    case serverRequestAlreadyTerminal(CodexServerRequestKey)
     case anonymousLoginAlreadyInProgress(connectionEpoch: UInt64)
     case loginCancellationNotFound(CodexLoginKey)
     case loginCancellationDidNotCancel(CodexLoginKey)
@@ -182,8 +181,6 @@ public enum CodexSessionError: Error, Sendable, Equatable, LocalizedError {
             "History reconciliation for \(threadID) failed: \(message)"
         case .unknownServerRequest(let key):
             "No server request exists for epoch \(key.connectionEpoch), id \(key.requestID)."
-        case .serverRequestAlreadyTerminal(let key):
-            "Server request epoch \(key.connectionEpoch), id \(key.requestID) is already terminal."
         case .anonymousLoginAlreadyInProgress(let epoch):
             "Connection epoch \(epoch) already has an unresolved anonymous login."
         case .loginCancellationNotFound(let key):
@@ -565,8 +562,7 @@ public actor CodexSession:
     private var reducer = CanonicalStateReducer()
     private let adapter = ProtocolStateAdapter()
     private let journal: StateChangeJournal
-    private var serverRequests = CodexServerRequestLedger()
-    private var parsedServerRequests: [CodexServerRequestKey: CodexParsedServerRequest] = [:]
+    private var interactions = CodexInteractionInbox()
     private var serverRequestTasks: [CodexServerRequestKey: Task<Void, Never>] = [:]
     private var serverRequestThreadLeases: [CodexServerRequestKey: ThreadLeaseToken] = [:]
     private var leases = ThreadLeaseRegistry()
@@ -794,7 +790,7 @@ public actor CodexSession:
         graph.threadIndexSnapshot(
             attentionRevisions: threadAttentionRevisions,
             pendingRequestThreadIDs: Set(
-                serverRequests.pendingSnapshots().compactMap { snapshot in
+                interactions.pendingSnapshots().compactMap { snapshot in
                     snapshot.scope.threadID.map { ThreadID($0) }
                 }
             )
@@ -807,8 +803,8 @@ public actor CodexSession:
         }
     }
 
-    public func pendingServerRequests() -> [CodexServerRequestSnapshot] {
-        serverRequests.pendingSnapshots()
+    public func pendingServerRequests() -> [CodexPendingInteractionSnapshot] {
+        interactions.pendingSnapshots()
     }
 
     public func serverRequestSnapshotBatch(
@@ -867,7 +863,7 @@ public actor CodexSession:
     public func serverRequest(
         for key: CodexServerRequestKey
     ) -> CodexParsedServerRequest? {
-        parsedServerRequests[key]
+        interactions.parsedRequest(for: key)
     }
 
     /// Registers an exact, epoch-scoped auxiliary-operation channel. Call this
@@ -901,18 +897,18 @@ public actor CodexSession:
         _ key: CodexServerRequestKey,
         result: CodexJSONValue
     ) throws {
-        guard let parsed = parsedServerRequests[key] else {
+        guard let parsed = interactions.parsedRequest(for: key) else {
             throw CodexSessionError.unknownServerRequest(key)
         }
         _ = try parsed.validate(result: result)
-        try applyServerRequestResolution(serverRequests.resolve(key, result: result))
+        try completeServerRequest(key, reply: .result(result))
     }
 
     public func failServerRequest(
         _ key: CodexServerRequestKey,
         error: CodexServerRequestResponseError
     ) throws {
-        try applyServerRequestResolution(serverRequests.fail(key, error: error))
+        try completeServerRequest(key, reply: .error(error))
     }
 
     /// Starts a login transaction and binds its later terminal notification to
@@ -1619,18 +1615,15 @@ private extension CodexSession {
         }
 
         outboundFrames.removeAll { $0.connectionEpoch == epoch }
-        for transition in serverRequests.disconnect(connectionEpoch: epoch) {
-            try? commitRequestLedgerTransition(transition.snapshot)
-            serverRequestTasks.removeValue(forKey: transition.snapshot.key)?.cancel()
-            parsedServerRequests.removeValue(forKey: transition.snapshot.key)
-            releaseThreadForServerRequest(transition.snapshot.key)
+        for request in interactions.disconnect(connectionEpoch: epoch) {
+            try? commitRequestInvalidation(scope: request.registration.scope)
+            serverRequestTasks.removeValue(forKey: request.key)?.cancel()
+            releaseThreadForServerRequest(request.key)
         }
         for key in Array(serverRequestThreadLeases.keys)
         where key.connectionEpoch == epoch {
             releaseThreadForServerRequest(key)
         }
-        serverRequests.removeTerminalEntries(connectionEpoch: epoch)
-
         if shouldRun, lifecycle != .closing {
             lifecycle = .reconnecting(
                 afterConnectionEpoch: epoch,
@@ -2144,50 +2137,36 @@ private extension CodexSession {
                 method: request.method,
                 params: request.params
             )
-            switch serverRequests.register(parsed.registration) {
-            case .duplicate:
+            switch interactions.register(parsed) {
+            case .identicalDuplicate:
+                return
+            case .conflictingDuplicate:
                 abortConnection(
                     cursor.connectionEpoch,
                     error: CodexSessionError.protocolViolation(
-                        "Duplicate server request id \(request.id) in one epoch"
+                        "Conflicting server request id \(request.id) in one epoch"
                     )
                 )
             case .registered(let snapshot):
-                try commitRequestLedgerTransition(snapshot)
-                parsedServerRequests[key] = parsed
+                try commitRequestInvalidation(scope: snapshot.scope)
                 guard retainThreadForServerRequest(parsed) else { return }
                 startServerRequestHandler(parsed)
             }
         } catch {
-            let registration = CodexServerRequestRegistration(
-                key: key,
-                method: request.method
-            )
-            switch serverRequests.register(registration) {
-            case .duplicate:
-                abortConnection(
-                    cursor.connectionEpoch,
-                    error: CodexSessionError.protocolViolation(
-                        "Duplicate malformed server request id \(request.id)"
-                    )
-                )
-            case .registered(let snapshot):
-                do {
-                    try commitRequestLedgerTransition(snapshot)
-                    try applyServerRequestResolution(serverRequests.fail(
-                        key,
-                        error: .init(
-                            code: -32_602,
-                            message: "Invalid app-server request parameters",
-                            data: .dictionary([
-                                "method": .string(request.method),
-                                "detail": .string(String(describing: error)),
-                            ])
-                        )
+            do {
+                try enqueueServerResponse(
+                    key: key,
+                    reply: .error(.init(
+                        code: -32_602,
+                        message: "Invalid app-server request parameters",
+                        data: .dictionary([
+                            "method": .string(request.method),
+                            "detail": .string(String(describing: error)),
+                        ])
                     ))
-                } catch {
-                    abortConnection(cursor.connectionEpoch, error: error)
-                }
+                )
+            } catch {
+                abortConnection(cursor.connectionEpoch, error: error)
             }
         }
     }
@@ -2224,26 +2203,26 @@ private extension CodexSession {
         try updateThreadDetailRetention(for: batch.affectedThreadIDs)
     }
 
-    func commitRequestLedgerTransition(
-        _ snapshot: CodexServerRequestSnapshot
+    func commitRequestInvalidation(
+        scope: CodexServerRequestScope
     ) throws {
         guard graph.revision.rawValue < UInt64.max else {
             throw CodexSessionError.stateCommitFailed("State revision space exhausted")
         }
         graph.revision = graph.revision.successor
 
-        let threadIDs = snapshot.scope.threadID.map { Set([ThreadID($0)]) } ?? []
+        let threadIDs = scope.threadID.map { Set([ThreadID($0)]) } ?? []
         let turnKeys: Set<TurnKey>
-        if let threadID = snapshot.scope.threadID,
-           let turnID = snapshot.scope.turnID {
+        if let threadID = scope.threadID,
+           let turnID = scope.turnID {
             turnKeys = [.init(threadID: .init(threadID), turnID: .init(turnID))]
         } else {
             turnKeys = []
         }
         let itemKeys: Set<ItemKey>
-        if let threadID = snapshot.scope.threadID,
-           let turnID = snapshot.scope.turnID,
-           let itemID = snapshot.scope.itemID {
+        if let threadID = scope.threadID,
+           let turnID = scope.turnID,
+           let itemID = scope.itemID {
             itemKeys = [.init(
                 threadID: .init(threadID),
                 turnID: .init(turnID),
@@ -2278,9 +2257,14 @@ private extension CodexSession {
     }
 }
 
-// MARK: - Server-request ledger transaction
+// MARK: - Server-originated interactions
 
 private extension CodexSession {
+    enum ServerRequestReply {
+        case result(CodexJSONValue)
+        case error(CodexServerRequestResponseError)
+    }
+
     func loginIdentity(in value: CodexJSONValue) throws -> CodexLoginIdentity {
         guard case .dictionary(let object) = value,
               case .string(let type)? = object["type"] else {
@@ -2378,37 +2362,37 @@ private extension CodexSession {
         do {
             switch outcome {
             case .pending:
-                guard let request = parsedServerRequests[key] else { return }
+                guard let request = interactions.parsedRequest(for: key) else { return }
                 applyDefaultServerRequestPolicy(request)
 
             case .result(let result):
-                guard let parsed = parsedServerRequests[key] else { return }
+                guard let parsed = interactions.parsedRequest(for: key) else { return }
                 do {
                     _ = try parsed.validate(result: result)
-                    try applyServerRequestResolution(
-                        serverRequests.resolve(key, result: result),
-                        tolerateTerminal: true
+                    try completeServerRequest(
+                        key,
+                        reply: .result(result),
+                        tolerateMissing: true
                     )
                 } catch {
-                    try applyServerRequestResolution(
-                        serverRequests.fail(
-                            key,
-                            error: .init(
-                                code: -32_603,
-                                message: "Client produced an invalid server-request result",
-                                data: .dictionary([
-                                    "detail": .string(String(describing: error))
-                                ])
-                            )
-                        ),
-                        tolerateTerminal: true
+                    try completeServerRequest(
+                        key,
+                        reply: .error(.init(
+                            code: -32_603,
+                            message: "Client produced an invalid server-request result",
+                            data: .dictionary([
+                                "detail": .string(String(describing: error))
+                            ])
+                        )),
+                        tolerateMissing: true
                     )
                 }
 
             case .error(let error):
-                try applyServerRequestResolution(
-                    serverRequests.fail(key, error: error),
-                    tolerateTerminal: true
+                try completeServerRequest(
+                    key,
+                    reply: .error(error),
+                    tolerateMissing: true
                 )
 
             }
@@ -2486,7 +2470,7 @@ private extension CodexSession {
             connectionEpoch: cursor.connectionEpoch,
             requestID: id
         )
-        guard let pending = serverRequests.snapshot(for: key) else {
+        guard let pending = interactions.parsedRequest(for: key) else {
             operations.recordDiagnostic(
                 kind: .lateServerRequestResolution,
                 method: notification.method,
@@ -2497,78 +2481,69 @@ private extension CodexSession {
             try? commitSessionInvalidation(fields: .diagnostics)
             return
         }
-        guard pending.scope.threadID == resolved.threadID else {
-            throw CodexSessionError.protocolViolation(
-                "serverRequest/resolved threadId \(resolved.threadID) does not match pending request scope \(pending.scope.threadID ?? "global")"
+        if pending.registration.scope.threadID != resolved.threadID {
+            operations.recordDiagnostic(
+                kind: .lateServerRequestResolution,
+                method: notification.method,
+                cursor: cursor,
+                keyDescription: String(describing: id),
+                detail: "Resolution threadId \(resolved.threadID) did not match pending request scope \(pending.registration.scope.threadID ?? "global")"
             )
+            try? commitSessionInvalidation(fields: .diagnostics)
         }
         discardQueuedServerResponse(for: key)
-        try applyServerRequestResolution(
-            serverRequests.markServerResolved(key),
-            tolerateTerminal: true
-        )
+        guard let removed = interactions.takeOnServerResolved(key) else { return }
+        try commitRequestInvalidation(scope: removed.registration.scope)
+        serverRequestTasks.removeValue(forKey: key)?.cancel()
+        releaseThreadForServerRequest(key)
     }
 
-    func applyServerRequestResolution(
-        _ resolution: CodexServerRequestResolution,
-        tolerateTerminal: Bool = false
+    func completeServerRequest(
+        _ key: CodexServerRequestKey,
+        reply: ServerRequestReply,
+        tolerateMissing: Bool = false
     ) throws {
-        switch resolution {
-        case .unknown:
-            if tolerateTerminal { return }
-            throw CodexSessionError.protocolViolation(
-                "Attempted to resolve an unknown server request"
-            )
-
-        case .alreadyTerminal(let snapshot):
-            if tolerateTerminal { return }
-            throw CodexSessionError.serverRequestAlreadyTerminal(snapshot.key)
-
-        case .applied(let transition):
-            let key = transition.snapshot.key
-            defer { releaseThreadForServerRequest(key) }
-            try commitRequestLedgerTransition(transition.snapshot)
-            serverRequestTasks.removeValue(forKey: key)?.cancel()
-            parsedServerRequests.removeValue(forKey: key)
-
-            guard activeConnectionEpoch == key.connectionEpoch,
-                  case .ready(let epoch) = lifecycle,
-                  epoch == key.connectionEpoch else { return }
-
-            let frame: Data
-            switch transition.outcome {
-            case .result(let result):
-                frame = try CodexJSONRPCCodec.encodeResult(
-                    id: key.requestID,
-                    result: result
-                )
-            case .error(let error):
-                frame = try CodexJSONRPCCodec.encodeError(
-                    id: key.requestID,
-                    error: .init(
-                        code: error.code,
-                        message: error.message,
-                        data: error.data
-                    )
-                )
-            case .abandon:
-                return
-            }
-
-            enqueueOutbound(.init(
-                token: allocateOutboundToken(),
-                connectionEpoch: key.connectionEpoch,
-                correlation: .serverRequest(key),
-                data: frame
-            ))
+        guard let request = interactions.takeForLocalReply(key) else {
+            if tolerateMissing { return }
+            throw CodexSessionError.unknownServerRequest(key)
         }
+        defer { releaseThreadForServerRequest(key) }
+        try commitRequestInvalidation(scope: request.registration.scope)
+        serverRequestTasks.removeValue(forKey: key)?.cancel()
+        try enqueueServerResponse(key: key, reply: reply)
+    }
+
+    func enqueueServerResponse(
+        key: CodexServerRequestKey,
+        reply: ServerRequestReply
+    ) throws {
+        guard activeConnectionEpoch == key.connectionEpoch,
+              case .ready(let epoch) = lifecycle,
+              epoch == key.connectionEpoch else { return }
+
+        let frame: Data
+        switch reply {
+        case .result(let result):
+            frame = try CodexJSONRPCCodec.encodeResult(id: key.requestID, result: result)
+        case .error(let error):
+            frame = try CodexJSONRPCCodec.encodeError(
+                id: key.requestID,
+                error: .init(code: error.code, message: error.message, data: error.data)
+            )
+        }
+        enqueueOutbound(.init(
+            token: allocateOutboundToken(),
+            connectionEpoch: key.connectionEpoch,
+            correlation: .serverRequest(key),
+            data: frame
+        ))
     }
 
     func scopedServerRequests(
         scope: StateObservationScope
-    ) -> [CodexServerRequestSnapshot] {
+    ) -> [CodexPendingInteractionSnapshot] {
         guard scope.fields.contains(.requests) else { return [] }
-        return serverRequests.pendingSnapshots().filter { request in
+        return interactions.pendingSnapshots().filter { request in
             switch scope.entities {
             case .all:
                 return true
@@ -2601,14 +2576,9 @@ private extension CodexSession {
         entities: StateEntityScope
     ) -> CodexServerRequestInboxSnapshot {
         let scope = StateObservationScope(entities: entities, fields: .requests)
-        let requests = scopedServerRequests(scope: scope).map { ledgerSnapshot in
-            let body = parsedServerRequests[ledgerSnapshot.key].map {
-                CodexServerRequestInboxBody(presentationBody: $0.body)
-            } ?? .unsupported(ledgerSnapshot.kind)
-            return CodexServerRequestInboxEntry(
-                ledgerSnapshot: ledgerSnapshot,
-                body: body
-            )
+        let included = Set(scopedServerRequests(scope: scope).map(\.key))
+        let requests = interactions.inboxEntries().filter { entry in
+            included.contains(entry.key)
         }
         return .init(revision: graph.revision, requests: requests)
     }

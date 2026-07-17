@@ -280,7 +280,7 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(reconciled.turns.first?.userMessage?.clientID == intentID.rawValue)
     }
 
-    @Test func onlyPendingTypedRequestsForThreadArePlacedAndDirtyTheirTurn() throws {
+    @Test func pendingTypedRequestsForThreadArePlacedAndDirtyTheirTurn() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"
         let snapshot = state(
@@ -306,24 +306,11 @@ struct CodexCanonicalTranscriptProjectorTests {
             turnID: turnID,
             sequence: 2
         )
-        let terminal = CodexServerRequestSnapshot(
-            key: .init(connectionEpoch: 1, requestID: .string("terminal")),
-            method: CodexServerRequestKind.permissionsApproval.method,
-            kind: .permissionsApproval,
-            scope: .init(threadID: threadID.rawValue, turnID: turnID.rawValue),
-            approvalCorrelation: nil,
-            registrationSequence: 3,
-            registeredRevision: 3,
-            state: .terminal(.init(
-                cause: .serverResolved,
-                responseDisposition: .abandoned,
-                revision: 4
-            ))
-        )
         let result = try projector.project(
             snapshot: snapshot,
             threadID: threadID,
-            requests: [otherThread, terminal, pending],
+            requests: [otherThread, pending],
+            requestRevision: 4,
             previous: previous
         )
 
@@ -440,7 +427,7 @@ private extension CodexCanonicalTranscriptProjectorTests {
         turnID: TurnID,
         itemID: ItemID? = nil,
         sequence: UInt64
-    ) -> CodexServerRequestSnapshot {
+    ) -> CodexPendingInteractionSnapshot {
         .init(
             key: .init(connectionEpoch: 1, requestID: id),
             method: kind.method,
@@ -451,9 +438,7 @@ private extension CodexCanonicalTranscriptProjectorTests {
                 itemID: itemID?.rawValue
             ),
             approvalCorrelation: nil,
-            registrationSequence: sequence,
-            registeredRevision: sequence,
-            state: .pending
+            arrivalOrdinal: sequence
         )
     }
 }

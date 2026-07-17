@@ -333,8 +333,7 @@ public final class CodexPromptRuntimeSession {
             do {
                 try await automaticallyHandle(entry.key, kind: kind, using: adapter)
                 automaticallyHandledKeys.insert(entry.key)
-            } catch CodexSessionError.serverRequestAlreadyTerminal,
-                    CodexSessionError.unknownServerRequest {
+            } catch CodexSessionError.unknownServerRequest {
                 automaticallyHandledKeys.insert(entry.key)
             } catch {
                 onActivity?(.init(

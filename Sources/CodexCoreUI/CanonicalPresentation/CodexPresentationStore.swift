@@ -249,7 +249,8 @@ public final class CodexPresentationStore {
         return local.lastSeenAttentionRevision < Self.latestAttentionRevision(
             threadID: threadID,
             snapshot: snapshot,
-            requests: latestRequestBatch.requests
+            requests: latestRequestBatch.requests,
+            requestRevision: latestRequestBatch.revision
         )
     }
 
@@ -259,6 +260,7 @@ public final class CodexPresentationStore {
             threadID: threadID,
             snapshot: latestSnapshot,
             requests: latestRequestBatch.requests,
+            requestRevision: latestRequestBatch.revision,
             fallback: observedRevision
         )
         localStateByThreadID[threadID] = local
@@ -532,7 +534,7 @@ private extension CodexPresentationStore {
 
     func finishProjection(
         _ result: CodexCanonicalTranscriptProjectionResult,
-        requestSnapshots: [CodexServerRequestSnapshot],
+        requestSnapshots: [CodexPendingInteractionSnapshot],
         generation: UInt64,
         threadID: ThreadID
     ) {
@@ -556,7 +558,7 @@ private extension CodexPresentationStore {
 
     func publish(
         _ result: CodexCanonicalTranscriptProjectionResult,
-        requestSnapshots: [CodexServerRequestSnapshot],
+        requestSnapshots: [CodexPendingInteractionSnapshot],
         threadID: ThreadID
     ) {
         ensureLocalState(for: threadID)
@@ -664,7 +666,8 @@ private extension CodexPresentationStore {
     static func latestAttentionRevision(
         threadID: ThreadID,
         snapshot: CanonicalStateSnapshot?,
-        requests: [CodexServerRequestSnapshot],
+        requests: [CodexPendingInteractionSnapshot],
+        requestRevision: StateRevision,
         fallback: StateRevision = .zero
     ) -> StateRevision {
         guard let snapshot else { return fallback }
@@ -678,20 +681,19 @@ private extension CodexPresentationStore {
         for intent in snapshot.submissionIntents.values where intent.threadID == threadID {
             revision = max(revision, intent.lastChangedRevision)
         }
-        for request in requests
-            where request.isPending && request.scope.threadID == threadID.rawValue {
-            revision = max(revision, StateRevision(request.registeredRevision))
+        if requests.contains(where: { $0.scope.threadID == threadID.rawValue }) {
+            revision = max(revision, requestRevision)
         }
         return revision
     }
 
     static func approvalPrompts(
-        _ requests: [CodexServerRequestSnapshot],
+        _ requests: [CodexPendingInteractionSnapshot],
         threadID: ThreadID,
         createdAt: Date
     ) -> [CodexApprovalPrompt] {
         requests.compactMap { request in
-            guard request.isPending, request.scope.threadID == threadID.rawValue else { return nil }
+            guard request.scope.threadID == threadID.rawValue else { return nil }
             let content: (CodexApprovalPromptKind, String, String)
             switch request.kind {
             case .commandApproval:

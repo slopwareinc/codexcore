@@ -82,7 +82,7 @@ final class CodexSessionRetentionTests: XCTestCase {
             )
             XCTFail("A terminal request must not release its lease twice")
         } catch let error as CodexSessionError {
-            XCTAssertEqual(error, .serverRequestAlreadyTerminal(request.key))
+            XCTAssertEqual(error, .unknownServerRequest(request.key))
         }
         let unsubscribeCountAfterDuplicate = await transport.requestCount(
             method: "thread/unsubscribe"

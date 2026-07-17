@@ -1539,9 +1539,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         let commandInbox = await session.serverRequestInboxSnapshot()
         let commandEntry = try XCTUnwrap(commandInbox.requests.first)
         XCTAssertEqual(commandEntry.key.requestID, .string("typed-command"))
-        XCTAssertEqual(commandEntry.key, commandEntry.ledgerSnapshot.key)
+        XCTAssertEqual(commandEntry.key, commandEntry.snapshot.key)
         XCTAssertEqual(
-            commandEntry.ledgerSnapshot.approvalCorrelation,
+            commandEntry.snapshot.approvalCorrelation,
             .init(threadID: Self.threadID.rawValue, approvalID: "approval-command")
         )
         guard case .commandApproval(let command) = commandEntry.body else {

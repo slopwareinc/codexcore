@@ -458,7 +458,7 @@ final class ServerRequestProtocolTests: XCTestCase {
         }
     }
 
-    func testSecretResultsAreNotRetainedByLedgerSnapshot() throws {
+    func testSecretResultsAreNotRetainedByPendingInboxSnapshot() throws {
         let parsed = try CodexServerRequestParser.parse(
             connectionEpoch: 1,
             id: .int(4),
@@ -469,20 +469,14 @@ final class ServerRequestProtocolTests: XCTestCase {
             "accessToken": .string("highly-secret-token"),
             "chatgptAccountId": .string("account")
         ])
-        let validated = try parsed.validate(result: result)
+        _ = try parsed.validate(result: result)
 
-        var ledger = CodexServerRequestLedger()
-        _ = ledger.register(parsed.registration)
-        guard case .applied(let transition) = ledger.resolve(parsed.key, result: validated.jsonValue) else {
-            return XCTFail("Expected result transition")
-        }
-        XCTAssertEqual(transition.outcome, .result(result))
-        let snapshot = try XCTUnwrap(ledger.snapshot(for: parsed.key))
+        var inbox = CodexInteractionInbox()
+        _ = inbox.register(parsed)
+        let snapshot = try XCTUnwrap(inbox.pendingSnapshots().first)
         XCTAssertFalse(String(describing: snapshot).contains("highly-secret-token"))
-        guard case .terminal(let terminal) = snapshot.state else {
-            return XCTFail("Expected terminal snapshot")
-        }
-        XCTAssertEqual(terminal.responseDisposition, .result)
+        XCTAssertEqual(inbox.takeForLocalReply(parsed.key), parsed)
+        XCTAssertTrue(inbox.pendingSnapshots().isEmpty)
     }
 
     private func commonItemParams(itemID: String) -> [String: CodexJSONValue] {

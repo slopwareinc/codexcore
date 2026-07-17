@@ -134,7 +134,7 @@ public struct CodexApprovalPrompt: Identifiable, Equatable, Sendable {
     /// Projects only the typed, sanitized inbox representation. Raw request
     /// params and one-shot response values never cross this seam.
     public init?(inboxEntry entry: CodexServerRequestInboxEntry, createdAt: Date = Date()) {
-        let snapshot = entry.ledgerSnapshot
+        let snapshot = entry.snapshot
         let scope = snapshot.scope
         switch entry.body {
         case .commandApproval(let request):
@@ -358,7 +358,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
     }
 
     public init?(inboxEntry entry: CodexServerRequestInboxEntry, createdAt: Date = Date()) {
-        let snapshot = entry.ledgerSnapshot
+        let snapshot = entry.snapshot
         let scope = snapshot.scope
         switch entry.body {
         case .userInput(let request):

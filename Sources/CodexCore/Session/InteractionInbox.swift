@@ -5,21 +5,29 @@ import Foundation
 /// The parsed request body and any future response value are deliberately not
 /// retained here. `arrivalOrdinal` provides stable process-local ordering only;
 /// it is not a protocol sequence or a state revision.
-struct CodexPendingInteractionSnapshot: Sendable, Equatable {
-    let key: CodexServerRequestKey
-    let method: String
-    let kind: CodexServerRequestKind
-    let scope: CodexServerRequestScope
-    let approvalCorrelation: CodexApprovalCorrelation?
-    let arrivalOrdinal: UInt64
-}
+public struct CodexPendingInteractionSnapshot: Sendable, Equatable {
+    public let key: CodexServerRequestKey
+    public let method: String
+    public let kind: CodexServerRequestKind
+    public let scope: CodexServerRequestScope
+    public let approvalCorrelation: CodexApprovalCorrelation?
+    public let arrivalOrdinal: UInt64
 
-/// Sanitized prompt content derived from a pending parsed request.
-struct CodexInteractionInboxEntry: Sendable, Equatable {
-    let snapshot: CodexPendingInteractionSnapshot
-    let body: CodexServerRequestInboxBody
-
-    var key: CodexServerRequestKey { snapshot.key }
+    public init(
+        key: CodexServerRequestKey,
+        method: String,
+        kind: CodexServerRequestKind,
+        scope: CodexServerRequestScope,
+        approvalCorrelation: CodexApprovalCorrelation?,
+        arrivalOrdinal: UInt64
+    ) {
+        self.key = key
+        self.method = method
+        self.kind = kind
+        self.scope = scope
+        self.approvalCorrelation = approvalCorrelation
+        self.arrivalOrdinal = arrivalOrdinal
+    }
 }
 
 enum CodexInteractionRegistrationResult: Sendable, Equatable {
@@ -68,9 +76,9 @@ struct CodexInteractionInbox: Sendable {
         orderedEntries().map(\.snapshot)
     }
 
-    func inboxEntries() -> [CodexInteractionInboxEntry] {
+    func inboxEntries() -> [CodexServerRequestInboxEntry] {
         orderedEntries().map { stored in
-            CodexInteractionInboxEntry(
+            CodexServerRequestInboxEntry(
                 snapshot: stored.snapshot,
                 body: CodexServerRequestInboxBody(
                     presentationBody: stored.request.body

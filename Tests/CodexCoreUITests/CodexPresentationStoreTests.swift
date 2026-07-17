@@ -236,7 +236,7 @@ private extension CodexPresentationStoreTests {
         text: String? = nil,
         status: CanonicalTurnStatus = .inProgress,
         turnRevision: UInt64? = nil,
-        requests: [CodexServerRequestSnapshot] = []
+        requests: [CodexPendingInteractionSnapshot] = []
     ) -> CodexSessionStateSnapshot {
         let stateRevision = StateRevision(revision)
         guard let text else {
@@ -306,16 +306,14 @@ private extension CodexPresentationStoreTests {
         )
     }
 
-    func request(revision: UInt64) -> CodexServerRequestSnapshot {
+    func request(revision: UInt64) -> CodexPendingInteractionSnapshot {
         .init(
             key: .init(connectionEpoch: 1, requestID: .integer(7)),
             method: CodexServerRequestKind.commandApproval.method,
             kind: .commandApproval,
             scope: .init(threadID: "thread", turnID: "turn", itemID: "answer"),
             approvalCorrelation: nil,
-            registrationSequence: 0,
-            registeredRevision: revision,
-            state: .pending
+            arrivalOrdinal: revision
         )
     }
 

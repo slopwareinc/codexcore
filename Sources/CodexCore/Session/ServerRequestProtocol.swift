@@ -33,8 +33,7 @@ public struct CodexParsedServerRequest: Sendable, Equatable {
     }
 
     /// Validates and canonicalizes a success result for this request method.
-    /// JSON-RPC error responses bypass method-specific result validation and
-    /// enter the ledger through `CodexServerRequestLedger.fail`.
+    /// JSON-RPC error responses bypass method-specific result validation.
     public func validate(result: CodexJSONValue) throws -> CodexValidatedServerRequestResult {
         try body.validate(result: result)
     }
@@ -840,7 +839,7 @@ public enum CodexLegacyReviewDecision: Sendable, Equatable {
 
 /// Method-matched success result after schema validation. Secret-bearing
 /// values are intentionally one-shot values and are never copied into a
-/// `CodexServerRequestSnapshot`.
+/// `CodexPendingInteractionSnapshot`.
 public enum CodexValidatedServerRequestResult: Sendable, Equatable {
     case commandApproval(CodexCommandApprovalDecision)
     case fileChangeApproval(CodexApprovalDecision)
