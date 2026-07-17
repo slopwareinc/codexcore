@@ -1039,19 +1039,9 @@ private extension ProtocolStateAdapter {
                     message: "unrecognized unsubscribe status \(status)"
                 )
             }
-            let threadID = try requestThreadID(context)
-            return .state([
-                .threadLifecycleUpdated(
-                    id: threadID,
-                    isArchived: .unchanged,
-                    isLoaded: .set(false)
-                ),
-                .threadUpsert(CanonicalThread(
-                    id: threadID,
-                    status: .notLoaded,
-                    consistency: .partial
-                )),
-            ])
+            // Unsubscribe removes this connection from the listener set. It
+            // does not unload the server thread or change its protocol status.
+            return .init(disposition: .ignored)
 
         case .threadNameSet:
             try requireObjectResponse(context, result)

@@ -2872,6 +2872,9 @@ private extension CodexSession {
         case .unsubscribe(let command):
             guard activeConnectionEpoch == command.connectionEpoch else { return }
             do {
+                // The adapter validates this response but classifies it as
+                // non-state. Local detail eviction is driven by lease ownership;
+                // actual server lifecycle changes arrive as notifications.
                 _ = try await performCall(
                     method: .threadUnsubscribe,
                     params: .dictionary([

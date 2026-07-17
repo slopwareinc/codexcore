@@ -421,6 +421,20 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }
     }
 
+    func testSuccessfulUnsubscribeIsValidatedWithoutInventingLifecycleState() throws {
+        let adaptation = try adapter.adaptResponse(
+            ProtocolResponseContext(
+                method: .threadUnsubscribe,
+                requestParams: ["threadId": .string("thread-1")],
+                connectionEpoch: 1
+            ),
+            result: .dictionary(["status": .string("unsubscribed")])
+        )
+
+        XCTAssertEqual(adaptation.disposition, .ignored)
+        XCTAssertTrue(adaptation.mutations.isEmpty)
+    }
+
     func testEmptyCompleteItemPageCanAuthoritativelyClearARequestedTurn() throws {
         let context = ProtocolResponseContext(
             method: .threadItemsList,

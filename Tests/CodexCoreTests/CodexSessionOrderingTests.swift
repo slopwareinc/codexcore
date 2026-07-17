@@ -243,6 +243,47 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
+    func testUnsubscribeAckDoesNotFabricateServerUnloadWhenReacquired() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        let firstToken = await session.hydrateThreadHistory(Self.threadID)
+
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/resume") == 1
+        }
+        try await transport.respondToLatestRequest(
+            method: "thread/resume",
+            result: Self.historyResumeResult
+        )
+        try await waitUntil {
+            await session.canonicalSnapshot().threads[Self.threadID]?.isLoaded == true
+        }
+
+        await session.releaseThreadHistory(firstToken)
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/unsubscribe") == 1
+        }
+
+        let replacementToken = await session.hydrateThreadHistory(Self.threadID)
+        try await transport.respondToLatestRequest(
+            method: "thread/unsubscribe",
+            result: .dictionary(["status": .string("unsubscribed")])
+        )
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/resume") == 2
+        }
+
+        let snapshot = await session.canonicalSnapshot()
+        XCTAssertTrue(try XCTUnwrap(snapshot.threads[Self.threadID]).isLoaded)
+
+        await session.releaseThreadHistory(replacementToken)
+        await session.stop()
+    }
+
     func testHistoryPagesPublishIncrementallyBeforeOutOfOrderItemPagingCompletes() async throws {
         let transport = ControllableCodexFrameTransport()
         let session = CodexSession(
