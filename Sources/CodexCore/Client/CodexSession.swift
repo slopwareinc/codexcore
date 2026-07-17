@@ -335,11 +335,7 @@ public protocol CodexStateObserving: Actor {
     func canonicalSnapshot(scope: StateObservationScope) -> CanonicalStateSnapshot
     func observe(
         scope: StateObservationScope
-    ) -> StateObservation<CanonicalStateSnapshot>
-    func catchUp(
-        observationID: StateObservationID,
-        after revision: StateRevision
-    ) -> StateCatchUp
+    ) -> StateSnapshotObservation<CanonicalStateSnapshot>
     func cancelObservation(_ observationID: StateObservationID)
 }
 
@@ -349,13 +345,13 @@ public protocol CodexSessionStateObserving: CodexStateObserving {
     ) -> CodexSessionStateSnapshot
     func observeSessionState(
         scope: StateObservationScope
-    ) -> StateObservation<CodexSessionStateSnapshot>
+    ) -> StateSnapshotObservation<CodexSessionStateSnapshot>
 }
 
 /// Lightweight thread catalogue observation for sidebar/status consumers.
 public protocol CodexThreadIndexObserving: CodexStateObserving {
     func threadIndexSnapshot() -> CanonicalThreadIndexSnapshot
-    func observeThreadIndex() -> StateObservation<CanonicalThreadIndexSnapshot>
+    func observeThreadIndex() -> StateSnapshotObservation<CanonicalThreadIndexSnapshot>
 }
 
 public extension CodexSessionStateObserving {
@@ -363,7 +359,7 @@ public extension CodexSessionStateObserving {
         sessionStateSnapshot(scope: .all)
     }
 
-    func observeSessionState() -> StateObservation<CodexSessionStateSnapshot> {
+    func observeSessionState() -> StateSnapshotObservation<CodexSessionStateSnapshot> {
         observeSessionState(scope: .all)
     }
 }
@@ -373,7 +369,7 @@ public extension CodexStateObserving {
         canonicalSnapshot(scope: .all)
     }
 
-    func observe() -> StateObservation<CanonicalStateSnapshot> {
+    func observe() -> StateSnapshotObservation<CanonicalStateSnapshot> {
         observe(scope: .all)
     }
 }
@@ -560,7 +556,7 @@ public actor CodexSession:
     private var graph = CanonicalStateGraph()
     private var reducer = CanonicalStateReducer()
     private let adapter = ProtocolStateAdapter()
-    private let journal: StateChangeJournal
+    private let observations = ObservationHub()
     private var interactions = CodexInteractionInbox()
     private var serverRequestTasks: [CodexServerRequestKey: Task<Void, Never>] = [:]
     private var serverRequestThreadLeases: [CodexServerRequestKey: ThreadLeaseToken] = [:]
@@ -623,7 +619,6 @@ public actor CodexSession:
         self.transport = transport
         self.configuration = configuration
         self.serverRequestHandler = serverRequestHandler
-        self.journal = StateChangeJournal()
         self.reconnectSleep = { milliseconds in
             guard milliseconds > 0 else { return }
             try? await Task.sleep(for: .milliseconds(Int64(milliseconds)))
@@ -639,7 +634,6 @@ public actor CodexSession:
         self.transport = transport
         self.configuration = configuration
         self.serverRequestHandler = serverRequestHandler
-        self.journal = StateChangeJournal()
         self.reconnectSleep = reconnectSleep
     }
 
@@ -768,21 +762,14 @@ public actor CodexSession:
 
     public func observe(
         scope: StateObservationScope = .all
-    ) -> StateObservation<CanonicalStateSnapshot> {
-        journal.observe(scope: scope) {
+    ) -> StateSnapshotObservation<CanonicalStateSnapshot> {
+        observations.observe(scope: scope, revision: graph.revision) {
             graph.snapshot().scoped(to: scope)
         }
     }
 
-    public func catchUp(
-        observationID: StateObservationID,
-        after revision: StateRevision
-    ) -> StateCatchUp {
-        journal.catchUp(observationID: observationID, after: revision)
-    }
-
     public func cancelObservation(_ observationID: StateObservationID) {
-        journal.cancelObservation(observationID)
+        observations.cancelObservation(observationID)
     }
 
     public func threadIndexSnapshot() -> CanonicalThreadIndexSnapshot {
@@ -796,8 +783,11 @@ public actor CodexSession:
         )
     }
 
-    public func observeThreadIndex() -> StateObservation<CanonicalThreadIndexSnapshot> {
-        journal.observe(scope: CanonicalThreadIndexSnapshot.observationScope) {
+    public func observeThreadIndex() -> StateSnapshotObservation<CanonicalThreadIndexSnapshot> {
+        observations.observe(
+            scope: CanonicalThreadIndexSnapshot.observationScope,
+            revision: graph.revision
+        ) {
             threadIndexSnapshot()
         }
     }
@@ -816,7 +806,7 @@ public actor CodexSession:
     }
 
     /// Returns the current typed prompt inbox without materializing the
-    /// canonical graph. Its revision is the same ordered journal revision used
+    /// canonical graph. Its revision is the same ordered canonical revision used
     /// by canonical and atomic session-state observations.
     public func serverRequestInboxSnapshot(
         entities: StateEntityScope = .all
@@ -825,13 +815,13 @@ public actor CodexSession:
     }
 
     /// Atomically captures the typed prompt inbox and a wake-up stream filtered
-    /// to pending-interaction changes only. Consumers use the ordinary session
-    /// `catchUp` API after a signal, then fetch a fresh inbox snapshot.
+    /// to pending-interaction changes only. Consumers fetch a fresh snapshot
+    /// after each coalesced signal.
     public func observeServerRequests(
         entities: StateEntityScope = .all
-    ) -> StateObservation<CodexServerRequestInboxSnapshot> {
+    ) -> StateSnapshotObservation<CodexServerRequestInboxSnapshot> {
         let scope = StateObservationScope(entities: entities, fields: .requests)
-        return journal.observe(scope: scope) {
+        return observations.observe(scope: scope, revision: graph.revision) {
             makeServerRequestInboxSnapshot(entities: entities)
         }
     }
@@ -853,8 +843,8 @@ public actor CodexSession:
 
     public func observeSessionState(
         scope: StateObservationScope = .all
-    ) -> StateObservation<CodexSessionStateSnapshot> {
-        journal.observe(scope: scope) {
+    ) -> StateSnapshotObservation<CodexSessionStateSnapshot> {
+        observations.observe(scope: scope, revision: graph.revision) {
             sessionStateSnapshot(scope: scope)
         }
     }
@@ -2251,15 +2241,11 @@ private extension CodexSession {
             guard case .threadDetailEvicted(let threadID) = change else { return nil }
             return threadID
         })
-        do {
-            try recordStateChangeSet(
-                StateChangeSet(batch),
-                removedThreadIDs: removedThreadIDs,
-                attentionExcludedThreadIDs: detailEvictedThreadIDs
-            )
-        } catch {
-            throw CodexSessionError.stateCommitFailed(String(describing: error))
-        }
+        publishStateInvalidation(
+            StateInvalidation(batch),
+            removedThreadIDs: removedThreadIDs,
+            attentionExcludedThreadIDs: detailEvictedThreadIDs
+        )
         try updateThreadDetailRetention(for: batch.affectedThreadIDs)
     }
 
@@ -2292,17 +2278,13 @@ private extension CodexSession {
             itemKeys = []
         }
 
-        do {
-            try recordStateChangeSet(.init(
-                revision: graph.revision,
-                fields: .requests,
-                threadIDs: threadIDs,
-                turnKeys: turnKeys,
-                itemKeys: itemKeys
-            ))
-        } catch {
-            throw CodexSessionError.stateCommitFailed(String(describing: error))
-        }
+        publishStateInvalidation(.init(
+            revision: graph.revision,
+            fields: .requests,
+            threadIDs: threadIDs,
+            turnKeys: turnKeys,
+            itemKeys: itemKeys
+        ))
     }
 
     func abortConnection(_ epoch: UInt64, error: Error) {
@@ -3364,20 +3346,21 @@ private extension CodexSession {
 // MARK: - Non-reducer session invalidations
 
 private extension CodexSession {
-    func recordStateChangeSet(
-        _ changes: StateChangeSet,
+    func publishStateInvalidation(
+        _ invalidation: StateInvalidation,
         removedThreadIDs: Set<ThreadID> = [],
         attentionExcludedThreadIDs: Set<ThreadID> = []
-    ) throws {
-        try journal.record(changes)
-        if !changes.fields.intersection(CanonicalThreadIndexSnapshot.attentionFields).isEmpty {
-            for threadID in changes.threadIDs.subtracting(attentionExcludedThreadIDs) {
-                threadAttentionRevisions[threadID] = changes.revision
+    ) {
+        precondition(invalidation.revision == graph.revision)
+        if !invalidation.fields.intersection(CanonicalThreadIndexSnapshot.attentionFields).isEmpty {
+            for threadID in invalidation.threadIDs.subtracting(attentionExcludedThreadIDs) {
+                threadAttentionRevisions[threadID] = invalidation.revision
             }
         }
         for threadID in removedThreadIDs {
             threadAttentionRevisions.removeValue(forKey: threadID)
         }
+        observations.publish(invalidation)
     }
 
     func commitSessionInvalidation(
@@ -3390,16 +3373,12 @@ private extension CodexSession {
             throw CodexSessionError.stateCommitFailed("State revision space exhausted")
         }
         graph.revision = graph.revision.successor
-        do {
-            try recordStateChangeSet(.init(
-                revision: graph.revision,
-                fields: fields,
-                threadIDs: threadIDs,
-                turnKeys: turnKeys,
-                itemKeys: itemKeys
-            ))
-        } catch {
-            throw CodexSessionError.stateCommitFailed(String(describing: error))
-        }
+        publishStateInvalidation(.init(
+            revision: graph.revision,
+            fields: fields,
+            threadIDs: threadIDs,
+            turnKeys: turnKeys,
+            itemKeys: itemKeys
+        ))
     }
 }

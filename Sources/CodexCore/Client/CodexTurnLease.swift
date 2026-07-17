@@ -84,13 +84,13 @@ public final class CodexThreadLease: @unchecked Sendable {
 
     public func observe(
         fields: StateFieldMask = .all
-    ) async throws -> StateObservation<CanonicalStateSnapshot> {
+    ) async throws -> StateSnapshotObservation<CanonicalStateSnapshot> {
         try requireOpen()
         return await session.observe(scope: .thread(id, fields: fields))
     }
 
     public func cancel(
-        _ observation: StateObservation<CanonicalStateSnapshot>
+        _ observation: StateSnapshotObservation<CanonicalStateSnapshot>
     ) async {
         await session.cancelObservation(observation.id)
     }
@@ -218,13 +218,13 @@ public struct CodexTurnLease: Sendable {
 
     public func observe(
         fields: StateFieldMask = .all
-    ) async throws -> StateObservation<CanonicalStateSnapshot> {
+    ) async throws -> StateSnapshotObservation<CanonicalStateSnapshot> {
         try thread.requireOpen()
         return await thread.session.observe(scope: .turn(key, fields: fields))
     }
 
     public func cancel(
-        _ observation: StateObservation<CanonicalStateSnapshot>
+        _ observation: StateSnapshotObservation<CanonicalStateSnapshot>
     ) async {
         await thread.session.cancelObservation(observation.id)
     }

@@ -15,7 +15,7 @@ public struct CodexPendingInteractionSnapshotBatch: Sendable, Equatable {
 }
 
 /// Atomic, presentation-safe view of the server requests currently awaiting a
-/// client response. The revision belongs to the session state journal, so an
+/// client response. The revision belongs to canonical session state, so an
 /// empty snapshot after a request is removed is distinguishable from an old
 /// empty snapshot captured before a request arrived.
 public struct CodexServerRequestInboxSnapshot: Sendable, Equatable {
@@ -40,7 +40,7 @@ public protocol CodexServerRequestInboxObserving: CodexStateObserving {
 
     func observeServerRequests(
         entities: StateEntityScope
-    ) -> StateObservation<CodexServerRequestInboxSnapshot>
+    ) -> StateSnapshotObservation<CodexServerRequestInboxSnapshot>
 }
 
 public extension CodexServerRequestInboxObserving {
@@ -48,7 +48,7 @@ public extension CodexServerRequestInboxObserving {
         serverRequestInboxSnapshot(entities: .all)
     }
 
-    func observeServerRequests() -> StateObservation<CodexServerRequestInboxSnapshot> {
+    func observeServerRequests() -> StateSnapshotObservation<CodexServerRequestInboxSnapshot> {
         observeServerRequests(entities: .all)
     }
 }

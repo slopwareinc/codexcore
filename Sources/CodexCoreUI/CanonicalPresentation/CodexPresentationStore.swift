@@ -10,7 +10,7 @@ import Observation
 public struct CodexPresentationStateAdapter: Sendable {
     public typealias Observe = @Sendable (
         StateObservationScope
-    ) async -> StateObservation<CodexSessionStateSnapshot>
+    ) async -> StateSnapshotObservation<CodexSessionStateSnapshot>
     public typealias Cancel = @Sendable (StateObservationID) async -> Void
     public typealias CurrentSnapshot = @Sendable (
         StateObservationScope
@@ -32,7 +32,7 @@ public struct CodexPresentationStateAdapter: Sendable {
 
     fileprivate func observe(
         scope: StateObservationScope
-    ) async -> StateObservation<CodexSessionStateSnapshot> {
+    ) async -> StateSnapshotObservation<CodexSessionStateSnapshot> {
         await observeClosure(scope)
     }
 

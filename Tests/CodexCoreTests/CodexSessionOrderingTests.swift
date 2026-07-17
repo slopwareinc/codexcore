@@ -69,18 +69,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         XCTAssertEqual(state.canonical.threads[Self.threadID]?.metadata.name, "second")
         XCTAssertEqual(state.serverRequests.requests.map(\.key.requestID), [.string("during-handshake")])
 
-        guard case .changes(let changes, _) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("The handshake drain should remain in retained journal history")
-        }
-        let orderedStateChanges = changes.compactMap { change -> String? in
-            if change.fields.contains(.requests) { return "request" }
-            if change.fields.contains(.threadMetadata) { return "thread" }
-            return nil
-        }
-        XCTAssertEqual(orderedStateChanges, ["thread", "request", "thread"])
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, state.stateRevision)
 
         await session.cancelObservation(observation.id)
         await session.stop()
@@ -200,18 +191,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         XCTAssertEqual(snapshot.turns[turnKey]?.lastChangedRevision, call.responseRevision)
         XCTAssertEqual(snapshot.items[itemKey]?.lastChangedRevision, call.responseRevision)
 
-        guard case .changes(let changes, let through) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("Expected the thread/read transaction in retained history")
-        }
-        XCTAssertEqual(changes.count, 1)
-        XCTAssertEqual(changes.first?.revision, call.responseRevision)
-        XCTAssertEqual(changes.first?.threadIDs, Set([Self.threadID]))
-        XCTAssertEqual(changes.first?.turnKeys, Set([turnKey]))
-        XCTAssertEqual(changes.first?.itemKeys, Set([itemKey]))
-        XCTAssertEqual(through, call.responseRevision)
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, call.responseRevision)
 
         await session.cancelObservation(observation.id)
         await session.stop()
@@ -946,19 +928,10 @@ final class CodexSessionOrderingTests: XCTestCase {
                 && state.lifecycle != .ready(connectionEpoch: 1)
         }
 
-        guard case .changes(let changes, _) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("Expected retained disconnect changes")
-        }
-        let threadIndex = try XCTUnwrap(changes.firstIndex {
-            $0.fields.contains(.threadMetadata)
-        })
-        let disconnectIndex = try XCTUnwrap(changes.indices.first { index in
-            index > threadIndex && changes[index].fields.contains(.connection)
-        })
-        XCTAssertLessThan(threadIndex, disconnectIndex)
+        let disconnected = await session.sessionStateSnapshot()
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, disconnected.stateRevision)
 
         await session.cancelObservation(observation.id)
         await session.stop()
@@ -1267,17 +1240,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         Self.assertAtomic(emptyState)
         XCTAssertGreaterThan(emptyState.stateRevision, pendingState.stateRevision)
 
-        guard case .changes(let changes, let through) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("Expected request transitions in retained history")
-        }
-        let requestChanges = changes.filter { $0.fields.contains(.requests) }
-        XCTAssertEqual(requestChanges.count, 2)
-        XCTAssertLessThan(requestChanges[0].revision, requestChanges[1].revision)
-        XCTAssertEqual(requestChanges[1].revision, emptyState.stateRevision)
-        XCTAssertEqual(through, emptyState.stateRevision)
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, emptyState.stateRevision)
 
         let reseeded = await session.observeSessionState()
         Self.assertAtomic(reseeded.seed)
@@ -1318,17 +1283,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         Self.assertAtomic(committed)
         XCTAssertTrue(committed.serverRequests.requests.isEmpty)
 
-        guard case .changes(let changes, let through) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("Expected registration and terminal request revisions")
-        }
-        let requestChanges = changes.filter { $0.fields.contains(.requests) }
-        XCTAssertEqual(requestChanges.count, 2)
-        XCTAssertLessThan(requestChanges[0].revision, requestChanges[1].revision)
-        XCTAssertEqual(requestChanges[1].revision, committed.stateRevision)
-        XCTAssertEqual(through, committed.stateRevision)
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, committed.stateRevision)
 
         await responseGate.open()
         try await waitUntil {
@@ -1780,15 +1737,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         }
         let empty = await session.serverRequestInboxSnapshot()
 
-        guard case .changes(let changes, let through) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("Expected retained request transitions")
-        }
-        XCTAssertEqual(changes.map(\.fields), [.requests, .requests])
-        XCTAssertEqual(changes.last?.revision, empty.revision)
-        XCTAssertEqual(through, empty.revision)
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, empty.revision)
 
         await handlerGate.open()
         try await waitUntil { await handlerGate.completedCount == 1 }
@@ -1847,17 +1798,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         XCTAssertEqual(child.name, "Child task")
         XCTAssertEqual(child.cwd, .string("/tmp"))
 
-        guard case .changes(let changes, let through) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("Subagent metadata must invalidate the thread index")
-        }
-        XCTAssertTrue(changes.contains { change in
-            change.threadIDs.contains(childThreadID)
-                && change.fields.contains(.threadMetadata)
-        })
-        XCTAssertEqual(through, snapshot.revision)
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, snapshot.revision)
 
         await session.cancelObservation(observation.id)
         await session.stop()
@@ -1967,19 +1910,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         XCTAssertGreaterThan(failed.attentionRevision, observation.revision)
         XCTAssertEqual(index.threadIDs, [runningThread, failedThread])
 
-        guard case .changes(let changes, let through) = await session.catchUp(
-            observationID: observation.id,
-            after: observation.revision
-        ) else {
-            return XCTFail("Background thread-index activity must remain observable")
-        }
-        XCTAssertTrue(changes.contains { change in
-            change.threadIDs.contains(runningThread) && change.fields.contains(.itemContent)
-        })
-        XCTAssertTrue(changes.contains { change in
-            change.threadIDs.contains(failedThread) && change.fields.contains(.turnStatus)
-        })
-        XCTAssertEqual(through, index.revision)
+        var signalIterator = observation.signals.makeAsyncIterator()
+        let signal = await signalIterator.next()
+        XCTAssertEqual(signal?.latestRevision, index.revision)
 
         await session.cancelObservation(observation.id)
         await session.stop()

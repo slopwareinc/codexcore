@@ -92,8 +92,8 @@ final class ObservationHubTests: XCTestCase {
         XCTAssertEqual(hub.observerCount, 0)
     }
 
-    private func itemChange(revision: UInt64, thread: ThreadID) -> StateChangeSet {
-        StateChangeSet(
+    private func itemChange(revision: UInt64, thread: ThreadID) -> StateInvalidation {
+        StateInvalidation(
             revision: StateRevision(revision),
             fields: .itemContent,
             itemKeys: [ItemKey(threadID: thread, turnID: "turn", itemID: "item")]

@@ -26,8 +26,6 @@ struct CodexPresentationStoreTests {
         #expect(store.activeCanonicalPresentation?.sourceRevision == StateRevision(1))
         #expect(store.observedRevision == StateRevision(1))
         #expect(store.diagnostics.invalidSnapshotCount == 0)
-        let catchUpCalls = await source.catchUpCallCount()
-        #expect(catchUpCalls == 0)
     }
 
     @Test func coalescesStreamingChangesButFlushesTerminalTurnImmediately() async throws {
@@ -157,13 +155,11 @@ struct CodexPresentationStoreTests {
 
 private actor PresentationStateFixture: CodexSessionStateObserving {
     private var snapshot: CodexSessionStateSnapshot
-    private let journal: StateChangeJournal
-    private var queuedAfterObservation: (CodexSessionStateSnapshot, StateChangeSet)?
-    private var catchUpCalls = 0
+    private let observations = ObservationHub()
+    private var queuedAfterObservation: (CodexSessionStateSnapshot, StateInvalidation)?
 
     init(initial: CodexSessionStateSnapshot) {
         self.snapshot = initial
-        self.journal = StateChangeJournal(seedRevision: initial.stateRevision)
     }
 
     func canonicalSnapshot(scope: StateObservationScope) -> CanonicalStateSnapshot {
@@ -172,8 +168,8 @@ private actor PresentationStateFixture: CodexSessionStateObserving {
 
     func observe(
         scope: StateObservationScope
-    ) -> StateObservation<CanonicalStateSnapshot> {
-        journal.observe(scope: scope) {
+    ) -> StateSnapshotObservation<CanonicalStateSnapshot> {
+        observations.observe(scope: scope, revision: snapshot.stateRevision) {
             snapshot.canonical.scoped(to: scope)
         }
     }
@@ -184,44 +180,32 @@ private actor PresentationStateFixture: CodexSessionStateObserving {
 
     func observeSessionState(
         scope: StateObservationScope
-    ) -> StateObservation<CodexSessionStateSnapshot> {
-        let observation = journal.observe(scope: scope) {
+    ) -> StateSnapshotObservation<CodexSessionStateSnapshot> {
+        let observation = observations.observe(scope: scope, revision: snapshot.stateRevision) {
             scopedSnapshot(scope)
         }
         if let queuedAfterObservation {
             self.queuedAfterObservation = nil
             snapshot = queuedAfterObservation.0
-            try! journal.record(queuedAfterObservation.1)
+            observations.publish(queuedAfterObservation.1)
         }
         return observation
     }
 
-    func catchUp(
-        observationID: StateObservationID,
-        after revision: StateRevision
-    ) -> StateCatchUp {
-        catchUpCalls += 1
-        return journal.catchUp(observationID: observationID, after: revision)
-    }
-
     func cancelObservation(_ observationID: StateObservationID) {
-        journal.cancelObservation(observationID)
+        observations.cancelObservation(observationID)
     }
 
-    func install(_ snapshot: CodexSessionStateSnapshot, change: StateChangeSet) {
+    func install(_ snapshot: CodexSessionStateSnapshot, change: StateInvalidation) {
         self.snapshot = snapshot
-        try! journal.record(change)
+        observations.publish(change)
     }
 
     func queueAfterNextObservation(
         _ snapshot: CodexSessionStateSnapshot,
-        change: StateChangeSet
+        change: StateInvalidation
     ) {
         queuedAfterObservation = (snapshot, change)
-    }
-
-    func catchUpCallCount() -> Int {
-        catchUpCalls
     }
 
     private func scopedSnapshot(_ scope: StateObservationScope) -> CodexSessionStateSnapshot {
@@ -301,11 +285,11 @@ private extension CodexPresentationStoreTests {
         )
     }
 
-    func change(revision: UInt64, fields: StateFieldMask) -> StateChangeSet {
+    func change(revision: UInt64, fields: StateFieldMask) -> StateInvalidation {
         let threadID: ThreadID = "thread"
         let turnKey = TurnKey(threadID: threadID, turnID: "turn")
         let itemKey = ItemKey(threadID: threadID, turnID: "turn", itemID: "answer")
-        return StateChangeSet(
+        return StateInvalidation(
             revision: StateRevision(revision),
             fields: fields,
             threadIDs: [threadID],

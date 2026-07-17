@@ -11,12 +11,7 @@ public protocol CodexPromptSessionAdapter: Actor {
 
     func observeServerRequests(
         entities: StateEntityScope
-    ) -> StateObservation<CodexServerRequestInboxSnapshot>
-
-    func catchUp(
-        observationID: StateObservationID,
-        after revision: StateRevision
-    ) -> StateCatchUp
+    ) -> StateSnapshotObservation<CodexServerRequestInboxSnapshot>
 
     func cancelObservation(_ observationID: StateObservationID)
 

@@ -27,7 +27,7 @@ public struct CodexPromptStateSession: Equatable, Sendable {
     public init() {}
 
     /// Atomically replaces the projection from one revisioned inbox snapshot.
-    /// Lower-revision snapshots are ignored so reconnect/catch-up races cannot
+    /// Lower-revision snapshots are ignored so reconnect/refresh races cannot
     /// resurrect a request that has already become terminal.
     @discardableResult
     public mutating func sync(

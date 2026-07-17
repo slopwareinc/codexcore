@@ -112,7 +112,7 @@ struct CodexRun {
 
     private static func trackProgress(
         for turn: CodexTurnLease,
-        observation: StateObservation<CanonicalStateSnapshot>
+        observation: StateSnapshotObservation<CanonicalStateSnapshot>
     ) async {
         var renderState = ProgressRenderState()
         renderProgress(from: observation.seed, state: &renderState)

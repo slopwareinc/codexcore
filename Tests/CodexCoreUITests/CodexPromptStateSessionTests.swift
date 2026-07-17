@@ -276,8 +276,6 @@ final class CodexPromptStateSessionTests: XCTestCase {
         // The authoritative higher-revision empty snapshot removes the card.
         await adapter.publish(inbox(revision: 2, entries: []))
         try await waitUntil { runtime.approvalPrompts.isEmpty }
-        let catchUpCalls = await adapter.catchUpCallCount()
-        XCTAssertEqual(catchUpCalls, 0)
         runtime.disconnect()
     }
 
@@ -487,7 +485,6 @@ private actor PromptAdapterFake: CodexPromptSessionAdapter {
     private var resolutions: [RecordedResolution] = []
     private var failures: [RecordedFailure] = []
     private var terminalKeys: Set<CodexServerRequestKey> = []
-    private var catchUpCalls = 0
 
     init(snapshot: CodexServerRequestInboxSnapshot) {
         self.snapshot = snapshot
@@ -501,7 +498,7 @@ private actor PromptAdapterFake: CodexPromptSessionAdapter {
 
     func observeServerRequests(
         entities: StateEntityScope
-    ) -> StateObservation<CodexServerRequestInboxSnapshot> {
+    ) -> StateSnapshotObservation<CodexServerRequestInboxSnapshot> {
         let id = StateObservationID(rawValue: nextObservationID)
         nextObservationID += 1
         var captured: AsyncStream<StateRevisionSignal>.Continuation?
@@ -516,14 +513,6 @@ private actor PromptAdapterFake: CodexPromptSessionAdapter {
             revision: snapshot.revision,
             signals: stream
         )
-    }
-
-    func catchUp(
-        observationID: StateObservationID,
-        after revision: StateRevision
-    ) -> StateCatchUp {
-        catchUpCalls += 1
-        return .changes([], through: snapshot.revision)
     }
 
     func cancelObservation(_ observationID: StateObservationID) {
@@ -562,7 +551,6 @@ private actor PromptAdapterFake: CodexPromptSessionAdapter {
     func recordedFailures() -> [RecordedFailure] { failures }
     func terminalCount() -> Int { terminalKeys.count }
     func cancelledObservationCount() -> Int { cancelledObservationIDs.count }
-    func catchUpCallCount() -> Int { catchUpCalls }
 }
 
 @MainActor

@@ -200,7 +200,7 @@ internal struct CanonicalStateReducer: Sendable {
     ///
     /// Mutations are exhaustively validated before the graph is touched, then reduced
     /// synchronously in place at one fixed successor revision. Actor isolation prevents
-    /// readers from observing the graph before the complete batch and its journal entry
+    /// readers from observing the graph before the complete batch and its invalidation
     /// commit. This avoids copying the graph's large dictionaries for every hot delta.
     /// Exact duplicate invalidations are collapsed, while repeated protocol payloads
     /// (for example equal consecutive item deltas) remain fully represented in the graph.

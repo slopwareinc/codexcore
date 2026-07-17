@@ -78,7 +78,7 @@ final class ObservationHub: @unchecked Sendable {
     }
 
     /// Publishes only a coalescible latest-revision signal to matching scopes.
-    func publish(_ invalidation: StateChangeSet) {
+    func publish(_ invalidation: StateInvalidation) {
         let recipients = lock.withLock {
             observers.compactMap { id, observer in
                 invalidation.affects(observer.scope) ? (id, observer.continuation) : nil
