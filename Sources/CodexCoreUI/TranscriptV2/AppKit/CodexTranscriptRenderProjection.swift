@@ -49,11 +49,11 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openSubagent(threadID: String)
     case openURL(String)
     case openFile(path: String, line: Int?)
-    case resolveApproval(requestID: String, approve: Bool)
+    case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
 }
 
 struct CodexTranscriptApprovalRender: Sendable, Equatable {
-    var requestID: String
+    var requestID: CodexServerRequestKey
     var summary: String
 }
 
@@ -418,8 +418,8 @@ actor CodexTranscriptRenderProjector {
                         let summary = (prompt.primaryValue ?? prompt.detail)
                             .split(separator: "\n", maxSplits: 1).first.map(String.init) ?? prompt.title
                         append(ItemDraft(
-                            id: "\(sectionID):approval:\(prompt.id)",
-                            fingerprint: "approval:\(prompt.id):\(summary)",
+                            id: "\(sectionID):approval:\(prompt.id.presentationID)",
+                            fingerprint: "approval:\(prompt.id.presentationID):\(summary)",
                             approval: .init(requestID: prompt.id, summary: summary),
                             accessibilityLabel: "Approval needed — \(summary)",
                             maxWidthKind: .card,

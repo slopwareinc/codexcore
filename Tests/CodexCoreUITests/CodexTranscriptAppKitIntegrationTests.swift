@@ -1,4 +1,5 @@
 import AppKit
+@testable import CodexCore
 @testable import CodexCoreUI
 import Foundation
 import SwiftUI
@@ -7,8 +8,12 @@ import Testing
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
     @Test func pendingApprovalRendersInlineAndRoutesBothDecisions() async throws {
+        let requestKey = CodexServerRequestKey(
+            connectionEpoch: 2,
+            requestID: .string("approval-1")
+        )
         let prompt = CodexApprovalPrompt(
-            id: "approval-1", method: "item/commandExecution/requestApproval", kind: .command,
+            id: requestKey, method: "item/commandExecution/requestApproval", kind: .command,
             title: "Approve command?", detail: "Run tests", primaryValue: "swift test", threadId: "thread"
         )
         let snapshot = try await CodexTranscriptRenderProjector().project(
@@ -43,8 +48,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         cell.allowApprovalForTesting()
         cell.denyApprovalForTesting()
         #expect(actions == [
-            .resolveApproval(requestID: "approval-1", approve: true),
-            .resolveApproval(requestID: "approval-1", approve: false)
+            .resolveApproval(requestID: requestKey, approve: true),
+            .resolveApproval(requestID: requestKey, approve: false)
         ])
         let workRow = try #require(snapshot.itemsByID.values.first { $0.workRow != nil })
         cell.configure(
@@ -210,7 +215,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         coordinator.update(
             presentation: presentation,
-            sessionStore: nil,
+            presentationStore: nil,
             bottomContentInset: 0,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -254,7 +259,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         var presentation = longPresentation(answerSuffix: "", date: date)
         coordinator.update(
             presentation: presentation,
-            sessionStore: nil,
+            presentationStore: nil,
             bottomContentInset: 190,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -278,7 +283,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         presentation = longPresentation(answerSuffix: " streamed", date: date)
         coordinator.update(
             presentation: presentation,
-            sessionStore: nil,
+            presentationStore: nil,
             bottomContentInset: 190,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -555,12 +560,12 @@ struct CodexTranscriptAppKitIntegrationTests {
         window.contentView = container
         coordinator.attach(to: container)
         let clipboard = RecordingClipboard()
-        let store = CodexThreadUISessionStore()
+        let store = CodexPresentationStore()
         let date = Date(timeIntervalSince1970: 100)
         var presentation = workingPresentation(date: date)
         coordinator.update(
             presentation: presentation,
-            sessionStore: store,
+            presentationStore: store,
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -589,7 +594,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         ))
         coordinator.update(
             presentation: presentation,
-            sessionStore: store,
+            presentationStore: store,
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -609,7 +614,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         presentation.expandedWorkTurnIDs.insert("turn")
         coordinator.update(
             presentation: presentation,
-            sessionStore: store,
+            presentationStore: store,
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -741,7 +746,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         for presentation in [threadA, threadB, threadA] {
             coordinator.update(
                 presentation: presentation,
-                sessionStore: nil,
+                presentationStore: nil,
                 bottomContentInset: 190,
                 contentHorizontalOffset: 0,
                 swiftUITheme: .officialDark,

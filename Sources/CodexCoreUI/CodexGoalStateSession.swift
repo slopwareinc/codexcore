@@ -50,16 +50,8 @@ public struct CodexGoalStateSession: Equatable, Sendable {
         activeGoal != nil
     }
 
-    public func canSendFollowUp(hasActiveTurnHandle: Bool) -> Bool {
-        hasActiveTurnHandle || activeTurnID != nil
-    }
-
-    public func globalRouteContext(currentThreadID: String?) -> CodexGlobalNotificationRouteContext {
-        CodexGlobalNotificationRouteContext(
-            currentThreadID: currentThreadID,
-            hasActiveGoal: activeGoal != nil,
-            activeGoalTurnID: activeTurnID
-        )
+    public func canSendFollowUp(canSteer: Bool) -> Bool {
+        canSteer || activeTurnID != nil
     }
 
     @discardableResult
@@ -138,11 +130,6 @@ public struct CodexGoalStateSession: Equatable, Sendable {
 
     public mutating func trackStartedTurn(id turnID: String) {
         activeTurnID = turnID
-    }
-
-    public func isActiveTurnNotification(_ notification: CodexNotification) -> Bool {
-        guard let activeTurnID else { return false }
-        return CodexNotificationMetadata.turnID(from: notification) == activeTurnID
     }
 
     public func summary(for goal: ThreadGoal) -> String {

@@ -14,19 +14,61 @@ public struct CodexAccountMenuSummary: Equatable, Sendable {
         self.initials = initials?.nilIfBlank ?? Self.initials(for: self.displayName)
     }
 
-    public init(account: Account?, displayName preferredDisplayName: String? = nil, serverName: String? = nil) {
+    public init(
+        account: CodexSchemaAccount?,
+        displayName preferredDisplayName: String? = nil,
+        serverName: String? = nil
+    ) {
         if let account {
+            let fields = account.rawValue.objectValue ?? [:]
+            let email = CodexJSONCoercion.flatString(from: fields["email"])
+            let type = CodexJSONCoercion.flatString(from: fields["type"])
+            let planType = CodexJSONCoercion.flatString(from: fields["planType"])
             let displayName = preferredDisplayName?.nilIfBlank
-                ?? Self.displayName(fromEmail: account.email)
-                ?? Self.titleLabel(account.type)
+                ?? Self.displayName(fromEmail: email)
+                ?? Self.titleLabel(type)
                 ?? serverName?.nilIfBlank
                 ?? "Codex"
-            let detail = Self.titleLabel(account.planType)
-                ?? Self.titleLabel(account.type)
+            let detail = Self.titleLabel(planType)
+                ?? Self.titleLabel(type)
                 ?? "Signed in"
             self.init(displayName: displayName, detail: detail)
         } else {
             self.init(displayName: serverName?.nilIfBlank ?? "Codex", detail: "Available")
+        }
+    }
+
+    public init(
+        accountState: CanonicalAccountState,
+        displayName preferredDisplayName: String? = nil,
+        serverName: String? = nil
+    ) {
+        let fields = accountState.extensions["account"]?.objectValue
+        let email = CodexJSONCoercion.flatString(from: fields?["email"])
+        let type = accountState.authMode
+            ?? CodexJSONCoercion.flatString(from: fields?["type"])
+        let planType = accountState.planType
+            ?? CodexJSONCoercion.flatString(from: fields?["planType"])
+
+        if fields != nil || type != nil || planType != nil {
+            let displayName = preferredDisplayName?.nilIfBlank
+                ?? Self.displayName(fromEmail: email)
+                ?? Self.titleLabel(type)
+                ?? serverName?.nilIfBlank
+                ?? "Codex"
+            let detail = Self.titleLabel(planType)
+                ?? Self.titleLabel(type)
+                ?? "Signed in"
+            self.init(displayName: displayName, detail: detail)
+        } else {
+            let requiresOpenAIAuth = Self.bool(
+                from: accountState.extensions["requiresOpenaiAuth"]
+                    ?? accountState.extensions["requiresOpenAIAuth"]
+            ) ?? false
+            self.init(
+                displayName: serverName?.nilIfBlank ?? "Codex",
+                detail: requiresOpenAIAuth ? "Sign-in required" : "Available"
+            )
         }
     }
 
@@ -73,10 +115,15 @@ public struct CodexAccountMenuSummary: Equatable, Sendable {
         }
         return letters.uppercased()
     }
+
+    private static func bool(from value: CodexJSONValue?) -> Bool? {
+        guard case .bool(let bool) = value else { return nil }
+        return bool
+    }
 }
 
 public enum CodexAccountDetailLog {
-    public static func json(from response: GetAccountResponse) -> String {
+    public static func json(from response: CodexSchemaGetAccountResponse) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(response),

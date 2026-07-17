@@ -62,6 +62,7 @@ private struct CodexSubagentStopwatchV2: View {
             Text(CodexWorkBlockViewV2.workingLabel(at: Date(), since: since, clientStartedAt: clientStartedAt))
                 .font(theme.fonts.caption)
         case .completed(let duration): Text(CodexWorkBlockViewV2.completedLabel(duration)).font(theme.fonts.caption)
+        case .closed: Text("Closed").font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary)
         case .failed: Text("Failed").font(theme.fonts.caption).foregroundStyle(theme.colors.danger)
         }
     }

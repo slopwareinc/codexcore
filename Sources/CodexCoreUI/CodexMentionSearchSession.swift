@@ -20,7 +20,10 @@ public final class CodexMentionSearchSession {
             debounceNanoseconds: debounceNanoseconds,
             search: { query in
                 guard let codex else { return [] }
-                return try await codex.fuzzyFileSearch(query: query, roots: roots).files
+                return try await codex.perform(CodexRequest.fuzzyFileSearch(.init(
+                    query: query,
+                    roots: roots
+                ))).files
             },
             onResults: onResults,
             onClear: onClear

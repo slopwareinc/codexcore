@@ -17,6 +17,8 @@ public enum CodexRemoteControlStatusKind: String, Equatable, Sendable {
             self = .enabled
         case .errored:
             self = .error
+        case .unrecognized:
+            self = .error
         }
     }
 
@@ -228,11 +230,13 @@ public struct CodexAppServerRemoteControlProvider: CodexRemoteControlProvider {
     }
 
     public func readStatus() async throws -> CodexRemoteControlStatusModel {
-        CodexRemoteControlStatusModel(response: try await codex.remoteControlStatusRead())
+        CodexRemoteControlStatusModel(
+            response: try await codex.perform(CodexRequest.remoteControlStatusRead())
+        )
     }
 
     public func enable() async throws -> CodexRemoteControlStatusModel {
-        let response = try await codex.remoteControlEnable()
+        let response = try await codex.perform(CodexRequest.remoteControlEnable(.value(.init())))
         return CodexRemoteControlStatusModel(
             kind: CodexRemoteControlStatusKind(response.status),
             serverName: response.serverName,
@@ -242,19 +246,32 @@ public struct CodexAppServerRemoteControlProvider: CodexRemoteControlProvider {
     }
 
     public func startPairing() async throws -> CodexRemoteControlPairingModel {
-        CodexRemoteControlPairingModel(start: try await codex.remoteControlPairingStart(manualCode: true))
+        CodexRemoteControlPairingModel(
+            start: try await codex.perform(CodexRequest.remoteControlPairingStart(.init(
+                manualCode: true
+            )))
+        )
     }
 
     public func readPairingStatus(pairingCode: String?, manualPairingCode: String?) async throws -> Bool {
-        try await codex.remoteControlPairingStatus(pairingCode: pairingCode, manualPairingCode: manualPairingCode).claimed
+        try await codex.perform(CodexRequest.remoteControlPairingStatus(.init(
+            manualPairingCode: manualPairingCode,
+            pairingCode: pairingCode
+        ))).claimed
     }
 
     public func listClients(environmentID: String) async throws -> [CodexRemoteControlClientSummary] {
-        try await codex.remoteControlClientList(environmentID: environmentID).data.map(CodexRemoteControlClientSummary.init(client:))
+        try await codex.perform(CodexRequest.remoteControlClientList(.init(
+            environmentID: environmentID,
+            order: .desc
+        ))).data.map(CodexRemoteControlClientSummary.init(client:))
     }
 
     public func revokeClient(clientID: String, environmentID: String) async throws {
-        try await codex.remoteControlClientRevoke(clientID: clientID, environmentID: environmentID)
+        _ = try await codex.perform(CodexRequest.remoteControlClientRevoke(.init(
+            clientID: clientID,
+            environmentID: environmentID
+        )))
     }
 }
 

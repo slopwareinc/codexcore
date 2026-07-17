@@ -1,8 +1,8 @@
 import Foundation
 
 public enum CodexAuthTokenProfileReader {
-    public static func displayName(codexHome: String = defaultCodexHome()) -> String? {
-        displayName(authFileURL: URL(fileURLWithPath: codexHome).appendingPathComponent("auth.json"))
+    public static func displayName(codexHome: CodexHome = .default) -> String? {
+        displayName(authFileURL: codexHome.authFileURL)
     }
 
     public static func displayName(authFileURL: URL) -> String? {

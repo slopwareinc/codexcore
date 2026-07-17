@@ -68,6 +68,8 @@ public enum CodexRateLimitPresentation {
             return "Workspace owner usage limit reached."
         case .workspaceMemberUsageLimitReached:
             return "Workspace member usage limit reached."
+        case .unrecognized(let value):
+            return "\(humanized(value))."
         }
     }
 

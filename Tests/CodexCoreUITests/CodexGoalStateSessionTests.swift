@@ -77,17 +77,13 @@ final class CodexGoalStateSessionTests: XCTestCase {
         XCTAssertTrue(activeSession.isPursuitEnabled)
     }
 
-    func testRouteContextAndNotificationMatchingUseTrackedGoalTurn() {
+    func testTrackedGoalTurnEnablesFollowUpWithoutARegularTurnLease() {
         var session = CodexGoalStateSession(activeGoal: goal(), isPursuitEnabled: true)
-        session.trackStartedTurn(id: "turn-goal")
+        XCTAssertFalse(session.canSendFollowUp(canSteer: false))
 
-        XCTAssertEqual(session.globalRouteContext(currentThreadID: "thread-1"), CodexGlobalNotificationRouteContext(
-            currentThreadID: "thread-1",
-            hasActiveGoal: true,
-            activeGoalTurnID: "turn-goal"
-        ))
-        XCTAssertTrue(session.isActiveTurnNotification(notification(turnID: "turn-goal")))
-        XCTAssertFalse(session.isActiveTurnNotification(notification(turnID: "turn-other")))
+        session.trackStartedTurn(id: "turn-goal")
+        XCTAssertTrue(session.canSendFollowUp(canSteer: false))
+        XCTAssertTrue(CodexGoalStateSession().canSendFollowUp(canSteer: true))
     }
 }
 
@@ -106,23 +102,5 @@ private func goal(
         timeUsedSeconds: timeUsedSeconds,
         createdAt: 1,
         updatedAt: 2
-    )
-}
-
-private func notification(turnID: String) -> CodexNotification {
-    let payload = TurnStartedNotification(
-        threadId: "thread-1",
-        turn: AppServerTurn(id: turnID, status: .inProgress)
-    )
-    return CodexNotification(
-        method: CodexAppServerNotificationMethod.turnStarted.rawValue,
-        payload: .turnStarted(payload),
-        rawParams: [
-            "threadId": .string("thread-1"),
-            "turn": .dictionary([
-                "id": .string(turnID),
-                "status": .string(TurnStatus.inProgress.rawValue)
-            ])
-        ]
     )
 }

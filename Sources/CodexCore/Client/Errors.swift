@@ -71,6 +71,11 @@ public func mapJSONRPCError(code: Int, message: String, data: CodexJSONValue? = 
         return CodexRPCError(code: code, message: message, data: data, kind: .invalidParams)
     case -32603:
         return CodexRPCError(code: code, message: message, data: data, kind: .internalRpc)
+    case -32001:
+        // App-server's bounded ingress queue uses this exact code for
+        // "Server overloaded; retry later." and does not require legacy
+        // `codexErrorInfo` data to be present.
+        return CodexRPCError(code: code, message: message, data: data, kind: .serverBusy)
     case -32099 ... -32000:
         if containsServerOverloaded(data) {
             if containsRetryLimitText(message) {
@@ -92,8 +97,13 @@ public func isRetryableError(_ error: Error) -> Bool {
         return rpcError.kind == .serverBusy || rpcError.kind == .retryLimitExceeded || containsServerOverloaded(rpcError.data)
     }
 
-    if let wireError = error as? JSONRPCError {
-        return containsServerOverloaded(wireError.data)
+    // `CodexSession` exposes the lossless alpha app-server error object at the
+    // response boundary. Classify it directly so retry behavior does not
+    // depend on the removed legacy Connection mapping layer.
+    if let wireError = error as? CodexJSONRPCErrorObject {
+        return wireError.code == -32_001
+            || containsServerOverloaded(wireError.data)
+            || containsRetryLimitText(wireError.message)
     }
 
     return false
@@ -180,10 +190,4 @@ private extension Duration {
     }
 }
 
-extension JSONRPCError {
-    public var mappedError: CodexRPCError {
-        mapJSONRPCError(code: code, message: message, data: data)
-    }
-}
-
-extension CodexConnectionError: CodexError {}
+extension CodexJSONRPCErrorObject: CodexError {}

@@ -69,11 +69,6 @@ public struct CodexAuthSession: Equatable, Sendable {
         connectionState = .connected(server: server)
     }
 
-    @available(*, deprecated, renamed: "connectedAfterHandshake(server:)")
-    public mutating func connected(server: String) {
-        connectedAfterHandshake(server: server)
-    }
-
     public mutating func connectionFailed(message: String) -> CodexActivity {
         connectionState = .failed(message)
         return CodexActivity(kind: .notice, title: "Connection failed", detail: message)
@@ -91,10 +86,14 @@ public struct CodexAuthSession: Equatable, Sendable {
         deviceCodeURL = nil
     }
 
-    public mutating func applyAccount(_ response: GetAccountResponse) -> CodexAuthCheckResult {
+    public mutating func applyAccount(
+        _ response: CodexSchemaGetAccountResponse
+    ) -> CodexAuthCheckResult {
         isAuthenticated = response.account != nil || !response.requiresOpenAIAuth
         if let account = response.account {
-            authLabel = account.email.map { "\(account.type) · \($0)" } ?? account.type
+            let fields = account.rawValue.objectValue ?? [:]
+            let type = CodexJSONCoercion.flatString(from: fields["type"]) ?? "account"
+            authLabel = CodexJSONCoercion.flatString(from: fields["email"]).map { "\(type) · \($0)" } ?? type
             return CodexAuthCheckResult(
                 shouldContinue: true,
                 activity: CodexActivity(kind: .login, title: "Signed in", detail: authLabel)
@@ -109,6 +108,52 @@ public struct CodexAuthSession: Equatable, Sendable {
         }
         authLabel = "Available"
         return CodexAuthCheckResult(shouldContinue: true)
+    }
+
+    /// Applies the canonical account projection used for live account updates
+    /// after the initial `account/read` response.
+    @discardableResult
+    public mutating func applyCanonicalAccount(
+        _ account: CanonicalAccountState
+    ) -> CodexAuthCheckResult {
+        let previousAuthentication = isAuthenticated
+        let previousLabel = authLabel
+        let accountFields = account.extensions["account"]?.objectValue
+        let requiresOpenAIAuth = Self.bool(
+            from: account.extensions["requiresOpenaiAuth"]
+                ?? account.extensions["requiresOpenAIAuth"]
+        ) ?? false
+        let authMode = account.authMode
+            ?? CodexJSONCoercion.flatString(from: accountFields?["type"])
+        let email = CodexJSONCoercion.flatString(from: accountFields?["email"])
+        let hasAccount = accountFields != nil || authMode != nil
+
+        isAuthenticated = hasAccount || !requiresOpenAIAuth
+        if let authMode {
+            authLabel = email.map { "\(authMode) · \($0)" } ?? authMode
+        } else if requiresOpenAIAuth {
+            authLabel = "Sign-in required"
+        } else {
+            authLabel = "Available"
+        }
+
+        guard previousAuthentication != isAuthenticated || previousLabel != authLabel else {
+            return CodexAuthCheckResult(shouldContinue: isAuthenticated)
+        }
+
+        let activity: CodexActivity?
+        if isAuthenticated, let authMode {
+            activity = CodexActivity(kind: .login, title: "Signed in", detail: email ?? authMode)
+        } else if !isAuthenticated {
+            activity = CodexActivity(
+                kind: .login,
+                title: "Authentication required",
+                detail: "Sign in to continue"
+            )
+        } else {
+            activity = nil
+        }
+        return CodexAuthCheckResult(shouldContinue: isAuthenticated, activity: activity)
     }
 
     public mutating func accountCheckSkipped(message: String) -> CodexActivity {
@@ -148,5 +193,10 @@ public struct CodexAuthSession: Equatable, Sendable {
 
     public func deviceCodeFailed(message: String) -> CodexActivity {
         CodexActivity(kind: .login, title: "Device login failed", detail: message)
+    }
+
+    private static func bool(from value: CodexJSONValue?) -> Bool? {
+        guard case .bool(let bool) = value else { return nil }
+        return bool
     }
 }

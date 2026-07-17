@@ -5,65 +5,60 @@ public struct CodexChatRuntimeState: Sendable {
     public var goalSession: CodexGoalStateSession
     public var mainChatSession: CodexMainChatSession
     public var sideChatSession: CodexSideChatSession
-    public var agentStateMapper: CodexAgentStateMapper
     public var integrationCatalogSession: CodexIntegrationCatalogSession
+    private var hasCanonicalSnapshot = false
+    private var canonicalIsSending = false
+    private var canonicalPlan: [TurnPlanStep] = []
+    private var canonicalPlanExplanation: String?
+    private var canonicalDiff: String?
+    private var canonicalGoal: ThreadGoal?
 
     public init(
         goalSession: CodexGoalStateSession = CodexGoalStateSession(),
         mainChatSession: CodexMainChatSession = CodexMainChatSession(),
         sideChatSession: CodexSideChatSession = CodexSideChatSession(),
-        agentStateMapper: CodexAgentStateMapper = CodexAgentStateMapper(),
         integrationCatalogSession: CodexIntegrationCatalogSession = CodexIntegrationCatalogSession()
     ) {
         self.goalSession = goalSession
         self.mainChatSession = mainChatSession
         self.sideChatSession = sideChatSession
-        self.agentStateMapper = agentStateMapper
         self.integrationCatalogSession = integrationCatalogSession
     }
 
-    public var lifecycleEvents: [CodexAgentLifecycleEvent] {
-        agentStateMapper.lifecycleEvents
-    }
-
     public var sideChat: CodexSideChatState? {
-        sideChatSession.sideChat ?? agentStateMapper.sideChat
-    }
-
-    public var subagents: [CodexSubagentState] {
-        agentStateMapper.subagents
+        sideChatSession.sideChat
     }
 
     public var isSending: Bool {
-        mainChatSession.isSending
+        mainChatSession.isSending || canonicalIsSending
     }
 
     public var isSideChatSending: Bool {
         sideChatSession.isSending
     }
 
-    public var activeTurn: CodexTurnHandle? {
-        mainChatSession.activeTurn
+    public var activeTurnID: String? {
+        mainChatSession.activeTurnID
     }
 
-    public var activeSideChatTurn: CodexTurnHandle? {
-        sideChatSession.activeTurn
+    public var activeSideChatTurnID: String? {
+        sideChatSession.activeTurnID
     }
 
     public var currentPlan: [TurnPlanStep] {
-        mainChatSession.currentPlan
+        canonicalPlan
     }
 
     public var currentPlanExplanation: String? {
-        mainChatSession.currentPlanExplanation
+        canonicalPlanExplanation
     }
 
     public var currentDiff: String? {
-        mainChatSession.currentDiff
+        canonicalDiff
     }
 
     public var activeGoal: ThreadGoal? {
-        goalSession.activeGoal
+        hasCanonicalSnapshot ? canonicalGoal : goalSession.activeGoal
     }
 
     public var isGoalPursuitEnabled: Bool {
@@ -74,12 +69,8 @@ public struct CodexChatRuntimeState: Sendable {
         goalSession.activeTurnID
     }
 
-    public var threadHistorySnapshot: CodexThreadHistorySnapshot {
-        CodexThreadHistorySnapshot(agentStateMapper: agentStateMapper)
-    }
-
-    public func canSendFollowUp(hasActiveTurnHandle: Bool) -> Bool {
-        isSending && goalSession.canSendFollowUp(hasActiveTurnHandle: hasActiveTurnHandle)
+    public func canSendFollowUp(canSteer: Bool) -> Bool {
+        isSending && goalSession.canSendFollowUp(canSteer: canSteer)
     }
 
     public func goalSummary(for goal: ThreadGoal) -> String {
@@ -142,8 +133,13 @@ public struct CodexChatRuntimeState: Sendable {
         mainChatSession.beginTurnSubmission(submission)
     }
 
-    public mutating func startMainTurn(_ handle: CodexTurnHandle) {
-        mainChatSession.start(handle)
+    public mutating func startMainTurn(id turnID: String) {
+        mainChatSession.start(turnID: turnID)
+    }
+
+    @discardableResult
+    public mutating func finishMainTurn(id turnID: String?) -> CodexMainChatUpdate? {
+        mainChatSession.finishActiveTurn(id: turnID)
     }
 
     @discardableResult
@@ -170,8 +166,13 @@ public struct CodexChatRuntimeState: Sendable {
         sideChatSession.beginSubmission(prompt: prompt)
     }
 
-    public mutating func startSideChatTurn(_ handle: CodexTurnHandle) {
-        sideChatSession.start(handle)
+    public mutating func startSideChatTurn(id turnID: String, threadID: ThreadID) {
+        sideChatSession.start(turnID: turnID, threadID: threadID)
+    }
+
+    @discardableResult
+    public mutating func finishSideChatTurn(id turnID: String?) -> CodexSideChatSessionUpdate? {
+        sideChatSession.finishTurn(id: turnID)
     }
 
     @discardableResult
@@ -179,73 +180,29 @@ public struct CodexChatRuntimeState: Sendable {
         sideChatSession.failSubmission(message: message)
     }
 
-    @discardableResult
-    @MainActor
-    public mutating func apply(
-        _ notification: CodexNotification,
-        mode: CodexChatNotificationPipelineMode,
-        currentThreadID: String?,
-        store: CodexCoreStore?
-    ) -> CodexChatNotificationPipelineResult? {
-        CodexChatNotificationRuntime.apply(
-            notification,
-            mode: mode,
-            currentThreadID: currentThreadID,
-            store: store,
-            mainChatSession: &mainChatSession,
-            goalSession: &goalSession,
-            agentStateMapper: &agentStateMapper,
-            integrationCatalogSession: &integrationCatalogSession
-        )
-    }
+    /// Refreshes non-transcript chrome from canonical state. This is a pure
+    /// snapshot projection: it never interprets or replays protocol messages.
+    public mutating func applyCanonicalSnapshot(
+        _ snapshot: CodexSessionStateSnapshot,
+        selectedThreadID: ThreadID?
+    ) {
+        guard let selectedThreadID,
+              let thread = snapshot.canonical.threads[selectedThreadID]
+        else {
+            clearCanonicalSnapshot()
+            return
+        }
 
-    @discardableResult
-    @MainActor
-    public mutating func applySideChat(
-        _ notification: CodexNotification,
-        store: CodexCoreStore?,
-        currentThreadID: String?
-    ) -> CodexSideChatSessionUpdate? {
-        CodexChatNotificationRuntime.applySideChat(
-            notification,
-            store: store,
-            currentThreadID: currentThreadID,
-            sideChatSession: &sideChatSession
-        )
-    }
-
-    @discardableResult
-    @MainActor
-    public mutating func finishMainTurn(
-        id turnID: String?,
-        currentThreadID: String?
-    ) -> CodexChatNotificationPipelineResult? {
-        CodexChatNotificationRuntime.finishMainTurn(
-            id: turnID,
-            currentThreadID: currentThreadID,
-            mainChatSession: &mainChatSession,
-            goalSession: &goalSession,
-            agentStateMapper: &agentStateMapper
-        )
-    }
-
-    @discardableResult
-    @MainActor
-    public mutating func finishSideChatTurn(id turnID: String?) -> CodexSideChatSessionUpdate? {
-        CodexChatNotificationRuntime.finishSideChatTurn(
-            id: turnID,
-            sideChatSession: &sideChatSession
-        )
-    }
-
-    @discardableResult
-    public mutating func applyHistoryRestore(_ result: CodexThreadHistoryRestoreResult) -> CodexActivity {
-        CodexThreadHistorySession.apply(
-            result,
-            mainChatSession: &mainChatSession,
-            agentStateMapper: &agentStateMapper,
-            sideChatSession: &sideChatSession
-        )
+        hasCanonicalSnapshot = true
+        let turns = snapshot.canonical.turns(in: selectedThreadID)
+        let latestTurn = turns.last
+        canonicalIsSending = thread.status.isActive || latestTurn?.status == .inProgress
+        canonicalPlan = (latestTurn?.plan ?? []).map { step in
+            TurnPlanStep(step: step.step, status: Self.planStatus(step.status))
+        }
+        canonicalPlanExplanation = latestTurn?.planExplanation
+        canonicalDiff = latestTurn?.diff
+        canonicalGoal = thread.goal.map(Self.threadGoal)
     }
 
     @discardableResult
@@ -277,6 +234,47 @@ public struct CodexChatRuntimeState: Sendable {
     public mutating func resetThreadState() {
         mainChatSession.reset()
         sideChatSession.reset()
-        agentStateMapper.reset()
+        clearCanonicalSnapshot()
+    }
+
+    private mutating func clearCanonicalSnapshot() {
+        hasCanonicalSnapshot = false
+        canonicalIsSending = false
+        canonicalPlan = []
+        canonicalPlanExplanation = nil
+        canonicalDiff = nil
+        canonicalGoal = nil
+    }
+
+    private static func planStatus(_ status: CanonicalPlanStepStatus) -> TurnPlanStepStatus {
+        switch status {
+        case .pending, .unknown: .pending
+        case .inProgress: .inProgress
+        case .completed: .completed
+        }
+    }
+
+    private static func threadGoal(_ goal: CanonicalThreadGoal) -> ThreadGoal {
+        ThreadGoal(
+            threadId: goal.threadID.rawValue,
+            objective: goal.objective,
+            status: goalStatus(goal.status),
+            tokenBudget: goal.tokenBudget.map { Int(clamping: $0) },
+            tokensUsed: Int(clamping: goal.tokensUsed),
+            timeUsedSeconds: Int(clamping: goal.timeUsedSeconds),
+            createdAt: Int(clamping: goal.createdAt.rawValue),
+            updatedAt: Int(clamping: goal.updatedAt.rawValue)
+        )
+    }
+
+    private static func goalStatus(_ status: CanonicalThreadGoalStatus) -> ThreadGoalStatus {
+        switch status {
+        case .active, .unknown: .active
+        case .paused: .paused
+        case .blocked: .blocked
+        case .usageLimited: .usageLimited
+        case .budgetLimited: .budgetLimited
+        case .complete: .complete
+        }
     }
 }

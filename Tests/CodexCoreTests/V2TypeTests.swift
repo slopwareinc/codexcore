@@ -46,6 +46,31 @@ final class V2TypeTests: XCTestCase {
         XCTAssertEqual(response.codexHome, "/tmp/codex-home")
     }
 
+    func testInitializeResponseRejectsEveryMissingOrNullRequiredField() throws {
+        let complete: [String: CodexJSONValue] = [
+            "codexHome": .string("/tmp/codex-home"),
+            "platformFamily": .string("unix"),
+            "platformOs": .string("macos"),
+            "userAgent": .string("codex/alpha.20"),
+        ]
+
+        for field in ["codexHome", "platformFamily", "platformOs", "userAgent"] {
+            var missing = complete
+            missing.removeValue(forKey: field)
+            XCTAssertThrowsError(
+                try CodexJSONValue.dictionary(missing).decode(InitializeResponse.self),
+                "InitializeResponse must require \(field)"
+            )
+
+            var null = complete
+            null[field] = .null
+            XCTAssertThrowsError(
+                try CodexJSONValue.dictionary(null).decode(InitializeResponse.self),
+                "InitializeResponse must reject null \(field)"
+            )
+        }
+    }
+
     func testInputWireMappingMatchesPythonSDK() {
         XCTAssertEqual(CodexInput.text("hi").jsonValue, .dictionary(["type": .string("text"), "text": .string("hi")]))
         XCTAssertEqual(CodexInput.image(url: "https://example.com/a.png").jsonValue, .dictionary(["type": .string("image"), "url": .string("https://example.com/a.png")]))
@@ -92,57 +117,6 @@ final class V2TypeTests: XCTestCase {
                 "namespace": .string("walkable")
             ])
         ]))
-    }
-
-    func testDynamicToolCallParsingAndResponseEncoding() throws {
-        let request = JSONRPCServerRequest(
-            id: .int(42),
-            method: CodexAppServerServerRequestMethod.itemToolCall.rawValue,
-            params: [
-                "threadId": .string("thread-1"),
-                "turnId": .string("turn-1"),
-                "callId": .string("call-1"),
-                "tool": .string("save_notebook_entry"),
-                "arguments": .dictionary(["title": .string("Groove map")])
-            ]
-        )
-
-        let call = try XCTUnwrap(request.dynamicToolCall)
-        XCTAssertEqual(call.requestID, .int(42))
-        XCTAssertEqual(call.threadID, "thread-1")
-        XCTAssertEqual(call.turnID, "turn-1")
-        XCTAssertEqual(call.callID, "call-1")
-        XCTAssertEqual(call.tool, "save_notebook_entry")
-        XCTAssertEqual(call.argumentsObject, ["title": .string("Groove map")])
-
-        XCTAssertEqual(
-            CodexDynamicToolResponse.success(text: "Saved.").jsonValue,
-            .dictionary([
-                "success": .bool(true),
-                "contentItems": .array([
-                    .dictionary([
-                        "type": .string("inputText"),
-                        "text": .string("Saved.")
-                    ])
-                ])
-            ])
-        )
-    }
-
-    func testDynamicToolCallRejectsLegacyItemIdentifierShape() {
-        let request = JSONRPCServerRequest(
-            id: .int(42),
-            method: CodexAppServerServerRequestMethod.itemToolCall.rawValue,
-            params: [
-                "threadId": .string("thread-1"),
-                "turnId": .string("turn-1"),
-                "itemId": .string("legacy-item-1"),
-                "tool": .string("save_notebook_entry"),
-                "arguments": .dictionary([:])
-            ]
-        )
-
-        XCTAssertNil(request.dynamicToolCall)
     }
 
     func testStructuredCommandApprovalDecisionsRoundTrip() throws {

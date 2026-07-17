@@ -32,17 +32,3 @@ extension CodexSubagentState.Status {
         }
     }
 }
-
-extension CodexNotificationPayload {
-    var normalizedKnownPayload: (method: CodexAppServerNotificationMethod, params: [String: CodexJSONValue])? {
-        switch self {
-        case .known(let method, let params):
-            return (method, params)
-        case .unknown(let rawMethod, let params):
-            guard let method = CodexAppServerNotificationMethod(rawValue: rawMethod) else { return nil }
-            return (method, params)
-        default:
-            return nil
-        }
-    }
-}

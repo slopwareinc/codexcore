@@ -111,7 +111,13 @@ swift test
 swift run codex-core-app
 ```
 
-`CodexConfig` inherits auth through `CODEX_HOME=~/.codex` by default. Override `CODEX_BINARY`, `CODEX_BIN`, `CODEX_APP_BUNDLE`, or `codexBinaryPath` when using a custom Codex runtime.
+`CodexConfig` isolates auth, configuration, threads, and app-server state under
+`CODEX_HOME=~/.codexcore` by default. Pass a `CodexHome` to use another isolated
+home. The normal Codex app's `~/.codex` directory is never selected implicitly.
+CodexCore also forces `cli_auth_credentials_store="file"`, keeping login tokens
+inside that configured home instead of sharing the normal app's credential store.
+Override `CODEX_BINARY`, `CODEX_BIN`, `CODEX_APP_BUNDLE`, or `codexBinaryPath`
+when using a custom Codex runtime.
 
 ## Requirements
 

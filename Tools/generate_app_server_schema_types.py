@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Generate Swift model types from Codex app-server JSON schemas.
 
-String-enum schemas become Swift enums, plain object schemas become Codable
-structs, and anything the generator cannot faithfully express (tagged unions,
-recursive types, exotic compositions) falls back to a raw JSON wrapper
-typealias so the full definition inventory stays addressable.
+String-enum schemas become forward-compatible Swift enums by default, plain
+object schemas become Codable structs, and selected protocol-critical tagged
+unions become lossless Swift enums with typed payloads. Anything the generator
+cannot faithfully express (recursive types, exotic compositions) falls back to
+a raw JSON wrapper typealias so the full definition inventory stays addressable.
 """
 
 from __future__ import annotations
@@ -49,7 +50,130 @@ public struct CodexAppServerMethodSchemaDefinition: Sendable, Equatable {
     public let typeName: String
 }
 
+public struct CodexAppServerStandaloneSchemaDefinition: Sendable, Equatable {
+    public let fileName: String
+    public let name: String
+    public let propertyNames: [String]
+    public let requiredFields: [String]
+}
+
 """
+
+
+# These unions are the canonical state discriminators. Silently degrading one
+# of them to raw JSON would make the generated protocol surface appear complete
+# while moving exhaustiveness and validation back into every caller.
+REQUIRED_TAGGED_UNIONS = frozenset({
+    "LoginAccountParams",
+    "ThreadItem",
+    "ThreadStatus",
+})
+
+# Protocol string enums are open unless accepting an unknown value would let a
+# caller request an operation the client cannot understand or validate. Keep
+# this exception set intentionally narrow: enums reused by any server response,
+# request, or notification must preserve future wire values instead.
+CLOSED_STRING_ENUMS = frozenset({
+    "AddCreditsNudgeCreditType",
+    "AdditionalContextKind",
+    "ConversationTextRole",
+    "LoginAppBrand",
+    "McpServerStatusDetail",
+    "MergeStrategy",
+    "PluginListMarketplaceKind",
+    "PluginShareTargetRole",
+    "PluginShareUpdateDiscoverability",
+    "RealtimeOutputModality",
+    "RemoteControlClientsListOrder",
+    "ReviewDelivery",
+    "SortDirection",
+    "ThreadMemoryMode",
+    "ThreadSortKey",
+    "ThreadSourceKind",
+    "ThreadStartSource",
+})
+
+HANDSHAKE_SCHEMA_FILES = (
+    "InitializeParams.json",
+    "InitializeResponse.json",
+)
+
+
+def inline_local_definition_refs(value: object, definitions: dict[str, object]) -> object:
+    """Inline standalone-schema refs so primitive constraints stay typed.
+
+    The v2 bundle already carries most v1 definitions, but InitializeResponse
+    is emitted only as a standalone schema. Its AbsolutePathBuf ref is a string
+    constraint; resolving it locally prevents the generated Swift field from
+    degrading to the bundle's generic raw wrapper alias.
+    """
+    if isinstance(value, list):
+        return [inline_local_definition_refs(item, definitions) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    name = ref_name(value.get("$ref"))
+    if name is not None and name in definitions:
+        return inline_local_definition_refs(definitions[name], definitions)
+    return {
+        key: inline_local_definition_refs(item, definitions)
+        for key, item in value.items()
+    }
+
+
+def load_handshake_schemas(
+    schema_dir: Path,
+    definitions: dict[str, object],
+) -> list[dict[str, object]]:
+    """Validate and merge protocol-critical standalone v1 handshake schemas."""
+    inventory: list[dict[str, object]] = []
+    for file_name in HANDSHAKE_SCHEMA_FILES:
+        path = schema_dir / "v1" / file_name
+        schema = json.loads(path.read_text())
+        name = schema.get("title")
+        properties = schema.get("properties")
+        required = schema.get("required", [])
+        local_definitions = schema.get("definitions", {})
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"{path} must declare a non-empty title")
+        if schema.get("type") != "object" or not isinstance(properties, dict):
+            raise ValueError(f"{path} must contain one object schema")
+        if not isinstance(required, list) or not all(isinstance(key, str) for key in required):
+            raise ValueError(f"{path} required fields must be strings")
+        if not isinstance(local_definitions, dict):
+            raise ValueError(f"{path} definitions must be an object")
+
+        for definition_name, definition in local_definitions.items():
+            existing = definitions.get(definition_name)
+            if existing is not None and existing != definition:
+                raise ValueError(
+                    f"{path} definition {definition_name} disagrees with the v2 bundle"
+                )
+            definitions.setdefault(definition_name, definition)
+
+        standalone = {
+            key: value
+            for key, value in schema.items()
+            if key != "definitions"
+        }
+        existing = definitions.get(name)
+        if existing is not None:
+            if existing != standalone:
+                raise ValueError(f"{path} disagrees with bundled definition {name}")
+        else:
+            definitions[name] = inline_local_definition_refs(
+                standalone,
+                local_definitions,
+            )
+
+        inventory.append({
+            "file_name": file_name,
+            "name": name,
+            "property_names": sorted(properties),
+            "required_fields": sorted(required),
+        })
+    return inventory
+
 
 def ref_name(value: object) -> str | None:
     if isinstance(value, str) and value.startswith("#/definitions/"):
@@ -78,12 +202,109 @@ def string_enum_values(schema: dict) -> list[str] | None:
     return None
 
 
+def is_open_string_enum(definition_name: str) -> bool:
+    """Whether an enum must preserve unknown future protocol values."""
+    return definition_name not in CLOSED_STRING_ENUMS
+
+
+def definition_refs(value: object) -> set[str]:
+    """Collect definition names referenced anywhere below a schema node."""
+    refs: set[str] = set()
+    if isinstance(value, list):
+        for item in value:
+            refs.update(definition_refs(item))
+    elif isinstance(value, dict):
+        name = ref_name(value.get("$ref"))
+        if name is not None:
+            refs.add(name)
+        for item in value.values():
+            refs.update(definition_refs(item))
+    return refs
+
+
+def reachable_definitions(
+    roots: set[str],
+    definitions: dict[str, object],
+) -> set[str]:
+    """Return the transitive definition closure for the supplied wire roots."""
+    reachable: set[str] = set()
+    pending = list(roots)
+    while pending:
+        name = pending.pop()
+        if name in reachable or name not in definitions:
+            continue
+        reachable.add(name)
+        pending.extend(definition_refs(definitions[name]))
+    return reachable
+
+
+def validate_closed_string_enum_policy(
+    enum_names: set[str],
+    inbound_definition_names: set[str],
+    closed_string_enums: frozenset[str] = CLOSED_STRING_ENUMS,
+) -> None:
+    """Reject stale exceptions and exceptions that have become inbound."""
+    missing = closed_string_enums.difference(enum_names)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"schema bundle is missing closed string enums: {names}")
+
+    inbound = closed_string_enums.intersection(inbound_definition_names)
+    if inbound:
+        names = ", ".join(sorted(inbound))
+        raise ValueError(f"closed string enums are reachable from inbound schemas: {names}")
+
+
 def is_plain_object(schema: dict) -> bool:
     if schema.get("type") != "object":
         return False
     if any(key in schema for key in ("oneOf", "anyOf", "allOf", "enum")):
         return False
     return isinstance(schema.get("properties"), dict)
+
+
+def tagged_union_arms(definition_name: str, schema: dict) -> list[tuple[str, dict]]:
+    """Validate and return inline object arms keyed by their `type` literal.
+
+    Required tagged unions deliberately fail generation when upstream changes
+    their shape. Falling back to a raw alias here would defeat the compile-time
+    exhaustiveness guarantee these definitions exist to provide.
+    """
+    arms = schema.get("oneOf")
+    if not isinstance(arms, list) or not arms:
+        raise ValueError(f"{definition_name} must be a non-empty oneOf tagged union")
+
+    result: list[tuple[str, dict]] = []
+    seen_tags: set[str] = set()
+    seen_cases: set[str] = set()
+    seen_payloads: set[str] = set()
+    for index, arm in enumerate(arms):
+        if not isinstance(arm, dict) or arm.get("type") != "object":
+            raise ValueError(f"{definition_name} arm {index} must be an inline object")
+        properties = arm.get("properties")
+        required = arm.get("required")
+        if not isinstance(properties, dict) or not isinstance(required, list) or "type" not in required:
+            raise ValueError(f"{definition_name} arm {index} must require a type property")
+        discriminator = properties.get("type")
+        values = discriminator.get("enum") if isinstance(discriminator, dict) else None
+        if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], str):
+            raise ValueError(f"{definition_name} arm {index} type must be one string literal")
+
+        tag = values[0]
+        case_name = swift_member_name(tag)
+        title = arm.get("title")
+        payload_name = "CodexSchema" + swift_type_suffix(title if isinstance(title, str) else f"{definition_name}{tag}")
+        if tag in seen_tags:
+            raise ValueError(f"{definition_name} has duplicate discriminator {tag!r}")
+        if case_name in seen_cases:
+            raise ValueError(f"{definition_name} has colliding Swift case {case_name!r}")
+        if payload_name in seen_payloads:
+            raise ValueError(f"{definition_name} has colliding payload type {payload_name!r}")
+        seen_tags.add(tag)
+        seen_cases.add(case_name)
+        seen_payloads.add(payload_name)
+        result.append((tag, arm))
+    return result
 
 
 class FieldTypeResolver:
@@ -150,16 +371,84 @@ class FieldTypeResolver:
         return "CodexJSONValue"
 
 
-def emit_enum(type_name: str, values: list[str]) -> str:
-    lines = [f"public enum {type_name}: String, Codable, Sendable, Equatable, CaseIterable {{"]
-    used: dict[str, int] = {}
+def enum_case_pairs(
+    type_name: str,
+    values: list[str],
+    reserved_members: frozenset[str] = frozenset(),
+) -> list[tuple[str, str]]:
+    """Allocate enum cases, rejecting ambiguous or conflicting wire names."""
+    if len(values) != len(set(values)):
+        raise ValueError(f"{type_name} has duplicate enum wire values")
+
+    cases: list[tuple[str, str]] = []
+    used: dict[str, str] = {}
     for value in values:
         case_name = swift_member_name(value)
-        count = used.get(case_name, 0)
-        used[case_name] = count + 1
-        if count:
-            case_name = f"{case_name}{count + 1}"
+        bare_name = case_name.strip("`")
+        if bare_name in reserved_members:
+            raise ValueError(
+                f"{type_name} wire value {value!r} conflicts with generated member {bare_name!r}"
+            )
+        if case_name in used:
+            raise ValueError(
+                f"{type_name} wire values {used[case_name]!r} and {value!r} "
+                f"collide as Swift case {case_name!r}"
+            )
+        used[case_name] = value
+        cases.append((case_name, value))
+    return cases
+
+
+def emit_enum(type_name: str, values: list[str]) -> str:
+    lines = [f"public enum {type_name}: String, Codable, Sendable, Equatable, CaseIterable {{"]
+    for case_name, value in enum_case_pairs(type_name, values):
         lines.append(f"    case {case_name} = {json.dumps(value)}")
+    lines.append("}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def emit_open_enum(type_name: str, values: list[str]) -> str:
+    lines = [f"public enum {type_name}: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {{"]
+    cases = enum_case_pairs(
+        type_name,
+        values,
+        frozenset({"allCases", "rawValue", "unrecognized"}),
+    )
+    for case_name, _ in cases:
+        lines.append(f"    case {case_name}")
+    lines.append("    case unrecognized(String)")
+    lines.append("")
+    lines.append(f"    public static let allCases: [{type_name}] = [")
+    for case_name, _ in cases:
+        lines.append(f"        .{case_name},")
+    lines.append("    ]")
+    lines.append("")
+    lines.append("    public init?(rawValue: String) {")
+    lines.append("        switch rawValue {")
+    for case_name, value in cases:
+        lines.append(f"        case {json.dumps(value)}: self = .{case_name}")
+    lines.append("        default: self = .unrecognized(rawValue)")
+    lines.append("        }")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public var rawValue: String {")
+    lines.append("        switch self {")
+    for case_name, value in cases:
+        lines.append(f"        case .{case_name}: {json.dumps(value)}")
+    lines.append("        case .unrecognized(let value): value")
+    lines.append("        }")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public init(from decoder: Decoder) throws {")
+    lines.append("        let container = try decoder.singleValueContainer()")
+    lines.append("        self = Self(rawValue: try container.decode(String.self))!")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public func encode(to encoder: Encoder) throws {")
+    lines.append("        var container = encoder.singleValueContainer()")
+    lines.append("        try container.encode(rawValue)")
+    lines.append("    }")
     lines.append("}")
     lines.append("")
     return "\n".join(lines)
@@ -214,6 +503,178 @@ def emit_struct(type_name: str, schema: dict, type_names: dict[str, str]) -> tup
     lines.append("}")
     lines.append("")
     return "\n".join(lines), resolver.refs
+
+
+def tagged_payload_name(definition_name: str, tag: str, arm: dict) -> str:
+    title = arm.get("title")
+    source = title if isinstance(title, str) else f"{definition_name}{tag}"
+    return "CodexSchema" + swift_type_suffix(source)
+
+
+def emit_tagged_payload(
+    definition_name: str,
+    tag: str,
+    arm: dict,
+    type_names: dict[str, str],
+) -> tuple[str, set[str]]:
+    """Emit an immutable, lossless typed payload for one tagged-union arm."""
+    payload_name = tagged_payload_name(definition_name, tag, arm)
+    properties: dict = arm.get("properties", {})
+    required = set(arm.get("required", []) or [])
+    resolver = FieldTypeResolver(type_names)
+
+    fields: list[tuple[str, str, str, bool]] = []
+    used: dict[str, int] = {}
+    for key in sorted(key for key in properties if key != "type"):
+        prop_name = swift_member_name(key)
+        count = used.get(prop_name, 0)
+        used[prop_name] = count + 1
+        if count:
+            prop_name = f"{prop_name}{count + 1}"
+        swift_type = resolver.resolve(properties[key], key not in required)
+        fields.append((prop_name, key, swift_type, key in required))
+
+    wire_fields = ["type", *(key for _, key, _, _ in fields)]
+    lines = [f"public struct {payload_name}: Codable, Sendable, Equatable {{"]
+    lines.append(f"    public static let discriminator = {json.dumps(tag)}")
+    for prop_name, _, swift_type, _ in fields:
+        lines.append(f"    public let {prop_name}: {swift_type}")
+    lines.append("    public let rawValue: CodexJSONValue")
+    lines.append("")
+    lines.append("    public var type: String { Self.discriminator }")
+    lines.append("    public var unknownFields: [String: CodexJSONValue] {")
+    lines.append("        guard case .dictionary(let object) = rawValue else { return [:] }")
+    lines.append("        return object.filter { !Self.knownWireFields.contains($0.key) }")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    private static let knownWireFields: Set<String> = [")
+    for key in wire_fields:
+        lines.append(f"        {json.dumps(key)},")
+    lines.append("    ]")
+    lines.append("")
+    lines.append("    enum CodingKeys: String, CodingKey {")
+    lines.append("        case type")
+    for prop_name, key, _, _ in fields:
+        bare = prop_name.strip("`")
+        if bare != key:
+            lines.append(f"        case {prop_name} = {json.dumps(key)}")
+        else:
+            lines.append(f"        case {prop_name}")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public init(from decoder: Decoder) throws {")
+    lines.append("        let container = try decoder.container(keyedBy: CodingKeys.self)")
+    lines.append("        let discriminator = try container.decode(String.self, forKey: .type)")
+    lines.append("        guard discriminator == Self.discriminator else {")
+    lines.append("            throw DecodingError.dataCorruptedError(")
+    lines.append("                forKey: .type,")
+    lines.append("                in: container,")
+    lines.append('                debugDescription: "Expected \\(Self.discriminator), got \\(discriminator)"')
+    lines.append("            )")
+    lines.append("        }")
+    for prop_name, _, swift_type, is_required in fields:
+        key_ref = f".{prop_name}"
+        bare = prop_name.strip("`")
+        if swift_type.endswith("?"):
+            base_type = swift_type[:-1]
+            if is_required:
+                lines.append(f"        guard container.contains({key_ref}) else {{")
+                lines.append(f"            throw DecodingError.keyNotFound(CodingKeys.{bare}, .init(codingPath: decoder.codingPath, debugDescription: \"Missing required field\"))")
+                lines.append("        }")
+            lines.append(f"        self.{bare} = try container.decodeIfPresent({base_type}.self, forKey: {key_ref})")
+        else:
+            lines.append(f"        self.{bare} = try container.decode({swift_type}.self, forKey: {key_ref})")
+    lines.append("        let rawContainer = try decoder.singleValueContainer()")
+    lines.append("        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public func encode(to encoder: Encoder) throws {")
+    lines.append("        try rawValue.encode(to: encoder)")
+    lines.append("    }")
+    lines.append("}")
+    lines.append("")
+    return "\n".join(lines), resolver.refs
+
+
+def emit_tagged_union(
+    definition_name: str,
+    type_name: str,
+    arms: list[tuple[str, dict]],
+    type_names: dict[str, str],
+) -> tuple[str, set[str]]:
+    output = ""
+    refs: set[str] = set()
+    payloads: list[tuple[str, str]] = []
+    for tag, arm in arms:
+        body, arm_refs = emit_tagged_payload(definition_name, tag, arm, type_names)
+        output += body
+        refs.update(arm_refs)
+        payloads.append((tag, tagged_payload_name(definition_name, tag, arm)))
+
+    lines = [f"public enum {type_name}: Codable, Sendable, Equatable {{"]
+    for tag, payload_name in payloads:
+        lines.append(f"    case {swift_member_name(tag)}({payload_name})")
+    lines.append("    case unrecognized(type: String, rawValue: CodexJSONValue)")
+    lines.append("")
+    lines.append("    enum CodingKeys: String, CodingKey { case type }")
+    lines.append("")
+    lines.append("    public init(from decoder: Decoder) throws {")
+    lines.append("        let container = try decoder.container(keyedBy: CodingKeys.self)")
+    lines.append("        let discriminator = try container.decode(String.self, forKey: .type)")
+    lines.append("        switch discriminator {")
+    for tag, payload_name in payloads:
+        lines.append(f"        case {json.dumps(tag)}:")
+        lines.append(f"            self = .{swift_member_name(tag)}(try {payload_name}(from: decoder))")
+    lines.append("        default:")
+    lines.append("            let rawContainer = try decoder.singleValueContainer()")
+    lines.append("            let rawValue = try rawContainer.decode(CodexJSONValue.self)")
+    lines.append("            self = .unrecognized(type: discriminator, rawValue: rawValue)")
+    lines.append("        }")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public func encode(to encoder: Encoder) throws {")
+    lines.append("        switch self {")
+    for tag, _ in payloads:
+        lines.append(f"        case .{swift_member_name(tag)}(let payload):")
+        lines.append("            try payload.encode(to: encoder)")
+    lines.append("        case .unrecognized(_, let rawValue):")
+    lines.append("            try rawValue.encode(to: encoder)")
+    lines.append("        }")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public var type: String {")
+    lines.append("        switch self {")
+    for tag, _ in payloads:
+        lines.append(f"        case .{swift_member_name(tag)}: {json.dumps(tag)}")
+    lines.append("        case .unrecognized(let type, _): type")
+    lines.append("        }")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    public var rawValue: CodexJSONValue {")
+    lines.append("        switch self {")
+    for tag, _ in payloads:
+        lines.append(f"        case .{swift_member_name(tag)}(let payload): payload.rawValue")
+    lines.append("        case .unrecognized(_, let rawValue): rawValue")
+    lines.append("        }")
+    lines.append("    }")
+
+    if definition_name == "ThreadItem":
+        lines.append("")
+        lines.append("    public var id: String? {")
+        lines.append("        switch self {")
+        for tag, _ in payloads:
+            lines.append(f"        case .{swift_member_name(tag)}(let payload): return payload.id")
+        lines.append("        case .unrecognized(_, let rawValue):")
+        lines.append("            guard case .dictionary(let object) = rawValue,")
+        lines.append('                  case .string(let id)? = object["id"] else { return nil }')
+        lines.append("            return id")
+        lines.append("        }")
+        lines.append("    }")
+
+    lines.append("}")
+    lines.append("")
+    output += "\n".join(lines)
+    return output, refs
 
 
 def load_method_param_refs(path: Path, type_names: dict[str, str]) -> list[tuple[str, str, str]]:
@@ -272,6 +733,7 @@ def main() -> None:
     definitions = bundle.get("definitions", {})
     if not isinstance(definitions, dict):
         raise ValueError("schema bundle definitions must be an object")
+    handshake_schemas = load_handshake_schemas(args.schema_dir, definitions)
 
     rows: list[tuple[str, str]] = []
     used: dict[str, int] = {}
@@ -289,9 +751,13 @@ def main() -> None:
     # Classify definitions.
     enums: dict[str, list[str]] = {}
     structs: dict[str, dict] = {}
+    tagged_unions: dict[str, list[tuple[str, dict]]] = {}
     for name in type_names:
         schema = definitions[name]
         if not isinstance(schema, dict):
+            continue
+        if name in REQUIRED_TAGGED_UNIONS:
+            tagged_unions[name] = tagged_union_arms(name, schema)
             continue
         values = string_enum_values(schema)
         if values is not None:
@@ -299,6 +765,20 @@ def main() -> None:
             continue
         if is_plain_object(schema):
             structs[name] = schema
+
+    missing_tagged_unions = REQUIRED_TAGGED_UNIONS.difference(tagged_unions)
+    if missing_tagged_unions:
+        names = ", ".join(sorted(missing_tagged_unions))
+        raise ValueError(f"schema bundle is missing required tagged unions: {names}")
+
+    definition_type_names = set(type_names.values())
+    for definition_name, arms in tagged_unions.items():
+        for tag, arm in arms:
+            payload_name = tagged_payload_name(definition_name, tag, arm)
+            if payload_name in definition_type_names:
+                raise ValueError(
+                    f"{definition_name} payload {payload_name} collides with a schema definition"
+                )
 
     # First pass: collect struct reference graphs for cycle demotion.
     struct_refs: dict[str, set[str]] = {}
@@ -312,17 +792,47 @@ def main() -> None:
     notification_payloads = load_method_param_refs(args.schema_dir / "ServerNotification.json", type_names)
     server_request_params = load_method_param_refs(args.schema_dir / "ServerRequest.json", type_names)
 
-    v2_files = sorted(path.name for path in (args.schema_dir / "v2").glob("*.json"))
+    v2_paths = sorted((args.schema_dir / "v2").glob("*.json"))
+    v2_files = [path.name for path in v2_paths]
+    inbound_roots = {
+        definition_name
+        for _, definition_name, _ in notification_payloads + server_request_params
+    }
+    for path in v2_paths:
+        if not path.name.endswith(("Notification.json", "Response.json")):
+            continue
+        title = json.loads(path.read_text()).get("title")
+        if isinstance(title, str):
+            inbound_roots.add(title)
+    inbound_roots.update(
+        schema["name"]
+        for schema in handshake_schemas
+        if schema["file_name"].endswith("Response.json")
+    )
+    validate_closed_string_enum_policy(
+        set(enums),
+        reachable_definitions(inbound_roots, definitions),
+    )
 
     enum_count = 0
+    open_enum_count = 0
     struct_count = 0
+    tagged_union_count = 0
     alias_count = 0
 
     output = HEADER
     for name, type_name in rows:
         if name in enums:
-            output += emit_enum(type_name, enums[name])
+            if is_open_string_enum(name):
+                output += emit_open_enum(type_name, enums[name])
+                open_enum_count += 1
+            else:
+                output += emit_enum(type_name, enums[name])
             enum_count += 1
+        elif name in tagged_unions:
+            body, _ = emit_tagged_union(name, type_name, tagged_unions[name], type_names)
+            output += body
+            tagged_union_count += 1
         elif name in structs:
             body, _ = emit_struct(type_name, structs[name], type_names)
             output += body
@@ -334,9 +844,12 @@ def main() -> None:
     output += "\npublic enum CodexAppServerSchemaInventory {\n"
     output += f"    public static let definitionCount = {len(rows)}\n"
     output += f"    public static let generatedEnumCount = {enum_count}\n"
+    output += f"    public static let generatedOpenEnumCount = {open_enum_count}\n"
     output += f"    public static let generatedStructCount = {struct_count}\n"
+    output += f"    public static let generatedTaggedUnionCount = {tagged_union_count}\n"
     output += f"    public static let rawAliasCount = {alias_count}\n"
     output += f"    public static let v2SchemaFileCount = {len(v2_files)}\n"
+    output += f"    public static let v1HandshakeSchemaFileCount = {len(handshake_schemas)}\n"
     output += "    public static let definitions: [CodexAppServerSchemaDefinition] = [\n"
     for name, type_name in rows:
         output += f"        CodexAppServerSchemaDefinition(name: {json.dumps(name)}, typeName: {json.dumps(type_name)}),\n"
@@ -363,6 +876,17 @@ def main() -> None:
     for file_name in v2_files:
         output += f"        {json.dumps(file_name)},\n"
     output += "    ]\n"
+    output += "    public static let v1HandshakeSchemas: [CodexAppServerStandaloneSchemaDefinition] = [\n"
+    for schema in handshake_schemas:
+        property_names = ", ".join(json.dumps(value) for value in schema["property_names"])
+        required_fields = ", ".join(json.dumps(value) for value in schema["required_fields"])
+        output += "        CodexAppServerStandaloneSchemaDefinition("
+        output += f"fileName: {json.dumps(schema['file_name'])}, "
+        output += f"name: {json.dumps(schema['name'])}, "
+        output += f"propertyNames: [{property_names}], "
+        output += f"requiredFields: [{required_fields}]),\n"
+    output += "    ]\n"
+    output += "    public static let v1HandshakeSchemaByName: [String: CodexAppServerStandaloneSchemaDefinition] = Dictionary(uniqueKeysWithValues: v1HandshakeSchemas.map { ($0.name, $0) })\n"
     output += "}\n"
     output += "\npublic extension CodexAppServerNotificationMethod {\n"
     output += "    var schemaDefinition: CodexAppServerMethodSchemaDefinition? {\n"

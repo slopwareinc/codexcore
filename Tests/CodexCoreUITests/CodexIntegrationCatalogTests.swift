@@ -309,12 +309,6 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(session.mcpServers.map(\.displayName), ["Filesystem"])
         XCTAssertFalse(session.isLoadingMCPServers)
 
-        session.applyMCPStartupStatus(CodexMCPServerStartupStatus(name: "filesystem", status: "ready", error: nil))
-        XCTAssertEqual(session.mcpServers[0].startupStatus, "ready")
-        session.applyMCPStartupStatus(CodexMCPServerStartupStatus(name: "github", status: "failed", error: "missing token"))
-        XCTAssertEqual(session.mcpServers.map(\.name), ["filesystem", "github"])
-        XCTAssertEqual(session.mcpServers[1].error, "missing token")
-
         let failedMCP = session.failMCPRefresh(message: "server unavailable")
         XCTAssertEqual(failedMCP.title, "MCP status unavailable")
         XCTAssertEqual(session.mcpServers, [])

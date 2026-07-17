@@ -31,6 +31,13 @@ public struct CodexAppServerMethodSchemaDefinition: Sendable, Equatable {
     public let typeName: String
 }
 
+public struct CodexAppServerStandaloneSchemaDefinition: Sendable, Equatable {
+    public let fileName: String
+    public let name: String
+    public let propertyNames: [String]
+    public let requiredFields: [String]
+}
+
 public typealias CodexSchemaAbsolutePathBuf = CodexAppServerSchemaValue
 public typealias CodexSchemaAccount = CodexAppServerSchemaValue
 public struct CodexSchemaAccountLoginCompletedNotification: Codable, Sendable, Equatable {
@@ -103,9 +110,41 @@ public enum CodexSchemaAddCreditsNudgeCreditType: String, Codable, Sendable, Equ
     case credits = "credits"
     case usageLimit = "usage_limit"
 }
-public enum CodexSchemaAddCreditsNudgeEmailStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case sent = "sent"
-    case cooldownActive = "cooldown_active"
+public enum CodexSchemaAddCreditsNudgeEmailStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case sent
+    case cooldownActive
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaAddCreditsNudgeEmailStatus] = [
+        .sent,
+        .cooldownActive,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "sent": self = .sent
+        case "cooldown_active": self = .cooldownActive
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .sent: "sent"
+        case .cooldownActive: "cooldown_active"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaAdditionalContextEntry: Codable, Sendable, Equatable {
     public var kind: CodexSchemaAdditionalContextKind
@@ -162,10 +201,6 @@ public struct CodexSchemaAgentMessageDeltaNotification: Codable, Sendable, Equat
 }
 public typealias CodexSchemaAgentMessageInputContent = CodexAppServerSchemaValue
 public typealias CodexSchemaAgentPath = CodexAppServerSchemaValue
-public enum CodexSchemaAmazonBedrockCredentialSource: String, Codable, Sendable, Equatable, CaseIterable {
-    case codexManaged = "codexManaged"
-    case awsManaged = "awsManaged"
-}
 public struct CodexSchemaAnalyticsConfig: Codable, Sendable, Equatable {
     public var enabled: Bool?
 
@@ -379,15 +414,85 @@ public struct CodexSchemaAppTemplateSummary: Codable, Sendable, Equatable {
         self.templateID = templateID
     }
 }
-public enum CodexSchemaAppTemplateUnavailableReason: String, Codable, Sendable, Equatable, CaseIterable {
-    case nOTCONFIGUREDFORWORKSPACE = "NOT_CONFIGURED_FOR_WORKSPACE"
-    case nOACTIVEWORKSPACE = "NO_ACTIVE_WORKSPACE"
+public enum CodexSchemaAppTemplateUnavailableReason: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case nOTCONFIGUREDFORWORKSPACE
+    case nOACTIVEWORKSPACE
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaAppTemplateUnavailableReason] = [
+        .nOTCONFIGUREDFORWORKSPACE,
+        .nOACTIVEWORKSPACE,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "NOT_CONFIGURED_FOR_WORKSPACE": self = .nOTCONFIGUREDFORWORKSPACE
+        case "NO_ACTIVE_WORKSPACE": self = .nOACTIVEWORKSPACE
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .nOTCONFIGUREDFORWORKSPACE: "NOT_CONFIGURED_FOR_WORKSPACE"
+        case .nOACTIVEWORKSPACE: "NO_ACTIVE_WORKSPACE"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaAppToolApproval: String, Codable, Sendable, Equatable, CaseIterable {
-    case auto = "auto"
-    case prompt = "prompt"
-    case writes = "writes"
-    case approve = "approve"
+public enum CodexSchemaAppToolApproval: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case auto
+    case prompt
+    case writes
+    case approve
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaAppToolApproval] = [
+        .auto,
+        .prompt,
+        .writes,
+        .approve,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "auto": self = .auto
+        case "prompt": self = .prompt
+        case "writes": self = .writes
+        case "approve": self = .approve
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .auto: "auto"
+        case .prompt: "prompt"
+        case .writes: "writes"
+        case .approve: "approve"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaAppToolConfig: Codable, Sendable, Equatable {
     public var approvalMode: CodexSchemaAppToolApproval?
@@ -403,11 +508,57 @@ public struct CodexSchemaAppToolConfig: Codable, Sendable, Equatable {
         self.enabled = enabled
     }
 }
+public struct CodexSchemaAppToolSummary: Codable, Sendable, Equatable {
+    public var description: String
+    public var name: String
+    public var title: String?
+
+    public init(description: String, name: String, title: String? = nil) {
+        self.description = description
+        self.name = name
+        self.title = title
+    }
+}
 public typealias CodexSchemaAppToolsConfig = CodexAppServerSchemaValue
-public enum CodexSchemaApprovalsReviewer: String, Codable, Sendable, Equatable, CaseIterable {
-    case user = "user"
-    case autoReview = "auto_review"
-    case guardianSubagent = "guardian_subagent"
+public enum CodexSchemaApprovalsReviewer: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case user
+    case autoReview
+    case guardianSubagent
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaApprovalsReviewer] = [
+        .user,
+        .autoReview,
+        .guardianSubagent,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "user": self = .user
+        case "auto_review": self = .autoReview
+        case "guardian_subagent": self = .guardianSubagent
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .user: "user"
+        case .autoReview: "auto_review"
+        case .guardianSubagent: "guardian_subagent"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaAppsConfig: Codable, Sendable, Equatable {
     public var `default`: CodexSchemaAppsDefaultConfig?
@@ -472,22 +623,158 @@ public struct CodexSchemaAppsListResponse: Codable, Sendable, Equatable {
         self.nextCursor = nextCursor
     }
 }
+public struct CodexSchemaAppsReadParams: Codable, Sendable, Equatable {
+    public var appIDs: [String]
+    public var includeTools: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case appIDs = "appIds"
+        case includeTools
+    }
+
+    public init(appIDs: [String], includeTools: Bool? = nil) {
+        self.appIDs = appIDs
+        self.includeTools = includeTools
+    }
+}
+public struct CodexSchemaAppsReadResponse: Codable, Sendable, Equatable {
+    public var apps: [CodexSchemaConnectorMetadata]
+    public var missingAppIDs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case apps
+        case missingAppIDs = "missingAppIds"
+    }
+
+    public init(apps: [CodexSchemaConnectorMetadata], missingAppIDs: [String]) {
+        self.apps = apps
+        self.missingAppIDs = missingAppIDs
+    }
+}
 public typealias CodexSchemaAskForApproval = CodexAppServerSchemaValue
-public enum CodexSchemaAuthMode: String, Codable, Sendable, Equatable, CaseIterable {
-    case apikey = "apikey"
-    case chatgpt = "chatgpt"
-    case chatgptAuthTokens = "chatgptAuthTokens"
-    case headers = "headers"
-    case agentIdentity = "agentIdentity"
-    case personalAccessToken = "personalAccessToken"
-    case bedrockAPIKey = "bedrockApiKey"
+public enum CodexSchemaAuthMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case apikey
+    case chatgpt
+    case chatgptAuthTokens
+    case headers
+    case agentIdentity
+    case personalAccessToken
+    case bedrockAPIKey
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaAuthMode] = [
+        .apikey,
+        .chatgpt,
+        .chatgptAuthTokens,
+        .headers,
+        .agentIdentity,
+        .personalAccessToken,
+        .bedrockAPIKey,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "apikey": self = .apikey
+        case "chatgpt": self = .chatgpt
+        case "chatgptAuthTokens": self = .chatgptAuthTokens
+        case "headers": self = .headers
+        case "agentIdentity": self = .agentIdentity
+        case "personalAccessToken": self = .personalAccessToken
+        case "bedrockApiKey": self = .bedrockAPIKey
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .apikey: "apikey"
+        case .chatgpt: "chatgpt"
+        case .chatgptAuthTokens: "chatgptAuthTokens"
+        case .headers: "headers"
+        case .agentIdentity: "agentIdentity"
+        case .personalAccessToken: "personalAccessToken"
+        case .bedrockAPIKey: "bedrockApiKey"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaAutoCompactTokenLimitScope: String, Codable, Sendable, Equatable, CaseIterable {
-    case total = "total"
-    case bodyAfterPrefix = "body_after_prefix"
+public enum CodexSchemaAutoCompactTokenLimitScope: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case total
+    case bodyAfterPrefix
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaAutoCompactTokenLimitScope] = [
+        .total,
+        .bodyAfterPrefix,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "total": self = .total
+        case "body_after_prefix": self = .bodyAfterPrefix
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .total: "total"
+        case .bodyAfterPrefix: "body_after_prefix"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaAutoReviewDecisionSource: String, Codable, Sendable, Equatable, CaseIterable {
-    case agent = "agent"
+public enum CodexSchemaAutoReviewDecisionSource: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case agent
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaAutoReviewDecisionSource] = [
+        .agent,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "agent": self = .agent
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .agent: "agent"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaByteRange: Codable, Sendable, Equatable {
     public var end: Int
@@ -516,9 +803,41 @@ public struct CodexSchemaCancelLoginAccountResponse: Codable, Sendable, Equatabl
         self.status = status
     }
 }
-public enum CodexSchemaCancelLoginAccountStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case canceled = "canceled"
-    case notFound = "notFound"
+public enum CodexSchemaCancelLoginAccountStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case canceled
+    case notFound
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCancelLoginAccountStatus] = [
+        .canceled,
+        .notFound,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "canceled": self = .canceled
+        case "notFound": self = .notFound
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .canceled: "canceled"
+        case .notFound: "notFound"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaCapabilityRootLocation = CodexAppServerSchemaValue
 public struct CodexSchemaClientInfo: Codable, Sendable, Equatable {
@@ -543,26 +862,149 @@ public struct CodexSchemaCollabAgentState: Codable, Sendable, Equatable {
         self.status = status
     }
 }
-public enum CodexSchemaCollabAgentStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case pendingInit = "pendingInit"
-    case running = "running"
-    case interrupted = "interrupted"
-    case completed = "completed"
-    case errored = "errored"
-    case shutdown = "shutdown"
-    case notFound = "notFound"
+public enum CodexSchemaCollabAgentStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case pendingInit
+    case running
+    case interrupted
+    case completed
+    case errored
+    case shutdown
+    case notFound
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCollabAgentStatus] = [
+        .pendingInit,
+        .running,
+        .interrupted,
+        .completed,
+        .errored,
+        .shutdown,
+        .notFound,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "pendingInit": self = .pendingInit
+        case "running": self = .running
+        case "interrupted": self = .interrupted
+        case "completed": self = .completed
+        case "errored": self = .errored
+        case "shutdown": self = .shutdown
+        case "notFound": self = .notFound
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .pendingInit: "pendingInit"
+        case .running: "running"
+        case .interrupted: "interrupted"
+        case .completed: "completed"
+        case .errored: "errored"
+        case .shutdown: "shutdown"
+        case .notFound: "notFound"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaCollabAgentTool: String, Codable, Sendable, Equatable, CaseIterable {
-    case spawnAgent = "spawnAgent"
-    case sendInput = "sendInput"
-    case resumeAgent = "resumeAgent"
-    case wait = "wait"
-    case closeAgent = "closeAgent"
+public enum CodexSchemaCollabAgentTool: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case spawnAgent
+    case sendInput
+    case resumeAgent
+    case wait
+    case closeAgent
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCollabAgentTool] = [
+        .spawnAgent,
+        .sendInput,
+        .resumeAgent,
+        .wait,
+        .closeAgent,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "spawnAgent": self = .spawnAgent
+        case "sendInput": self = .sendInput
+        case "resumeAgent": self = .resumeAgent
+        case "wait": self = .wait
+        case "closeAgent": self = .closeAgent
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .spawnAgent: "spawnAgent"
+        case .sendInput: "sendInput"
+        case .resumeAgent: "resumeAgent"
+        case .wait: "wait"
+        case .closeAgent: "closeAgent"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaCollabAgentToolCallStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case inProgress = "inProgress"
-    case completed = "completed"
-    case failed = "failed"
+public enum CodexSchemaCollabAgentToolCallStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case inProgress
+    case completed
+    case failed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCollabAgentToolCallStatus] = [
+        .inProgress,
+        .completed,
+        .failed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "inProgress": self = .inProgress
+        case "completed": self = .completed
+        case "failed": self = .failed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .inProgress: "inProgress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaCollaborationMode: Codable, Sendable, Equatable {
     public var mode: CodexSchemaModeKind
@@ -622,9 +1064,41 @@ public struct CodexSchemaCommandExecOutputDeltaNotification: Codable, Sendable, 
         self.stream = stream
     }
 }
-public enum CodexSchemaCommandExecOutputStream: String, Codable, Sendable, Equatable, CaseIterable {
-    case stdout = "stdout"
-    case stderr = "stderr"
+public enum CodexSchemaCommandExecOutputStream: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case stdout
+    case stderr
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCommandExecOutputStream] = [
+        .stdout,
+        .stderr,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "stdout": self = .stdout
+        case "stderr": self = .stderr
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .stdout: "stdout"
+        case .stderr: "stderr"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaCommandExecParams: Codable, Sendable, Equatable {
     public var command: [String]
@@ -761,17 +1235,93 @@ public struct CodexSchemaCommandExecutionOutputDeltaNotification: Codable, Senda
         self.turnID = turnID
     }
 }
-public enum CodexSchemaCommandExecutionSource: String, Codable, Sendable, Equatable, CaseIterable {
-    case agent = "agent"
-    case userShell = "userShell"
-    case unifiedExecStartup = "unifiedExecStartup"
-    case unifiedExecInteraction = "unifiedExecInteraction"
+public enum CodexSchemaCommandExecutionSource: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case agent
+    case userShell
+    case unifiedExecStartup
+    case unifiedExecInteraction
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCommandExecutionSource] = [
+        .agent,
+        .userShell,
+        .unifiedExecStartup,
+        .unifiedExecInteraction,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "agent": self = .agent
+        case "userShell": self = .userShell
+        case "unifiedExecStartup": self = .unifiedExecStartup
+        case "unifiedExecInteraction": self = .unifiedExecInteraction
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .agent: "agent"
+        case .userShell: "userShell"
+        case .unifiedExecStartup: "unifiedExecStartup"
+        case .unifiedExecInteraction: "unifiedExecInteraction"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaCommandExecutionStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case inProgress = "inProgress"
-    case completed = "completed"
-    case failed = "failed"
-    case declined = "declined"
+public enum CodexSchemaCommandExecutionStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case inProgress
+    case completed
+    case failed
+    case declined
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCommandExecutionStatus] = [
+        .inProgress,
+        .completed,
+        .failed,
+        .declined,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "inProgress": self = .inProgress
+        case "completed": self = .completed
+        case "failed": self = .failed
+        case "declined": self = .declined
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .inProgress: "inProgress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaCommandMigration: Codable, Sendable, Equatable {
     public var name: String
@@ -1029,11 +1579,64 @@ public struct CodexSchemaConfiguredHookMatcherGroup: Codable, Sendable, Equatabl
         self.matcher = matcher
     }
 }
-public enum CodexSchemaConsumeAccountRateLimitResetCreditOutcome: String, Codable, Sendable, Equatable, CaseIterable {
-    case reset = "reset"
-    case nothingToReset = "nothingToReset"
-    case noCredit = "noCredit"
-    case alreadyRedeemed = "alreadyRedeemed"
+public struct CodexSchemaConnectorMetadata: Codable, Sendable, Equatable {
+    public var description: String?
+    public var iconUrl: String?
+    public var id: String
+    public var name: String
+    public var toolSummaries: [CodexSchemaAppToolSummary]?
+
+    public init(description: String? = nil, iconUrl: String? = nil, id: String, name: String, toolSummaries: [CodexSchemaAppToolSummary]? = nil) {
+        self.description = description
+        self.iconUrl = iconUrl
+        self.id = id
+        self.name = name
+        self.toolSummaries = toolSummaries
+    }
+}
+public enum CodexSchemaConsumeAccountRateLimitResetCreditOutcome: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case reset
+    case nothingToReset
+    case noCredit
+    case alreadyRedeemed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaConsumeAccountRateLimitResetCreditOutcome] = [
+        .reset,
+        .nothingToReset,
+        .noCredit,
+        .alreadyRedeemed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "reset": self = .reset
+        case "nothingToReset": self = .nothingToReset
+        case "noCredit": self = .noCredit
+        case "alreadyRedeemed": self = .alreadyRedeemed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .reset: "reset"
+        case .nothingToReset: "nothingToReset"
+        case .noCredit: "noCredit"
+        case .alreadyRedeemed: "alreadyRedeemed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaConsumeAccountRateLimitResetCreditParams: Codable, Sendable, Equatable {
     public var creditID: String?
@@ -1097,10 +1700,45 @@ public struct CodexSchemaDeprecationNoticeNotification: Codable, Sendable, Equat
     }
 }
 public typealias CodexSchemaDynamicToolCallOutputContentItem = CodexAppServerSchemaValue
-public enum CodexSchemaDynamicToolCallStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case inProgress = "inProgress"
-    case completed = "completed"
-    case failed = "failed"
+public enum CodexSchemaDynamicToolCallStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case inProgress
+    case completed
+    case failed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaDynamicToolCallStatus] = [
+        .inProgress,
+        .completed,
+        .failed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "inProgress": self = .inProgress
+        case "completed": self = .completed
+        case "failed": self = .failed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .inProgress: "inProgress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaDynamicToolNamespaceTool = CodexAppServerSchemaValue
 public typealias CodexSchemaDynamicToolSpec = CodexAppServerSchemaValue
@@ -1122,6 +1760,20 @@ public struct CodexSchemaEnvironmentAddParams: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaEnvironmentAddResponse = CodexAppServerSchemaValue
+public struct CodexSchemaEnvironmentConnectionNotification: Codable, Sendable, Equatable {
+    public var environmentID: String
+    public var threadID: String
+
+    enum CodingKeys: String, CodingKey {
+        case environmentID = "environmentId"
+        case threadID = "threadId"
+    }
+
+    public init(environmentID: String, threadID: String) {
+        self.environmentID = environmentID
+        self.threadID = threadID
+    }
+}
 public struct CodexSchemaEnvironmentInfoParams: Codable, Sendable, Equatable {
     public var environmentID: String
 
@@ -1149,6 +1801,70 @@ public struct CodexSchemaEnvironmentShellInfo: Codable, Sendable, Equatable {
     public init(name: String, path: String) {
         self.name = name
         self.path = path
+    }
+}
+public enum CodexSchemaEnvironmentStatusKind: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case ready
+    case pending
+    case disconnected
+    case unknown
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaEnvironmentStatusKind] = [
+        .ready,
+        .pending,
+        .disconnected,
+        .unknown,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "ready": self = .ready
+        case "pending": self = .pending
+        case "disconnected": self = .disconnected
+        case "unknown": self = .unknown
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .ready: "ready"
+        case .pending: "pending"
+        case .disconnected: "disconnected"
+        case .unknown: "unknown"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaEnvironmentStatusParams: Codable, Sendable, Equatable {
+    public var environmentID: String
+
+    enum CodingKeys: String, CodingKey {
+        case environmentID = "environmentId"
+    }
+
+    public init(environmentID: String) {
+        self.environmentID = environmentID
+    }
+}
+public struct CodexSchemaEnvironmentStatusResponse: Codable, Sendable, Equatable {
+    public var error: String?
+    public var status: CodexSchemaEnvironmentStatusKind
+
+    public init(error: String? = nil, status: CodexSchemaEnvironmentStatusKind) {
+        self.error = error
+        self.status = status
     }
 }
 public struct CodexSchemaErrorNotification: Codable, Sendable, Equatable {
@@ -1230,20 +1946,65 @@ public struct CodexSchemaExperimentalFeatureListResponse: Codable, Sendable, Equ
         self.nextCursor = nextCursor
     }
 }
-public enum CodexSchemaExperimentalFeatureStage: String, Codable, Sendable, Equatable, CaseIterable {
-    case beta = "beta"
-    case underDevelopment = "underDevelopment"
-    case stable = "stable"
-    case deprecated = "deprecated"
-    case removed = "removed"
+public enum CodexSchemaExperimentalFeatureStage: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case beta
+    case underDevelopment
+    case stable
+    case deprecated
+    case removed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaExperimentalFeatureStage] = [
+        .beta,
+        .underDevelopment,
+        .stable,
+        .deprecated,
+        .removed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "beta": self = .beta
+        case "underDevelopment": self = .underDevelopment
+        case "stable": self = .stable
+        case "deprecated": self = .deprecated
+        case "removed": self = .removed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .beta: "beta"
+        case .underDevelopment: "underDevelopment"
+        case .stable: "stable"
+        case .deprecated: "deprecated"
+        case .removed: "removed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaExternalAgentConfigDetectParams: Codable, Sendable, Equatable {
     public var cwds: [String]?
     public var includeHome: Bool?
+    public var migrationSource: String?
+    public var source: String?
 
-    public init(cwds: [String]? = nil, includeHome: Bool? = nil) {
+    public init(cwds: [String]? = nil, includeHome: Bool? = nil, migrationSource: String? = nil, source: String? = nil) {
         self.cwds = cwds
         self.includeHome = includeHome
+        self.migrationSource = migrationSource
+        self.source = source
     }
 }
 public struct CodexSchemaExternalAgentConfigDetectResponse: Codable, Sendable, Equatable {
@@ -1268,9 +2029,11 @@ public struct CodexSchemaExternalAgentConfigImportCompletedNotification: Codable
     }
 }
 public struct CodexSchemaExternalAgentConfigImportHistoriesReadResponse: Codable, Sendable, Equatable {
+    public var connectors: [CodexSchemaExternalAgentImportedConnectorCandidate]
     public var data: [CodexSchemaExternalAgentConfigImportHistory]
 
-    public init(data: [CodexSchemaExternalAgentConfigImportHistory]) {
+    public init(connectors: [CodexSchemaExternalAgentImportedConnectorCandidate], data: [CodexSchemaExternalAgentConfigImportHistory]) {
+        self.connectors = connectors
         self.data = data
     }
 }
@@ -1301,14 +2064,16 @@ public struct CodexSchemaExternalAgentConfigImportItemTypeFailure: Codable, Send
     public var itemType: CodexSchemaExternalAgentConfigMigrationItemType
     public var message: String
     public var source: String?
+    public var subErrorType: String?
 
-    public init(cwd: String? = nil, errorType: String? = nil, failureStage: String, itemType: CodexSchemaExternalAgentConfigMigrationItemType, message: String, source: String? = nil) {
+    public init(cwd: String? = nil, errorType: String? = nil, failureStage: String, itemType: CodexSchemaExternalAgentConfigMigrationItemType, message: String, source: String? = nil, subErrorType: String? = nil) {
         self.cwd = cwd
         self.errorType = errorType
         self.failureStage = failureStage
         self.itemType = itemType
         self.message = message
         self.source = source
+        self.subErrorType = subErrorType
     }
 }
 public struct CodexSchemaExternalAgentConfigImportItemTypeSuccess: Codable, Sendable, Equatable {
@@ -1326,10 +2091,12 @@ public struct CodexSchemaExternalAgentConfigImportItemTypeSuccess: Codable, Send
 }
 public struct CodexSchemaExternalAgentConfigImportParams: Codable, Sendable, Equatable {
     public var migrationItems: [CodexSchemaExternalAgentConfigMigrationItem]
+    public var migrationSource: String?
     public var source: String?
 
-    public init(migrationItems: [CodexSchemaExternalAgentConfigMigrationItem], source: String? = nil) {
+    public init(migrationItems: [CodexSchemaExternalAgentConfigMigrationItem], migrationSource: String? = nil, source: String? = nil) {
         self.migrationItems = migrationItems
+        self.migrationSource = migrationSource
         self.source = source
     }
 }
@@ -1382,16 +2149,116 @@ public struct CodexSchemaExternalAgentConfigMigrationItem: Codable, Sendable, Eq
         self.itemType = itemType
     }
 }
-public enum CodexSchemaExternalAgentConfigMigrationItemType: String, Codable, Sendable, Equatable, CaseIterable {
-    case aGENTSMD = "AGENTS_MD"
-    case cONFIG = "CONFIG"
-    case sKILLS = "SKILLS"
-    case pLUGINS = "PLUGINS"
-    case mCPSERVERCONFIG = "MCP_SERVER_CONFIG"
-    case sUBAGENTS = "SUBAGENTS"
-    case hOOKS = "HOOKS"
-    case cOMMANDS = "COMMANDS"
-    case sESSIONS = "SESSIONS"
+public enum CodexSchemaExternalAgentConfigMigrationItemType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case aGENTSMD
+    case cONFIG
+    case sKILLS
+    case pLUGINS
+    case mCPSERVERCONFIG
+    case sUBAGENTS
+    case hOOKS
+    case cOMMANDS
+    case mEMORY
+    case sESSIONS
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaExternalAgentConfigMigrationItemType] = [
+        .aGENTSMD,
+        .cONFIG,
+        .sKILLS,
+        .pLUGINS,
+        .mCPSERVERCONFIG,
+        .sUBAGENTS,
+        .hOOKS,
+        .cOMMANDS,
+        .mEMORY,
+        .sESSIONS,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "AGENTS_MD": self = .aGENTSMD
+        case "CONFIG": self = .cONFIG
+        case "SKILLS": self = .sKILLS
+        case "PLUGINS": self = .pLUGINS
+        case "MCP_SERVER_CONFIG": self = .mCPSERVERCONFIG
+        case "SUBAGENTS": self = .sUBAGENTS
+        case "HOOKS": self = .hOOKS
+        case "COMMANDS": self = .cOMMANDS
+        case "MEMORY": self = .mEMORY
+        case "SESSIONS": self = .sESSIONS
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .aGENTSMD: "AGENTS_MD"
+        case .cONFIG: "CONFIG"
+        case .sKILLS: "SKILLS"
+        case .pLUGINS: "PLUGINS"
+        case .mCPSERVERCONFIG: "MCP_SERVER_CONFIG"
+        case .sUBAGENTS: "SUBAGENTS"
+        case .hOOKS: "HOOKS"
+        case .cOMMANDS: "COMMANDS"
+        case .mEMORY: "MEMORY"
+        case .sESSIONS: "SESSIONS"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaExternalAgentImportedConnectorCandidate: Codable, Sendable, Equatable {
+    public var name: String
+    public var sessionCount: Int
+    public var source: CodexSchemaExternalAgentImportedConnectorSource
+
+    public init(name: String, sessionCount: Int, source: CodexSchemaExternalAgentImportedConnectorSource) {
+        self.name = name
+        self.sessionCount = sessionCount
+        self.source = source
+    }
+}
+public enum CodexSchemaExternalAgentImportedConnectorSource: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case remoteMCPServersConfig
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaExternalAgentImportedConnectorSource] = [
+        .remoteMCPServersConfig,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "remoteMcpServersConfig": self = .remoteMCPServersConfig
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .remoteMCPServersConfig: "remoteMcpServersConfig"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaFeedbackUploadParams: Codable, Sendable, Equatable {
     public var classification: String
@@ -1470,10 +2337,45 @@ public struct CodexSchemaFileChangePatchUpdatedNotification: Codable, Sendable, 
         self.turnID = turnID
     }
 }
-public enum CodexSchemaFileSystemAccessMode: String, Codable, Sendable, Equatable, CaseIterable {
-    case read = "read"
-    case write = "write"
-    case deny = "deny"
+public enum CodexSchemaFileSystemAccessMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case read
+    case write
+    case deny
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaFileSystemAccessMode] = [
+        .read,
+        .write,
+        .deny,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "read": self = .read
+        case "write": self = .write
+        case "deny": self = .deny
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .read: "read"
+        case .write: "write"
+        case .deny: "deny"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaFileSystemPath = CodexAppServerSchemaValue
 public struct CodexSchemaFileSystemSandboxEntry: Codable, Sendable, Equatable {
@@ -1498,9 +2400,41 @@ public struct CodexSchemaFileUpdateChange: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaForcedChatGPTWorkspaceIDs = CodexAppServerSchemaValue
-public enum CodexSchemaForcedLoginMethod: String, Codable, Sendable, Equatable, CaseIterable {
-    case chatgpt = "chatgpt"
-    case api = "api"
+public enum CodexSchemaForcedLoginMethod: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case chatgpt
+    case api
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaForcedLoginMethod] = [
+        .chatgpt,
+        .api,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "chatgpt": self = .chatgpt
+        case "api": self = .api
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .chatgpt: "chatgpt"
+        case .api: "api"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaFSChangedNotification: Codable, Sendable, Equatable {
     public var changedPaths: [CodexSchemaAbsolutePathBuf]
@@ -1656,9 +2590,41 @@ public struct CodexSchemaFSWriteFileParams: Codable, Sendable, Equatable {
 public typealias CodexSchemaFSWriteFileResponse = CodexAppServerSchemaValue
 public typealias CodexSchemaFunctionCallOutputBody = CodexAppServerSchemaValue
 public typealias CodexSchemaFunctionCallOutputContentItem = CodexAppServerSchemaValue
-public enum CodexSchemaFuzzyFileSearchMatchType: String, Codable, Sendable, Equatable, CaseIterable {
-    case file = "file"
-    case directory = "directory"
+public enum CodexSchemaFuzzyFileSearchMatchType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case file
+    case directory
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaFuzzyFileSearchMatchType] = [
+        .file,
+        .directory,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "file": self = .file
+        case "directory": self = .directory
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .file: "file"
+        case .directory: "directory"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaFuzzyFileSearchParams: Codable, Sendable, Equatable {
     public var cancellationToken: String?
@@ -1845,28 +2811,177 @@ public struct CodexSchemaGuardianApprovalReview: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaGuardianApprovalReviewAction = CodexAppServerSchemaValue
-public enum CodexSchemaGuardianApprovalReviewStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case inProgress = "inProgress"
-    case approved = "approved"
-    case denied = "denied"
-    case timedOut = "timedOut"
-    case aborted = "aborted"
+public enum CodexSchemaGuardianApprovalReviewStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case inProgress
+    case approved
+    case denied
+    case timedOut
+    case aborted
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaGuardianApprovalReviewStatus] = [
+        .inProgress,
+        .approved,
+        .denied,
+        .timedOut,
+        .aborted,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "inProgress": self = .inProgress
+        case "approved": self = .approved
+        case "denied": self = .denied
+        case "timedOut": self = .timedOut
+        case "aborted": self = .aborted
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .inProgress: "inProgress"
+        case .approved: "approved"
+        case .denied: "denied"
+        case .timedOut: "timedOut"
+        case .aborted: "aborted"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaGuardianCommandSource: String, Codable, Sendable, Equatable, CaseIterable {
-    case shell = "shell"
-    case unifiedExec = "unifiedExec"
+public enum CodexSchemaGuardianCommandSource: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case shell
+    case unifiedExec
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaGuardianCommandSource] = [
+        .shell,
+        .unifiedExec,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "shell": self = .shell
+        case "unifiedExec": self = .unifiedExec
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .shell: "shell"
+        case .unifiedExec: "unifiedExec"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaGuardianRiskLevel: String, Codable, Sendable, Equatable, CaseIterable {
-    case low = "low"
-    case medium = "medium"
-    case high = "high"
-    case critical = "critical"
+public enum CodexSchemaGuardianRiskLevel: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case low
+    case medium
+    case high
+    case critical
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaGuardianRiskLevel] = [
+        .low,
+        .medium,
+        .high,
+        .critical,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "low": self = .low
+        case "medium": self = .medium
+        case "high": self = .high
+        case "critical": self = .critical
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .low: "low"
+        case .medium: "medium"
+        case .high: "high"
+        case .critical: "critical"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaGuardianUserAuthorization: String, Codable, Sendable, Equatable, CaseIterable {
-    case unknown = "unknown"
-    case low = "low"
-    case medium = "medium"
-    case high = "high"
+public enum CodexSchemaGuardianUserAuthorization: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case unknown
+    case low
+    case medium
+    case high
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaGuardianUserAuthorization] = [
+        .unknown,
+        .low,
+        .medium,
+        .high,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "unknown": self = .unknown
+        case "low": self = .low
+        case "medium": self = .medium
+        case "high": self = .high
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .unknown: "unknown"
+        case .low: "low"
+        case .medium: "medium"
+        case .high: "high"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaGuardianWarningNotification: Codable, Sendable, Equatable {
     public var message: String
@@ -1908,26 +3023,149 @@ public struct CodexSchemaHookErrorInfo: Codable, Sendable, Equatable {
         self.path = path
     }
 }
-public enum CodexSchemaHookEventName: String, Codable, Sendable, Equatable, CaseIterable {
-    case preToolUse = "preToolUse"
-    case permissionRequest = "permissionRequest"
-    case postToolUse = "postToolUse"
-    case preCompact = "preCompact"
-    case postCompact = "postCompact"
-    case sessionStart = "sessionStart"
-    case userPromptSubmit = "userPromptSubmit"
-    case subagentStart = "subagentStart"
-    case subagentStop = "subagentStop"
-    case stop = "stop"
+public enum CodexSchemaHookEventName: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case preToolUse
+    case permissionRequest
+    case postToolUse
+    case preCompact
+    case postCompact
+    case sessionStart
+    case userPromptSubmit
+    case subagentStart
+    case subagentStop
+    case stop
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookEventName] = [
+        .preToolUse,
+        .permissionRequest,
+        .postToolUse,
+        .preCompact,
+        .postCompact,
+        .sessionStart,
+        .userPromptSubmit,
+        .subagentStart,
+        .subagentStop,
+        .stop,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "preToolUse": self = .preToolUse
+        case "permissionRequest": self = .permissionRequest
+        case "postToolUse": self = .postToolUse
+        case "preCompact": self = .preCompact
+        case "postCompact": self = .postCompact
+        case "sessionStart": self = .sessionStart
+        case "userPromptSubmit": self = .userPromptSubmit
+        case "subagentStart": self = .subagentStart
+        case "subagentStop": self = .subagentStop
+        case "stop": self = .stop
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .preToolUse: "preToolUse"
+        case .permissionRequest: "permissionRequest"
+        case .postToolUse: "postToolUse"
+        case .preCompact: "preCompact"
+        case .postCompact: "postCompact"
+        case .sessionStart: "sessionStart"
+        case .userPromptSubmit: "userPromptSubmit"
+        case .subagentStart: "subagentStart"
+        case .subagentStop: "subagentStop"
+        case .stop: "stop"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaHookExecutionMode: String, Codable, Sendable, Equatable, CaseIterable {
-    case sync = "sync"
-    case async = "async"
+public enum CodexSchemaHookExecutionMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case sync
+    case async
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookExecutionMode] = [
+        .sync,
+        .async,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "sync": self = .sync
+        case "async": self = .async
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .sync: "sync"
+        case .async: "async"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaHookHandlerType: String, Codable, Sendable, Equatable, CaseIterable {
-    case command = "command"
-    case prompt = "prompt"
-    case agent = "agent"
+public enum CodexSchemaHookHandlerType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case command
+    case prompt
+    case agent
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookHandlerType] = [
+        .command,
+        .prompt,
+        .agent,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "command": self = .command
+        case "prompt": self = .prompt
+        case "agent": self = .agent
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .command: "command"
+        case .prompt: "prompt"
+        case .agent: "agent"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaHookMetadata: Codable, Sendable, Equatable {
     public var command: String?
@@ -1998,12 +3236,53 @@ public struct CodexSchemaHookOutputEntry: Codable, Sendable, Equatable {
         self.text = text
     }
 }
-public enum CodexSchemaHookOutputEntryKind: String, Codable, Sendable, Equatable, CaseIterable {
-    case warning = "warning"
-    case stop = "stop"
-    case feedback = "feedback"
-    case context = "context"
-    case error = "error"
+public enum CodexSchemaHookOutputEntryKind: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case warning
+    case stop
+    case feedback
+    case context
+    case error
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookOutputEntryKind] = [
+        .warning,
+        .stop,
+        .feedback,
+        .context,
+        .error,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "warning": self = .warning
+        case "stop": self = .stop
+        case "feedback": self = .feedback
+        case "context": self = .context
+        case "error": self = .error
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .warning: "warning"
+        case .stop: "stop"
+        case .feedback: "feedback"
+        case .context: "context"
+        case .error: "error"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaHookPromptFragment: Codable, Sendable, Equatable {
     public var hookRunID: String
@@ -2019,12 +3298,53 @@ public struct CodexSchemaHookPromptFragment: Codable, Sendable, Equatable {
         self.text = text
     }
 }
-public enum CodexSchemaHookRunStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case running = "running"
-    case completed = "completed"
-    case failed = "failed"
-    case blocked = "blocked"
-    case stopped = "stopped"
+public enum CodexSchemaHookRunStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case running
+    case completed
+    case failed
+    case blocked
+    case stopped
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookRunStatus] = [
+        .running,
+        .completed,
+        .failed,
+        .blocked,
+        .stopped,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "running": self = .running
+        case "completed": self = .completed
+        case "failed": self = .failed
+        case "blocked": self = .blocked
+        case "stopped": self = .stopped
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .running: "running"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .blocked: "blocked"
+        case .stopped: "stopped"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaHookRunSummary: Codable, Sendable, Equatable {
     public var completedAt: Int?
@@ -2059,22 +3379,113 @@ public struct CodexSchemaHookRunSummary: Codable, Sendable, Equatable {
         self.statusMessage = statusMessage
     }
 }
-public enum CodexSchemaHookScope: String, Codable, Sendable, Equatable, CaseIterable {
-    case thread = "thread"
-    case turn = "turn"
+public enum CodexSchemaHookScope: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case thread
+    case turn
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookScope] = [
+        .thread,
+        .turn,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "thread": self = .thread
+        case "turn": self = .turn
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .thread: "thread"
+        case .turn: "turn"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaHookSource: String, Codable, Sendable, Equatable, CaseIterable {
-    case system = "system"
-    case user = "user"
-    case project = "project"
-    case mdm = "mdm"
-    case sessionFlags = "sessionFlags"
-    case plugin = "plugin"
-    case cloudRequirements = "cloudRequirements"
-    case cloudManagedConfig = "cloudManagedConfig"
-    case legacyManagedConfigFile = "legacyManagedConfigFile"
-    case legacyManagedConfigMdm = "legacyManagedConfigMdm"
-    case unknown = "unknown"
+public enum CodexSchemaHookSource: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case system
+    case user
+    case project
+    case mdm
+    case sessionFlags
+    case plugin
+    case cloudRequirements
+    case cloudManagedConfig
+    case legacyManagedConfigFile
+    case legacyManagedConfigMdm
+    case unknown
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookSource] = [
+        .system,
+        .user,
+        .project,
+        .mdm,
+        .sessionFlags,
+        .plugin,
+        .cloudRequirements,
+        .cloudManagedConfig,
+        .legacyManagedConfigFile,
+        .legacyManagedConfigMdm,
+        .unknown,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "system": self = .system
+        case "user": self = .user
+        case "project": self = .project
+        case "mdm": self = .mdm
+        case "sessionFlags": self = .sessionFlags
+        case "plugin": self = .plugin
+        case "cloudRequirements": self = .cloudRequirements
+        case "cloudManagedConfig": self = .cloudManagedConfig
+        case "legacyManagedConfigFile": self = .legacyManagedConfigFile
+        case "legacyManagedConfigMdm": self = .legacyManagedConfigMdm
+        case "unknown": self = .unknown
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .system: "system"
+        case .user: "user"
+        case .project: "project"
+        case .mdm: "mdm"
+        case .sessionFlags: "sessionFlags"
+        case .plugin: "plugin"
+        case .cloudRequirements: "cloudRequirements"
+        case .cloudManagedConfig: "cloudManagedConfig"
+        case .legacyManagedConfigFile: "legacyManagedConfigFile"
+        case .legacyManagedConfigMdm: "legacyManagedConfigMdm"
+        case .unknown: "unknown"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaHookStartedNotification: Codable, Sendable, Equatable {
     public var run: CodexSchemaHookRunSummary
@@ -2093,11 +3504,49 @@ public struct CodexSchemaHookStartedNotification: Codable, Sendable, Equatable {
         self.turnID = turnID
     }
 }
-public enum CodexSchemaHookTrustStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case managed = "managed"
-    case untrusted = "untrusted"
-    case trusted = "trusted"
-    case modified = "modified"
+public enum CodexSchemaHookTrustStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case managed
+    case untrusted
+    case trusted
+    case modified
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaHookTrustStatus] = [
+        .managed,
+        .untrusted,
+        .trusted,
+        .modified,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "managed": self = .managed
+        case "untrusted": self = .untrusted
+        case "trusted": self = .trusted
+        case "modified": self = .modified
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .managed: "managed"
+        case .untrusted: "untrusted"
+        case .trusted: "trusted"
+        case .modified: "modified"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaHooksListEntry: Codable, Sendable, Equatable {
     public var cwd: String
@@ -2126,11 +3575,49 @@ public struct CodexSchemaHooksListResponse: Codable, Sendable, Equatable {
         self.data = data
     }
 }
-public enum CodexSchemaImageDetail: String, Codable, Sendable, Equatable, CaseIterable {
-    case auto = "auto"
-    case low = "low"
-    case high = "high"
-    case original = "original"
+public enum CodexSchemaImageDetail: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case auto
+    case low
+    case high
+    case original
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaImageDetail] = [
+        .auto,
+        .low,
+        .high,
+        .original,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "auto": self = .auto
+        case "low": self = .low
+        case "high": self = .high
+        case "original": self = .original
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .auto: "auto"
+        case .low: "low"
+        case .high: "high"
+        case .original: "original"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaInitializeCapabilities: Codable, Sendable, Equatable {
     public var experimentalAPI: Bool?
@@ -2161,9 +3648,54 @@ public struct CodexSchemaInitializeParams: Codable, Sendable, Equatable {
         self.clientInfo = clientInfo
     }
 }
-public enum CodexSchemaInputModality: String, Codable, Sendable, Equatable, CaseIterable {
-    case text = "text"
-    case image = "image"
+public struct CodexSchemaInitializeResponse: Codable, Sendable, Equatable {
+    public var codexHome: String
+    public var platformFamily: String
+    public var platformOs: String
+    public var userAgent: String
+
+    public init(codexHome: String, platformFamily: String, platformOs: String, userAgent: String) {
+        self.codexHome = codexHome
+        self.platformFamily = platformFamily
+        self.platformOs = platformOs
+        self.userAgent = userAgent
+    }
+}
+public enum CodexSchemaInputModality: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case text
+    case image
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaInputModality] = [
+        .text,
+        .image,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "text": self = .text
+        case "image": self = .image
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .text: "text"
+        case .image: "image"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaInternalChatMessageMetadataPassthrough: Codable, Sendable, Equatable {
     public var turnID: String?
@@ -2311,12 +3843,332 @@ public struct CodexSchemaListMCPServerStatusResponse: Codable, Sendable, Equatab
     }
 }
 public typealias CodexSchemaLocalShellAction = CodexAppServerSchemaValue
-public enum CodexSchemaLocalShellStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case completed = "completed"
-    case inProgress = "in_progress"
-    case incomplete = "incomplete"
+public enum CodexSchemaLocalShellStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case completed
+    case inProgress
+    case incomplete
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaLocalShellStatus] = [
+        .completed,
+        .inProgress,
+        .incomplete,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "completed": self = .completed
+        case "in_progress": self = .inProgress
+        case "incomplete": self = .incomplete
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .completed: "completed"
+        case .inProgress: "in_progress"
+        case .incomplete: "incomplete"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public typealias CodexSchemaLoginAccountParams = CodexAppServerSchemaValue
+public struct CodexSchemaAPIKeyv2LoginAccountParams: Codable, Sendable, Equatable {
+    public static let discriminator = "apiKey"
+    public let apiKey: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "apiKey",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case apiKey
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.apiKey = try container.decode(String.self, forKey: .apiKey)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaChatgptv2LoginAccountParams: Codable, Sendable, Equatable {
+    public static let discriminator = "chatgpt"
+    public let appBrand: CodexSchemaLoginAppBrand?
+    public let codexStreamlinedLogin: Bool?
+    public let useHostedLoginSuccessPage: Bool?
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "appBrand",
+        "codexStreamlinedLogin",
+        "useHostedLoginSuccessPage",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case appBrand
+        case codexStreamlinedLogin
+        case useHostedLoginSuccessPage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.appBrand = try container.decodeIfPresent(CodexSchemaLoginAppBrand.self, forKey: .appBrand)
+        self.codexStreamlinedLogin = try container.decodeIfPresent(Bool.self, forKey: .codexStreamlinedLogin)
+        self.useHostedLoginSuccessPage = try container.decodeIfPresent(Bool.self, forKey: .useHostedLoginSuccessPage)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaChatGPTDeviceCodev2LoginAccountParams: Codable, Sendable, Equatable {
+    public static let discriminator = "chatgptDeviceCode"
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaChatGPTAuthTokensv2LoginAccountParams: Codable, Sendable, Equatable {
+    public static let discriminator = "chatgptAuthTokens"
+    public let accessToken: String
+    public let chatgptAccountID: String
+    public let chatgptPlanType: String?
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "accessToken",
+        "chatgptAccountId",
+        "chatgptPlanType",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case accessToken
+        case chatgptAccountID = "chatgptAccountId"
+        case chatgptPlanType
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.accessToken = try container.decode(String.self, forKey: .accessToken)
+        self.chatgptAccountID = try container.decode(String.self, forKey: .chatgptAccountID)
+        self.chatgptPlanType = try container.decodeIfPresent(String.self, forKey: .chatgptPlanType)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaAmazonBedrockv2LoginAccountParams: Codable, Sendable, Equatable {
+    public static let discriminator = "amazonBedrock"
+    public let apiKey: String
+    public let region: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "apiKey",
+        "region",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case apiKey
+        case region
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.apiKey = try container.decode(String.self, forKey: .apiKey)
+        self.region = try container.decode(String.self, forKey: .region)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public enum CodexSchemaLoginAccountParams: Codable, Sendable, Equatable {
+    case apiKey(CodexSchemaAPIKeyv2LoginAccountParams)
+    case chatgpt(CodexSchemaChatgptv2LoginAccountParams)
+    case chatgptDeviceCode(CodexSchemaChatGPTDeviceCodev2LoginAccountParams)
+    case chatgptAuthTokens(CodexSchemaChatGPTAuthTokensv2LoginAccountParams)
+    case amazonBedrock(CodexSchemaAmazonBedrockv2LoginAccountParams)
+    case unrecognized(type: String, rawValue: CodexJSONValue)
+
+    enum CodingKeys: String, CodingKey { case type }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        switch discriminator {
+        case "apiKey":
+            self = .apiKey(try CodexSchemaAPIKeyv2LoginAccountParams(from: decoder))
+        case "chatgpt":
+            self = .chatgpt(try CodexSchemaChatgptv2LoginAccountParams(from: decoder))
+        case "chatgptDeviceCode":
+            self = .chatgptDeviceCode(try CodexSchemaChatGPTDeviceCodev2LoginAccountParams(from: decoder))
+        case "chatgptAuthTokens":
+            self = .chatgptAuthTokens(try CodexSchemaChatGPTAuthTokensv2LoginAccountParams(from: decoder))
+        case "amazonBedrock":
+            self = .amazonBedrock(try CodexSchemaAmazonBedrockv2LoginAccountParams(from: decoder))
+        default:
+            let rawContainer = try decoder.singleValueContainer()
+            let rawValue = try rawContainer.decode(CodexJSONValue.self)
+            self = .unrecognized(type: discriminator, rawValue: rawValue)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .apiKey(let payload):
+            try payload.encode(to: encoder)
+        case .chatgpt(let payload):
+            try payload.encode(to: encoder)
+        case .chatgptDeviceCode(let payload):
+            try payload.encode(to: encoder)
+        case .chatgptAuthTokens(let payload):
+            try payload.encode(to: encoder)
+        case .amazonBedrock(let payload):
+            try payload.encode(to: encoder)
+        case .unrecognized(_, let rawValue):
+            try rawValue.encode(to: encoder)
+        }
+    }
+
+    public var type: String {
+        switch self {
+        case .apiKey: "apiKey"
+        case .chatgpt: "chatgpt"
+        case .chatgptDeviceCode: "chatgptDeviceCode"
+        case .chatgptAuthTokens: "chatgptAuthTokens"
+        case .amazonBedrock: "amazonBedrock"
+        case .unrecognized(let type, _): type
+        }
+    }
+
+    public var rawValue: CodexJSONValue {
+        switch self {
+        case .apiKey(let payload): payload.rawValue
+        case .chatgpt(let payload): payload.rawValue
+        case .chatgptDeviceCode(let payload): payload.rawValue
+        case .chatgptAuthTokens(let payload): payload.rawValue
+        case .amazonBedrock(let payload): payload.rawValue
+        case .unrecognized(_, let rawValue): rawValue
+        }
+    }
+}
 public typealias CodexSchemaLoginAccountResponse = CodexAppServerSchemaValue
 public enum CodexSchemaLoginAppBrand: String, Codable, Sendable, Equatable, CaseIterable {
     case codex = "codex"
@@ -2448,11 +4300,49 @@ public struct CodexSchemaMarketplaceUpgradeResponse: Codable, Sendable, Equatabl
         self.upgradedRoots = upgradedRoots
     }
 }
-public enum CodexSchemaMCPAuthStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case unsupported = "unsupported"
-    case notLoggedIn = "notLoggedIn"
-    case bearerToken = "bearerToken"
-    case oAuth = "oAuth"
+public enum CodexSchemaMCPAuthStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case unsupported
+    case notLoggedIn
+    case bearerToken
+    case oAuth
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaMCPAuthStatus] = [
+        .unsupported,
+        .notLoggedIn,
+        .bearerToken,
+        .oAuth,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "unsupported": self = .unsupported
+        case "notLoggedIn": self = .notLoggedIn
+        case "bearerToken": self = .bearerToken
+        case "oAuth": self = .oAuth
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .unsupported: "unsupported"
+        case .notLoggedIn: "notLoggedIn"
+        case .bearerToken: "bearerToken"
+        case .oAuth: "oAuth"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaMCPResourceReadParams: Codable, Sendable, Equatable {
     public var server: String
@@ -2550,14 +4440,81 @@ public struct CodexSchemaMCPServerOAuthLoginResponse: Codable, Sendable, Equatab
     }
 }
 public typealias CodexSchemaMCPServerRefreshResponse = CodexAppServerSchemaValue
-public enum CodexSchemaMCPServerStartupFailureReason: String, Codable, Sendable, Equatable, CaseIterable {
-    case reauthenticationRequired = "reauthenticationRequired"
+public enum CodexSchemaMCPServerStartupFailureReason: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case reauthenticationRequired
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaMCPServerStartupFailureReason] = [
+        .reauthenticationRequired,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "reauthenticationRequired": self = .reauthenticationRequired
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .reauthenticationRequired: "reauthenticationRequired"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaMCPServerStartupState: String, Codable, Sendable, Equatable, CaseIterable {
-    case starting = "starting"
-    case ready = "ready"
-    case failed = "failed"
-    case cancelled = "cancelled"
+public enum CodexSchemaMCPServerStartupState: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case starting
+    case ready
+    case failed
+    case cancelled
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaMCPServerStartupState] = [
+        .starting,
+        .ready,
+        .failed,
+        .cancelled,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "starting": self = .starting
+        case "ready": self = .ready
+        case "failed": self = .failed
+        case "cancelled": self = .cancelled
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .starting: "starting"
+        case .ready: "ready"
+        case .failed: "failed"
+        case .cancelled: "cancelled"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaMCPServerStatus: Codable, Sendable, Equatable {
     public var authStatus: CodexSchemaMCPAuthStatus
@@ -2652,7 +4609,6 @@ public struct CodexSchemaMCPToolCallAppContext: Codable, Sendable, Equatable {
     public var connectorID: String
     public var linkID: String?
     public var resourceUri: String?
-    public var templateID: String?
 
     enum CodingKeys: String, CodingKey {
         case actionName
@@ -2660,16 +4616,14 @@ public struct CodexSchemaMCPToolCallAppContext: Codable, Sendable, Equatable {
         case connectorID = "connectorId"
         case linkID = "linkId"
         case resourceUri
-        case templateID = "templateId"
     }
 
-    public init(actionName: String? = nil, appName: String? = nil, connectorID: String, linkID: String? = nil, resourceUri: String? = nil, templateID: String? = nil) {
+    public init(actionName: String? = nil, appName: String? = nil, connectorID: String, linkID: String? = nil, resourceUri: String? = nil) {
         self.actionName = actionName
         self.appName = appName
         self.connectorID = connectorID
         self.linkID = linkID
         self.resourceUri = resourceUri
-        self.templateID = templateID
     }
 }
 public struct CodexSchemaMCPToolCallError: Codable, Sendable, Equatable {
@@ -2716,10 +4670,45 @@ public struct CodexSchemaMCPToolCallResult: Codable, Sendable, Equatable {
         self.structuredContent = structuredContent
     }
 }
-public enum CodexSchemaMCPToolCallStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case inProgress = "inProgress"
-    case completed = "completed"
-    case failed = "failed"
+public enum CodexSchemaMCPToolCallStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case inProgress
+    case completed
+    case failed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaMCPToolCallStatus] = [
+        .inProgress,
+        .completed,
+        .failed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "inProgress": self = .inProgress
+        case "completed": self = .completed
+        case "failed": self = .failed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .inProgress: "inProgress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaMemoryCitation: Codable, Sendable, Equatable {
     public var entries: [CodexSchemaMemoryCitationEntry]
@@ -2753,23 +4742,57 @@ public enum CodexSchemaMergeStrategy: String, Codable, Sendable, Equatable, Case
     case replace = "replace"
     case upsert = "upsert"
 }
-public enum CodexSchemaMessagePhase: String, Codable, Sendable, Equatable, CaseIterable {
-    case commentary = "commentary"
-    case finalAnswer = "final_answer"
+public enum CodexSchemaMessagePhase: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case commentary
+    case finalAnswer
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaMessagePhase] = [
+        .commentary,
+        .finalAnswer,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "commentary": self = .commentary
+        case "final_answer": self = .finalAnswer
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .commentary: "commentary"
+        case .finalAnswer: "final_answer"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaMigrationDetails: Codable, Sendable, Equatable {
     public var commands: [CodexSchemaCommandMigration]?
     public var hooks: [CodexSchemaHookMigration]?
     public var mcpServers: [CodexSchemaMCPServerMigration]?
+    public var memory: [String]?
     public var plugins: [CodexSchemaPluginsMigration]?
     public var sessions: [CodexSchemaSessionMigration]?
     public var skills: [CodexSchemaSkillMigration]?
     public var subagents: [CodexSchemaSubagentMigration]?
 
-    public init(commands: [CodexSchemaCommandMigration]? = nil, hooks: [CodexSchemaHookMigration]? = nil, mcpServers: [CodexSchemaMCPServerMigration]? = nil, plugins: [CodexSchemaPluginsMigration]? = nil, sessions: [CodexSchemaSessionMigration]? = nil, skills: [CodexSchemaSkillMigration]? = nil, subagents: [CodexSchemaSubagentMigration]? = nil) {
+    public init(commands: [CodexSchemaCommandMigration]? = nil, hooks: [CodexSchemaHookMigration]? = nil, mcpServers: [CodexSchemaMCPServerMigration]? = nil, memory: [String]? = nil, plugins: [CodexSchemaPluginsMigration]? = nil, sessions: [CodexSchemaSessionMigration]? = nil, skills: [CodexSchemaSkillMigration]? = nil, subagents: [CodexSchemaSubagentMigration]? = nil) {
         self.commands = commands
         self.hooks = hooks
         self.mcpServers = mcpServers
+        self.memory = memory
         self.plugins = plugins
         self.sessions = sessions
         self.skills = skills
@@ -2790,9 +4813,41 @@ public struct CodexSchemaMockExperimentalMethodResponse: Codable, Sendable, Equa
         self.echoed = echoed
     }
 }
-public enum CodexSchemaModeKind: String, Codable, Sendable, Equatable, CaseIterable {
-    case plan = "plan"
-    case `default` = "default"
+public enum CodexSchemaModeKind: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case plan
+    case `default`
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaModeKind] = [
+        .plan,
+        .`default`,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "plan": self = .plan
+        case "default": self = .`default`
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .plan: "plan"
+        case .`default`: "default"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaModel: Codable, Sendable, Equatable {
     public var additionalSpeedTiers: [String]?
@@ -2870,8 +4925,37 @@ public struct CodexSchemaModelProviderCapabilitiesReadResponse: Codable, Sendabl
         self.webSearch = webSearch
     }
 }
-public enum CodexSchemaModelRerouteReason: String, Codable, Sendable, Equatable, CaseIterable {
-    case highRiskCyberActivity = "highRiskCyberActivity"
+public enum CodexSchemaModelRerouteReason: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case highRiskCyberActivity
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaModelRerouteReason] = [
+        .highRiskCyberActivity,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "highRiskCyberActivity": self = .highRiskCyberActivity
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .highRiskCyberActivity: "highRiskCyberActivity"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaModelReroutedNotification: Codable, Sendable, Equatable {
     public var fromModel: String
@@ -2949,8 +5033,37 @@ public struct CodexSchemaModelUpgradeInfo: Codable, Sendable, Equatable {
         self.upgradeCopy = upgradeCopy
     }
 }
-public enum CodexSchemaModelVerification: String, Codable, Sendable, Equatable, CaseIterable {
-    case trustedAccessForCyber = "trustedAccessForCyber"
+public enum CodexSchemaModelVerification: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case trustedAccessForCyber
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaModelVerification] = [
+        .trustedAccessForCyber,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "trustedAccessForCyber": self = .trustedAccessForCyber
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .trustedAccessForCyber: "trustedAccessForCyber"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaModelVerificationNotification: Codable, Sendable, Equatable {
     public var threadID: String
@@ -2977,19 +5090,121 @@ public struct CodexSchemaModelsRequirements: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaMultiAgentMode = CodexAppServerSchemaValue
-public enum CodexSchemaNetworkAccess: String, Codable, Sendable, Equatable, CaseIterable {
-    case restricted = "restricted"
-    case enabled = "enabled"
+public enum CodexSchemaNetworkAccess: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case restricted
+    case enabled
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaNetworkAccess] = [
+        .restricted,
+        .enabled,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "restricted": self = .restricted
+        case "enabled": self = .enabled
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .restricted: "restricted"
+        case .enabled: "enabled"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaNetworkApprovalProtocol: String, Codable, Sendable, Equatable, CaseIterable {
-    case http = "http"
-    case https = "https"
-    case socks5Tcp = "socks5Tcp"
-    case socks5Udp = "socks5Udp"
+public enum CodexSchemaNetworkApprovalProtocol: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case http
+    case https
+    case socks5Tcp
+    case socks5Udp
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaNetworkApprovalProtocol] = [
+        .http,
+        .https,
+        .socks5Tcp,
+        .socks5Udp,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "http": self = .http
+        case "https": self = .https
+        case "socks5Tcp": self = .socks5Tcp
+        case "socks5Udp": self = .socks5Udp
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .http: "http"
+        case .https: "https"
+        case .socks5Tcp: "socks5Tcp"
+        case .socks5Udp: "socks5Udp"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaNetworkDomainPermission: String, Codable, Sendable, Equatable, CaseIterable {
-    case allow = "allow"
-    case deny = "deny"
+public enum CodexSchemaNetworkDomainPermission: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case allow
+    case deny
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaNetworkDomainPermission] = [
+        .allow,
+        .deny,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "allow": self = .allow
+        case "deny": self = .deny
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .allow: "allow"
+        case .deny: "deny"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaNetworkRequirements: Codable, Sendable, Equatable {
     public var allowLocalBinding: Bool?
@@ -3022,9 +5237,41 @@ public struct CodexSchemaNetworkRequirements: Codable, Sendable, Equatable {
         self.unixSockets = unixSockets
     }
 }
-public enum CodexSchemaNetworkUnixSocketPermission: String, Codable, Sendable, Equatable, CaseIterable {
-    case allow = "allow"
-    case deny = "deny"
+public enum CodexSchemaNetworkUnixSocketPermission: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case allow
+    case deny
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaNetworkUnixSocketPermission] = [
+        .allow,
+        .deny,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "allow": self = .allow
+        case "deny": self = .deny
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .allow: "allow"
+        case .deny: "deny"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaNewThreadModelDefaults: Codable, Sendable, Equatable {
     public var model: String?
@@ -3037,9 +5284,41 @@ public struct CodexSchemaNewThreadModelDefaults: Codable, Sendable, Equatable {
         self.serviceTier = serviceTier
     }
 }
-public enum CodexSchemaNonSteerableTurnKind: String, Codable, Sendable, Equatable, CaseIterable {
-    case review = "review"
-    case compact = "compact"
+public enum CodexSchemaNonSteerableTurnKind: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case review
+    case compact
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaNonSteerableTurnKind] = [
+        .review,
+        .compact,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "review": self = .review
+        case "compact": self = .compact
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .review: "review"
+        case .compact: "compact"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaNullableRemoteControlDisableParams = CodexAppServerSchemaValue
 public typealias CodexSchemaNullableRemoteControlEnableParams = CodexAppServerSchemaValue
@@ -3054,11 +5333,49 @@ public struct CodexSchemaOverriddenMetadata: Codable, Sendable, Equatable {
         self.overridingLayer = overridingLayer
     }
 }
-public enum CodexSchemaPatchApplyStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case inProgress = "inProgress"
-    case completed = "completed"
-    case failed = "failed"
-    case declined = "declined"
+public enum CodexSchemaPatchApplyStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case inProgress
+    case completed
+    case failed
+    case declined
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPatchApplyStatus] = [
+        .inProgress,
+        .completed,
+        .failed,
+        .declined,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "inProgress": self = .inProgress
+        case "completed": self = .completed
+        case "failed": self = .failed
+        case "declined": self = .declined
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .inProgress: "inProgress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaPatchChangeKind = CodexAppServerSchemaValue
 public typealias CodexSchemaPathUri = CodexAppServerSchemaValue
@@ -3093,10 +5410,45 @@ public struct CodexSchemaPermissionProfileSummary: Codable, Sendable, Equatable 
         self.id = id
     }
 }
-public enum CodexSchemaPersonality: String, Codable, Sendable, Equatable, CaseIterable {
-    case none = "none"
-    case friendly = "friendly"
-    case pragmatic = "pragmatic"
+public enum CodexSchemaPersonality: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case none
+    case friendly
+    case pragmatic
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPersonality] = [
+        .none,
+        .friendly,
+        .pragmatic,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "none": self = .none
+        case "friendly": self = .friendly
+        case "pragmatic": self = .pragmatic
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .none: "none"
+        case .friendly: "friendly"
+        case .pragmatic: "pragmatic"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaPlanDeltaNotification: Codable, Sendable, Equatable {
     public var delta: String
@@ -3118,27 +5470,153 @@ public struct CodexSchemaPlanDeltaNotification: Codable, Sendable, Equatable {
         self.turnID = turnID
     }
 }
-public enum CodexSchemaPlanType: String, Codable, Sendable, Equatable, CaseIterable {
-    case free = "free"
-    case go = "go"
-    case plus = "plus"
-    case pro = "pro"
-    case prolite = "prolite"
-    case team = "team"
-    case selfServeBusinessUsageBased = "self_serve_business_usage_based"
-    case business = "business"
-    case enterpriseCbpUsageBased = "enterprise_cbp_usage_based"
-    case enterprise = "enterprise"
-    case edu = "edu"
-    case unknown = "unknown"
+public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case free
+    case go
+    case plus
+    case pro
+    case prolite
+    case team
+    case selfServeBusinessUsageBased
+    case business
+    case enterpriseCbpUsageBased
+    case enterprise
+    case edu
+    case unknown
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPlanType] = [
+        .free,
+        .go,
+        .plus,
+        .pro,
+        .prolite,
+        .team,
+        .selfServeBusinessUsageBased,
+        .business,
+        .enterpriseCbpUsageBased,
+        .enterprise,
+        .edu,
+        .unknown,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "free": self = .free
+        case "go": self = .go
+        case "plus": self = .plus
+        case "pro": self = .pro
+        case "prolite": self = .prolite
+        case "team": self = .team
+        case "self_serve_business_usage_based": self = .selfServeBusinessUsageBased
+        case "business": self = .business
+        case "enterprise_cbp_usage_based": self = .enterpriseCbpUsageBased
+        case "enterprise": self = .enterprise
+        case "edu": self = .edu
+        case "unknown": self = .unknown
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .free: "free"
+        case .go: "go"
+        case .plus: "plus"
+        case .pro: "pro"
+        case .prolite: "prolite"
+        case .team: "team"
+        case .selfServeBusinessUsageBased: "self_serve_business_usage_based"
+        case .business: "business"
+        case .enterpriseCbpUsageBased: "enterprise_cbp_usage_based"
+        case .enterprise: "enterprise"
+        case .edu: "edu"
+        case .unknown: "unknown"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaPluginAuthPolicy: String, Codable, Sendable, Equatable, CaseIterable {
-    case oNINSTALL = "ON_INSTALL"
-    case oNUSE = "ON_USE"
+public enum CodexSchemaPluginAuthPolicy: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case oNINSTALL
+    case oNUSE
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPluginAuthPolicy] = [
+        .oNINSTALL,
+        .oNUSE,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "ON_INSTALL": self = .oNINSTALL
+        case "ON_USE": self = .oNUSE
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .oNINSTALL: "ON_INSTALL"
+        case .oNUSE: "ON_USE"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaPluginAvailability: String, Codable, Sendable, Equatable, CaseIterable {
-    case dISABLEDBYADMIN = "DISABLED_BY_ADMIN"
-    case aVAILABLE = "AVAILABLE"
+public enum CodexSchemaPluginAvailability: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case dISABLEDBYADMIN
+    case aVAILABLE
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPluginAvailability] = [
+        .dISABLEDBYADMIN,
+        .aVAILABLE,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "DISABLED_BY_ADMIN": self = .dISABLEDBYADMIN
+        case "AVAILABLE": self = .aVAILABLE
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .dISABLEDBYADMIN: "DISABLED_BY_ADMIN"
+        case .aVAILABLE: "AVAILABLE"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaPluginDetail: Codable, Sendable, Equatable {
     public var appTemplates: [CodexSchemaAppTemplateSummary]
@@ -3148,11 +5626,12 @@ public struct CodexSchemaPluginDetail: Codable, Sendable, Equatable {
     public var marketplaceName: String
     public var marketplacePath: CodexSchemaAbsolutePathBuf?
     public var mcpServers: [String]
+    public var scheduledTasks: [CodexSchemaScheduledTaskSummary]?
     public var shareUrl: String?
     public var skills: [CodexSchemaSkillSummary]
     public var summary: CodexSchemaPluginSummary
 
-    public init(appTemplates: [CodexSchemaAppTemplateSummary], apps: [CodexSchemaAppSummary], description: String? = nil, hooks: [CodexSchemaPluginHookSummary], marketplaceName: String, marketplacePath: CodexSchemaAbsolutePathBuf? = nil, mcpServers: [String], shareUrl: String? = nil, skills: [CodexSchemaSkillSummary], summary: CodexSchemaPluginSummary) {
+    public init(appTemplates: [CodexSchemaAppTemplateSummary], apps: [CodexSchemaAppSummary], description: String? = nil, hooks: [CodexSchemaPluginHookSummary], marketplaceName: String, marketplacePath: CodexSchemaAbsolutePathBuf? = nil, mcpServers: [String], scheduledTasks: [CodexSchemaScheduledTaskSummary]? = nil, shareUrl: String? = nil, skills: [CodexSchemaSkillSummary], summary: CodexSchemaPluginSummary) {
         self.appTemplates = appTemplates
         self.apps = apps
         self.description = description
@@ -3160,6 +5639,7 @@ public struct CodexSchemaPluginDetail: Codable, Sendable, Equatable {
         self.marketplaceName = marketplaceName
         self.marketplacePath = marketplacePath
         self.mcpServers = mcpServers
+        self.scheduledTasks = scheduledTasks
         self.shareUrl = shareUrl
         self.skills = skills
         self.summary = summary
@@ -3185,14 +5665,81 @@ public struct CodexSchemaPluginInstallParams: Codable, Sendable, Equatable {
         self.remoteMarketplaceName = remoteMarketplaceName
     }
 }
-public enum CodexSchemaPluginInstallPolicy: String, Codable, Sendable, Equatable, CaseIterable {
-    case nOTAVAILABLE = "NOT_AVAILABLE"
-    case aVAILABLE = "AVAILABLE"
-    case iNSTALLEDBYDEFAULT = "INSTALLED_BY_DEFAULT"
+public enum CodexSchemaPluginInstallPolicy: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case nOTAVAILABLE
+    case aVAILABLE
+    case iNSTALLEDBYDEFAULT
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPluginInstallPolicy] = [
+        .nOTAVAILABLE,
+        .aVAILABLE,
+        .iNSTALLEDBYDEFAULT,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "NOT_AVAILABLE": self = .nOTAVAILABLE
+        case "AVAILABLE": self = .aVAILABLE
+        case "INSTALLED_BY_DEFAULT": self = .iNSTALLEDBYDEFAULT
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .nOTAVAILABLE: "NOT_AVAILABLE"
+        case .aVAILABLE: "AVAILABLE"
+        case .iNSTALLEDBYDEFAULT: "INSTALLED_BY_DEFAULT"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaPluginInstallPolicySource: String, Codable, Sendable, Equatable, CaseIterable {
-    case wORKSPACESETTING = "WORKSPACE_SETTING"
-    case iMPLICITCANONICALAPP = "IMPLICIT_CANONICAL_APP"
+public enum CodexSchemaPluginInstallPolicySource: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case wORKSPACESETTING
+    case iMPLICITCANONICALAPP
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPluginInstallPolicySource] = [
+        .wORKSPACESETTING,
+        .iMPLICITCANONICALAPP,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "WORKSPACE_SETTING": self = .wORKSPACESETTING
+        case "IMPLICIT_CANONICAL_APP": self = .iMPLICITCANONICALAPP
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .wORKSPACESETTING: "WORKSPACE_SETTING"
+        case .iMPLICITCANONICALAPP: "IMPLICIT_CANONICAL_APP"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaPluginInstallResponse: Codable, Sendable, Equatable {
     public var appsNeedingAuth: [CodexSchemaAppSummary]
@@ -3409,10 +5956,45 @@ public struct CodexSchemaPluginShareDeleteParams: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaPluginShareDeleteResponse = CodexAppServerSchemaValue
-public enum CodexSchemaPluginShareDiscoverability: String, Codable, Sendable, Equatable, CaseIterable {
-    case lISTED = "LISTED"
-    case uNLISTED = "UNLISTED"
-    case pRIVATE = "PRIVATE"
+public enum CodexSchemaPluginShareDiscoverability: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case lISTED
+    case uNLISTED
+    case pRIVATE
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPluginShareDiscoverability] = [
+        .lISTED,
+        .uNLISTED,
+        .pRIVATE,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "LISTED": self = .lISTED
+        case "UNLISTED": self = .uNLISTED
+        case "PRIVATE": self = .pRIVATE
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .lISTED: "LISTED"
+        case .uNLISTED: "UNLISTED"
+        case .pRIVATE: "PRIVATE"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaPluginShareListItem: Codable, Sendable, Equatable {
     public var localPluginPath: CodexSchemaAbsolutePathBuf?
@@ -3451,15 +6033,85 @@ public struct CodexSchemaPluginSharePrincipal: Codable, Sendable, Equatable {
         self.role = role
     }
 }
-public enum CodexSchemaPluginSharePrincipalRole: String, Codable, Sendable, Equatable, CaseIterable {
-    case reader = "reader"
-    case editor = "editor"
-    case owner = "owner"
+public enum CodexSchemaPluginSharePrincipalRole: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case reader
+    case editor
+    case owner
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPluginSharePrincipalRole] = [
+        .reader,
+        .editor,
+        .owner,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "reader": self = .reader
+        case "editor": self = .editor
+        case "owner": self = .owner
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .reader: "reader"
+        case .editor: "editor"
+        case .owner: "owner"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaPluginSharePrincipalType: String, Codable, Sendable, Equatable, CaseIterable {
-    case user = "user"
-    case group = "group"
-    case workspace = "workspace"
+public enum CodexSchemaPluginSharePrincipalType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case user
+    case group
+    case workspace
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaPluginSharePrincipalType] = [
+        .user,
+        .group,
+        .workspace,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "user": self = .user
+        case "group": self = .group
+        case "workspace": self = .workspace
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .user: "user"
+        case .group: "group"
+        case .workspace: "workspace"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaPluginShareSaveParams: Codable, Sendable, Equatable {
     public var discoverability: CodexSchemaPluginShareDiscoverability?
@@ -3683,9 +6335,41 @@ public struct CodexSchemaProcessOutputDeltaNotification: Codable, Sendable, Equa
         self.stream = stream
     }
 }
-public enum CodexSchemaProcessOutputStream: String, Codable, Sendable, Equatable, CaseIterable {
-    case stdout = "stdout"
-    case stderr = "stderr"
+public enum CodexSchemaProcessOutputStream: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case stdout
+    case stderr
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaProcessOutputStream] = [
+        .stdout,
+        .stderr,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "stdout": self = .stdout
+        case "stderr": self = .stderr
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .stdout: "stdout"
+        case .stderr: "stderr"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaProcessResizePTYParams: Codable, Sendable, Equatable {
     public var processHandle: String
@@ -3744,12 +6428,53 @@ public struct CodexSchemaProcessWriteStdinParams: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaProcessWriteStdinResponse = CodexAppServerSchemaValue
-public enum CodexSchemaRateLimitReachedType: String, Codable, Sendable, Equatable, CaseIterable {
-    case rateLimitReached = "rate_limit_reached"
-    case workspaceOwnerCreditsDepleted = "workspace_owner_credits_depleted"
-    case workspaceMemberCreditsDepleted = "workspace_member_credits_depleted"
-    case workspaceOwnerUsageLimitReached = "workspace_owner_usage_limit_reached"
-    case workspaceMemberUsageLimitReached = "workspace_member_usage_limit_reached"
+public enum CodexSchemaRateLimitReachedType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case rateLimitReached
+    case workspaceOwnerCreditsDepleted
+    case workspaceMemberCreditsDepleted
+    case workspaceOwnerUsageLimitReached
+    case workspaceMemberUsageLimitReached
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaRateLimitReachedType] = [
+        .rateLimitReached,
+        .workspaceOwnerCreditsDepleted,
+        .workspaceMemberCreditsDepleted,
+        .workspaceOwnerUsageLimitReached,
+        .workspaceMemberUsageLimitReached,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "rate_limit_reached": self = .rateLimitReached
+        case "workspace_owner_credits_depleted": self = .workspaceOwnerCreditsDepleted
+        case "workspace_member_credits_depleted": self = .workspaceMemberCreditsDepleted
+        case "workspace_owner_usage_limit_reached": self = .workspaceOwnerUsageLimitReached
+        case "workspace_member_usage_limit_reached": self = .workspaceMemberUsageLimitReached
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .rateLimitReached: "rate_limit_reached"
+        case .workspaceOwnerCreditsDepleted: "workspace_owner_credits_depleted"
+        case .workspaceMemberCreditsDepleted: "workspace_member_credits_depleted"
+        case .workspaceOwnerUsageLimitReached: "workspace_owner_usage_limit_reached"
+        case .workspaceMemberUsageLimitReached: "workspace_member_usage_limit_reached"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaRateLimitResetCredit: Codable, Sendable, Equatable {
     public var description: String?
@@ -3770,11 +6495,49 @@ public struct CodexSchemaRateLimitResetCredit: Codable, Sendable, Equatable {
         self.title = title
     }
 }
-public enum CodexSchemaRateLimitResetCreditStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case available = "available"
-    case redeeming = "redeeming"
-    case redeemed = "redeemed"
-    case unknown = "unknown"
+public enum CodexSchemaRateLimitResetCreditStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case available
+    case redeeming
+    case redeemed
+    case unknown
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaRateLimitResetCreditStatus] = [
+        .available,
+        .redeeming,
+        .redeemed,
+        .unknown,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "available": self = .available
+        case "redeeming": self = .redeeming
+        case "redeemed": self = .redeemed
+        case "unknown": self = .unknown
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .available: "available"
+        case .redeeming: "redeeming"
+        case .redeemed: "redeemed"
+        case .unknown: "unknown"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaRateLimitResetCreditsSummary: Codable, Sendable, Equatable {
     public var availableCount: Int
@@ -3785,9 +6548,41 @@ public struct CodexSchemaRateLimitResetCreditsSummary: Codable, Sendable, Equata
         self.credits = credits
     }
 }
-public enum CodexSchemaRateLimitResetType: String, Codable, Sendable, Equatable, CaseIterable {
-    case codexRateLimits = "codexRateLimits"
-    case unknown = "unknown"
+public enum CodexSchemaRateLimitResetType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case codexRateLimits
+    case unknown
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaRateLimitResetType] = [
+        .codexRateLimits,
+        .unknown,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "codexRateLimits": self = .codexRateLimits
+        case "unknown": self = .unknown
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .codexRateLimits: "codexRateLimits"
+        case .unknown: "unknown"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaRateLimitSnapshot: Codable, Sendable, Equatable {
     public var credits: CodexSchemaCreditsSnapshot?
@@ -3798,6 +6593,7 @@ public struct CodexSchemaRateLimitSnapshot: Codable, Sendable, Equatable {
     public var primary: CodexSchemaRateLimitWindow?
     public var rateLimitReachedType: CodexSchemaRateLimitReachedType?
     public var secondary: CodexSchemaRateLimitWindow?
+    public var spendControlReached: Bool?
 
     enum CodingKeys: String, CodingKey {
         case credits
@@ -3808,9 +6604,10 @@ public struct CodexSchemaRateLimitSnapshot: Codable, Sendable, Equatable {
         case primary
         case rateLimitReachedType
         case secondary
+        case spendControlReached
     }
 
-    public init(credits: CodexSchemaCreditsSnapshot? = nil, individualLimit: CodexSchemaSpendControlLimitSnapshot? = nil, limitID: String? = nil, limitName: String? = nil, planType: CodexSchemaPlanType? = nil, primary: CodexSchemaRateLimitWindow? = nil, rateLimitReachedType: CodexSchemaRateLimitReachedType? = nil, secondary: CodexSchemaRateLimitWindow? = nil) {
+    public init(credits: CodexSchemaCreditsSnapshot? = nil, individualLimit: CodexSchemaSpendControlLimitSnapshot? = nil, limitID: String? = nil, limitName: String? = nil, planType: CodexSchemaPlanType? = nil, primary: CodexSchemaRateLimitWindow? = nil, rateLimitReachedType: CodexSchemaRateLimitReachedType? = nil, secondary: CodexSchemaRateLimitWindow? = nil, spendControlReached: Bool? = nil) {
         self.credits = credits
         self.individualLimit = individualLimit
         self.limitID = limitID
@@ -3819,6 +6616,7 @@ public struct CodexSchemaRateLimitSnapshot: Codable, Sendable, Equatable {
         self.primary = primary
         self.rateLimitReachedType = rateLimitReachedType
         self.secondary = secondary
+        self.spendControlReached = spendControlReached
     }
 }
 public struct CodexSchemaRateLimitWindow: Codable, Sendable, Equatable {
@@ -3830,6 +6628,26 @@ public struct CodexSchemaRateLimitWindow: Codable, Sendable, Equatable {
         self.resetsAt = resetsAt
         self.usedPercent = usedPercent
         self.windowDurationMins = windowDurationMins
+    }
+}
+public struct CodexSchemaRawResponseCompletedNotification: Codable, Sendable, Equatable {
+    public var responseID: String
+    public var threadID: String
+    public var turnID: String
+    public var usage: CodexSchemaTokenUsageBreakdown?
+
+    enum CodingKeys: String, CodingKey {
+        case responseID = "responseId"
+        case threadID = "threadId"
+        case turnID = "turnId"
+        case usage
+    }
+
+    public init(responseID: String, threadID: String, turnID: String, usage: CodexSchemaTokenUsageBreakdown? = nil) {
+        self.responseID = responseID
+        self.threadID = threadID
+        self.turnID = turnID
+        self.usage = usage
     }
 }
 public struct CodexSchemaRawResponseItemCompletedNotification: Codable, Sendable, Equatable {
@@ -3849,34 +6667,153 @@ public struct CodexSchemaRawResponseItemCompletedNotification: Codable, Sendable
         self.turnID = turnID
     }
 }
-public enum CodexSchemaRealtimeConversationVersion: String, Codable, Sendable, Equatable, CaseIterable {
-    case v1 = "v1"
-    case v2 = "v2"
+public enum CodexSchemaRealtimeConversationVersion: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case v1
+    case v2
+    case v3
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaRealtimeConversationVersion] = [
+        .v1,
+        .v2,
+        .v3,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "v1": self = .v1
+        case "v2": self = .v2
+        case "v3": self = .v3
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .v1: "v1"
+        case .v2: "v2"
+        case .v3: "v3"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public enum CodexSchemaRealtimeOutputModality: String, Codable, Sendable, Equatable, CaseIterable {
     case text = "text"
     case audio = "audio"
 }
-public enum CodexSchemaRealtimeVoice: String, Codable, Sendable, Equatable, CaseIterable {
-    case alloy = "alloy"
-    case arbor = "arbor"
-    case ash = "ash"
-    case ballad = "ballad"
-    case breeze = "breeze"
-    case cedar = "cedar"
-    case coral = "coral"
-    case cove = "cove"
-    case echo = "echo"
-    case ember = "ember"
-    case juniper = "juniper"
-    case maple = "maple"
-    case marin = "marin"
-    case sage = "sage"
-    case shimmer = "shimmer"
-    case sol = "sol"
-    case spruce = "spruce"
-    case vale = "vale"
-    case verse = "verse"
+public enum CodexSchemaRealtimeVoice: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case alloy
+    case arbor
+    case ash
+    case ballad
+    case breeze
+    case cedar
+    case coral
+    case cove
+    case echo
+    case ember
+    case juniper
+    case maple
+    case marin
+    case sage
+    case shimmer
+    case sol
+    case spruce
+    case vale
+    case verse
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaRealtimeVoice] = [
+        .alloy,
+        .arbor,
+        .ash,
+        .ballad,
+        .breeze,
+        .cedar,
+        .coral,
+        .cove,
+        .echo,
+        .ember,
+        .juniper,
+        .maple,
+        .marin,
+        .sage,
+        .shimmer,
+        .sol,
+        .spruce,
+        .vale,
+        .verse,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "alloy": self = .alloy
+        case "arbor": self = .arbor
+        case "ash": self = .ash
+        case "ballad": self = .ballad
+        case "breeze": self = .breeze
+        case "cedar": self = .cedar
+        case "coral": self = .coral
+        case "cove": self = .cove
+        case "echo": self = .echo
+        case "ember": self = .ember
+        case "juniper": self = .juniper
+        case "maple": self = .maple
+        case "marin": self = .marin
+        case "sage": self = .sage
+        case "shimmer": self = .shimmer
+        case "sol": self = .sol
+        case "spruce": self = .spruce
+        case "vale": self = .vale
+        case "verse": self = .verse
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .alloy: "alloy"
+        case .arbor: "arbor"
+        case .ash: "ash"
+        case .ballad: "ballad"
+        case .breeze: "breeze"
+        case .cedar: "cedar"
+        case .coral: "coral"
+        case .cove: "cove"
+        case .echo: "echo"
+        case .ember: "ember"
+        case .juniper: "juniper"
+        case .maple: "maple"
+        case .marin: "marin"
+        case .sage: "sage"
+        case .shimmer: "shimmer"
+        case .sol: "sol"
+        case .spruce: "spruce"
+        case .vale: "vale"
+        case .verse: "verse"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaRealtimeVoicesList: Codable, Sendable, Equatable {
     public var defaultV1: CodexSchemaRealtimeVoice
@@ -4050,11 +6987,49 @@ public struct CodexSchemaRemoteControlClientsRevokeParams: Codable, Sendable, Eq
     }
 }
 public typealias CodexSchemaRemoteControlClientsRevokeResponse = CodexAppServerSchemaValue
-public enum CodexSchemaRemoteControlConnectionStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case disabled = "disabled"
-    case connecting = "connecting"
-    case connected = "connected"
-    case errored = "errored"
+public enum CodexSchemaRemoteControlConnectionStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case disabled
+    case connecting
+    case connected
+    case errored
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaRemoteControlConnectionStatus] = [
+        .disabled,
+        .connecting,
+        .connected,
+        .errored,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "disabled": self = .disabled
+        case "connecting": self = .connecting
+        case "connected": self = .connected
+        case "errored": self = .errored
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .disabled: "disabled"
+        case .connecting: "connecting"
+        case .connected: "connected"
+        case .errored: "errored"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaRemoteControlDisableParams: Codable, Sendable, Equatable {
     public var ephemeral: Bool?
@@ -4203,8 +7178,37 @@ public struct CodexSchemaRequestPermissionProfile: Codable, Sendable, Equatable 
         self.network = network
     }
 }
-public enum CodexSchemaResidencyRequirement: String, Codable, Sendable, Equatable, CaseIterable {
-    case us = "us"
+public enum CodexSchemaResidencyRequirement: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case us
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaResidencyRequirement] = [
+        .us,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "us": self = .us
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .us: "us"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaResource: Codable, Sendable, Equatable {
     public var meta: CodexJSONValue?
@@ -4297,10 +7301,45 @@ public struct CodexSchemaReviewStartResponse: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaReviewTarget = CodexAppServerSchemaValue
-public enum CodexSchemaSandboxMode: String, Codable, Sendable, Equatable, CaseIterable {
-    case readOnly = "read-only"
-    case workspaceWrite = "workspace-write"
-    case dangerFullAccess = "danger-full-access"
+public enum CodexSchemaSandboxMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case readOnly
+    case workspaceWrite
+    case dangerFullAccess
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaSandboxMode] = [
+        .readOnly,
+        .workspaceWrite,
+        .dangerFullAccess,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "read-only": self = .readOnly
+        case "workspace-write": self = .workspaceWrite
+        case "danger-full-access": self = .dangerFullAccess
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .readOnly: "read-only"
+        case .workspaceWrite: "workspace-write"
+        case .dangerFullAccess: "danger-full-access"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaSandboxPolicy = CodexAppServerSchemaValue
 public struct CodexSchemaSandboxWorkspaceWrite: Codable, Sendable, Equatable {
@@ -4321,6 +7360,76 @@ public struct CodexSchemaSandboxWorkspaceWrite: Codable, Sendable, Equatable {
         self.excludeTmpdirEnvVar = excludeTmpdirEnvVar
         self.networkAccess = networkAccess
         self.writableRoots = writableRoots
+    }
+}
+public typealias CodexSchemaScheduledTaskSchedule = CodexAppServerSchemaValue
+public struct CodexSchemaScheduledTaskSummary: Codable, Sendable, Equatable {
+    public var key: String
+    public var name: String
+    public var prompt: String
+    public var schedule: CodexSchemaScheduledTaskSchedule
+
+    public init(key: String, name: String, prompt: String, schedule: CodexSchemaScheduledTaskSchedule) {
+        self.key = key
+        self.name = name
+        self.prompt = prompt
+        self.schedule = schedule
+    }
+}
+public enum CodexSchemaScheduledTaskWeekday: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case mO
+    case tU
+    case wE
+    case tH
+    case fR
+    case sA
+    case sU
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaScheduledTaskWeekday] = [
+        .mO,
+        .tU,
+        .wE,
+        .tH,
+        .fR,
+        .sA,
+        .sU,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "MO": self = .mO
+        case "TU": self = .tU
+        case "WE": self = .wE
+        case "TH": self = .tH
+        case "FR": self = .fR
+        case "SA": self = .sA
+        case "SU": self = .sU
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .mO: "MO"
+        case .tU: "TU"
+        case .wE: "WE"
+        case .tH: "TH"
+        case .fR: "FR"
+        case .sA: "SA"
+        case .sU: "SU"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 public struct CodexSchemaSelectedCapabilityRoot: Codable, Sendable, Equatable {
@@ -4451,11 +7560,49 @@ public struct CodexSchemaSkillMigration: Codable, Sendable, Equatable {
         self.name = name
     }
 }
-public enum CodexSchemaSkillScope: String, Codable, Sendable, Equatable, CaseIterable {
-    case user = "user"
-    case repo = "repo"
-    case system = "system"
-    case admin = "admin"
+public enum CodexSchemaSkillScope: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case user
+    case repo
+    case system
+    case admin
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaSkillScope] = [
+        .user,
+        .repo,
+        .system,
+        .admin,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "user": self = .user
+        case "repo": self = .repo
+        case "system": self = .system
+        case "admin": self = .admin
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .user: "user"
+        case .repo: "repo"
+        case .system: "system"
+        case .admin: "admin"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaSkillSummary: Codable, Sendable, Equatable {
     public var description: String
@@ -4562,10 +7709,45 @@ public struct CodexSchemaSpendControlLimitSnapshot: Codable, Sendable, Equatable
         self.used = used
     }
 }
-public enum CodexSchemaSubAgentActivityKind: String, Codable, Sendable, Equatable, CaseIterable {
-    case started = "started"
-    case interacted = "interacted"
-    case interrupted = "interrupted"
+public enum CodexSchemaSubAgentActivityKind: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case started
+    case interacted
+    case interrupted
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaSubAgentActivityKind] = [
+        .started,
+        .interacted,
+        .interrupted,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "started": self = .started
+        case "interacted": self = .interacted
+        case "interrupted": self = .interrupted
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .started: "started"
+        case .interacted: "interacted"
+        case .interrupted: "interrupted"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaSubAgentSource = CodexAppServerSchemaValue
 public struct CodexSchemaSubagentMigration: Codable, Sendable, Equatable {
@@ -4702,9 +7884,41 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         self.updatedAt = updatedAt
     }
 }
-public enum CodexSchemaThreadActiveFlag: String, Codable, Sendable, Equatable, CaseIterable {
-    case waitingOnApproval = "waitingOnApproval"
-    case waitingOnUserInput = "waitingOnUserInput"
+public enum CodexSchemaThreadActiveFlag: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case waitingOnApproval
+    case waitingOnUserInput
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaThreadActiveFlag] = [
+        .waitingOnApproval,
+        .waitingOnUserInput,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "waitingOnApproval": self = .waitingOnApproval
+        case "waitingOnUserInput": self = .waitingOnUserInput
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .waitingOnApproval: "waitingOnApproval"
+        case .waitingOnUserInput: "waitingOnUserInput"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaThreadApproveGuardianDeniedActionParams: Codable, Sendable, Equatable {
     public var event: CodexJSONValue
@@ -4903,8 +8117,10 @@ public struct CodexSchemaThreadForkParams: Codable, Sendable, Equatable {
     public var approvalPolicy: CodexSchemaAskForApproval?
     public var approvalsReviewer: CodexSchemaApprovalsReviewer?
     public var baseInstructions: String?
+    public var beforeTurnID: String?
     public var config: CodexJSONValue?
     public var cwd: String?
+    public var deferGoalContinuation: Bool?
     public var developerInstructions: String?
     public var ephemeral: Bool?
     public var excludeTurns: Bool?
@@ -4923,8 +8139,10 @@ public struct CodexSchemaThreadForkParams: Codable, Sendable, Equatable {
         case approvalPolicy
         case approvalsReviewer
         case baseInstructions
+        case beforeTurnID = "beforeTurnId"
         case config
         case cwd
+        case deferGoalContinuation
         case developerInstructions
         case ephemeral
         case excludeTurns
@@ -4940,12 +8158,14 @@ public struct CodexSchemaThreadForkParams: Codable, Sendable, Equatable {
         case threadSource
     }
 
-    public init(approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, baseInstructions: String? = nil, config: CodexJSONValue? = nil, cwd: String? = nil, developerInstructions: String? = nil, ephemeral: Bool? = nil, excludeTurns: Bool? = nil, lastTurnID: String? = nil, model: String? = nil, modelProvider: String? = nil, path: String? = nil, permissions: String? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxMode? = nil, serviceTier: String? = nil, threadID: String, threadSource: CodexSchemaThreadSource? = nil) {
+    public init(approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, baseInstructions: String? = nil, beforeTurnID: String? = nil, config: CodexJSONValue? = nil, cwd: String? = nil, deferGoalContinuation: Bool? = nil, developerInstructions: String? = nil, ephemeral: Bool? = nil, excludeTurns: Bool? = nil, lastTurnID: String? = nil, model: String? = nil, modelProvider: String? = nil, path: String? = nil, permissions: String? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxMode? = nil, serviceTier: String? = nil, threadID: String, threadSource: CodexSchemaThreadSource? = nil) {
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.baseInstructions = baseInstructions
+        self.beforeTurnID = beforeTurnID
         self.config = config
         self.cwd = cwd
+        self.deferGoalContinuation = deferGoalContinuation
         self.developerInstructions = developerInstructions
         self.ephemeral = ephemeral
         self.excludeTurns = excludeTurns
@@ -5098,13 +8318,57 @@ public struct CodexSchemaThreadGoalSetResponse: Codable, Sendable, Equatable {
         self.goal = goal
     }
 }
-public enum CodexSchemaThreadGoalStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case active = "active"
-    case paused = "paused"
-    case blocked = "blocked"
-    case usageLimited = "usageLimited"
-    case budgetLimited = "budgetLimited"
-    case complete = "complete"
+public enum CodexSchemaThreadGoalStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case active
+    case paused
+    case blocked
+    case usageLimited
+    case budgetLimited
+    case complete
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaThreadGoalStatus] = [
+        .active,
+        .paused,
+        .blocked,
+        .usageLimited,
+        .budgetLimited,
+        .complete,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "active": self = .active
+        case "paused": self = .paused
+        case "blocked": self = .blocked
+        case "usageLimited": self = .usageLimited
+        case "budgetLimited": self = .budgetLimited
+        case "complete": self = .complete
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .active: "active"
+        case .paused: "paused"
+        case .blocked: "blocked"
+        case .usageLimited: "usageLimited"
+        case .budgetLimited: "budgetLimited"
+        case .complete: "complete"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaThreadGoalUpdatedNotification: Codable, Sendable, Equatable {
     public var goal: CodexSchemaThreadGoal
@@ -5123,9 +8387,41 @@ public struct CodexSchemaThreadGoalUpdatedNotification: Codable, Sendable, Equat
         self.turnID = turnID
     }
 }
-public enum CodexSchemaThreadHistoryMode: String, Codable, Sendable, Equatable, CaseIterable {
-    case legacy = "legacy"
-    case paginated = "paginated"
+public enum CodexSchemaThreadHistoryMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case legacy
+    case paginated
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaThreadHistoryMode] = [
+        .legacy,
+        .paginated,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "legacy": self = .legacy
+        case "paginated": self = .paginated
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .legacy: "legacy"
+        case .paginated: "paginated"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public typealias CodexSchemaThreadID = CodexAppServerSchemaValue
 public struct CodexSchemaThreadIncrementElicitationParams: Codable, Sendable, Equatable {
@@ -5163,7 +8459,1164 @@ public struct CodexSchemaThreadInjectItemsParams: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaThreadInjectItemsResponse = CodexAppServerSchemaValue
-public typealias CodexSchemaThreadItem = CodexAppServerSchemaValue
+public struct CodexSchemaUserMessageThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "userMessage"
+    public let clientID: String?
+    public let content: [CodexSchemaUserInput]
+    public let id: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "clientId",
+        "content",
+        "id",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case clientID = "clientId"
+        case content
+        case id
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.clientID = try container.decodeIfPresent(String.self, forKey: .clientID)
+        self.content = try container.decode([CodexSchemaUserInput].self, forKey: .content)
+        self.id = try container.decode(String.self, forKey: .id)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaHookPromptThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "hookPrompt"
+    public let fragments: [CodexSchemaHookPromptFragment]
+    public let id: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "fragments",
+        "id",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case fragments
+        case id
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.fragments = try container.decode([CodexSchemaHookPromptFragment].self, forKey: .fragments)
+        self.id = try container.decode(String.self, forKey: .id)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaAgentMessageThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "agentMessage"
+    public let id: String
+    public let memoryCitation: CodexSchemaMemoryCitation?
+    public let phase: CodexSchemaMessagePhase?
+    public let text: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+        "memoryCitation",
+        "phase",
+        "text",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case memoryCitation
+        case phase
+        case text
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        self.memoryCitation = try container.decodeIfPresent(CodexSchemaMemoryCitation.self, forKey: .memoryCitation)
+        self.phase = try container.decodeIfPresent(CodexSchemaMessagePhase.self, forKey: .phase)
+        self.text = try container.decode(String.self, forKey: .text)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaPlanThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "plan"
+    public let id: String
+    public let text: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+        "text",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case text
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        self.text = try container.decode(String.self, forKey: .text)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaReasoningThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "reasoning"
+    public let content: [String]?
+    public let id: String
+    public let summary: [String]?
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "content",
+        "id",
+        "summary",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case content
+        case id
+        case summary
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.content = try container.decodeIfPresent([String].self, forKey: .content)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.summary = try container.decodeIfPresent([String].self, forKey: .summary)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaCommandExecutionThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "commandExecution"
+    public let aggregatedOutput: String?
+    public let command: String
+    public let commandActions: [CodexSchemaCommandAction]
+    public let cwd: CodexSchemaLegacyAppPathString
+    public let durationMs: Int?
+    public let exitCode: Int?
+    public let id: String
+    public let processID: String?
+    public let source: CodexSchemaCommandExecutionSource?
+    public let status: CodexSchemaCommandExecutionStatus
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "aggregatedOutput",
+        "command",
+        "commandActions",
+        "cwd",
+        "durationMs",
+        "exitCode",
+        "id",
+        "processId",
+        "source",
+        "status",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case aggregatedOutput
+        case command
+        case commandActions
+        case cwd
+        case durationMs
+        case exitCode
+        case id
+        case processID = "processId"
+        case source
+        case status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.aggregatedOutput = try container.decodeIfPresent(String.self, forKey: .aggregatedOutput)
+        self.command = try container.decode(String.self, forKey: .command)
+        self.commandActions = try container.decode([CodexSchemaCommandAction].self, forKey: .commandActions)
+        self.cwd = try container.decode(CodexSchemaLegacyAppPathString.self, forKey: .cwd)
+        self.durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+        self.exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.processID = try container.decodeIfPresent(String.self, forKey: .processID)
+        self.source = try container.decodeIfPresent(CodexSchemaCommandExecutionSource.self, forKey: .source)
+        self.status = try container.decode(CodexSchemaCommandExecutionStatus.self, forKey: .status)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaFileChangeThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "fileChange"
+    public let changes: [CodexSchemaFileUpdateChange]
+    public let id: String
+    public let status: CodexSchemaPatchApplyStatus
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "changes",
+        "id",
+        "status",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case changes
+        case id
+        case status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.changes = try container.decode([CodexSchemaFileUpdateChange].self, forKey: .changes)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.status = try container.decode(CodexSchemaPatchApplyStatus.self, forKey: .status)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaMCPToolCallThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "mcpToolCall"
+    public let appContext: CodexSchemaMCPToolCallAppContext?
+    public let arguments: CodexJSONValue
+    public let durationMs: Int?
+    public let error: CodexSchemaMCPToolCallError?
+    public let id: String
+    public let mcpAppResourceUri: String?
+    public let pluginID: String?
+    public let result: CodexSchemaMCPToolCallResult?
+    public let server: String
+    public let status: CodexSchemaMCPToolCallStatus
+    public let tool: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "appContext",
+        "arguments",
+        "durationMs",
+        "error",
+        "id",
+        "mcpAppResourceUri",
+        "pluginId",
+        "result",
+        "server",
+        "status",
+        "tool",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case appContext
+        case arguments
+        case durationMs
+        case error
+        case id
+        case mcpAppResourceUri
+        case pluginID = "pluginId"
+        case result
+        case server
+        case status
+        case tool
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.appContext = try container.decodeIfPresent(CodexSchemaMCPToolCallAppContext.self, forKey: .appContext)
+        self.arguments = try container.decode(CodexJSONValue.self, forKey: .arguments)
+        self.durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+        self.error = try container.decodeIfPresent(CodexSchemaMCPToolCallError.self, forKey: .error)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.mcpAppResourceUri = try container.decodeIfPresent(String.self, forKey: .mcpAppResourceUri)
+        self.pluginID = try container.decodeIfPresent(String.self, forKey: .pluginID)
+        self.result = try container.decodeIfPresent(CodexSchemaMCPToolCallResult.self, forKey: .result)
+        self.server = try container.decode(String.self, forKey: .server)
+        self.status = try container.decode(CodexSchemaMCPToolCallStatus.self, forKey: .status)
+        self.tool = try container.decode(String.self, forKey: .tool)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaDynamicToolCallThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "dynamicToolCall"
+    public let arguments: CodexJSONValue
+    public let contentItems: [CodexSchemaDynamicToolCallOutputContentItem]?
+    public let durationMs: Int?
+    public let id: String
+    public let namespace: String?
+    public let status: CodexSchemaDynamicToolCallStatus
+    public let success: Bool?
+    public let tool: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "arguments",
+        "contentItems",
+        "durationMs",
+        "id",
+        "namespace",
+        "status",
+        "success",
+        "tool",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case arguments
+        case contentItems
+        case durationMs
+        case id
+        case namespace
+        case status
+        case success
+        case tool
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.arguments = try container.decode(CodexJSONValue.self, forKey: .arguments)
+        self.contentItems = try container.decodeIfPresent([CodexSchemaDynamicToolCallOutputContentItem].self, forKey: .contentItems)
+        self.durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.namespace = try container.decodeIfPresent(String.self, forKey: .namespace)
+        self.status = try container.decode(CodexSchemaDynamicToolCallStatus.self, forKey: .status)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success)
+        self.tool = try container.decode(String.self, forKey: .tool)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaCollabAgentToolCallThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "collabAgentToolCall"
+    public let agentsStates: [String: CodexSchemaCollabAgentState]
+    public let id: String
+    public let model: String?
+    public let prompt: String?
+    public let reasoningEffort: CodexSchemaReasoningEffort?
+    public let receiverThreadIDs: [String]
+    public let senderThreadID: String
+    public let status: CodexSchemaCollabAgentToolCallStatus
+    public let tool: CodexSchemaCollabAgentTool
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "agentsStates",
+        "id",
+        "model",
+        "prompt",
+        "reasoningEffort",
+        "receiverThreadIds",
+        "senderThreadId",
+        "status",
+        "tool",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case agentsStates
+        case id
+        case model
+        case prompt
+        case reasoningEffort
+        case receiverThreadIDs = "receiverThreadIds"
+        case senderThreadID = "senderThreadId"
+        case status
+        case tool
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.agentsStates = try container.decode([String: CodexSchemaCollabAgentState].self, forKey: .agentsStates)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model)
+        self.prompt = try container.decodeIfPresent(String.self, forKey: .prompt)
+        self.reasoningEffort = try container.decodeIfPresent(CodexSchemaReasoningEffort.self, forKey: .reasoningEffort)
+        self.receiverThreadIDs = try container.decode([String].self, forKey: .receiverThreadIDs)
+        self.senderThreadID = try container.decode(String.self, forKey: .senderThreadID)
+        self.status = try container.decode(CodexSchemaCollabAgentToolCallStatus.self, forKey: .status)
+        self.tool = try container.decode(CodexSchemaCollabAgentTool.self, forKey: .tool)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaSubAgentActivityThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "subAgentActivity"
+    public let agentPath: String
+    public let agentThreadID: String
+    public let id: String
+    public let kind: CodexSchemaSubAgentActivityKind
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "agentPath",
+        "agentThreadId",
+        "id",
+        "kind",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case agentPath
+        case agentThreadID = "agentThreadId"
+        case id
+        case kind
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.agentPath = try container.decode(String.self, forKey: .agentPath)
+        self.agentThreadID = try container.decode(String.self, forKey: .agentThreadID)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.kind = try container.decode(CodexSchemaSubAgentActivityKind.self, forKey: .kind)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaWebSearchThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "webSearch"
+    public let action: CodexSchemaWebSearchAction?
+    public let id: String
+    public let query: String
+    public let results: [CodexJSONValue]?
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "action",
+        "id",
+        "query",
+        "results",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case action
+        case id
+        case query
+        case results
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.action = try container.decodeIfPresent(CodexSchemaWebSearchAction.self, forKey: .action)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.query = try container.decode(String.self, forKey: .query)
+        self.results = try container.decodeIfPresent([CodexJSONValue].self, forKey: .results)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaImageViewThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "imageView"
+    public let id: String
+    public let path: CodexSchemaLegacyAppPathString
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+        "path",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case path
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        self.path = try container.decode(CodexSchemaLegacyAppPathString.self, forKey: .path)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaSleepThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "sleep"
+    public let durationMs: Int
+    public let id: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "durationMs",
+        "id",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case durationMs
+        case id
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.durationMs = try container.decode(Int.self, forKey: .durationMs)
+        self.id = try container.decode(String.self, forKey: .id)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaImageGenerationThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "imageGeneration"
+    public let id: String
+    public let result: String
+    public let revisedPrompt: String?
+    public let savedPath: CodexSchemaAbsolutePathBuf?
+    public let status: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+        "result",
+        "revisedPrompt",
+        "savedPath",
+        "status",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case result
+        case revisedPrompt
+        case savedPath
+        case status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        self.result = try container.decode(String.self, forKey: .result)
+        self.revisedPrompt = try container.decodeIfPresent(String.self, forKey: .revisedPrompt)
+        self.savedPath = try container.decodeIfPresent(CodexSchemaAbsolutePathBuf.self, forKey: .savedPath)
+        self.status = try container.decode(String.self, forKey: .status)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaEnteredReviewModeThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "enteredReviewMode"
+    public let id: String
+    public let review: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+        "review",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case review
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        self.review = try container.decode(String.self, forKey: .review)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaExitedReviewModeThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "exitedReviewMode"
+    public let id: String
+    public let review: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+        "review",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case review
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        self.review = try container.decode(String.self, forKey: .review)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaContextCompactionThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "contextCompaction"
+    public let id: String
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
+    case userMessage(CodexSchemaUserMessageThreadItem)
+    case hookPrompt(CodexSchemaHookPromptThreadItem)
+    case agentMessage(CodexSchemaAgentMessageThreadItem)
+    case plan(CodexSchemaPlanThreadItem)
+    case reasoning(CodexSchemaReasoningThreadItem)
+    case commandExecution(CodexSchemaCommandExecutionThreadItem)
+    case fileChange(CodexSchemaFileChangeThreadItem)
+    case mcpToolCall(CodexSchemaMCPToolCallThreadItem)
+    case dynamicToolCall(CodexSchemaDynamicToolCallThreadItem)
+    case collabAgentToolCall(CodexSchemaCollabAgentToolCallThreadItem)
+    case subAgentActivity(CodexSchemaSubAgentActivityThreadItem)
+    case webSearch(CodexSchemaWebSearchThreadItem)
+    case imageView(CodexSchemaImageViewThreadItem)
+    case sleep(CodexSchemaSleepThreadItem)
+    case imageGeneration(CodexSchemaImageGenerationThreadItem)
+    case enteredReviewMode(CodexSchemaEnteredReviewModeThreadItem)
+    case exitedReviewMode(CodexSchemaExitedReviewModeThreadItem)
+    case contextCompaction(CodexSchemaContextCompactionThreadItem)
+    case unrecognized(type: String, rawValue: CodexJSONValue)
+
+    enum CodingKeys: String, CodingKey { case type }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        switch discriminator {
+        case "userMessage":
+            self = .userMessage(try CodexSchemaUserMessageThreadItem(from: decoder))
+        case "hookPrompt":
+            self = .hookPrompt(try CodexSchemaHookPromptThreadItem(from: decoder))
+        case "agentMessage":
+            self = .agentMessage(try CodexSchemaAgentMessageThreadItem(from: decoder))
+        case "plan":
+            self = .plan(try CodexSchemaPlanThreadItem(from: decoder))
+        case "reasoning":
+            self = .reasoning(try CodexSchemaReasoningThreadItem(from: decoder))
+        case "commandExecution":
+            self = .commandExecution(try CodexSchemaCommandExecutionThreadItem(from: decoder))
+        case "fileChange":
+            self = .fileChange(try CodexSchemaFileChangeThreadItem(from: decoder))
+        case "mcpToolCall":
+            self = .mcpToolCall(try CodexSchemaMCPToolCallThreadItem(from: decoder))
+        case "dynamicToolCall":
+            self = .dynamicToolCall(try CodexSchemaDynamicToolCallThreadItem(from: decoder))
+        case "collabAgentToolCall":
+            self = .collabAgentToolCall(try CodexSchemaCollabAgentToolCallThreadItem(from: decoder))
+        case "subAgentActivity":
+            self = .subAgentActivity(try CodexSchemaSubAgentActivityThreadItem(from: decoder))
+        case "webSearch":
+            self = .webSearch(try CodexSchemaWebSearchThreadItem(from: decoder))
+        case "imageView":
+            self = .imageView(try CodexSchemaImageViewThreadItem(from: decoder))
+        case "sleep":
+            self = .sleep(try CodexSchemaSleepThreadItem(from: decoder))
+        case "imageGeneration":
+            self = .imageGeneration(try CodexSchemaImageGenerationThreadItem(from: decoder))
+        case "enteredReviewMode":
+            self = .enteredReviewMode(try CodexSchemaEnteredReviewModeThreadItem(from: decoder))
+        case "exitedReviewMode":
+            self = .exitedReviewMode(try CodexSchemaExitedReviewModeThreadItem(from: decoder))
+        case "contextCompaction":
+            self = .contextCompaction(try CodexSchemaContextCompactionThreadItem(from: decoder))
+        default:
+            let rawContainer = try decoder.singleValueContainer()
+            let rawValue = try rawContainer.decode(CodexJSONValue.self)
+            self = .unrecognized(type: discriminator, rawValue: rawValue)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .userMessage(let payload):
+            try payload.encode(to: encoder)
+        case .hookPrompt(let payload):
+            try payload.encode(to: encoder)
+        case .agentMessage(let payload):
+            try payload.encode(to: encoder)
+        case .plan(let payload):
+            try payload.encode(to: encoder)
+        case .reasoning(let payload):
+            try payload.encode(to: encoder)
+        case .commandExecution(let payload):
+            try payload.encode(to: encoder)
+        case .fileChange(let payload):
+            try payload.encode(to: encoder)
+        case .mcpToolCall(let payload):
+            try payload.encode(to: encoder)
+        case .dynamicToolCall(let payload):
+            try payload.encode(to: encoder)
+        case .collabAgentToolCall(let payload):
+            try payload.encode(to: encoder)
+        case .subAgentActivity(let payload):
+            try payload.encode(to: encoder)
+        case .webSearch(let payload):
+            try payload.encode(to: encoder)
+        case .imageView(let payload):
+            try payload.encode(to: encoder)
+        case .sleep(let payload):
+            try payload.encode(to: encoder)
+        case .imageGeneration(let payload):
+            try payload.encode(to: encoder)
+        case .enteredReviewMode(let payload):
+            try payload.encode(to: encoder)
+        case .exitedReviewMode(let payload):
+            try payload.encode(to: encoder)
+        case .contextCompaction(let payload):
+            try payload.encode(to: encoder)
+        case .unrecognized(_, let rawValue):
+            try rawValue.encode(to: encoder)
+        }
+    }
+
+    public var type: String {
+        switch self {
+        case .userMessage: "userMessage"
+        case .hookPrompt: "hookPrompt"
+        case .agentMessage: "agentMessage"
+        case .plan: "plan"
+        case .reasoning: "reasoning"
+        case .commandExecution: "commandExecution"
+        case .fileChange: "fileChange"
+        case .mcpToolCall: "mcpToolCall"
+        case .dynamicToolCall: "dynamicToolCall"
+        case .collabAgentToolCall: "collabAgentToolCall"
+        case .subAgentActivity: "subAgentActivity"
+        case .webSearch: "webSearch"
+        case .imageView: "imageView"
+        case .sleep: "sleep"
+        case .imageGeneration: "imageGeneration"
+        case .enteredReviewMode: "enteredReviewMode"
+        case .exitedReviewMode: "exitedReviewMode"
+        case .contextCompaction: "contextCompaction"
+        case .unrecognized(let type, _): type
+        }
+    }
+
+    public var rawValue: CodexJSONValue {
+        switch self {
+        case .userMessage(let payload): payload.rawValue
+        case .hookPrompt(let payload): payload.rawValue
+        case .agentMessage(let payload): payload.rawValue
+        case .plan(let payload): payload.rawValue
+        case .reasoning(let payload): payload.rawValue
+        case .commandExecution(let payload): payload.rawValue
+        case .fileChange(let payload): payload.rawValue
+        case .mcpToolCall(let payload): payload.rawValue
+        case .dynamicToolCall(let payload): payload.rawValue
+        case .collabAgentToolCall(let payload): payload.rawValue
+        case .subAgentActivity(let payload): payload.rawValue
+        case .webSearch(let payload): payload.rawValue
+        case .imageView(let payload): payload.rawValue
+        case .sleep(let payload): payload.rawValue
+        case .imageGeneration(let payload): payload.rawValue
+        case .enteredReviewMode(let payload): payload.rawValue
+        case .exitedReviewMode(let payload): payload.rawValue
+        case .contextCompaction(let payload): payload.rawValue
+        case .unrecognized(_, let rawValue): rawValue
+        }
+    }
+
+    public var id: String? {
+        switch self {
+        case .userMessage(let payload): return payload.id
+        case .hookPrompt(let payload): return payload.id
+        case .agentMessage(let payload): return payload.id
+        case .plan(let payload): return payload.id
+        case .reasoning(let payload): return payload.id
+        case .commandExecution(let payload): return payload.id
+        case .fileChange(let payload): return payload.id
+        case .mcpToolCall(let payload): return payload.id
+        case .dynamicToolCall(let payload): return payload.id
+        case .collabAgentToolCall(let payload): return payload.id
+        case .subAgentActivity(let payload): return payload.id
+        case .webSearch(let payload): return payload.id
+        case .imageView(let payload): return payload.id
+        case .sleep(let payload): return payload.id
+        case .imageGeneration(let payload): return payload.id
+        case .enteredReviewMode(let payload): return payload.id
+        case .exitedReviewMode(let payload): return payload.id
+        case .contextCompaction(let payload): return payload.id
+        case .unrecognized(_, let rawValue):
+            guard case .dictionary(let object) = rawValue,
+                  case .string(let id)? = object["id"] else { return nil }
+            return id
+        }
+    }
+}
+public struct CodexSchemaThreadItemEntry: Codable, Sendable, Equatable {
+    public var item: CodexSchemaThreadItem
+    public var turnID: String
+
+    enum CodingKeys: String, CodingKey {
+        case item
+        case turnID = "turnId"
+    }
+
+    public init(item: CodexSchemaThreadItem, turnID: String) {
+        self.item = item
+        self.turnID = turnID
+    }
+}
 public struct CodexSchemaThreadItemsListParams: Codable, Sendable, Equatable {
     public var cursor: String?
     public var limit: Int?
@@ -5189,10 +9642,10 @@ public struct CodexSchemaThreadItemsListParams: Codable, Sendable, Equatable {
 }
 public struct CodexSchemaThreadItemsListResponse: Codable, Sendable, Equatable {
     public var backwardsCursor: String?
-    public var data: [CodexSchemaThreadItem]
+    public var data: [CodexSchemaThreadItemEntry]
     public var nextCursor: String?
 
-    public init(backwardsCursor: String? = nil, data: [CodexSchemaThreadItem], nextCursor: String? = nil) {
+    public init(backwardsCursor: String? = nil, data: [CodexSchemaThreadItemEntry], nextCursor: String? = nil) {
         self.backwardsCursor = backwardsCursor
         self.data = data
         self.nextCursor = nextCursor
@@ -5702,6 +10155,7 @@ public struct CodexSchemaThreadResumeResponse: Codable, Sendable, Equatable {
     public var cwd: CodexSchemaAbsolutePathBuf
     public var initialTurnsPage: CodexSchemaTurnsPage?
     public var instructionSources: [CodexSchemaLegacyAppPathString]?
+    public var itemsBackwardsCursor: String?
     public var model: String
     public var modelProvider: String
     public var multiAgentMode: CodexSchemaMultiAgentMode?
@@ -5710,14 +10164,16 @@ public struct CodexSchemaThreadResumeResponse: Codable, Sendable, Equatable {
     public var sandbox: CodexSchemaSandboxPolicy
     public var serviceTier: String?
     public var thread: CodexSchemaThread
+    public var turnsBackwardsCursor: String?
 
-    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, cwd: CodexSchemaAbsolutePathBuf, initialTurnsPage: CodexSchemaTurnsPage? = nil, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread) {
+    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, cwd: CodexSchemaAbsolutePathBuf, initialTurnsPage: CodexSchemaTurnsPage? = nil, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, itemsBackwardsCursor: String? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread, turnsBackwardsCursor: String? = nil) {
         self.activePermissionProfile = activePermissionProfile
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.cwd = cwd
         self.initialTurnsPage = initialTurnsPage
         self.instructionSources = instructionSources
+        self.itemsBackwardsCursor = itemsBackwardsCursor
         self.model = model
         self.modelProvider = modelProvider
         self.multiAgentMode = multiAgentMode
@@ -5726,6 +10182,7 @@ public struct CodexSchemaThreadResumeResponse: Codable, Sendable, Equatable {
         self.sandbox = sandbox
         self.serviceTier = serviceTier
         self.thread = thread
+        self.turnsBackwardsCursor = turnsBackwardsCursor
     }
 }
 public struct CodexSchemaThreadRollbackParams: Codable, Sendable, Equatable {
@@ -6026,7 +10483,217 @@ public struct CodexSchemaThreadStartedNotification: Codable, Sendable, Equatable
         self.thread = thread
     }
 }
-public typealias CodexSchemaThreadStatus = CodexAppServerSchemaValue
+public struct CodexSchemaNotLoadedThreadStatus: Codable, Sendable, Equatable {
+    public static let discriminator = "notLoaded"
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaIdleThreadStatus: Codable, Sendable, Equatable {
+    public static let discriminator = "idle"
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaSystemErrorThreadStatus: Codable, Sendable, Equatable {
+    public static let discriminator = "systemError"
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaActiveThreadStatus: Codable, Sendable, Equatable {
+    public static let discriminator = "active"
+    public let activeFlags: [CodexSchemaThreadActiveFlag]
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "activeFlags",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case activeFlags
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.activeFlags = try container.decode([CodexSchemaThreadActiveFlag].self, forKey: .activeFlags)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public enum CodexSchemaThreadStatus: Codable, Sendable, Equatable {
+    case notLoaded(CodexSchemaNotLoadedThreadStatus)
+    case idle(CodexSchemaIdleThreadStatus)
+    case systemError(CodexSchemaSystemErrorThreadStatus)
+    case active(CodexSchemaActiveThreadStatus)
+    case unrecognized(type: String, rawValue: CodexJSONValue)
+
+    enum CodingKeys: String, CodingKey { case type }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        switch discriminator {
+        case "notLoaded":
+            self = .notLoaded(try CodexSchemaNotLoadedThreadStatus(from: decoder))
+        case "idle":
+            self = .idle(try CodexSchemaIdleThreadStatus(from: decoder))
+        case "systemError":
+            self = .systemError(try CodexSchemaSystemErrorThreadStatus(from: decoder))
+        case "active":
+            self = .active(try CodexSchemaActiveThreadStatus(from: decoder))
+        default:
+            let rawContainer = try decoder.singleValueContainer()
+            let rawValue = try rawContainer.decode(CodexJSONValue.self)
+            self = .unrecognized(type: discriminator, rawValue: rawValue)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .notLoaded(let payload):
+            try payload.encode(to: encoder)
+        case .idle(let payload):
+            try payload.encode(to: encoder)
+        case .systemError(let payload):
+            try payload.encode(to: encoder)
+        case .active(let payload):
+            try payload.encode(to: encoder)
+        case .unrecognized(_, let rawValue):
+            try rawValue.encode(to: encoder)
+        }
+    }
+
+    public var type: String {
+        switch self {
+        case .notLoaded: "notLoaded"
+        case .idle: "idle"
+        case .systemError: "systemError"
+        case .active: "active"
+        case .unrecognized(let type, _): type
+        }
+    }
+
+    public var rawValue: CodexJSONValue {
+        switch self {
+        case .notLoaded(let payload): payload.rawValue
+        case .idle(let payload): payload.rawValue
+        case .systemError(let payload): payload.rawValue
+        case .active(let payload): payload.rawValue
+        case .unrecognized(_, let rawValue): rawValue
+        }
+    }
+}
 public struct CodexSchemaThreadStatusChangedNotification: Codable, Sendable, Equatable {
     public var status: CodexSchemaThreadStatus
     public var threadID: String
@@ -6150,19 +10817,56 @@ public struct CodexSchemaThreadUnsubscribeResponse: Codable, Sendable, Equatable
         self.status = status
     }
 }
-public enum CodexSchemaThreadUnsubscribeStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case notLoaded = "notLoaded"
-    case notSubscribed = "notSubscribed"
-    case unsubscribed = "unsubscribed"
+public enum CodexSchemaThreadUnsubscribeStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case notLoaded
+    case notSubscribed
+    case unsubscribed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaThreadUnsubscribeStatus] = [
+        .notLoaded,
+        .notSubscribed,
+        .unsubscribed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "notLoaded": self = .notLoaded
+        case "notSubscribed": self = .notSubscribed
+        case "unsubscribed": self = .unsubscribed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .notLoaded: "notLoaded"
+        case .notSubscribed: "notSubscribed"
+        case .unsubscribed: "unsubscribed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaTokenUsageBreakdown: Codable, Sendable, Equatable {
+    public var cacheWriteInputTokens: Int?
     public var cachedInputTokens: Int
     public var inputTokens: Int
     public var outputTokens: Int
     public var reasoningOutputTokens: Int
     public var totalTokens: Int
 
-    public init(cachedInputTokens: Int, inputTokens: Int, outputTokens: Int, reasoningOutputTokens: Int, totalTokens: Int) {
+    public init(cacheWriteInputTokens: Int? = nil, cachedInputTokens: Int, inputTokens: Int, outputTokens: Int, reasoningOutputTokens: Int, totalTokens: Int) {
+        self.cacheWriteInputTokens = cacheWriteInputTokens
         self.cachedInputTokens = cachedInputTokens
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
@@ -6268,15 +10972,18 @@ public struct CodexSchemaTurnDiffUpdatedNotification: Codable, Sendable, Equatab
 public struct CodexSchemaTurnEnvironmentParams: Codable, Sendable, Equatable {
     public var cwd: CodexSchemaLegacyAppPathString
     public var environmentID: String
+    public var runtimeWorkspaceRoots: [CodexSchemaLegacyAppPathString]?
 
     enum CodingKeys: String, CodingKey {
         case cwd
         case environmentID = "environmentId"
+        case runtimeWorkspaceRoots
     }
 
-    public init(cwd: CodexSchemaLegacyAppPathString, environmentID: String) {
+    public init(cwd: CodexSchemaLegacyAppPathString, environmentID: String, runtimeWorkspaceRoots: [CodexSchemaLegacyAppPathString]? = nil) {
         self.cwd = cwd
         self.environmentID = environmentID
+        self.runtimeWorkspaceRoots = runtimeWorkspaceRoots
     }
 }
 public struct CodexSchemaTurnError: Codable, Sendable, Equatable {
@@ -6305,10 +11012,45 @@ public struct CodexSchemaTurnInterruptParams: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaTurnInterruptResponse = CodexAppServerSchemaValue
-public enum CodexSchemaTurnItemsView: String, Codable, Sendable, Equatable, CaseIterable {
-    case notLoaded = "notLoaded"
-    case summary = "summary"
-    case full = "full"
+public enum CodexSchemaTurnItemsView: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case notLoaded
+    case summary
+    case full
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaTurnItemsView] = [
+        .notLoaded,
+        .summary,
+        .full,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "notLoaded": self = .notLoaded
+        case "summary": self = .summary
+        case "full": self = .full
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .notLoaded: "notLoaded"
+        case .summary: "summary"
+        case .full: "full"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaTurnModerationMetadataNotification: Codable, Sendable, Equatable {
     public var metadata: CodexJSONValue
@@ -6336,10 +11078,45 @@ public struct CodexSchemaTurnPlanStep: Codable, Sendable, Equatable {
         self.step = step
     }
 }
-public enum CodexSchemaTurnPlanStepStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case pending = "pending"
-    case inProgress = "inProgress"
-    case completed = "completed"
+public enum CodexSchemaTurnPlanStepStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case pending
+    case inProgress
+    case completed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaTurnPlanStepStatus] = [
+        .pending,
+        .inProgress,
+        .completed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "pending": self = .pending
+        case "inProgress": self = .inProgress
+        case "completed": self = .completed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .pending: "pending"
+        case .inProgress: "inProgress"
+        case .completed: "completed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaTurnPlanUpdatedNotification: Codable, Sendable, Equatable {
     public var explanation: String?
@@ -6450,11 +11227,49 @@ public struct CodexSchemaTurnStartedNotification: Codable, Sendable, Equatable {
         self.turn = turn
     }
 }
-public enum CodexSchemaTurnStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case completed = "completed"
-    case interrupted = "interrupted"
-    case failed = "failed"
-    case inProgress = "inProgress"
+public enum CodexSchemaTurnStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case completed
+    case interrupted
+    case failed
+    case inProgress
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaTurnStatus] = [
+        .completed,
+        .interrupted,
+        .failed,
+        .inProgress,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "completed": self = .completed
+        case "interrupted": self = .interrupted
+        case "failed": self = .failed
+        case "inProgress": self = .inProgress
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .completed: "completed"
+        case .interrupted: "interrupted"
+        case .failed: "failed"
+        case .inProgress: "inProgress"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaTurnSteerParams: Codable, Sendable, Equatable {
     public var additionalContext: [String: CodexSchemaAdditionalContextEntry]?
@@ -6505,10 +11320,45 @@ public struct CodexSchemaTurnsPage: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaUserInput = CodexAppServerSchemaValue
-public enum CodexSchemaVerbosity: String, Codable, Sendable, Equatable, CaseIterable {
-    case low = "low"
-    case medium = "medium"
-    case high = "high"
+public enum CodexSchemaVerbosity: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case low
+    case medium
+    case high
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaVerbosity] = [
+        .low,
+        .medium,
+        .high,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "low": self = .low
+        case "medium": self = .medium
+        case "high": self = .high
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .low: "low"
+        case .medium: "medium"
+        case .high: "high"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaWarningNotification: Codable, Sendable, Equatable {
     public var message: String
@@ -6525,10 +11375,45 @@ public struct CodexSchemaWarningNotification: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaWebSearchAction = CodexAppServerSchemaValue
-public enum CodexSchemaWebSearchContextSize: String, Codable, Sendable, Equatable, CaseIterable {
-    case low = "low"
-    case medium = "medium"
-    case high = "high"
+public enum CodexSchemaWebSearchContextSize: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case low
+    case medium
+    case high
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaWebSearchContextSize] = [
+        .low,
+        .medium,
+        .high,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "low": self = .low
+        case "medium": self = .medium
+        case "high": self = .high
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .low: "low"
+        case .medium: "medium"
+        case .high: "high"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaWebSearchLocation: Codable, Sendable, Equatable {
     public var city: String?
@@ -6543,11 +11428,49 @@ public struct CodexSchemaWebSearchLocation: Codable, Sendable, Equatable {
         self.timezone = timezone
     }
 }
-public enum CodexSchemaWebSearchMode: String, Codable, Sendable, Equatable, CaseIterable {
-    case disabled = "disabled"
-    case cached = "cached"
-    case indexed = "indexed"
-    case live = "live"
+public enum CodexSchemaWebSearchMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case disabled
+    case cached
+    case indexed
+    case live
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaWebSearchMode] = [
+        .disabled,
+        .cached,
+        .indexed,
+        .live,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "disabled": self = .disabled
+        case "cached": self = .cached
+        case "indexed": self = .indexed
+        case "live": self = .live
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .disabled: "disabled"
+        case .cached: "cached"
+        case .indexed: "indexed"
+        case .live: "live"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaWebSearchToolConfig: Codable, Sendable, Equatable {
     public var allowedDomains: [String]?
@@ -6566,10 +11489,45 @@ public struct CodexSchemaWebSearchToolConfig: Codable, Sendable, Equatable {
         self.location = location
     }
 }
-public enum CodexSchemaWindowsSandboxReadiness: String, Codable, Sendable, Equatable, CaseIterable {
-    case ready = "ready"
-    case notConfigured = "notConfigured"
-    case updateRequired = "updateRequired"
+public enum CodexSchemaWindowsSandboxReadiness: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case ready
+    case notConfigured
+    case updateRequired
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaWindowsSandboxReadiness] = [
+        .ready,
+        .notConfigured,
+        .updateRequired,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "ready": self = .ready
+        case "notConfigured": self = .notConfigured
+        case "updateRequired": self = .updateRequired
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .ready: "ready"
+        case .notConfigured: "notConfigured"
+        case .updateRequired: "updateRequired"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaWindowsSandboxReadinessResponse: Codable, Sendable, Equatable {
     public var status: CodexSchemaWindowsSandboxReadiness
@@ -6589,9 +11547,41 @@ public struct CodexSchemaWindowsSandboxSetupCompletedNotification: Codable, Send
         self.success = success
     }
 }
-public enum CodexSchemaWindowsSandboxSetupMode: String, Codable, Sendable, Equatable, CaseIterable {
-    case elevated = "elevated"
-    case unelevated = "unelevated"
+public enum CodexSchemaWindowsSandboxSetupMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case elevated
+    case unelevated
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaWindowsSandboxSetupMode] = [
+        .elevated,
+        .unelevated,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "elevated": self = .elevated
+        case "unelevated": self = .unelevated
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .elevated: "elevated"
+        case .unelevated: "unelevated"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 public struct CodexSchemaWindowsSandboxSetupStartParams: Codable, Sendable, Equatable {
     public var cwd: CodexSchemaAbsolutePathBuf?
@@ -6643,22 +11633,92 @@ public struct CodexSchemaWorkspaceMessage: Codable, Sendable, Equatable {
         self.messageType = messageType
     }
 }
-public enum CodexSchemaWorkspaceMessageType: String, Codable, Sendable, Equatable, CaseIterable {
-    case headline = "headline"
-    case announcement = "announcement"
-    case unknown = "unknown"
+public enum CodexSchemaWorkspaceMessageType: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case headline
+    case announcement
+    case unknown
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaWorkspaceMessageType] = [
+        .headline,
+        .announcement,
+        .unknown,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "headline": self = .headline
+        case "announcement": self = .announcement
+        case "unknown": self = .unknown
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .headline: "headline"
+        case .announcement: "announcement"
+        case .unknown: "unknown"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
-public enum CodexSchemaWriteStatus: String, Codable, Sendable, Equatable, CaseIterable {
-    case ok = "ok"
-    case okOverridden = "okOverridden"
+public enum CodexSchemaWriteStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case ok
+    case okOverridden
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaWriteStatus] = [
+        .ok,
+        .okOverridden,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "ok": self = .ok
+        case "okOverridden": self = .okOverridden
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .ok: "ok"
+        case .okOverridden: "okOverridden"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public enum CodexAppServerSchemaInventory {
-    public static let definitionCount = 586
-    public static let generatedEnumCount = 102
-    public static let generatedStructCount = 389
-    public static let rawAliasCount = 95
-    public static let v2SchemaFileCount = 290
+    public static let definitionCount = 601
+    public static let generatedEnumCount = 104
+    public static let generatedOpenEnumCount = 87
+    public static let generatedStructCount = 401
+    public static let generatedTaggedUnionCount = 3
+    public static let rawAliasCount = 93
+    public static let v2SchemaFileCount = 296
+    public static let v1HandshakeSchemaFileCount = 2
     public static let definitions: [CodexAppServerSchemaDefinition] = [
         CodexAppServerSchemaDefinition(name: "AbsolutePathBuf", typeName: "CodexSchemaAbsolutePathBuf"),
         CodexAppServerSchemaDefinition(name: "Account", typeName: "CodexSchemaAccount"),
@@ -6677,7 +11737,6 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "AgentMessageDeltaNotification", typeName: "CodexSchemaAgentMessageDeltaNotification"),
         CodexAppServerSchemaDefinition(name: "AgentMessageInputContent", typeName: "CodexSchemaAgentMessageInputContent"),
         CodexAppServerSchemaDefinition(name: "AgentPath", typeName: "CodexSchemaAgentPath"),
-        CodexAppServerSchemaDefinition(name: "AmazonBedrockCredentialSource", typeName: "CodexSchemaAmazonBedrockCredentialSource"),
         CodexAppServerSchemaDefinition(name: "AnalyticsConfig", typeName: "CodexSchemaAnalyticsConfig"),
         CodexAppServerSchemaDefinition(name: "AppBranding", typeName: "CodexSchemaAppBranding"),
         CodexAppServerSchemaDefinition(name: "AppConfig", typeName: "CodexSchemaAppConfig"),
@@ -6691,12 +11750,15 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "AppTemplateUnavailableReason", typeName: "CodexSchemaAppTemplateUnavailableReason"),
         CodexAppServerSchemaDefinition(name: "AppToolApproval", typeName: "CodexSchemaAppToolApproval"),
         CodexAppServerSchemaDefinition(name: "AppToolConfig", typeName: "CodexSchemaAppToolConfig"),
+        CodexAppServerSchemaDefinition(name: "AppToolSummary", typeName: "CodexSchemaAppToolSummary"),
         CodexAppServerSchemaDefinition(name: "AppToolsConfig", typeName: "CodexSchemaAppToolsConfig"),
         CodexAppServerSchemaDefinition(name: "ApprovalsReviewer", typeName: "CodexSchemaApprovalsReviewer"),
         CodexAppServerSchemaDefinition(name: "AppsConfig", typeName: "CodexSchemaAppsConfig"),
         CodexAppServerSchemaDefinition(name: "AppsDefaultConfig", typeName: "CodexSchemaAppsDefaultConfig"),
         CodexAppServerSchemaDefinition(name: "AppsListParams", typeName: "CodexSchemaAppsListParams"),
         CodexAppServerSchemaDefinition(name: "AppsListResponse", typeName: "CodexSchemaAppsListResponse"),
+        CodexAppServerSchemaDefinition(name: "AppsReadParams", typeName: "CodexSchemaAppsReadParams"),
+        CodexAppServerSchemaDefinition(name: "AppsReadResponse", typeName: "CodexSchemaAppsReadResponse"),
         CodexAppServerSchemaDefinition(name: "AskForApproval", typeName: "CodexSchemaAskForApproval"),
         CodexAppServerSchemaDefinition(name: "AuthMode", typeName: "CodexSchemaAuthMode"),
         CodexAppServerSchemaDefinition(name: "AutoCompactTokenLimitScope", typeName: "CodexSchemaAutoCompactTokenLimitScope"),
@@ -6749,6 +11811,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ConfigWriteResponse", typeName: "CodexSchemaConfigWriteResponse"),
         CodexAppServerSchemaDefinition(name: "ConfiguredHookHandler", typeName: "CodexSchemaConfiguredHookHandler"),
         CodexAppServerSchemaDefinition(name: "ConfiguredHookMatcherGroup", typeName: "CodexSchemaConfiguredHookMatcherGroup"),
+        CodexAppServerSchemaDefinition(name: "ConnectorMetadata", typeName: "CodexSchemaConnectorMetadata"),
         CodexAppServerSchemaDefinition(name: "ConsumeAccountRateLimitResetCreditOutcome", typeName: "CodexSchemaConsumeAccountRateLimitResetCreditOutcome"),
         CodexAppServerSchemaDefinition(name: "ConsumeAccountRateLimitResetCreditParams", typeName: "CodexSchemaConsumeAccountRateLimitResetCreditParams"),
         CodexAppServerSchemaDefinition(name: "ConsumeAccountRateLimitResetCreditResponse", typeName: "CodexSchemaConsumeAccountRateLimitResetCreditResponse"),
@@ -6763,9 +11826,13 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "DynamicToolSpec", typeName: "CodexSchemaDynamicToolSpec"),
         CodexAppServerSchemaDefinition(name: "EnvironmentAddParams", typeName: "CodexSchemaEnvironmentAddParams"),
         CodexAppServerSchemaDefinition(name: "EnvironmentAddResponse", typeName: "CodexSchemaEnvironmentAddResponse"),
+        CodexAppServerSchemaDefinition(name: "EnvironmentConnectionNotification", typeName: "CodexSchemaEnvironmentConnectionNotification"),
         CodexAppServerSchemaDefinition(name: "EnvironmentInfoParams", typeName: "CodexSchemaEnvironmentInfoParams"),
         CodexAppServerSchemaDefinition(name: "EnvironmentInfoResponse", typeName: "CodexSchemaEnvironmentInfoResponse"),
         CodexAppServerSchemaDefinition(name: "EnvironmentShellInfo", typeName: "CodexSchemaEnvironmentShellInfo"),
+        CodexAppServerSchemaDefinition(name: "EnvironmentStatusKind", typeName: "CodexSchemaEnvironmentStatusKind"),
+        CodexAppServerSchemaDefinition(name: "EnvironmentStatusParams", typeName: "CodexSchemaEnvironmentStatusParams"),
+        CodexAppServerSchemaDefinition(name: "EnvironmentStatusResponse", typeName: "CodexSchemaEnvironmentStatusResponse"),
         CodexAppServerSchemaDefinition(name: "ErrorNotification", typeName: "CodexSchemaErrorNotification"),
         CodexAppServerSchemaDefinition(name: "ExperimentalFeature", typeName: "CodexSchemaExperimentalFeature"),
         CodexAppServerSchemaDefinition(name: "ExperimentalFeatureEnablementSetParams", typeName: "CodexSchemaExperimentalFeatureEnablementSetParams"),
@@ -6786,6 +11853,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportTypeResult", typeName: "CodexSchemaExternalAgentConfigImportTypeResult"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigMigrationItem", typeName: "CodexSchemaExternalAgentConfigMigrationItem"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigMigrationItemType", typeName: "CodexSchemaExternalAgentConfigMigrationItemType"),
+        CodexAppServerSchemaDefinition(name: "ExternalAgentImportedConnectorCandidate", typeName: "CodexSchemaExternalAgentImportedConnectorCandidate"),
+        CodexAppServerSchemaDefinition(name: "ExternalAgentImportedConnectorSource", typeName: "CodexSchemaExternalAgentImportedConnectorSource"),
         CodexAppServerSchemaDefinition(name: "FeedbackUploadParams", typeName: "CodexSchemaFeedbackUploadParams"),
         CodexAppServerSchemaDefinition(name: "FeedbackUploadResponse", typeName: "CodexSchemaFeedbackUploadResponse"),
         CodexAppServerSchemaDefinition(name: "FileChangeOutputDeltaNotification", typeName: "CodexSchemaFileChangeOutputDeltaNotification"),
@@ -6862,6 +11931,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ImageDetail", typeName: "CodexSchemaImageDetail"),
         CodexAppServerSchemaDefinition(name: "InitializeCapabilities", typeName: "CodexSchemaInitializeCapabilities"),
         CodexAppServerSchemaDefinition(name: "InitializeParams", typeName: "CodexSchemaInitializeParams"),
+        CodexAppServerSchemaDefinition(name: "InitializeResponse", typeName: "CodexSchemaInitializeResponse"),
         CodexAppServerSchemaDefinition(name: "InputModality", typeName: "CodexSchemaInputModality"),
         CodexAppServerSchemaDefinition(name: "InternalChatMessageMetadataPassthrough", typeName: "CodexSchemaInternalChatMessageMetadataPassthrough"),
         CodexAppServerSchemaDefinition(name: "ItemCompletedNotification", typeName: "CodexSchemaItemCompletedNotification"),
@@ -7013,6 +12083,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "RateLimitResetType", typeName: "CodexSchemaRateLimitResetType"),
         CodexAppServerSchemaDefinition(name: "RateLimitSnapshot", typeName: "CodexSchemaRateLimitSnapshot"),
         CodexAppServerSchemaDefinition(name: "RateLimitWindow", typeName: "CodexSchemaRateLimitWindow"),
+        CodexAppServerSchemaDefinition(name: "RawResponseCompletedNotification", typeName: "CodexSchemaRawResponseCompletedNotification"),
         CodexAppServerSchemaDefinition(name: "RawResponseItemCompletedNotification", typeName: "CodexSchemaRawResponseItemCompletedNotification"),
         CodexAppServerSchemaDefinition(name: "RealtimeConversationVersion", typeName: "CodexSchemaRealtimeConversationVersion"),
         CodexAppServerSchemaDefinition(name: "RealtimeOutputModality", typeName: "CodexSchemaRealtimeOutputModality"),
@@ -7058,6 +12129,9 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "SandboxMode", typeName: "CodexSchemaSandboxMode"),
         CodexAppServerSchemaDefinition(name: "SandboxPolicy", typeName: "CodexSchemaSandboxPolicy"),
         CodexAppServerSchemaDefinition(name: "SandboxWorkspaceWrite", typeName: "CodexSchemaSandboxWorkspaceWrite"),
+        CodexAppServerSchemaDefinition(name: "ScheduledTaskSchedule", typeName: "CodexSchemaScheduledTaskSchedule"),
+        CodexAppServerSchemaDefinition(name: "ScheduledTaskSummary", typeName: "CodexSchemaScheduledTaskSummary"),
+        CodexAppServerSchemaDefinition(name: "ScheduledTaskWeekday", typeName: "CodexSchemaScheduledTaskWeekday"),
         CodexAppServerSchemaDefinition(name: "SelectedCapabilityRoot", typeName: "CodexSchemaSelectedCapabilityRoot"),
         CodexAppServerSchemaDefinition(name: "SendAddCreditsNudgeEmailParams", typeName: "CodexSchemaSendAddCreditsNudgeEmailParams"),
         CodexAppServerSchemaDefinition(name: "SendAddCreditsNudgeEmailResponse", typeName: "CodexSchemaSendAddCreditsNudgeEmailResponse"),
@@ -7133,6 +12207,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ThreadInjectItemsParams", typeName: "CodexSchemaThreadInjectItemsParams"),
         CodexAppServerSchemaDefinition(name: "ThreadInjectItemsResponse", typeName: "CodexSchemaThreadInjectItemsResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadItem", typeName: "CodexSchemaThreadItem"),
+        CodexAppServerSchemaDefinition(name: "ThreadItemEntry", typeName: "CodexSchemaThreadItemEntry"),
         CodexAppServerSchemaDefinition(name: "ThreadItemsListParams", typeName: "CodexSchemaThreadItemsListParams"),
         CodexAppServerSchemaDefinition(name: "ThreadItemsListResponse", typeName: "CodexSchemaThreadItemsListResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadListCwdFilter", typeName: "CodexSchemaThreadListCwdFilter"),
@@ -7247,8 +12322,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "WorkspaceMessageType", typeName: "CodexSchemaWorkspaceMessageType"),
         CodexAppServerSchemaDefinition(name: "WriteStatus", typeName: "CodexSchemaWriteStatus"),
     ]
-    public static let clientRequestParamCount = 110
-    public static let notificationPayloadCount = 68
+    public static let clientRequestParamCount = 112
+    public static let notificationPayloadCount = 70
     public static let serverRequestParamCount = 11
     public static let clientRequestParams: [CodexAppServerMethodSchemaDefinition] = [
         CodexAppServerMethodSchemaDefinition(method: "initialize", definitionName: "InitializeParams", typeName: "CodexSchemaInitializeParams"),
@@ -7297,6 +12372,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "plugin/share/list", definitionName: "PluginShareListParams", typeName: "CodexSchemaPluginShareListParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/share/checkout", definitionName: "PluginShareCheckoutParams", typeName: "CodexSchemaPluginShareCheckoutParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/share/delete", definitionName: "PluginShareDeleteParams", typeName: "CodexSchemaPluginShareDeleteParams"),
+        CodexAppServerMethodSchemaDefinition(method: "app/read", definitionName: "AppsReadParams", typeName: "CodexSchemaAppsReadParams"),
         CodexAppServerMethodSchemaDefinition(method: "app/list", definitionName: "AppsListParams", typeName: "CodexSchemaAppsListParams"),
         CodexAppServerMethodSchemaDefinition(method: "fs/readFile", definitionName: "FsReadFileParams", typeName: "CodexSchemaFSReadFileParams"),
         CodexAppServerMethodSchemaDefinition(method: "fs/writeFile", definitionName: "FsWriteFileParams", typeName: "CodexSchemaFSWriteFileParams"),
@@ -7333,6 +12409,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "mock/experimentalMethod", definitionName: "MockExperimentalMethodParams", typeName: "CodexSchemaMockExperimentalMethodParams"),
         CodexAppServerMethodSchemaDefinition(method: "environment/add", definitionName: "EnvironmentAddParams", typeName: "CodexSchemaEnvironmentAddParams"),
         CodexAppServerMethodSchemaDefinition(method: "environment/info", definitionName: "EnvironmentInfoParams", typeName: "CodexSchemaEnvironmentInfoParams"),
+        CodexAppServerMethodSchemaDefinition(method: "environment/status", definitionName: "EnvironmentStatusParams", typeName: "CodexSchemaEnvironmentStatusParams"),
         CodexAppServerMethodSchemaDefinition(method: "mcpServer/oauth/login", definitionName: "McpServerOauthLoginParams", typeName: "CodexSchemaMCPServerOAuthLoginParams"),
         CodexAppServerMethodSchemaDefinition(method: "mcpServerStatus/list", definitionName: "ListMcpServerStatusParams", typeName: "CodexSchemaListMCPServerStatusParams"),
         CodexAppServerMethodSchemaDefinition(method: "mcpServer/resource/read", definitionName: "McpResourceReadParams", typeName: "CodexSchemaMCPResourceReadParams"),
@@ -7374,6 +12451,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "thread/name/updated", definitionName: "ThreadNameUpdatedNotification", typeName: "CodexSchemaThreadNameUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/goal/updated", definitionName: "ThreadGoalUpdatedNotification", typeName: "CodexSchemaThreadGoalUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/goal/cleared", definitionName: "ThreadGoalClearedNotification", typeName: "CodexSchemaThreadGoalClearedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/environment/connected", definitionName: "EnvironmentConnectionNotification", typeName: "CodexSchemaEnvironmentConnectionNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/environment/disconnected", definitionName: "EnvironmentConnectionNotification", typeName: "CodexSchemaEnvironmentConnectionNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/settings/updated", definitionName: "ThreadSettingsUpdatedNotification", typeName: "CodexSchemaThreadSettingsUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/tokenUsage/updated", definitionName: "ThreadTokenUsageUpdatedNotification", typeName: "CodexSchemaThreadTokenUsageUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "turn/started", definitionName: "TurnStartedNotification", typeName: "CodexSchemaTurnStartedNotification"),
@@ -7456,6 +12535,8 @@ public enum CodexAppServerSchemaInventory {
         "AppListUpdatedNotification.json",
         "AppsListParams.json",
         "AppsListResponse.json",
+        "AppsReadParams.json",
+        "AppsReadResponse.json",
         "CancelLoginAccountParams.json",
         "CancelLoginAccountResponse.json",
         "CollaborationModeListParams.json",
@@ -7483,8 +12564,11 @@ public enum CodexAppServerSchemaInventory {
         "DeprecationNoticeNotification.json",
         "EnvironmentAddParams.json",
         "EnvironmentAddResponse.json",
+        "EnvironmentConnectionNotification.json",
         "EnvironmentInfoParams.json",
         "EnvironmentInfoResponse.json",
+        "EnvironmentStatusParams.json",
+        "EnvironmentStatusResponse.json",
         "ErrorNotification.json",
         "ExperimentalFeatureEnablementSetParams.json",
         "ExperimentalFeatureEnablementSetResponse.json",
@@ -7602,6 +12686,7 @@ public enum CodexAppServerSchemaInventory {
         "ProcessSpawnResponse.json",
         "ProcessWriteStdinParams.json",
         "ProcessWriteStdinResponse.json",
+        "RawResponseCompletedNotification.json",
         "RawResponseItemCompletedNotification.json",
         "ReasoningSummaryPartAddedNotification.json",
         "ReasoningSummaryTextDeltaNotification.json",
@@ -7740,6 +12825,11 @@ public enum CodexAppServerSchemaInventory {
         "WindowsSandboxSetupStartResponse.json",
         "WindowsWorldWritableWarningNotification.json",
     ]
+    public static let v1HandshakeSchemas: [CodexAppServerStandaloneSchemaDefinition] = [
+        CodexAppServerStandaloneSchemaDefinition(fileName: "InitializeParams.json", name: "InitializeParams", propertyNames: ["capabilities", "clientInfo"], requiredFields: ["clientInfo"]),
+        CodexAppServerStandaloneSchemaDefinition(fileName: "InitializeResponse.json", name: "InitializeResponse", propertyNames: ["codexHome", "platformFamily", "platformOs", "userAgent"], requiredFields: ["codexHome", "platformFamily", "platformOs", "userAgent"]),
+    ]
+    public static let v1HandshakeSchemaByName: [String: CodexAppServerStandaloneSchemaDefinition] = Dictionary(uniqueKeysWithValues: v1HandshakeSchemas.map { ($0.name, $0) })
 }
 
 public extension CodexAppServerNotificationMethod {
