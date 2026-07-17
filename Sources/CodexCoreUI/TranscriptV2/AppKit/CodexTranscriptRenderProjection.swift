@@ -359,14 +359,17 @@ actor CodexTranscriptRenderProjector {
             }
 
             if let user = turn.userMessage {
+                // Trailing whitespace/newlines would measure as phantom empty lines
+                // and inflate the bubble; display trimmed, keep the raw text for copy.
+                let displayText = user.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 let prepared = cachedPreparedText(
-                    content: user.text,
+                    content: displayText,
                     style: "user-plain",
                     theme: theme,
                     cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses
                 ) {
-                    Self.preparePlain(user.text, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
+                    Self.preparePlain(displayText, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
                 }
                 let userMaxWidth = min(contentWidth * 0.77, theme.userBubbleMaxWidth)
                 let horizontalPadding = CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
@@ -380,7 +383,7 @@ actor CodexTranscriptRenderProjector {
                     textRole: .user,
                     preparedText: prepared,
                     copyText: user.text,
-                    accessibilityLabel: "You: \(user.text)",
+                    accessibilityLabel: "You: \(displayText)",
                     isTrailingAligned: true,
                     maxWidthKind: .user,
                     intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
@@ -1219,10 +1222,14 @@ private extension CodexTranscriptRenderProjector {
         color: NSColor,
         theme: CodexTranscriptAppKitTheme
     ) -> CodexPreparedTranscriptText {
-        CodexPreparedTranscriptText(NSAttributedString(string: text, attributes: [
+        // Plain text treats every newline as a paragraph break; markdown paragraph
+        // spacing would add 10pt per line, so plain runs use line spacing only.
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = theme.lineSpacing
+        return CodexPreparedTranscriptText(NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: color,
-            .paragraphStyle: paragraphStyle(theme)
+            .paragraphStyle: style
         ]))
     }
 
