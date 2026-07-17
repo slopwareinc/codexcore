@@ -54,15 +54,13 @@ public struct CodexWorkBlockViewV2: View {
                 switch status {
                 case .working(let since):
                     if Self.showsWorkingDuration(narrative: narrative, liveTail: liveTail) {
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(verbatim: Self.workingLabel(
-                                at: context.date,
-                                since: since,
-                                clientStartedAt: clientStartedAt
-                            ))
-                                .font(theme.fonts.caption)
-                                .foregroundStyle(theme.colors.textTertiary)
-                        }
+                        Text(verbatim: Self.workingLabel(
+                            at: Date(),
+                            since: since,
+                            clientStartedAt: clientStartedAt
+                        ))
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
                     } else {
                         CodexLiveTailV2(text: "Thinking")
                     }
@@ -74,7 +72,7 @@ public struct CodexWorkBlockViewV2: View {
                         withAnimation(.snappy(duration: theme.animations.snappyDuration)) { isExpanded.toggle() }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(verbatim: "Worked for " + Self.duration(durationMs))
+                            Text(verbatim: Self.completedLabel(durationMs))
                             Image(systemName: "chevron.right")
                                 .font(theme.fonts.micro)
                                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -166,6 +164,11 @@ public struct CodexWorkBlockViewV2: View {
             ? String(minutes) + "m " + String(remainder) + "s"
             : String(remainder) + "s"
     }
+
+    nonisolated static func completedLabel(_ milliseconds: Int?) -> String {
+        guard let milliseconds else { return "Worked" }
+        return "Worked for " + duration(milliseconds)
+    }
 }
 
 private struct CodexLiveTailV2: View {
@@ -173,18 +176,9 @@ private struct CodexLiveTailV2: View {
     let text: String
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24)) { context in
-            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.8) / 1.8
-            Text(text)
-                .font(theme.fonts.caption)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [theme.colors.textTertiary, theme.colors.textSecondary, theme.colors.textTertiary],
-                        startPoint: UnitPoint(x: phase - 0.5, y: 0.5),
-                        endPoint: UnitPoint(x: phase + 0.5, y: 0.5)
-                    )
-                )
-        }
+        Text(text)
+            .font(theme.fonts.caption)
+            .foregroundStyle(theme.colors.textTertiary)
         .accessibilityLabel(text)
     }
 }

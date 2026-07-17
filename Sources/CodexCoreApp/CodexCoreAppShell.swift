@@ -190,6 +190,7 @@ struct CodexCoreAppShell: View {
         VStack(spacing: 0) {
             CodexChatWorkspaceView(
                 transcriptV2: model.transcriptV2,
+                transcriptSessionStore: model.runtimeSession.transcriptSessions,
                 lifecycleEvents: model.lifecycleEvents,
                 sideChat: model.sideChat,
                 subagents: model.subagents,
@@ -249,7 +250,9 @@ struct CodexCoreAppShell: View {
                     model.handleSlashCommand(command) {
                         isMCPStatusSheetPresented = true
                     }
-                }
+                },
+                approvalPrompts: model.approvalPrompts,
+                onResolveApproval: { id, approved in model.resolveApprovalPrompt(id: id, approved: approved) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

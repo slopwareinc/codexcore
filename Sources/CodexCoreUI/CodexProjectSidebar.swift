@@ -644,11 +644,30 @@ private struct SidebarChatRow: View {
 
     private var trailingStatusOrActions: some View {
         ZStack(alignment: .trailing) {
-            TimelineView(.periodic(from: .now, by: 60)) { _ in
-                Text(recencyLabel)
-                    .font(theme.fonts.sidebar.chatRecency.font)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
+            HStack(spacing: 5) {
+                if row.hasUnreadWhileInactive {
+                    Circle()
+                        .fill(theme.colors.accent)
+                        .frame(width: 6, height: 6)
+                        .accessibilityLabel("Unread updates")
+                }
+                switch row.liveStatus {
+                case .running:
+                    Circle()
+                        .stroke(theme.colors.running, lineWidth: 1.5)
+                        .frame(width: 9, height: 9)
+                        .accessibilityLabel("Running")
+                case .failed:
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(theme.fonts.sidebar.chatRecency.font)
+                        .foregroundStyle(theme.colors.danger)
+                        .accessibilityLabel("Failed")
+                case .idle:
+                    Text(recencyLabel)
+                        .font(theme.fonts.sidebar.chatRecency.font)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .lineLimit(1)
+                }
             }
             .opacity(chatActionsAreVisible ? 0 : 1)
 

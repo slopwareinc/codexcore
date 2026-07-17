@@ -55,6 +55,27 @@ public struct CodexTranscriptReducerV2: Sendable {
         }
     }
 
+    /// Restores `thread/read(includeTurns: true)` envelopes without discarding
+    /// the server's authoritative turn timing metadata.
+    public mutating func restoreHistory(turns: [CodexJSONValue]) {
+        transcript = .init(); reasoningText = [:]; turnStartedAt = [:]
+        for value in turns {
+            guard let turn = value.object,
+                  let id = turn.string("id") else { continue }
+            let startedAt = turn.int64("startedAt")
+            if let startedAt { turnStartedAt[id] = startedAt }
+            transcript.turns.append(.init(id: id, status: .working(since: startedAt)))
+            let index = transcript.turns.count - 1
+            for item in turn.array("items") ?? [] {
+                guard let object = item.object else { continue }
+                applyHistoryItem(object, turnID: id)
+            }
+            if historyTurnIsComplete(turn) {
+                finishTurn(at: index, duration: historyCompletionDuration(turn))
+            }
+        }
+    }
+
     public mutating func restoreHistory(params: CodexJSONValue) {
         guard let root = params.object, let items = root.array("items") else { return }
         restoreHistory(items: items)
@@ -183,9 +204,18 @@ public struct CodexTranscriptReducerV2: Sendable {
         guard let row = makeRow(item, type: type, completed: completed) else { return }
         if let location = rowLocation(id: row.id, turn: index) {
             guard case .workGroup(var group) = transcript.turns[index].narrative[location.entry] else { return }
-            group.rows[location.row] = row; group.header = CodexWorkGroupHeaderV2.synthesize(rows: group.rows)
+            if case .collabAgent(let existing) = group.rows[location.row],
+               case .collabAgent(let incoming) = row {
+                group.rows[location.row] = .collabAgent(merged(existing: existing, incoming: incoming))
+            } else {
+                group.rows[location.row] = row
+            }
+            group.header = CodexWorkGroupHeaderV2.synthesize(rows: group.rows)
             group.isLive = group.rows.contains(where: \.isInProgress)
             transcript.turns[index].narrative[location.entry] = .workGroup(group)
+        } else if case .collabAgent(let incoming) = row, mergeCollabRow(incoming, turn: index) {
+            refreshTail(turn: index)
+            return
         } else if case .workGroup(var group)? = transcript.turns[index].narrative.last,
                   canAppend(row, to: group) {
             group.rows.append(row); group.header = CodexWorkGroupHeaderV2.synthesize(rows: group.rows)
@@ -198,6 +228,71 @@ public struct CodexTranscriptReducerV2: Sendable {
             transcript.turns[index].narrative.append(.workGroup(group))
         }
         refreshTail(turn: index)
+    }
+
+    private mutating func mergeCollabRow(_ incoming: CodexCollabAgentRowV2, turn index: Int) -> Bool {
+        let incomingIDs = Set(incoming.agentThreadIDs)
+        var fallback: (entry: Int, row: Int)?
+        var liveCount = 0
+        for entryIndex in transcript.turns[index].narrative.indices {
+            guard case .workGroup(let group) = transcript.turns[index].narrative[entryIndex] else { continue }
+            for rowIndex in group.rows.indices {
+                guard case .collabAgent(let existing) = group.rows[rowIndex] else { continue }
+                if existing.status == .inProgress {
+                    liveCount += 1
+                    fallback = (entryIndex, rowIndex)
+                }
+                let existingIDs = Set(existing.agentThreadIDs)
+                let idsIntersect = !incomingIDs.isEmpty && !existingIDs.isEmpty && !incomingIDs.isDisjoint(with: existingIDs)
+                let namesIntersect = !Set(incoming.agentNames).isDisjoint(with: Set(existing.agentNames))
+                if idsIntersect || (incomingIDs.isEmpty && existingIDs.isEmpty && namesIntersect) {
+                    updateCollabRow(existing: existing, incoming: incoming, entry: entryIndex, row: rowIndex, turn: index)
+                    return true
+                }
+            }
+        }
+        let canUseLiveFallback = incoming.action != .created && incoming.action != .started
+        if canUseLiveFallback, liveCount == 1, let fallback {
+            guard case .workGroup(let group) = transcript.turns[index].narrative[fallback.entry],
+                  case .collabAgent(let existing) = group.rows[fallback.row] else { return false }
+            updateCollabRow(existing: existing, incoming: incoming, entry: fallback.entry, row: fallback.row, turn: index)
+            return true
+        }
+        return false
+    }
+
+    private mutating func updateCollabRow(
+        existing: CodexCollabAgentRowV2,
+        incoming: CodexCollabAgentRowV2,
+        entry: Int,
+        row: Int,
+        turn index: Int
+    ) {
+        guard case .workGroup(var group) = transcript.turns[index].narrative[entry] else { return }
+        group.rows[row] = .collabAgent(merged(existing: existing, incoming: incoming))
+        group.header = CodexWorkGroupHeaderV2.synthesize(rows: group.rows)
+        group.isLive = group.rows.contains(where: \.isInProgress)
+        transcript.turns[index].narrative[entry] = .workGroup(group)
+    }
+
+    private func merged(
+        existing: CodexCollabAgentRowV2,
+        incoming: CodexCollabAgentRowV2
+    ) -> CodexCollabAgentRowV2 {
+        var value = existing
+        value.action = incoming.action
+        value.status = incoming.status
+        value.agentNames = orderedUnion(existing.agentNames, incoming.agentNames)
+        value.agentThreadIDs = orderedUnion(existing.agentThreadIDs, incoming.agentThreadIDs)
+        value.instructions = incoming.instructions ?? existing.instructions
+        value.agentMessages.merge(incoming.agentMessages) { _, new in new }
+        if value.timeline.last != incoming.action { value.timeline.append(incoming.action) }
+        return value
+    }
+
+    private func orderedUnion(_ lhs: [String], _ rhs: [String]) -> [String] {
+        var seen = Set<String>()
+        return (lhs + rhs).filter { seen.insert($0).inserted }
     }
 
     private func makeRow(_ item: [String: CodexJSONValue], type: String, completed: Bool) -> CodexWorkRowV2? {
@@ -243,8 +338,16 @@ public struct CodexTranscriptReducerV2: Sendable {
             case "interrupted": action = .interrupted
             default: return nil
             }
-            let agent = item.string("agentPath") ?? item.string("agentThreadId") ?? "agent"
-            return .collabAgent(.init(id: id, action: action, agentNames: [agent], instructions: nil, status: state))
+            let threadID = item.string("agentThreadId")
+            let agent = item.string("agentPath") ?? threadID ?? "agent"
+            return .collabAgent(.init(
+                id: id,
+                action: action,
+                agentNames: [agent],
+                agentThreadIDs: threadID.map { [$0] } ?? [],
+                instructions: nil,
+                status: state
+            ))
         case "imageGeneration":
             return .other(.init(id: id, label: "Generating an image", status: state))
         default:
@@ -354,6 +457,19 @@ public struct CodexTranscriptReducerV2: Sendable {
         let start = turn.int64("startedAt") ?? turnStartedAt[turnID] ?? Int64(Date().timeIntervalSince1970)
         let end = turn.int64("completedAt") ?? Int64(Date().timeIntervalSince1970)
         return max(0, Int(end - start) * 1_000)
+    }
+    private func historyCompletionDuration(_ turn: [String: CodexJSONValue]) -> Int? {
+        if let duration = turn.int("durationMs") { return max(0, duration) }
+        guard let start = turn.int64("startedAt"),
+              let end = turn.int64("completedAt") else { return nil }
+        return max(0, Int(end - start) * 1_000)
+    }
+    private func historyTurnIsComplete(_ turn: [String: CodexJSONValue]) -> Bool {
+        if turn.int("durationMs") != nil || turn.int64("completedAt") != nil { return true }
+        switch turn.string("status") {
+        case "completed", "failed", "interrupted", "cancelled": return true
+        default: return false
+        }
     }
     private func mcpError(_ item: [String: CodexJSONValue]) -> String? { if let error = item.string("error") { return error.firstLine }; if let result = item.object("result"), let error = result.object("structuredContent")?.string("error") { return error.firstLine }; return item.object("result")?.array("content")?.compactMap { $0.object?.string("text") }.first?.firstLine }
     private func shortAgentName(_ threadID: String) -> String {

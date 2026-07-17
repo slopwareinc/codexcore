@@ -37,6 +37,8 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
     public var isPinned: Bool
     public var canPin: Bool
     public var canArchive: Bool
+    public var liveStatus: CodexThreadLiveStatus
+    public var hasUnreadWhileInactive: Bool
 
     public var id: String { summary.id }
 
@@ -45,13 +47,17 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
         isSelected: Bool = false,
         isPinned: Bool = false,
         canPin: Bool = true,
-        canArchive: Bool = true
+        canArchive: Bool = true,
+        liveStatus: CodexThreadLiveStatus = .idle,
+        hasUnreadWhileInactive: Bool = false
     ) {
         self.summary = summary
         self.isSelected = isSelected
         self.isPinned = isPinned
         self.canPin = canPin
         self.canArchive = canArchive
+        self.liveStatus = liveStatus
+        self.hasUnreadWhileInactive = hasUnreadWhileInactive
     }
 }
 
@@ -236,7 +242,8 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         chats: [CodexThreadSummary],
         currentWorkspacePath: String,
         currentThreadID: String?,
-        pinnedThreadIDs: [String] = []
+        pinnedThreadIDs: [String] = [],
+        threadStatusEntries: [String: CodexThreadStatusEntry] = [:]
     ) -> CodexSidebarSnapshot {
         let normalizedCurrent = CodexProjectSummary.normalizedPath(currentWorkspacePath)
         let effectiveThreadID = selectedThreadID ?? currentThreadID
@@ -251,12 +258,15 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         }
 
         let row: (CodexThreadSummary) -> CodexSidebarThreadRow = { chat in
-            CodexSidebarThreadRow(
+            let live = threadStatusEntries[chat.id]
+            return CodexSidebarThreadRow(
                 summary: chat,
                 isSelected: chat.id == effectiveThreadID,
                 isPinned: pinnedIDSet.contains(chat.id),
                 canPin: true,
-                canArchive: true
+                canArchive: true,
+                liveStatus: live?.status ?? .idle,
+                hasUnreadWhileInactive: live?.hasUnreadWhileInactive ?? false
             )
         }
 
