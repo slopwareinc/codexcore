@@ -1210,7 +1210,7 @@ public actor CodexSession:
                 message: "History coordinator rejected seeded resume"
             )
         }
-        scheduleHistoryEffects(history.receiveResumeCut(
+        let historyEffects = history.receiveResumeCut(
             threadID: threadID,
             requestID: placeholder.requestID,
             turnsBackwardsCursor: turnsCursor,
@@ -1219,7 +1219,13 @@ public actor CodexSession:
             resumeThread: resumeThread,
             resumeResult: resumeResult,
             resumeRequestParams: requestParams
-        ))
+        )
+        scheduleHistoryEffects(historyEffects)
+        scheduleLeaseEffects(leases.reconciliationSucceeded(seeded.reconciliation))
+        resolveHistoryWaiters(
+            threadID: threadID,
+            history: graph.threads[threadID]?.history ?? .init()
+        )
         return seeded.token
     }
 
@@ -1271,7 +1277,11 @@ public actor CodexSession:
                 threadID: threadID,
                 message: String(describing: failure.reason)
             )
-        case .awaitingResume(let epoch, _), .paging(let epoch, _):
+        case .paging:
+            // Resume has already established the subscription and installed
+            // its metadata/anchors. Older pages continue incrementally.
+            return graph.threads[threadID]?.history ?? .init()
+        case .awaitingResume(let epoch, _):
             connectionEpoch = epoch
         case .stale:
             connectionEpoch = nil
@@ -2992,7 +3002,20 @@ private extension CodexSession {
                     object,
                     key: "itemsBackwardsCursor"
                 )
-                scheduleHistoryEffects(history.receiveResumeCut(
+                try apply(adapter.adaptResponse(
+                    .init(
+                        method: .threadResume,
+                        requestParams: [
+                            "threadId": .string(request.reconciliation.threadID.rawValue),
+                            "excludeTurns": .bool(request.excludeTurns),
+                        ],
+                        connectionEpoch: request.reconciliation.connectionEpoch,
+                        resumeGeneration: request.reconciliation.operationID.rawValue,
+                        itemCollectionPolicy: .mergePreservingExistingOrder
+                    ),
+                    result: call.value
+                ))
+                let historyEffects = history.receiveResumeCut(
                     threadID: request.reconciliation.threadID,
                     requestID: request.requestID,
                     turnsBackwardsCursor: turnsCursor,
@@ -3004,7 +3027,13 @@ private extension CodexSession {
                         "threadId": .string(request.reconciliation.threadID.rawValue),
                         "excludeTurns": .bool(request.excludeTurns),
                     ]
-                ))
+                )
+                scheduleHistoryEffects(historyEffects)
+                scheduleLeaseEffects(leases.reconciliationSucceeded(request.reconciliation))
+                resolveHistoryWaiters(
+                    threadID: request.reconciliation.threadID,
+                    history: graph.threads[request.reconciliation.threadID]?.history ?? .init()
+                )
             } catch {
                 scheduleHistoryEffects(history.requestFailed(
                     threadID: request.reconciliation.threadID,
@@ -3040,6 +3069,23 @@ private extension CodexSession {
                     }
                     return .init(turnID: .init(id), value: value)
                 }
+                try apply(adapter.adaptResponse(
+                    .init(
+                        method: .threadTurnsList,
+                        requestParams: [
+                            "threadId": .string(request.reconciliation.threadID.rawValue),
+                            "cursor": .string(request.cursor),
+                            "limit": .int(request.limit),
+                            "sortDirection": .string(request.sortDirection.rawValue),
+                            "itemsView": .string(request.itemsView.rawValue),
+                        ],
+                        connectionEpoch: request.reconciliation.connectionEpoch,
+                        resumeGeneration: request.reconciliation.operationID.rawValue,
+                        itemCollectionPolicy: .historyPage,
+                        assertedItemsCoverage: .summary
+                    ),
+                    result: call.value
+                ))
                 scheduleHistoryEffects(history.receiveTurnsPage(
                     threadID: request.reconciliation.threadID,
                     requestID: request.requestID,
@@ -3094,6 +3140,26 @@ private extension CodexSession {
                         value: .dictionary(item)
                     )
                 }
+                var incrementalResult = object
+                incrementalResult["data"] = .array(Array(rawEntries.reversed()))
+                let nextCursor = try historyCursor(object, key: "nextCursor")
+                try apply(adapter.adaptResponse(
+                    .init(
+                        method: .threadItemsList,
+                        requestParams: [
+                            "threadId": .string(request.reconciliation.threadID.rawValue),
+                            "turnId": .string(request.turnID.rawValue),
+                            "cursor": .string(request.cursor),
+                            "limit": .int(request.limit),
+                            "sortDirection": .string(request.sortDirection.rawValue),
+                        ],
+                        connectionEpoch: request.reconciliation.connectionEpoch,
+                        resumeGeneration: request.reconciliation.operationID.rawValue,
+                        itemCollectionPolicy: .historyPage,
+                        assertedItemsCoverage: nextCursor == nil ? .full : .summary
+                    ),
+                    result: .dictionary(incrementalResult)
+                ))
                 scheduleHistoryEffects(history.receiveItemsPage(
                     threadID: request.reconciliation.threadID,
                     turnID: request.turnID,
@@ -3103,10 +3169,7 @@ private extension CodexSession {
                         object,
                         key: "backwardsCursor"
                     ),
-                    nextCursor: try historyCursor(
-                        object,
-                        key: "nextCursor"
-                    )
+                    nextCursor: nextCursor
                 ))
             } catch {
                 scheduleHistoryEffects(history.requestFailed(
@@ -3119,14 +3182,7 @@ private extension CodexSession {
         case .install(let installation):
             do {
                 try installPaginatedHistory(installation)
-                scheduleLeaseEffects(leases.reconciliationSucceeded(
-                    installation.reconciliation
-                ))
             } catch {
-                leases.reconciliationFailed(
-                    installation.reconciliation,
-                    message: String(describing: error)
-                )
                 failHistoryWaiters(
                     threadID: installation.reconciliation.threadID,
                     connectionEpoch: installation.reconciliation.connectionEpoch,
@@ -3138,10 +3194,16 @@ private extension CodexSession {
             }
 
         case .failed(let failure):
-            leases.reconciliationFailed(
-                failure.reconciliation,
-                message: String(describing: failure.reason)
-            )
+            if case .requestFailed(kind: .resume, message: _) = failure.reason {
+                // The temporary lease registry cannot represent an unknown
+                // subscription outcome yet. Preserve its existing retry/error
+                // behavior for failures before a resume response; page failures
+                // must not tear down a subscription already established.
+                leases.reconciliationFailed(
+                    failure.reconciliation,
+                    message: String(describing: failure.reason)
+                )
+            }
             failHistoryWaiters(
                 threadID: failure.reconciliation.threadID,
                 connectionEpoch: failure.reconciliation.connectionEpoch,
@@ -3192,62 +3254,8 @@ private extension CodexSession {
             )
         }
         let threadID = command.threadID
-        try apply(adapter.adaptResponse(
-            .init(
-                method: .threadResume,
-                requestParams: installation.resumeRequestParams,
-                connectionEpoch: command.connectionEpoch,
-                resumeGeneration: command.operationID.rawValue,
-                itemCollectionPolicy: .mergePreservingExistingOrder
-            ),
-            result: installation.resumeResult
-        ))
-
-        let rawTurns = installation.turns.map(\.value)
-        try apply(adapter.adaptResponse(
-            .init(
-                method: .threadTurnsList,
-                requestParams: ["threadId": .string(threadID.rawValue)],
-                connectionEpoch: command.connectionEpoch,
-                resumeGeneration: command.operationID.rawValue,
-                itemCollectionPolicy: .authoritativeReplacement,
-                assertedItemsCoverage: .summary
-            ),
-            result: .dictionary([
-                "data": .array(rawTurns),
-                "backwardsCursor": .null,
-                "nextCursor": .null,
-            ])
-        ))
-
-        let itemsByTurn = Dictionary(grouping: installation.items, by: \.turnID)
-        for turn in installation.turns {
-            let entries: [CodexJSONValue] = (itemsByTurn[turn.turnID] ?? []).map {
-                .dictionary([
-                    "turnId": .string($0.turnID.rawValue),
-                    "item": $0.value,
-                ])
-            }
-            try apply(adapter.adaptResponse(
-                .init(
-                    method: .threadItemsList,
-                    requestParams: [
-                        "threadId": .string(threadID.rawValue),
-                        "turnId": .string(turn.turnID.rawValue),
-                    ],
-                    connectionEpoch: command.connectionEpoch,
-                    resumeGeneration: command.operationID.rawValue,
-                    itemCollectionPolicy: .authoritativeReplacement,
-                    assertedItemsCoverage: .full
-                ),
-                result: .dictionary([
-                    "data": .array(entries),
-                    "backwardsCursor": .null,
-                    "nextCursor": .null,
-                ])
-            ))
-        }
-
+        // Resume and each durable page were already reduced as they arrived.
+        // Completion only publishes final coverage/cursor bookkeeping.
         try commit(.threadHistoryReplaced(
             id: threadID,
             history: installation.historyState
@@ -3257,10 +3265,6 @@ private extension CodexSession {
             where turn.key.threadID == threadID && turn.status == .inProgress {
                 try commit(.turnItemsMarkedUncertain(turn.key))
             }
-        }
-        for event in installation.bufferedLiveEvents.sorted(by: { $0.cursor < $1.cursor }) {
-            guard case .dictionary(let params) = event.params else { continue }
-            try apply(adapter.adaptNotification(method: event.method, params: params))
         }
         resolveTerminalWaitersIfPossible()
         resolveHistoryWaiters(

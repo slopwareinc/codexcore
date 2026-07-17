@@ -2,6 +2,83 @@ import XCTest
 @testable import CodexCore
 
 final class CanonicalStateReducerTests: XCTestCase {
+    func testHistoryPageCannotRegressLiveTerminalTurnOrCompletedItem() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let turnKey = TurnKey(threadID: "thread", turnID: "turn")
+        let key = ItemKey(threadID: turnKey.threadID, turnID: turnKey.turnID, itemID: "item")
+
+        _ = reducer.apply(.turnCompleted(
+            CanonicalTurn(
+                key: turnKey,
+                status: .completed,
+                itemOrder: [key.itemID],
+                itemsCoverage: .full,
+                itemsConsistency: .authoritative,
+                diff: "live diff"
+            ),
+            items: [item(
+                key,
+                payload: ["text": .string("live final")],
+                authority: .completed,
+                consistency: .authoritative
+            )],
+            itemPolicy: .authoritativeReplacement
+        ), to: &graph)
+
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(
+                key: turnKey,
+                status: .inProgress,
+                itemOrder: [key.itemID],
+                itemsCoverage: .full,
+                itemsConsistency: .authoritative,
+                diff: "stale history diff"
+            ),
+            items: [item(
+                key,
+                payload: ["text": .string("stale history final")],
+                authority: .completed,
+                consistency: .authoritative
+            )],
+            itemPolicy: .historyPage
+        ), to: &graph)
+
+        XCTAssertEqual(graph.turns[turnKey]?.status, .completed)
+        XCTAssertEqual(graph.turns[turnKey]?.diff, "live diff")
+        XCTAssertEqual(graph.items[key]?.payload["text"], .string("live final"))
+    }
+
+    func testHistoryPageCompletionCanUpgradeLiveStartedItem() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let key = itemKey()
+        _ = reducer.apply(.itemStarted(item(
+            key,
+            payload: ["text": .string("draft")]
+        )), to: &graph)
+
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(
+                key: key.turnKey,
+                status: .completed,
+                itemOrder: [key.itemID],
+                itemsCoverage: .full,
+                itemsConsistency: .authoritative
+            ),
+            items: [item(
+                key,
+                payload: ["text": .string("durable final")],
+                authority: .completed,
+                consistency: .authoritative
+            )],
+            itemPolicy: .historyPage
+        ), to: &graph)
+
+        XCTAssertEqual(graph.items[key]?.authority, .completed)
+        XCTAssertEqual(graph.items[key]?.payload["text"], .string("durable final"))
+    }
+
     func testFullThreadSnapshotClearsNullableMetadataWithoutErasingLoadedHistory() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()

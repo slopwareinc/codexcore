@@ -2,7 +2,7 @@ import XCTest
 @testable import CodexCore
 
 final class PaginatedHistoryCoordinatorTests: XCTestCase {
-    func testResumeCutIsAtomicAndReplaysOnlyPostResponseLiveFrames() throws {
+    func testResumeAnchorsNeverFilterLiveFrames() throws {
         let threadID = ThreadID("thread-1")
         let command = reconciliation(threadID: threadID, epoch: 7, operation: 4)
         var coordinator = PaginatedHistoryCoordinator()
@@ -16,14 +16,14 @@ final class PaginatedHistoryCoordinatorTests: XCTestCase {
                 threadID: threadID,
                 event: liveEvent(epoch: 7, ordinal: 8, method: "before-cut")
             ),
-            .buffered
+            .applyImmediately
         )
         XCTAssertEqual(
             coordinator.receiveLiveEvent(
                 threadID: threadID,
                 event: liveEvent(epoch: 7, ordinal: 12, method: "after-cut")
             ),
-            .buffered
+            .applyImmediately
         )
 
         XCTAssertTrue(coordinator.receiveResumeCut(
@@ -45,7 +45,7 @@ final class PaginatedHistoryCoordinatorTests: XCTestCase {
         ))
 
         XCTAssertEqual(installation.resumeResponseCursor, .init(connectionEpoch: 7, ordinal: 10))
-        XCTAssertEqual(installation.bufferedLiveEvents.map(\.method), ["after-cut"])
+        XCTAssertTrue(installation.bufferedLiveEvents.isEmpty)
         XCTAssertTrue(installation.turns.isEmpty)
         XCTAssertTrue(installation.items.isEmpty)
         XCTAssertEqual(installation.historyState.mode, .paginated)
@@ -90,21 +90,21 @@ final class PaginatedHistoryCoordinatorTests: XCTestCase {
                 threadID: threadID,
                 event: liveEvent(epoch: 3, ordinal: 14, method: "fourteen")
             ),
-            .buffered
+            .applyImmediately
         )
         XCTAssertEqual(
             coordinator.receiveLiveEvent(
                 threadID: threadID,
                 event: liveEvent(epoch: 3, ordinal: 12, method: "twelve")
             ),
-            .buffered
+            .applyImmediately
         )
         XCTAssertEqual(
             coordinator.receiveLiveEvent(
                 threadID: threadID,
                 event: liveEvent(epoch: 3, ordinal: 12, method: "duplicate")
             ),
-            .ignoredDuplicate
+            .applyImmediately
         )
 
         let secondTurns = try turnsRequest(coordinator.receiveTurnsPage(
@@ -178,7 +178,7 @@ final class PaginatedHistoryCoordinatorTests: XCTestCase {
             installation.items.map(\.itemID),
             ["item-2a", "item-2b", "item-3a", "item-3b"]
         )
-        XCTAssertEqual(installation.bufferedLiveEvents.map(\.method), ["twelve", "fourteen"])
+        XCTAssertTrue(installation.bufferedLiveEvents.isEmpty)
         XCTAssertEqual(installation.historyState.turnsCoverage, .full)
         XCTAssertTrue(installation.historyState.turnsPage.isExhausted)
         XCTAssertEqual(
@@ -284,7 +284,7 @@ final class PaginatedHistoryCoordinatorTests: XCTestCase {
         )
     }
 
-    func testBufferBoundAndRequestIdentitySealFailedReconciliation() throws {
+    func testLiveIngressHasNoArtificialHydrationBufferLimit() throws {
         let threadID = ThreadID("thread-1")
         let command = reconciliation(threadID: threadID, epoch: 1, operation: 1)
         var coordinator = PaginatedHistoryCoordinator(policy: .init(maximumBufferedLiveEvents: 2))
@@ -297,21 +297,18 @@ final class PaginatedHistoryCoordinatorTests: XCTestCase {
         ).isEmpty)
         XCTAssertEqual(
             coordinator.receiveLiveEvent(threadID: threadID, event: liveEvent(epoch: 1, ordinal: 1)),
-            .buffered
+            .applyImmediately
         )
         XCTAssertEqual(
             coordinator.receiveLiveEvent(threadID: threadID, event: liveEvent(epoch: 1, ordinal: 2)),
-            .buffered
+            .applyImmediately
         )
-        let overflow = coordinator.receiveLiveEvent(
+        let third = coordinator.receiveLiveEvent(
             threadID: threadID,
             event: liveEvent(epoch: 1, ordinal: 3)
         )
-        XCTAssertEqual(
-            overflow,
-            .failed(.init(reconciliation: command, reason: .liveBufferOverflow(limit: 2)))
-        )
-        XCTAssertTrue(coordinator.receiveResumeCut(
+        XCTAssertEqual(third, .applyImmediately)
+        XCTAssertFalse(coordinator.receiveResumeCut(
             threadID: threadID,
             requestID: resume.requestID,
             turnsBackwardsCursor: nil,

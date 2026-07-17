@@ -228,7 +228,40 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
     }
 
-    func testHistoryItemPagesFanOutAndInstallAtomicallyAfterOutOfOrderResponses() async throws {
+    func testResumeResponseMakesHistoryUsableBeforePagingCompletes() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        _ = await session.hydrateThreadHistory(Self.threadID)
+
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/resume") == 1
+        }
+        try await transport.respondToLatestRequest(
+            method: "thread/resume",
+            result: Self.historyResumeResult
+        )
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/turns/list") == 1
+        }
+
+        let history = try await session.awaitThreadHistory(Self.threadID)
+        XCTAssertEqual(history.mode, .paginated)
+        XCTAssertNotEqual(history.turnsCoverage, .full)
+        guard let loading = await session.threadHistoryLoadingState(Self.threadID) else {
+            return XCTFail("Expected paging to remain active")
+        }
+        guard case .paging = loading.phase else {
+            return XCTFail("Resume should be usable while older pages continue")
+        }
+
+        await session.stop()
+    }
+
+    func testHistoryPagesPublishIncrementallyBeforeOutOfOrderItemPagingCompletes() async throws {
         let transport = ControllableCodexFrameTransport()
         let session = CodexSession(
             transport: transport,
@@ -274,7 +307,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         XCTAssertEqual(requestedCursors, [.string("item-head"), .string("item-head")])
 
         let beforeItems = await session.canonicalSnapshot()
-        XCTAssertNil(beforeItems.threads[Self.threadID])
+        XCTAssertEqual(beforeItems.threads[Self.threadID]?.turnOrder, ["turn-1", "turn-2"])
+        XCTAssertNotNil(beforeItems.turns[TurnKey(threadID: Self.threadID, turnID: "turn-1")])
+        XCTAssertNotNil(beforeItems.turns[TurnKey(threadID: Self.threadID, turnID: "turn-2")])
 
         // Complete turn-2 first even though turn-1 is the older canonical turn.
         try await transport.respondToRequest(
@@ -295,7 +330,16 @@ final class CodexSessionOrderingTests: XCTestCase {
                 .threads[ThreadID("history-response-marker")]?.metadata.name == "seen"
         }
         let halfComplete = await session.canonicalSnapshot()
-        XCTAssertNil(halfComplete.threads[Self.threadID])
+        XCTAssertNotNil(halfComplete.items[ItemKey(
+            threadID: Self.threadID,
+            turnID: "turn-2",
+            itemID: "item-2"
+        )])
+        XCTAssertNil(halfComplete.items[ItemKey(
+            threadID: Self.threadID,
+            turnID: "turn-1",
+            itemID: "item-1"
+        )])
 
         try await transport.respondToRequest(
             method: "thread/items/list",

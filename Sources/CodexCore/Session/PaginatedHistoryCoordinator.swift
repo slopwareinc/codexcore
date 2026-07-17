@@ -466,8 +466,8 @@ public struct PaginatedHistoryCoordinator: Sendable {
             let reconciliation,
             let expectedRequestID,
             let previousCut,
-            let bufferedEvents,
-            let bufferedCursors
+            _,
+            _
         )? = scopes[threadID],
         expectedRequestID == requestID,
         responseCursor.connectionEpoch == reconciliation.connectionEpoch else { return [] }
@@ -486,8 +486,8 @@ public struct PaginatedHistoryCoordinator: Sendable {
             resumeRequestParams: resumeRequestParams,
             resumeThread: resumeThread,
             previousCut: previousCut,
-            bufferedLiveEvents: bufferedEvents.filter { $0.cursor > responseCursor },
-            bufferedLiveCursors: Set(bufferedCursors.filter { $0 > responseCursor })
+            bufferedLiveEvents: [],
+            bufferedLiveCursors: []
         )
 
         let initialPageHasTurns = initialTurnsPage.map {
@@ -693,60 +693,25 @@ public struct PaginatedHistoryCoordinator: Sendable {
         }
     }
 
-    /// Buffers a post-cut notification while resume/pages are in flight. Once
-    /// live, callers reduce the event immediately through canonical state.
+    /// Live wire facts are always reduced immediately. Resume cursors are
+    /// persistence anchors, not an event-sequence cut, so neither pre-response
+    /// nor paging-time notifications may be hidden or discarded here.
     public mutating func receiveLiveEvent(
         threadID: ThreadID,
         event: PaginatedHistoryBufferedLiveEvent
     ) -> PaginatedHistoryLiveDisposition {
         guard let state = scopes[threadID] else { return .ignoredStale }
         switch state {
-        case .awaitingResume(
-            let reconciliation,
-            let requestID,
-            let previousCut,
-            var events,
-            var cursors
-        ):
+        case .awaitingResume(let reconciliation, _, _, _, _):
             guard event.cursor.connectionEpoch == reconciliation.connectionEpoch else {
                 return .ignoredStale
             }
-            guard cursors.insert(event.cursor).inserted else { return .ignoredDuplicate }
-            guard events.count < policy.maximumBufferedLiveEvents else {
-                let failure = PaginatedHistoryFailure(
-                    reconciliation: reconciliation,
-                    reason: .liveBufferOverflow(limit: policy.maximumBufferedLiveEvents)
-                )
-                scopes[threadID] = .failed(failure, previousCut: previousCut)
-                return .failed(failure)
-            }
-            events.append(event)
-            scopes[threadID] = .awaitingResume(
-                reconciliation: reconciliation,
-                requestID: requestID,
-                previousCut: previousCut,
-                bufferedEvents: events,
-                bufferedCursors: cursors
-            )
-            return .buffered
-        case .paging(var paging):
+            return .applyImmediately
+        case .paging(let paging):
             guard event.cursor.connectionEpoch == paging.cut.connectionEpoch else {
                 return .ignoredStale
             }
-            guard paging.bufferedLiveCursors.insert(event.cursor).inserted else {
-                return .ignoredDuplicate
-            }
-            guard paging.bufferedLiveEvents.count < policy.maximumBufferedLiveEvents else {
-                let failure = PaginatedHistoryFailure(
-                    reconciliation: paging.reconciliation,
-                    reason: .liveBufferOverflow(limit: policy.maximumBufferedLiveEvents)
-                )
-                scopes[threadID] = .failed(failure, previousCut: paging.previousCut)
-                return .failed(failure)
-            }
-            paging.bufferedLiveEvents.append(event)
-            scopes[threadID] = .paging(paging)
-            return .buffered
+            return .applyImmediately
         case .live(let cut):
             return event.cursor.connectionEpoch == cut.connectionEpoch
                 ? .applyImmediately

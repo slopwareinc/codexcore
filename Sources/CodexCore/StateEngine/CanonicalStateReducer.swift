@@ -7,6 +7,9 @@ public enum CanonicalItemCollectionMergePolicy: Sendable, Equatable {
     case mergePreservingExistingOrder
     /// Upsert an older page before items already known locally.
     case mergeIncomingFirst
+    /// Merge durable history without allowing a potentially lagging projection
+    /// to replace richer facts already observed on the live wire.
+    case historyPage
     /// The incoming full collection is authoritative, including absence.
     case authoritativeReplacement
 }
@@ -943,9 +946,20 @@ private extension CanonicalStateReducer {
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
     ) {
+        let isHistoryPage = itemPolicy == .historyPage
+        let insertsHistoricalTurn = isHistoryPage && graph.turns[incoming.key] == nil
         ensureTurn(incoming.key, revision: revision, graph: &graph, changes: &changes)
         guard var current = graph.turns[incoming.key] else { return }
         let original = current
+
+        if insertsHistoricalTurn,
+           var thread = graph.threads[incoming.key.threadID]
+        {
+            thread.turnOrder.removeAll { $0 == incoming.key.turnID }
+            thread.turnOrder.insert(incoming.key.turnID, at: 0)
+            thread.lastChangedRevision = revision
+            graph.threads[incoming.key.threadID] = thread
+        }
 
         if isCompletion {
             current.status = incoming.status
@@ -957,19 +971,33 @@ private extension CanonicalStateReducer {
             }
         }
 
-        if let value = incoming.startedAt { current.startedAt = value }
-        if let value = incoming.completedAt { current.completedAt = value }
-        if let value = incoming.duration { current.duration = value }
+        if let value = incoming.startedAt, !isHistoryPage || current.startedAt == nil {
+            current.startedAt = value
+        }
+        if let value = incoming.completedAt, !isHistoryPage || current.completedAt == nil {
+            current.completedAt = value
+        }
+        if let value = incoming.duration, !isHistoryPage || current.duration == nil {
+            current.duration = value
+        }
         current.itemsCoverage = current.itemsCoverage.merged(with: incoming.itemsCoverage)
         current.itemsConsistency = mergeConsistency(current.itemsConsistency, incoming.itemsConsistency)
-        if let value = incoming.plan {
+        if let value = incoming.plan, !isHistoryPage || current.plan == nil {
             current.plan = value
             current.planExplanation = incoming.planExplanation
         }
-        if let value = incoming.diff { current.diff = value }
-        if let value = incoming.tokenUsage { current.tokenUsage = value }
-        if let value = incoming.moderationMetadata { current.moderationMetadata = value }
-        current.extensions.merge(incoming.extensions) { _, new in new }
+        if let value = incoming.diff, !isHistoryPage || current.diff == nil { current.diff = value }
+        if let value = incoming.tokenUsage, !isHistoryPage || current.tokenUsage == nil {
+            current.tokenUsage = value
+        }
+        if let value = incoming.moderationMetadata,
+           !isHistoryPage || current.moderationMetadata == nil
+        {
+            current.moderationMetadata = value
+        }
+        current.extensions.merge(incoming.extensions) { current, new in
+            isHistoryPage ? current : new
+        }
 
         switch itemPolicy {
         case .mergePreservingExistingOrder:
@@ -977,7 +1005,7 @@ private extension CanonicalStateReducer {
                 existing: current.itemOrder,
                 incoming: incoming.itemOrder + items.map { $0.key.itemID }
             )
-        case .mergeIncomingFirst:
+        case .mergeIncomingFirst, .historyPage:
             current.itemOrder = mergeOrder(
                 existing: (incoming.itemOrder + items.map { $0.key.itemID }).removingDuplicates(),
                 incoming: current.itemOrder
@@ -1002,6 +1030,7 @@ private extension CanonicalStateReducer {
         for item in items where item.key.turnKey == incoming.key {
             mergeItem(
                 item,
+                preservingCompleted: isHistoryPage,
                 revision: revision,
                 graph: &graph,
                 changes: &changes
@@ -1074,12 +1103,21 @@ private extension CanonicalStateReducer {
 private extension CanonicalStateReducer {
     mutating func mergeItem(
         _ incoming: CanonicalItem,
+        preservingCompleted: Bool = false,
         revision: StateRevision,
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
     ) {
         switch incoming.authority {
         case .completed:
+            if preservingCompleted,
+               graph.items[incoming.key]?.authority == .completed
+            {
+                // Core persists before listener delivery, but its SQLite
+                // projection may lag. Once the live wire completed an item,
+                // an overlapping history row can only be equal or older.
+                return
+            }
             completeItem(
                 incoming,
                 authoritativePayload: incoming.consistency == .authoritative,
