@@ -507,7 +507,6 @@ public actor CodexSession:
         let startRevision: StateRevision
         let submissionIntentID: SubmissionIntentID?
         let resumeHistoryReason: ThreadLeaseReason?
-        let completingOperationKey: CodexOperationKey?
         let outboundToken: UInt64
         let reducesResponse: Bool
         var writeAttempted: Bool
@@ -567,7 +566,9 @@ public actor CodexSession:
     private var serverRequestThreadLeases: [CodexServerRequestKey: ThreadLeaseToken] = [:]
     private var leases = ThreadLeaseRegistry()
     private var history = PaginatedHistoryCoordinator()
-    private var operations = CodexOperationRegistry()
+    private var diagnostics = CodexProtocolDiagnosticRing()
+    private var commandOutputs = CodexCommandOutputRouter()
+    private var skillsChanges = CodexSkillsChangeObserverHub()
 
     public private(set) var lifecycle: CodexSessionLifecycle = .stopped {
         didSet {
@@ -722,8 +723,7 @@ public actor CodexSession:
         method: CodexAppServerClientMethod,
         params: CodexJSONValue?,
         submissionIntent: SubmissionIntent? = nil,
-        resumeHistoryReason: ThreadLeaseReason? = nil,
-        completingOperationKey: CodexOperationKey? = nil
+        resumeHistoryReason: ThreadLeaseReason? = nil
     ) async throws -> CodexSessionCallResult {
         guard case .ready(let epoch) = lifecycle,
               activeConnectionEpoch == epoch else {
@@ -735,7 +735,6 @@ public actor CodexSession:
             connectionEpoch: epoch,
             submissionIntent: submissionIntent,
             resumeHistoryReason: resumeHistoryReason,
-            completingOperationKey: completingOperationKey,
             isHandshake: false
         )
     }
@@ -866,31 +865,52 @@ public actor CodexSession:
         interactions.parsedRequest(for: key)
     }
 
-    /// Registers an exact, epoch-scoped auxiliary-operation channel. Call this
-    /// before sending the request that starts the operation.
-    public func operationChannel(
-        for correlation: CodexOperationCorrelation,
-        lifetime: CodexOperationChannelLifetime = .untilTerminal
-    ) throws -> CodexOperationChannel {
+    /// Observes coalesced global skill invalidations for this connection.
+    public func observeSkillsChanges() throws -> AsyncThrowingStream<
+        CodexSchemaSkillsChangedNotification,
+        Error
+    > {
         guard case .ready(let epoch) = lifecycle,
               activeConnectionEpoch == epoch else {
             throw CodexSessionError.notReady(lifecycle)
         }
-        return operations.register(
-            key: .init(connectionEpoch: epoch, correlation: correlation),
-            lifetime: lifetime,
+        let observation = skillsChanges.observe(
+            connectionEpoch: epoch,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelSkillsChangeObservation(id) }
+            }
+        )
+        return observation.changes
+    }
+
+    func cancelSkillsChangeObservation(_ id: CodexSkillsChangeObservationID) {
+        _ = skillsChanges.cancel(id)
+    }
+
+    func registerCommandOutput(
+        processID: String,
+        maximumDeltaCount: Int
+    ) throws -> CodexCommandOutputSubscription {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        return try commandOutputs.register(
+            connectionEpoch: epoch,
+            processID: processID,
+            maximumDeltaCount: maximumDeltaCount,
             onTermination: { [weak self] token in
-                Task { await self?.cancelOperationChannel(token) }
+                Task { await self?.cancelCommandOutput(token) }
             }
         )
     }
 
-    public func cancelOperationChannel(_ token: CodexOperationChannelToken) {
-        _ = operations.cancel(token)
+    func cancelCommandOutput(_ token: CodexCommandOutputSubscriptionToken) {
+        _ = commandOutputs.cancel(token)
     }
 
     public func operationDiagnostics() -> CodexOperationDiagnosticsSnapshot {
-        operations.diagnostics()
+        diagnostics.snapshot()
     }
 
     public func resolveServerRequest(
@@ -1582,7 +1602,8 @@ private extension CodexSession {
         }
         historyRequestTasks.removeAll(keepingCapacity: true)
         scheduleHistoryEffects(history.connectionLost(epoch))
-        _ = operations.disconnect(connectionEpoch: epoch)
+        _ = commandOutputs.disconnect(connectionEpoch: epoch)
+        _ = skillsChanges.disconnect(connectionEpoch: epoch)
         sealLoginAttempts(connectionEpoch: epoch, error: error)
         for threadID in Array(historyWaiters.keys) {
             failHistoryWaiters(
@@ -1642,7 +1663,6 @@ private extension CodexSession {
         connectionEpoch: UInt64,
         submissionIntent: SubmissionIntent?,
         resumeHistoryReason: ThreadLeaseReason? = nil,
-        completingOperationKey: CodexOperationKey? = nil,
         isHandshake: Bool,
         reducesResponse: Bool = true
     ) async throws -> CodexSessionCallResult {
@@ -1680,7 +1700,6 @@ private extension CodexSession {
                     startRevision: startRevision,
                     submissionIntentID: submissionIntent?.id,
                     resumeHistoryReason: resumeHistoryReason,
-                    completingOperationKey: completingOperationKey,
                     outboundToken: outboundToken,
                     reducesResponse: reducesResponse,
                     writeAttempted: false,
@@ -1814,9 +1833,7 @@ private extension CodexSession {
         } else {
             pendingClientRequests.removeValue(forKey: key)
             outboundFrames.removeAll { $0.token == pending.outboundToken }
-            if let operationKey = pending.completingOperationKey {
-                _ = operations.finish(key: operationKey)
-            }
+            finishCommandOutput(for: pending)
             if handshakeRequestKey == key {
                 handshakeRequestKey = nil
             }
@@ -1827,6 +1844,18 @@ private extension CodexSession {
                 ))
             }
         }
+    }
+
+    private func finishCommandOutput(for pending: PendingClientRequest) {
+        guard pending.context.method == .commandExec,
+              case .string(let processID)? = pending.context
+                .requestParams["processId"] else {
+            return
+        }
+        _ = commandOutputs.finish(
+            connectionEpoch: pending.key.connectionEpoch,
+            processID: processID
+        )
     }
 
     func allocateClientRequestID() throws -> CodexJSONRPCID {
@@ -1942,7 +1971,7 @@ private extension CodexSession {
             id: response.id
         )
         guard let pending = pendingClientRequests.removeValue(forKey: key) else {
-            operations.recordDiagnostic(
+            diagnostics.record(
                 kind: .unmatchedResponse,
                 method: "jsonrpc/response",
                 cursor: cursor,
@@ -1956,6 +1985,7 @@ private extension CodexSession {
         if handshakeRequestKey == key {
             handshakeRequestKey = nil
         }
+        finishCommandOutput(for: pending)
 
         switch response.outcome {
         case .result(let result):
@@ -1997,9 +2027,6 @@ private extension CodexSession {
                         releaseThreadLease(abandoned)
                     }
                 }
-                if let operationKey = pending.completingOperationKey {
-                    _ = operations.finish(key: operationKey)
-                }
                 pending.continuation?.resume(returning: .init(
                     value: result,
                     startRevision: pending.startRevision,
@@ -2008,9 +2035,6 @@ private extension CodexSession {
                     threadLeaseToken: threadLeaseToken
                 ))
             } catch {
-                if let operationKey = pending.completingOperationKey {
-                    _ = operations.finish(key: operationKey)
-                }
                 pending.continuation?.resume(throwing: error)
                 abortConnection(
                     cursor.connectionEpoch,
@@ -2019,9 +2043,6 @@ private extension CodexSession {
             }
 
         case .error(let error):
-            if let operationKey = pending.completingOperationKey {
-                _ = operations.finish(key: operationKey)
-            }
             if let intentID = pending.submissionIntentID {
                 try? commit(.submissionIntentFailed(
                     id: intentID,
@@ -2045,24 +2066,63 @@ private extension CodexSession {
             let knownMethod = CodexAppServerNotificationMethod(
                 rawValue: notification.method
             )
-            if let knownMethod,
-               CodexOperationRegistry.supports(knownMethod) {
-                let result = try operations.ingest(
-                    method: knownMethod,
-                    params: notification.params,
-                    cursor: cursor
-                )
-                if case .accountLoginCompleted(let completion) = result.event.payload {
+            if let knownMethod {
+                switch knownMethod {
+                case .commandExecOutputDelta:
+                    let output = try notification.params.decode(
+                        CodexSchemaCommandExecOutputDeltaNotification.self
+                    )
+                    switch commandOutputs.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        notification: output
+                    ) {
+                    case .delivered:
+                        break
+                    case .unmatched(let key):
+                        diagnostics.record(
+                            kind: .unmatchedOperation,
+                            method: notification.method,
+                            cursor: cursor,
+                            keyDescription: "epoch=\(key.connectionEpoch),commandExec(process=\(key.processID))"
+                        )
+                        try commitSessionInvalidation(fields: .diagnostics)
+                    case .overflowed(let key):
+                        diagnostics.record(
+                            kind: .bufferOverflow,
+                            method: notification.method,
+                            cursor: cursor,
+                            keyDescription: "epoch=\(key.connectionEpoch),commandExec(process=\(key.processID))",
+                            detail: "Command output delta buffer overflowed"
+                        )
+                        try commitSessionInvalidation(fields: .diagnostics)
+                    }
+
+                case .skillsChanged:
+                    let change = try notification.params.decode(
+                        CodexSchemaSkillsChangedNotification.self
+                    )
+                    _ = skillsChanges.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        notification: change
+                    )
+
+                case .accountLoginCompleted:
+                    let completion = try notification.params.decode(
+                        CodexSchemaAccountLoginCompletedNotification.self
+                    )
                     recordLoginCompletion(
                         completion,
                         connectionEpoch: cursor.connectionEpoch
                     )
+
+                default:
+                    break
                 }
             }
 
             switch adaptation.disposition {
             case .diagnostic:
-                operations.recordDiagnostic(
+                diagnostics.record(
                     kind: .warning,
                     method: notification.method,
                     cursor: cursor,
@@ -2070,7 +2130,7 @@ private extension CodexSession {
                 )
                 try commitSessionInvalidation(fields: .diagnostics)
             case .unknownMethod:
-                operations.recordDiagnostic(
+                diagnostics.record(
                     kind: .unknownMethod,
                     method: notification.method,
                     cursor: cursor,
@@ -2475,7 +2535,7 @@ private extension CodexSession {
         // until that response actually crosses the transport boundary.
         discardQueuedServerResponse(for: key)
         guard let pending = interactions.parsedRequest(for: key) else {
-            operations.recordDiagnostic(
+            diagnostics.record(
                 kind: .lateServerRequestResolution,
                 method: notification.method,
                 cursor: cursor,
@@ -2486,7 +2546,7 @@ private extension CodexSession {
             return
         }
         if pending.registration.scope.threadID != resolved.threadID {
-            operations.recordDiagnostic(
+            diagnostics.record(
                 kind: .lateServerRequestResolution,
                 method: notification.method,
                 cursor: cursor,

@@ -89,7 +89,7 @@ public enum CodexCommandExecSessionError: Error, Sendable, Equatable, LocalizedE
 
 /// A session-backed streaming `command/exec` operation.
 ///
-/// The handle consumes only its exact epoch/process operation channel. It never
+/// The handle consumes only its exact epoch/process output stream. It never
 /// observes the legacy raw notification router or owns a transport connection.
 public actor CodexCommandExecSession {
     public static let maximumBufferedOutputDeltaCount = 512
@@ -103,24 +103,24 @@ public actor CodexCommandExecSession {
     public private(set) var result: CodexCommandExecResult?
 
     private let session: CodexSession
-    private let operationChannel: CodexOperationChannel
+    private let outputSubscription: CodexCommandOutputSubscription
     private let outputContinuation: AsyncStream<PTYDelta>.Continuation
     private let completionContinuation: AsyncThrowingStream<CodexCommandExecResult, Error>.Continuation
 
     private var requestTask: Task<Void, Never>?
     private var outputPumpTask: Task<Void, Never>?
     private var requestOutcome: Result<CodexCommandExecResult, Error>?
-    private var operationStreamEnded = false
+    private var routedOutputStreamEnded = false
     private var completionError: Error?
 
     init(
         processID: String,
         session: CodexSession,
-        operationChannel: CodexOperationChannel
+        outputSubscription: CodexCommandOutputSubscription
     ) {
         self.processID = processID
         self.session = session
-        self.operationChannel = operationChannel
+        self.outputSubscription = outputSubscription
 
         let outputPair = AsyncStream<PTYDelta>.makeStream(
             bufferingPolicy: .bufferingOldest(Self.maximumBufferedOutputDeltaCount)
@@ -144,15 +144,12 @@ public actor CodexCommandExecSession {
 
     func start(_ params: CodexSchemaCommandExecParams) {
         precondition(requestTask == nil && outputPumpTask == nil)
-        let channel = operationChannel
+        let subscription = outputSubscription
         let session = session
 
         outputPumpTask = Task { [weak self] in
             do {
-                for try await event in channel.events {
-                    guard case .commandExecOutputDelta(let value) = event.payload else {
-                        continue
-                    }
+                for try await value in subscription.deltas {
                     guard let delta = PTYDelta(
                         streamName: value.stream.rawValue,
                         base64Data: value.deltaBase64,
@@ -161,8 +158,8 @@ public actor CodexCommandExecSession {
                         continue
                     }
                     guard await self?.publish(delta) == true else {
-                        await session.cancelOperationChannel(channel.token)
-                        await self?.operationPumpFailed(
+                        await session.cancelCommandOutput(subscription.token)
+                        await self?.outputPumpFailed(
                             CodexCommandExecSessionError.outputBufferOverflow(
                                 maximumBufferedDeltaCount:
                                     Self.maximumBufferedOutputDeltaCount
@@ -171,25 +168,29 @@ public actor CodexCommandExecSession {
                         return
                     }
                 }
-                await self?.operationPumpEnded()
+                await self?.outputPumpEnded()
+            } catch CodexCommandOutputRouterError.bufferOverflow {
+                await self?.outputPumpFailed(
+                    CodexCommandExecSessionError.outputBufferOverflow(
+                        maximumBufferedDeltaCount:
+                            Self.maximumBufferedOutputDeltaCount
+                    )
+                )
             } catch {
-                await self?.operationPumpFailed(error)
+                await self?.outputPumpFailed(error)
             }
         }
 
         requestTask = Task { [weak self] in
             do {
-                let response = try await session.performCommandExec(
-                    params,
-                    completing: channel.key
-                )
+                let response = try await session.performCommandExec(params)
                 let result = try CodexCommandExecResult(response: response)
                 await self?.requestEnded(.success(result))
             } catch {
                 // Pre-write cancellation/encoding failures have no response to
-                // close the channel. This is an idempotent no-op after a normal
+                // close the output stream. This is an idempotent no-op after a normal
                 // response-side finish.
-                await session.cancelOperationChannel(channel.token)
+                await session.cancelCommandOutput(subscription.token)
                 await self?.requestEnded(.failure(error))
             }
         }
@@ -256,21 +257,21 @@ private extension CodexCommandExecSession {
         finishIfReady()
     }
 
-    func operationPumpEnded() {
-        operationStreamEnded = true
+    func outputPumpEnded() {
+        routedOutputStreamEnded = true
         finishIfReady()
     }
 
-    func operationPumpFailed(_ error: Error) {
+    func outputPumpFailed(_ error: Error) {
         guard !hasCompleted else { return }
         completionError = error
-        operationStreamEnded = true
+        routedOutputStreamEnded = true
         requestTask?.cancel()
         finishFailure(error)
     }
 
     func finishIfReady() {
-        guard !hasCompleted, operationStreamEnded, let requestOutcome else { return }
+        guard !hasCompleted, routedOutputStreamEnded, let requestOutcome else { return }
         switch requestOutcome {
         case .success(let result):
             hasCompleted = true
@@ -313,27 +314,25 @@ public extension CodexSession {
         params.streamStdoutStderr = true
         _ = try CodexJSONValue(encoding: params)
 
-        let channel = try operationChannel(
-            for: .commandExec(processID: processID),
-            lifetime: .explicit
+        let subscription = try registerCommandOutput(
+            processID: processID,
+            maximumDeltaCount: CodexCommandExecSession.maximumBufferedOutputDeltaCount
         )
         let handle = CodexCommandExecSession(
             processID: processID,
             session: self,
-            operationChannel: channel
+            outputSubscription: subscription
         )
         await handle.start(params)
         return handle
     }
 
     func performCommandExec(
-        _ params: CodexSchemaCommandExecParams,
-        completing operationKey: CodexOperationKey
+        _ params: CodexSchemaCommandExecParams
     ) async throws -> CodexSchemaCommandExecResponse {
         let call = try await performCall(
             method: .commandExec,
-            params: try CodexJSONValue(encoding: params),
-            completingOperationKey: operationKey
+            params: try CodexJSONValue(encoding: params)
         )
         return try call.value.decode(CodexSchemaCommandExecResponse.self)
     }

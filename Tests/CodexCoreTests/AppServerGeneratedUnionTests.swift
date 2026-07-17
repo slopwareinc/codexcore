@@ -118,11 +118,6 @@ final class AppServerGeneratedUnionTests: XCTestCase {
             )
         )
         XCTAssertEqual(notification.status, .unrecognized("reconnecting"))
-        XCTAssertFalse(
-            CodexOperationEventPayload
-                .mcpServerStartupStatusUpdated(notification)
-                .isTerminal
-        )
         XCTAssertEqual(
             try decoder.decode(
                 CodexSchemaMCPServerStatusUpdatedNotification.self,

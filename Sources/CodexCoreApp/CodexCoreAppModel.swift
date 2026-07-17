@@ -665,18 +665,14 @@ final class CodexCoreAppModel {
         skillsChangedObservationGeneration &+= 1
         let generation = skillsChangedObservationGeneration
         do {
-            let channel = try await session.operationChannel(for: .skills, lifetime: .explicit)
+            let changes = try await session.observeSkillsChanges()
             skillsChangedObservationTask = Task { [weak self] in
-                defer {
-                    Task { await session.cancelOperationChannel(channel.token) }
-                }
                 do {
-                    for try await event in channel.events {
+                    for try await _ in changes {
                         guard !Task.isCancelled,
                               let self,
                               skillsChangedObservationGeneration == generation
                         else { return }
-                        guard case .skillsChanged = event.payload else { continue }
                         await refreshSlashCommands(forceReload: true)
                     }
                 } catch is CancellationError {

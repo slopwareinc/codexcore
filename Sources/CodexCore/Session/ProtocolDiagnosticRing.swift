@@ -1,5 +1,92 @@
 import Foundation
 
+public enum CodexOperationDiagnosticKind: Sendable, Hashable {
+    case warning
+    case unknownMethod
+    case unmatchedOperation
+    case unmatchedResponse
+    case lateServerRequestResolution
+    case malformedOperation
+    case bufferOverflow
+}
+
+public enum CodexDiagnosticSeverity: String, Codable, Sendable, Hashable {
+    case info
+    case warning
+    case error
+}
+
+/// Bounded metadata for a protocol frame that could not be applied normally.
+/// Raw notification parameters are deliberately never retained here.
+public struct CodexOperationDiagnostic: Sendable, Equatable {
+    public let cursor: CodexWireCursor
+    public let kind: CodexOperationDiagnosticKind
+    public let severity: CodexDiagnosticSeverity
+    public let method: String
+    public let threadID: ThreadID?
+    public let keyDescription: String?
+    public let detail: String?
+    public let content: CodexProtocolDiagnosticContent?
+
+    public var id: CodexWireCursor { cursor }
+
+    public init(
+        cursor: CodexWireCursor,
+        kind: CodexOperationDiagnosticKind,
+        severity: CodexDiagnosticSeverity? = nil,
+        method: String,
+        threadID: ThreadID? = nil,
+        keyDescription: String? = nil,
+        detail: String? = nil,
+        content: CodexProtocolDiagnosticContent? = nil
+    ) {
+        self.cursor = cursor
+        self.kind = kind
+        self.severity = severity ?? kind.defaultSeverity
+        self.method = method
+        self.threadID = threadID
+        self.keyDescription = keyDescription
+        self.detail = detail
+        self.content = content
+    }
+}
+
+public struct CodexOperationDiagnosticsSnapshot: Sendable, Equatable {
+    public let entries: [CodexOperationDiagnostic]
+    public let totalRecordedCount: UInt64
+    public let evictedCount: UInt64
+
+    public init(
+        entries: [CodexOperationDiagnostic],
+        totalRecordedCount: UInt64,
+        evictedCount: UInt64
+    ) {
+        self.entries = entries
+        self.totalRecordedCount = totalRecordedCount
+        self.evictedCount = evictedCount
+    }
+
+    public static let empty = Self(
+        entries: [],
+        totalRecordedCount: 0,
+        evictedCount: 0
+    )
+}
+
+private extension CodexOperationDiagnosticKind {
+    var defaultSeverity: CodexDiagnosticSeverity {
+        switch self {
+        case .warning:
+            .warning
+        case .malformedOperation, .bufferOverflow:
+            .error
+        case .unknownMethod, .unmatchedOperation, .unmatchedResponse,
+             .lateServerRequestResolution:
+            .info
+        }
+    }
+}
+
 /// Bounded, sanitized diagnostics owned synchronously by `CodexSession`.
 /// Raw protocol parameters never enter this ring.
 struct CodexProtocolDiagnosticRing {
