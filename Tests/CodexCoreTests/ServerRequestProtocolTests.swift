@@ -302,7 +302,7 @@ final class ServerRequestProtocolTests: XCTestCase {
         )
     }
 
-    func testMissingRequiredRequestFieldFailsBeforeLedgerRegistration() {
+    func testMissingRequiredRequestFieldFailsBeforeInboxAdmission() {
         XCTAssertThrowsError(try CodexServerRequestParser.parse(
             connectionEpoch: 1,
             id: .integerFixture,

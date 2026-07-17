@@ -792,7 +792,7 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
-    func testServerResolvedRejectsMissingOrMismatchedThreadScope() async throws {
+    func testServerResolvedRejectsMissingThreadScopeButDiagnosesMismatch() async throws {
         try await assertServerResolvedRejected(
             requestID: "missing-thread",
             params: ["requestId": .string("missing-thread")]
@@ -804,16 +804,37 @@ final class CodexSessionOrderingTests: XCTestCase {
                 "requestId": .string("null-thread"),
             ]
         )
-        try await assertServerResolvedRejected(
-            requestID: "wrong-thread",
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        try await transport.sendServerRequest(
+            id: .string("wrong-thread"),
+            method: CodexServerRequestKind.fileChangeApproval.method,
+            params: Self.fileApprovalParams(itemID: "wrong-thread")
+        )
+        try await waitUntil { await session.pendingServerRequests().count == 1 }
+        try await transport.sendNotification(
+            method: CodexAppServerNotificationMethod.serverRequestResolved.rawValue,
             params: [
                 "threadId": .string("different-thread"),
                 "requestId": .string("wrong-thread"),
             ]
         )
+        try await waitUntil { await session.pendingServerRequests().isEmpty }
+        let mismatchLifecycle = await session.lifecycle
+        let mismatchDiagnostics = await session.operationDiagnostics()
+        XCTAssertEqual(mismatchLifecycle, .ready(connectionEpoch: 1))
+        XCTAssertEqual(
+            mismatchDiagnostics.entries.last?.kind,
+            .lateServerRequestResolution
+        )
+        await session.stop()
     }
 
-    func testServerResolvedRejectsMissingInvalidOrUnknownRequestID() async throws {
+    func testServerResolvedRejectsMalformedRequestIDButDiagnosesUnknown() async throws {
         try await assertServerResolvedRejected(
             requestID: "missing-request-id",
             params: ["threadId": .string(Self.threadID.rawValue)]
@@ -834,13 +855,36 @@ final class CodexSessionOrderingTests: XCTestCase {
                 ]
             )
         }
-        try await assertServerResolvedRejected(
-            requestID: "known-request-id",
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        try await transport.sendServerRequest(
+            id: .string("known-request-id"),
+            method: CodexServerRequestKind.fileChangeApproval.method,
+            params: Self.fileApprovalParams(itemID: "known-request-id")
+        )
+        try await waitUntil { await session.pendingServerRequests().count == 1 }
+        try await transport.sendNotification(
+            method: CodexAppServerNotificationMethod.serverRequestResolved.rawValue,
             params: [
                 "threadId": .string(Self.threadID.rawValue),
                 "requestId": .string("unknown-request-id"),
             ]
         )
+        try await waitUntil { await session.operationDiagnostics().entries.count == 1 }
+        let unknownLifecycle = await session.lifecycle
+        let unknownPending = await session.pendingServerRequests()
+        let unknownDiagnostics = await session.operationDiagnostics()
+        XCTAssertEqual(unknownLifecycle, .ready(connectionEpoch: 1))
+        XCTAssertEqual(unknownPending.count, 1)
+        XCTAssertEqual(
+            unknownDiagnostics.entries.first?.kind,
+            .lateServerRequestResolution
+        )
+        await session.stop()
     }
 
     func testCallerCancellationStillLetsWrittenResponseUpdateCanonicalState() async throws {

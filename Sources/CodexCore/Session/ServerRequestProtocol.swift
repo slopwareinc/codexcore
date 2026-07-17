@@ -10,7 +10,7 @@ public struct CodexParsedServerRequest: Sendable, Equatable {
     public let key: CodexServerRequestKey
     public let body: CodexServerRequestBody
     /// Additive fields not known by the pinned schema. They are retained for
-    /// diagnostics and future adapters but never enter the sanitized ledger.
+    /// diagnostics and future adapters but never enter sanitized snapshots.
     public let unknownFields: [String: CodexJSONValue]
 
     public init(

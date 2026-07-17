@@ -4,7 +4,7 @@ import Foundation
 ///
 /// JSON-RPC permits string and integer identifiers. They are deliberately
 /// represented as different enum cases: the wire identifiers `7` and `"7"`
-/// name different requests and must never collide in the request ledger.
+/// name different requests and must never collide in the pending inbox.
 public enum CodexServerRequestID: Hashable, Sendable, Codable, CustomStringConvertible {
     case integer(Int64)
     case string(String)

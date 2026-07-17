@@ -1,7 +1,7 @@
 import Foundation
 
 /// Revisioned pending-only view used by atomic session-state projections.
-public struct CodexServerRequestSnapshotBatch: Sendable, Equatable {
+public struct CodexPendingInteractionSnapshotBatch: Sendable, Equatable {
     public let revision: StateRevision
     public let requests: [CodexPendingInteractionSnapshot]
 
@@ -16,7 +16,7 @@ public struct CodexServerRequestSnapshotBatch: Sendable, Equatable {
 
 /// Atomic, presentation-safe view of the server requests currently awaiting a
 /// client response. The revision belongs to the session state journal, so an
-/// empty snapshot after a terminal transition is distinguishable from an old
+/// empty snapshot after a request is removed is distinguishable from an old
 /// empty snapshot captured before a request arrived.
 public struct CodexServerRequestInboxSnapshot: Sendable, Equatable {
     public let revision: StateRevision

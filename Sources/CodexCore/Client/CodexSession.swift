@@ -298,13 +298,13 @@ public enum CodexLoginTransaction: Sendable {
 public struct CodexSessionStateSnapshot: Sendable, Equatable {
     public let stateRevision: StateRevision
     public let canonical: CanonicalStateSnapshot
-    public let serverRequests: CodexServerRequestSnapshotBatch
+    public let serverRequests: CodexPendingInteractionSnapshotBatch
     public let lifecycle: CodexSessionLifecycle
 
     public init(
         stateRevision: StateRevision,
         canonical: CanonicalStateSnapshot,
-        serverRequests: CodexServerRequestSnapshotBatch,
+        serverRequests: CodexPendingInteractionSnapshotBatch,
         lifecycle: CodexSessionLifecycle
     ) {
         self.stateRevision = stateRevision
@@ -809,7 +809,7 @@ public actor CodexSession:
 
     public func serverRequestSnapshotBatch(
         scope: StateObservationScope = .all
-    ) -> CodexServerRequestSnapshotBatch {
+    ) -> CodexPendingInteractionSnapshotBatch {
         .init(
             revision: graph.revision,
             requests: scopedServerRequests(scope: scope)
@@ -826,7 +826,7 @@ public actor CodexSession:
     }
 
     /// Atomically captures the typed prompt inbox and a wake-up stream filtered
-    /// to request-ledger transactions only. Consumers use the ordinary session
+    /// to pending-interaction changes only. Consumers use the ordinary session
     /// `catchUp` API after a signal, then fetch a fresh inbox snapshot.
     public func observeServerRequests(
         entities: StateEntityScope = .all
@@ -2470,6 +2470,10 @@ private extension CodexSession {
             connectionEpoch: cursor.connectionEpoch,
             requestID: id
         )
+        // A local reply may already have left the pending inbox while still
+        // waiting behind another transport write. The server's resolution wins
+        // until that response actually crosses the transport boundary.
+        discardQueuedServerResponse(for: key)
         guard let pending = interactions.parsedRequest(for: key) else {
             operations.recordDiagnostic(
                 kind: .lateServerRequestResolution,
@@ -2491,7 +2495,6 @@ private extension CodexSession {
             )
             try? commitSessionInvalidation(fields: .diagnostics)
         }
-        discardQueuedServerResponse(for: key)
         guard let removed = interactions.takeOnServerResolved(key) else { return }
         try commitRequestInvalidation(scope: removed.registration.scope)
         serverRequestTasks.removeValue(forKey: key)?.cancel()

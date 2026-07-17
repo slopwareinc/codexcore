@@ -36,9 +36,9 @@ public struct CodexCanonicalTranscriptPresentation: Sendable, Equatable {
     }
 }
 
-/// Continuation-free request presentation. The request ledger remains the
-/// source of truth; this value only supplies stable placement and copy to the
-/// transcript renderer.
+/// Continuation-free request presentation. The pending interaction inbox is
+/// the source of truth; this value only supplies stable placement and copy to
+/// the transcript renderer.
 public struct CodexTranscriptRequestPresentation: Identifiable, Sendable, Equatable {
     public var id: CodexServerRequestKey
     public var kind: CodexServerRequestKind

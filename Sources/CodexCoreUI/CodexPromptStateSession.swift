@@ -11,7 +11,7 @@ public struct CodexPromptStateActivity: Equatable, Sendable {
     }
 }
 
-/// Disposable MainActor-facing projection of the request ledger inbox.
+/// Disposable MainActor-facing projection of the pending interaction inbox.
 ///
 /// This module owns presentation timestamps and request-card derivation only.
 /// Request lifecycle, response capability, and terminal arbitration remain in

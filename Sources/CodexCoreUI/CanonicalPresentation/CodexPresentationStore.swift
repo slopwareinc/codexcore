@@ -152,12 +152,12 @@ public final class CodexPresentationStore {
     @ObservationIgnored private var localStateByThreadID: [ThreadID: CodexThreadPresentationLocalState] = [:]
     @ObservationIgnored private var leastToMostRecentThreadIDs: [ThreadID] = []
     @ObservationIgnored private var latestSnapshot: CanonicalStateSnapshot?
-    @ObservationIgnored private var latestRequestBatch = CodexServerRequestSnapshotBatch(
+    @ObservationIgnored private var latestRequestBatch = CodexPendingInteractionSnapshotBatch(
         revision: .zero,
         requests: []
     )
     @ObservationIgnored private var pendingSnapshot: CanonicalStateSnapshot?
-    @ObservationIgnored private var pendingRequestBatch = CodexServerRequestSnapshotBatch(
+    @ObservationIgnored private var pendingRequestBatch = CodexPendingInteractionSnapshotBatch(
         revision: .zero,
         requests: []
     )
@@ -474,7 +474,7 @@ private extension CodexPresentationStore {
     struct ProjectionJob: Sendable {
         var threadID: ThreadID
         var snapshot: CanonicalStateSnapshot
-        var requestBatch: CodexServerRequestSnapshotBatch
+        var requestBatch: CodexPendingInteractionSnapshotBatch
         var previous: CodexCanonicalTranscriptPresentation?
     }
 
