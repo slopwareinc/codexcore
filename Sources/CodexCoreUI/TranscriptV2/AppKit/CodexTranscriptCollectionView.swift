@@ -85,6 +85,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var retryRevision = 0
         private var contentHorizontalOffset: CGFloat = 0
         private var projectionTask: Task<Void, Never>?
+        private var reflowDebounceTask: Task<Void, Never>?
         private var scrollRestorationTask: Task<Void, Never>?
         private var selectedItemIDs: Set<CodexTranscriptRenderItemID> = []
         private var isRestoringScroll = false
@@ -172,6 +173,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
             projectionTask?.cancel()
             projectionTask = nil
+            reflowDebounceTask?.cancel()
+            reflowDebounceTask = nil
             scrollRestorationTask?.cancel()
             scrollRestorationTask = nil
             isRestoringScroll = false
@@ -181,6 +184,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         }
 
         func waitForProjectionForTesting() async {
+            await reflowDebounceTask?.value
             await projectionTask?.value
         }
 
@@ -482,7 +486,20 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private func widthDidChange(_ width: CGFloat) {
             guard abs(width - lastProjectedWidth) > 1 else { return }
             container?.collectionView.collectionViewLayout?.invalidateLayout()
-            requestProjection(width: max(width, 320))
+            guard lastProjectedWidth > 0 else {
+                requestProjection(width: max(width, 320))
+                return
+            }
+            // Interactive resizes (window drag, pane drag) emit a width per frame;
+            // cells stretch at their cached measurements immediately, while the
+            // full re-measure/projection waits until the width settles.
+            reflowDebounceTask?.cancel()
+            reflowDebounceTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(90))
+                guard !Task.isCancelled, let self else { return }
+                let settled = max(self.container?.scrollView.contentSize.width ?? width, 320)
+                self.requestProjection(width: settled)
+            }
         }
 
         @objc private func clipViewBoundsChanged() {
