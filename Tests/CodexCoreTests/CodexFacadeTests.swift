@@ -64,7 +64,8 @@ final class CodexFacadeTests: XCTestCase {
     }
 
     func testFacadeOwnsOneSessionAndForcesIsolatedAlphaHandshake() async throws {
-        let home = CodexHome(path: "/tmp/codexcore-facade-test")
+        let home = makeTestHome("facade")
+        defer { try? FileManager.default.removeItem(atPath: home.path) }
         let transport = CodexFacadeTestTransport(reportedHome: home.path)
         let config = CodexConfig(
             codexHome: home,
@@ -102,8 +103,10 @@ final class CodexFacadeTests: XCTestCase {
     }
 
     func testFacadeRejectsServerUsingAnotherCodexHome() async throws {
-        let expected = CodexHome(path: "/tmp/codexcore-expected-home")
-        let transport = CodexFacadeTestTransport(reportedHome: "/tmp/normal-codex-home")
+        let expected = makeTestHome("expected")
+        defer { try? FileManager.default.removeItem(atPath: expected.path) }
+        let reported = makeTestHome("reported")
+        let transport = CodexFacadeTestTransport(reportedHome: reported.path)
 
         do {
             _ = try await Codex(
@@ -116,7 +119,7 @@ final class CodexFacadeTests: XCTestCase {
                 return XCTFail("Unexpected error: \(error)")
             }
             XCTAssertEqual(actualExpected, expected.path)
-            XCTAssertEqual(actual, "/tmp/normal-codex-home")
+            XCTAssertEqual(actual, reported.path)
         }
 
         let closeCount = await transport.closeCount
@@ -124,7 +127,8 @@ final class CodexFacadeTests: XCTestCase {
     }
 
     func testFacadeRetriesSessionWireOverloadWithoutLegacyConnectionMapping() async throws {
-        let home = CodexHome(path: "/tmp/codexcore-retry-test")
+        let home = makeTestHome("retry")
+        defer { try? FileManager.default.removeItem(atPath: home.path) }
         let method = CodexAppServerClientMethod.accountRateLimitsRead.rawValue
         let transport = CodexFacadeTestTransport(
             reportedHome: home.path,
@@ -146,6 +150,18 @@ final class CodexFacadeTests: XCTestCase {
         let requestCount = await transport.writeCount(method: method)
         XCTAssertEqual(requestCount, 2)
         await codex.close()
+    }
+
+    private func makeTestHome(_ label: String) -> CodexHome {
+        let directory = URL(
+            fileURLWithPath: "/private/tmp",
+            isDirectory: true
+        )
+            .appendingPathComponent(
+                "codexcore-\(label)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        return CodexHome(path: directory.path)
     }
 }
 

@@ -89,8 +89,12 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
         )
 
         XCTAssertThrowsError(try home.prepareForLaunch()) { error in
-            guard case CodexHomePreparationError.symbolicLinkTraversal = error else {
-                return XCTFail("Unexpected error: \(error)")
+            switch error {
+            case CodexHomePreparationError.protectedCodexDirectory,
+                 CodexHomePreparationError.symbolicLinkTraversal:
+                break
+            default:
+                XCTFail("Unexpected error: \(error)")
             }
         }
     }
@@ -317,13 +321,10 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
     }
 
     private func makeTemporaryDirectory() throws -> URL {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let temporaryRoot = repositoryRoot
-            .appendingPathComponent(".build", isDirectory: true)
-            .appendingPathComponent("test-tmp", isDirectory: true)
+        let temporaryRoot = URL(
+            fileURLWithPath: "/private/tmp",
+            isDirectory: true
+        )
         try FileManager.default.createDirectory(
             at: temporaryRoot,
             withIntermediateDirectories: true

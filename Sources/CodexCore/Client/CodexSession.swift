@@ -1550,8 +1550,13 @@ private extension CodexSession {
         if let expectedHome = configuration.codexHome {
             let reportedHome = response.codexHome
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            // A path initialized before its final directory exists can acquire
+            // a different canonical spelling after `prepareForLaunch()` creates
+            // it (notably `/private/tmp` versus `/tmp` on macOS). Re-resolve both
+            // values at handshake time instead of comparing one stale spelling.
+            let currentExpectedHome = CodexHome(path: expectedHome.path)
             guard !reportedHome.isEmpty,
-                  CodexHome(path: reportedHome) == expectedHome else {
+                  CodexHome(path: reportedHome) == currentExpectedHome else {
                 throw CodexSessionError.codexHomeMismatch(
                     expected: expectedHome.path,
                     actual: response.codexHome

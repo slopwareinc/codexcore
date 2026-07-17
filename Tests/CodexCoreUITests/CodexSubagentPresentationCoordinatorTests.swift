@@ -6,8 +6,17 @@ import Testing
 @MainActor
 struct CodexSubagentPresentationCoordinatorTests {
     @Test func childLeaseSurvivesReconnectProjectsContentAndReleasesOnRemoval() async throws {
-        let transport = CoordinatorTestTransport()
-        let home = CodexHome(path: "/tmp/codexcore-subagent-coordinator-tests")
+        let homeURL = URL(
+            fileURLWithPath: "/private/tmp",
+            isDirectory: true
+        )
+            .appendingPathComponent(
+                "codexcore-subagent-coordinator-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
         let codex = try await Codex(
             transport: transport,
             config: .init(
@@ -56,9 +65,14 @@ private enum CoordinatorTestError: Error {
 }
 
 private actor CoordinatorTestTransport: CodexFrameTransport {
+    private let homePath: String
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var openCount = 0
     private(set) var resumeCount = 0
+
+    init(homePath: String) {
+        self.homePath = homePath
+    }
 
     func open() async throws -> AsyncThrowingStream<Data, Error> {
         guard continuation == nil else { throw CodexTransportError.connectionAlreadyOpen }
@@ -78,7 +92,7 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
         switch method {
         case "initialize":
             result = .dictionary([
-                "codexHome": .string("/tmp/codexcore-subagent-coordinator-tests"),
+                "codexHome": .string(homePath),
                 "platformFamily": .string("unix"),
                 "platformOs": .string("macos"),
                 "userAgent": .string("codex/0.145.0-alpha.20"),

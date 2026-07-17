@@ -183,8 +183,9 @@ public final class Codex: Sendable {
 
         let reportedPath = metadata.codexHome
         let trimmedPath = reportedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentExpectedHome = CodexHome(path: config.codexHome.path)
         guard !trimmedPath.isEmpty,
-              CodexHome(path: trimmedPath) == config.codexHome
+              CodexHome(path: trimmedPath) == currentExpectedHome
         else {
             await session.stop()
             throw CodexSDKError.codexHomeMismatch(
