@@ -25,7 +25,9 @@ struct CodexPresentationStoreTests {
 
         #expect(store.activeCanonicalPresentation?.sourceRevision == StateRevision(1))
         #expect(store.observedRevision == StateRevision(1))
-        #expect(store.diagnostics.observationResetCount == 0)
+        #expect(store.diagnostics.invalidSnapshotCount == 0)
+        let catchUpCalls = await source.catchUpCallCount()
+        #expect(catchUpCalls == 0)
     }
 
     @Test func coalescesStreamingChangesButFlushesTerminalTurnImmediately() async throws {
@@ -71,7 +73,7 @@ struct CodexPresentationStoreTests {
         #expect(store.activeCanonicalPresentation?.sourceRevision == StateRevision(4))
         #expect(store.activePresentation?.transcript.turns.first?.finalAnswer?.text == "Done")
         #expect(store.diagnostics.terminalFlushCount == 1)
-        #expect(store.diagnostics.receivedChangeSetCount == 3)
+        #expect(store.diagnostics.receivedSignalCount >= 2)
     }
 
     @Test func revisionedEmptyRequestBatchRemovesLastApproval() async throws {
@@ -157,6 +159,7 @@ private actor PresentationStateFixture: CodexSessionStateObserving {
     private var snapshot: CodexSessionStateSnapshot
     private let journal: StateChangeJournal
     private var queuedAfterObservation: (CodexSessionStateSnapshot, StateChangeSet)?
+    private var catchUpCalls = 0
 
     init(initial: CodexSessionStateSnapshot) {
         self.snapshot = initial
@@ -197,7 +200,8 @@ private actor PresentationStateFixture: CodexSessionStateObserving {
         observationID: StateObservationID,
         after revision: StateRevision
     ) -> StateCatchUp {
-        journal.catchUp(observationID: observationID, after: revision)
+        catchUpCalls += 1
+        return journal.catchUp(observationID: observationID, after: revision)
     }
 
     func cancelObservation(_ observationID: StateObservationID) {
@@ -214,6 +218,10 @@ private actor PresentationStateFixture: CodexSessionStateObserving {
         change: StateChangeSet
     ) {
         queuedAfterObservation = (snapshot, change)
+    }
+
+    func catchUpCallCount() -> Int {
+        catchUpCalls
     }
 
     private func scopedSnapshot(_ scope: StateObservationScope) -> CodexSessionStateSnapshot {

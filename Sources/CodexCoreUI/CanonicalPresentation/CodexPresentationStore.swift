@@ -4,35 +4,28 @@ import Observation
 
 /// A stateless seam between `CodexSession` and presentation projection.
 ///
-/// Every closure must forward to the same actor-owned canonical state journal.
-/// In particular, `observe` must return the journal's atomic seed/stream pair;
-/// this adapter must never take its own snapshot and then subscribe separately.
+/// Every closure must forward to the same actor-owned canonical state engine.
+/// In particular, `observe` must return its atomic seed/stream pair; this adapter
+/// must never take its own snapshot and then subscribe separately.
 public struct CodexPresentationStateAdapter: Sendable {
     public typealias Observe = @Sendable (
         StateObservationScope
     ) async -> StateObservation<CodexSessionStateSnapshot>
-    public typealias CatchUp = @Sendable (
-        StateObservationID,
-        StateRevision
-    ) async -> StateCatchUp
     public typealias Cancel = @Sendable (StateObservationID) async -> Void
     public typealias CurrentSnapshot = @Sendable (
         StateObservationScope
     ) async -> CodexSessionStateSnapshot
 
     private let observeClosure: Observe
-    private let catchUpClosure: CatchUp
     private let cancelClosure: Cancel
     private let currentSnapshotClosure: CurrentSnapshot
 
     public init(
         observe: @escaping Observe,
-        catchUp: @escaping CatchUp,
         cancel: @escaping Cancel,
         currentSnapshot: @escaping CurrentSnapshot
     ) {
         self.observeClosure = observe
-        self.catchUpClosure = catchUp
         self.cancelClosure = cancel
         self.currentSnapshotClosure = currentSnapshot
     }
@@ -41,13 +34,6 @@ public struct CodexPresentationStateAdapter: Sendable {
         scope: StateObservationScope
     ) async -> StateObservation<CodexSessionStateSnapshot> {
         await observeClosure(scope)
-    }
-
-    fileprivate func catchUp(
-        observationID: StateObservationID,
-        after revision: StateRevision
-    ) async -> StateCatchUp {
-        await catchUpClosure(observationID, revision)
     }
 
     fileprivate func cancel(observationID: StateObservationID) async {
@@ -68,9 +54,6 @@ public extension CodexPresentationStateAdapter {
         self.init(
             observe: { scope in
                 await stateSource.observeSessionState(scope: scope)
-            },
-            catchUp: { observationID, revision in
-                await stateSource.catchUp(observationID: observationID, after: revision)
             },
             cancel: { observationID in
                 await stateSource.cancelObservation(observationID)
@@ -114,11 +97,11 @@ public struct CodexThreadPresentationLocalState: Sendable, Equatable {
 }
 
 public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
-    public fileprivate(set) var observationResetCount = 0
-    public fileprivate(set) var receivedChangeSetCount = 0
+    public fileprivate(set) var invalidSnapshotCount = 0
+    public fileprivate(set) var receivedSignalCount = 0
     public fileprivate(set) var projectionScheduleCount = 0
     public fileprivate(set) var projectionPublishCount = 0
-    public fileprivate(set) var coalescedChangeSetCount = 0
+    public fileprivate(set) var coalescedProjectionCount = 0
     public fileprivate(set) var terminalFlushCount = 0
     public fileprivate(set) var discardedProjectionCount = 0
     public fileprivate(set) var uiStateEvictionCount = 0
@@ -347,74 +330,45 @@ private extension CodexPresentationStore {
         let scope = StateObservationScope.thread(threadID, fields: Self.presentationFields)
 
         observationTask = Task { [weak self, adapter] in
-            var shouldReseed = true
-            while shouldReseed, !Task.isCancelled {
-                shouldReseed = false
-                let observation = await adapter.observe(scope: scope)
+            let observation = await adapter.observe(scope: scope)
+            defer {
+                Task { await adapter.cancel(observationID: observation.id) }
+            }
+            guard self?.isCurrentObservation(generation: generation, threadID: threadID) == true else {
+                return
+            }
+
+            guard observation.seed.stateRevision == observation.revision,
+                  observation.seed.canonical.revision == observation.revision
+            else {
+                self?.noteInvalidSnapshot()
+                return
+            }
+
+            self?.accept(
+                sessionSnapshot: observation.seed,
+                forceImmediate: true
+            )
+
+            for await signal in observation.signals {
                 guard self?.isCurrentObservation(generation: generation, threadID: threadID) == true else {
-                    await adapter.cancel(observationID: observation.id)
                     return
                 }
-
-                guard observation.seed.stateRevision == observation.revision,
-                      observation.seed.canonical.revision == observation.revision
+                let snapshot = await adapter.currentSnapshot(scope: scope)
+                guard self?.isCurrentObservation(generation: generation, threadID: threadID) == true else {
+                    return
+                }
+                guard snapshot.stateRevision >= signal.latestRevision,
+                      snapshot.canonical.revision == snapshot.stateRevision
                 else {
-                    self?.noteObservationReset()
-                    await adapter.cancel(observationID: observation.id)
-                    shouldReseed = true
+                    self?.noteInvalidSnapshot()
                     continue
                 }
-
+                self?.noteReceivedSignal()
                 self?.accept(
-                    sessionSnapshot: observation.seed,
-                    changes: [],
-                    forceImmediate: true
+                    sessionSnapshot: snapshot,
+                    forceImmediate: false
                 )
-
-                var cursor = observation.revision
-                var iterator = observation.signals.makeAsyncIterator()
-                while !Task.isCancelled, await iterator.next() != nil {
-                    guard self?.isCurrentObservation(generation: generation, threadID: threadID) == true else {
-                        break
-                    }
-
-                    let catchUp = await adapter.catchUp(
-                        observationID: observation.id,
-                        after: cursor
-                    )
-                    guard self?.isCurrentObservation(generation: generation, threadID: threadID) == true else {
-                        break
-                    }
-
-                    switch catchUp {
-                    case .reset:
-                        self?.noteObservationReset()
-                        shouldReseed = true
-
-                    case .changes(let changes, let through):
-                        let snapshot = await adapter.currentSnapshot(scope: scope)
-                        guard self?.isCurrentObservation(generation: generation, threadID: threadID) == true else {
-                            break
-                        }
-                        guard snapshot.stateRevision >= through,
-                              snapshot.canonical.revision == snapshot.stateRevision
-                        else {
-                            self?.noteObservationReset()
-                            shouldReseed = true
-                            break
-                        }
-                        cursor = snapshot.stateRevision
-                        self?.accept(
-                            sessionSnapshot: snapshot,
-                            changes: changes,
-                            forceImmediate: false
-                        )
-                    }
-
-                    if shouldReseed { break }
-                }
-
-                await adapter.cancel(observationID: observation.id)
             }
         }
     }
@@ -425,13 +379,16 @@ private extension CodexPresentationStore {
             && selectedThreadID == threadID
     }
 
-    func noteObservationReset() {
-        diagnostics.observationResetCount &+= 1
+    func noteInvalidSnapshot() {
+        diagnostics.invalidSnapshotCount &+= 1
+    }
+
+    func noteReceivedSignal() {
+        diagnostics.receivedSignalCount &+= 1
     }
 
     func accept(
         sessionSnapshot: CodexSessionStateSnapshot,
-        changes: [StateChangeSet],
         forceImmediate: Bool
     ) {
         guard let threadID = selectedThreadID else { return }
@@ -441,8 +398,6 @@ private extension CodexPresentationStore {
         observedRevision = sessionSnapshot.stateRevision
         latestSnapshot = snapshot
         latestRequestBatch = requestBatch
-        diagnostics.receivedChangeSetCount &+= changes.count
-
         pendingSnapshot = snapshot
         pendingRequestBatch = requestBatch
 
@@ -463,7 +418,7 @@ private extension CodexPresentationStore {
         } else if projectionTask == nil {
             launchProjection(afterCoalescingDelay: true)
         } else {
-            diagnostics.coalescedChangeSetCount &+= max(1, changes.count)
+            diagnostics.coalescedProjectionCount &+= 1
         }
     }
 }

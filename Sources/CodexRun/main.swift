@@ -114,21 +114,11 @@ struct CodexRun {
         for turn: CodexTurnLease,
         observation: StateObservation<CanonicalStateSnapshot>
     ) async {
-        var revision = observation.revision
         var renderState = ProgressRenderState()
         renderProgress(from: observation.seed, state: &renderState)
 
         for await _ in observation.signals {
             guard !Task.isCancelled else { break }
-
-            switch try? await turn.catchUp(observation, after: revision) {
-            case .changes(_, let through):
-                revision = through
-            case .reset:
-                break
-            case nil:
-                return
-            }
 
             guard let snapshot = try? await turn.snapshot(fields: [
                 .turnStatus,
@@ -138,7 +128,6 @@ struct CodexRun {
             ]) else {
                 return
             }
-            revision = snapshot.revision
             renderProgress(from: snapshot, state: &renderState)
         }
     }

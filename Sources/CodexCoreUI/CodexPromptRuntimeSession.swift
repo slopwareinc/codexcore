@@ -124,12 +124,6 @@ public final class CodexPromptRuntimeSession {
 
             for await _ in observation.signals {
                 guard generation == connectionGeneration, !Task.isCancelled else { break }
-                let baseRevision = promptSession.revision ?? observation.revision
-                _ = await adapter.catchUp(
-                    observationID: observation.id,
-                    after: baseRevision
-                )
-                guard generation == connectionGeneration, !Task.isCancelled else { break }
                 let snapshot = await adapter.serverRequestInboxSnapshot(entities: .all)
                 await apply(snapshot, from: adapter, generation: generation)
             }

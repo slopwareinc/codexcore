@@ -9,7 +9,6 @@ public struct CodexSubagentPresentationDiagnostics: Sendable, Equatable {
     public fileprivate(set) var childLeaseReleaseCount = 0
     public fileprivate(set) var childProjectionCount = 0
     public fileprivate(set) var projectionEvictionCount = 0
-    public fileprivate(set) var observationResetCount = 0
 
     public init() {}
 }
@@ -155,20 +154,9 @@ private extension CodexSubagentPresentationCoordinator {
             guard let self, self.isCurrent(generation, parentThreadID: threadID) else { return }
             self.applyParentSnapshot(observation.seed.canonical, parentThreadID: threadID)
 
-            var revision = observation.revision
-            for await signal in observation.signals {
+            for await _ in observation.signals {
                 guard !Task.isCancelled,
                       self.isCurrent(generation, parentThreadID: threadID) else { return }
-                switch await codex.session.catchUp(
-                    observationID: observation.id,
-                    after: revision
-                ) {
-                case .changes(_, let through):
-                    revision = max(through, signal.latestRevision)
-                case .reset(let to):
-                    revision = max(to, signal.latestRevision)
-                    self.diagnostics.observationResetCount += 1
-                }
                 let snapshot = await codex.session.canonicalSnapshot(
                     scope: .thread(threadID, fields: fields)
                 )
@@ -187,20 +175,9 @@ private extension CodexSubagentPresentationCoordinator {
             guard let self, self.isCurrent(generation, parentThreadID: parentThreadID) else { return }
             self.applyThreadIndex(observation.seed, parentThreadID: parentThreadID)
 
-            var revision = observation.revision
-            for await signal in observation.signals {
+            for await _ in observation.signals {
                 guard !Task.isCancelled,
                       self.isCurrent(generation, parentThreadID: parentThreadID) else { return }
-                switch await codex.session.catchUp(
-                    observationID: observation.id,
-                    after: revision
-                ) {
-                case .changes(_, let through):
-                    revision = max(through, signal.latestRevision)
-                case .reset(let to):
-                    revision = max(to, signal.latestRevision)
-                    self.diagnostics.observationResetCount += 1
-                }
                 self.applyThreadIndex(
                     await codex.session.threadIndexSnapshot(),
                     parentThreadID: parentThreadID
@@ -293,18 +270,10 @@ private extension CodexSubagentPresentationCoordinator {
                     threadID: threadID,
                     generation: generation
                 )
-                var revision = observation.revision
-                for await signal in observation.signals {
+                for await _ in observation.signals {
                     guard !Task.isCancelled,
                           self.isCurrent(generation, parentThreadID: parentThreadID),
                           self.childRuntimes[threadID]?.lease === lease else { return }
-                    switch try await lease.catchUp(observation, after: revision) {
-                    case .changes(_, let through):
-                        revision = max(through, signal.latestRevision)
-                    case .reset(let to):
-                        revision = max(to, signal.latestRevision)
-                        self.diagnostics.observationResetCount += 1
-                    }
                     self.applyChildSnapshot(
                         try await lease.snapshot(fields: .all),
                         threadID: threadID,

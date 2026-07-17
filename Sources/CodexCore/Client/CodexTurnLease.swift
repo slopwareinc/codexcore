@@ -89,14 +89,6 @@ public final class CodexThreadLease: @unchecked Sendable {
         return await session.observe(scope: .thread(id, fields: fields))
     }
 
-    public func catchUp(
-        _ observation: StateObservation<CanonicalStateSnapshot>,
-        after revision: StateRevision
-    ) async throws -> StateCatchUp {
-        try requireOpen()
-        return await session.catchUp(observationID: observation.id, after: revision)
-    }
-
     public func cancel(
         _ observation: StateObservation<CanonicalStateSnapshot>
     ) async {
@@ -229,14 +221,6 @@ public struct CodexTurnLease: Sendable {
     ) async throws -> StateObservation<CanonicalStateSnapshot> {
         try thread.requireOpen()
         return await thread.session.observe(scope: .turn(key, fields: fields))
-    }
-
-    public func catchUp(
-        _ observation: StateObservation<CanonicalStateSnapshot>,
-        after revision: StateRevision
-    ) async throws -> StateCatchUp {
-        try thread.requireOpen()
-        return await thread.session.catchUp(observationID: observation.id, after: revision)
     }
 
     public func cancel(
