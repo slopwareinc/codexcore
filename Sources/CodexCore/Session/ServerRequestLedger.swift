@@ -219,33 +219,6 @@ public struct CodexServerRequestResponseError: Sendable, Codable, Equatable {
         self.message = message
         self.data = data
     }
-
-    public static func timedOut(method: String) -> Self {
-        .init(
-            code: -32_001,
-            message: "Client timed out while handling server request",
-            data: .dictionary(["method": .string(method)])
-        )
-    }
-
-    public static func turnCancelled(threadID: String, turnID: String) -> Self {
-        .init(
-            code: -32_000,
-            message: "Turn was cancelled while handling server request",
-            data: .dictionary([
-                "threadId": .string(threadID),
-                "turnId": .string(turnID)
-            ])
-        )
-    }
-
-    public static func cancelled(method: String) -> Self {
-        .init(
-            code: -32_000,
-            message: "Client cancelled server request",
-            data: .dictionary(["method": .string(method)])
-        )
-    }
 }
 
 /// The only decisions a host handler may make for a server-originated request.
@@ -276,15 +249,11 @@ enum CodexServerRequestAbandonReason: String, Sendable, Codable, Equatable {
 }
 
 /// Why a pending request became terminal. The cause is kept separately from
-/// the response outcome so diagnostics can distinguish timeout/cancellation
-/// policy from an ordinary client-generated error response.
+/// the response outcome while the ledger remains a migration bridge.
 public enum CodexServerRequestTerminalCause: String, Sendable, Codable, Equatable {
     case clientResult
     case clientError
     case serverResolved
-    case timedOut
-    case cancelled
-    case turnCancelled
     case disconnected
 }
 
@@ -389,18 +358,11 @@ enum CodexServerRequestResolution: Sendable, Equatable {
 /// Synchronous state machine intended to be owned by `CodexSession`'s actor.
 ///
 /// Keeping this type synchronous makes registration, UI replies,
-/// `serverRequest/resolved`, timeouts, cancellation, and disconnect compete in
-/// the actor's single ordered transaction. The first terminal transition wins;
+/// `serverRequest/resolved`, and disconnect compete in the actor's single
+/// ordered transaction. The first terminal transition wins;
 /// later contenders observe `.alreadyTerminal` and cannot emit a second reply.
 public struct CodexServerRequestLedger: Sendable {
-    private struct TurnKey: Hashable, Sendable {
-        let threadID: String
-        let turnID: String
-    }
-
     private var entries: [CodexServerRequestKey: CodexServerRequestSnapshot] = [:]
-    private var pendingByTurn: [TurnKey: Set<CodexServerRequestKey>] = [:]
-    private var pendingByApproval: [CodexApprovalCorrelation: Set<CodexServerRequestKey>] = [:]
     private var nextRegistrationSequence: UInt64 = 0
 
     public private(set) var revision: UInt64 = 0
@@ -429,7 +391,6 @@ public struct CodexServerRequestLedger: Sendable {
             state: .pending
         )
         entries[registration.key] = snapshot
-        indexPending(snapshot)
         return .registered(snapshot)
     }
 
@@ -442,15 +403,6 @@ public struct CodexServerRequestLedger: Sendable {
             .filter { snapshot in
                 snapshot.isPending && (connectionEpoch == nil || snapshot.key.connectionEpoch == connectionEpoch)
             }
-            .sorted { $0.registrationSequence < $1.registrationSequence }
-    }
-
-    public func pendingSnapshots(
-        for correlation: CodexApprovalCorrelation
-    ) -> [CodexServerRequestSnapshot] {
-        (pendingByApproval[correlation] ?? [])
-            .compactMap { entries[$0] }
-            .filter(\.isPending)
             .sorted { $0.registrationSequence < $1.registrationSequence }
     }
 
@@ -483,62 +435,6 @@ public struct CodexServerRequestLedger: Sendable {
             cause: .serverResolved,
             outcome: .abandon(.serverResolved)
         )
-    }
-
-    /// Expires a pending request. A timeout is a client-generated JSON-RPC
-    /// error so a still-connected server is not left waiting indefinitely.
-    @discardableResult
-    mutating func timeout(
-        _ key: CodexServerRequestKey
-    ) -> CodexServerRequestResolution {
-        guard let snapshot = entries[key] else { return .unknown }
-        return terminalize(
-            key,
-            cause: .timedOut,
-            outcome: .error(.timedOut(method: snapshot.method))
-        )
-    }
-
-    /// Cancels one pending request without relying on its protocol scope.
-    @discardableResult
-    mutating func cancel(
-        _ key: CodexServerRequestKey
-    ) -> CodexServerRequestResolution {
-        guard let snapshot = entries[key] else { return .unknown }
-        return terminalize(
-            key,
-            cause: .cancelled,
-            outcome: .error(.cancelled(method: snapshot.method))
-        )
-    }
-
-    /// Cancels every pending request belonging to a turn. Requests that already
-    /// completed through another path remain untouched.
-    @discardableResult
-    mutating func cancelTurn(
-        threadID: String,
-        turnID: String
-    ) -> [CodexServerRequestTransition] {
-        let key = TurnKey(threadID: threadID, turnID: turnID)
-        let requestKeys = (pendingByTurn[key] ?? [])
-            .compactMap { entries[$0] }
-            .sorted { $0.registrationSequence < $1.registrationSequence }
-            .map(\.key)
-        let error = CodexServerRequestResponseError.turnCancelled(
-            threadID: threadID,
-            turnID: turnID
-        )
-        return requestKeys
-            .compactMap { requestKey in
-                appliedTransition(
-                    terminalize(
-                        requestKey,
-                        cause: .turnCancelled,
-                        outcome: .error(error)
-                    )
-                )
-            }
-            .sorted { $0.snapshot.registrationSequence < $1.snapshot.registrationSequence }
     }
 
     /// Terminalizes all pending requests from a disconnected transport epoch.
@@ -601,36 +497,7 @@ public struct CodexServerRequestLedger: Sendable {
             state: .terminal(terminal)
         )
         entries[key] = updated
-        unindexPending(current)
         return .applied(.init(snapshot: updated, terminal: terminal, outcome: outcome))
-    }
-
-    private mutating func indexPending(_ snapshot: CodexServerRequestSnapshot) {
-        if let threadID = snapshot.scope.threadID,
-           let turnID = snapshot.scope.turnID {
-            pendingByTurn[TurnKey(threadID: threadID, turnID: turnID), default: []]
-                .insert(snapshot.key)
-        }
-        if let correlation = snapshot.approvalCorrelation {
-            pendingByApproval[correlation, default: []].insert(snapshot.key)
-        }
-    }
-
-    private mutating func unindexPending(_ snapshot: CodexServerRequestSnapshot) {
-        if let threadID = snapshot.scope.threadID,
-           let turnID = snapshot.scope.turnID {
-            let turnKey = TurnKey(threadID: threadID, turnID: turnID)
-            pendingByTurn[turnKey]?.remove(snapshot.key)
-            if pendingByTurn[turnKey]?.isEmpty == true {
-                pendingByTurn.removeValue(forKey: turnKey)
-            }
-        }
-        if let correlation = snapshot.approvalCorrelation {
-            pendingByApproval[correlation]?.remove(snapshot.key)
-            if pendingByApproval[correlation]?.isEmpty == true {
-                pendingByApproval.removeValue(forKey: correlation)
-            }
-        }
     }
 
     private func appliedTransition(

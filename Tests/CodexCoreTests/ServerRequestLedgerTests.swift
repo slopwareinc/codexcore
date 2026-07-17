@@ -115,40 +115,6 @@ final class ServerRequestLedgerTests: XCTestCase {
         XCTAssertTrue(ledger.pendingSnapshots().isEmpty)
     }
 
-    func testTimeoutProducesTypedErrorAndCannotBeRepeated() {
-        var ledger = CodexServerRequestLedger()
-        let requestKey = key(.integer(10))
-        XCTAssertRegistered(ledger.register(registration(.integer(10), method: "item/tool/requestUserInput")))
-
-        guard case .applied(let transition) = ledger.timeout(requestKey) else {
-            return XCTFail("Expected timeout")
-        }
-        XCTAssertEqual(transition.terminal.cause, .timedOut)
-        guard case .error(let error) = transition.outcome else {
-            return XCTFail("Timeout must produce a JSON-RPC error response")
-        }
-        XCTAssertEqual(error.code, -32_001)
-        XCTAssertEqual(error.data, .dictionary(["method": .string("item/tool/requestUserInput")]))
-
-        guard case .alreadyTerminal = ledger.timeout(requestKey) else {
-            return XCTFail("A timeout is terminal")
-        }
-    }
-
-    func testTurnCancellationOnlyTerminatesRequestsInThatTurn() {
-        var ledger = CodexServerRequestLedger()
-        XCTAssertRegistered(ledger.register(registration(.integer(1), threadID: "a", turnID: "turn")))
-        XCTAssertRegistered(ledger.register(registration(.integer(2), threadID: "a", turnID: "turn")))
-        XCTAssertRegistered(ledger.register(registration(.integer(3), threadID: "b", turnID: "turn")))
-
-        let transitions = ledger.cancelTurn(threadID: "a", turnID: "turn")
-
-        XCTAssertEqual(transitions.map(\.snapshot.key.requestID), [.integer(1), .integer(2)])
-        XCTAssertEqual(transitions.map(\.terminal.revision), [4, 5])
-        XCTAssertTrue(transitions.allSatisfy { $0.terminal.cause == .turnCancelled })
-        XCTAssertEqual(ledger.pendingSnapshots().map(\.key.requestID), [.integer(3)])
-    }
-
     func testDisconnectOnlyAbandonsPendingRequestsFromMatchingEpoch() {
         var ledger = CodexServerRequestLedger()
         XCTAssertRegistered(ledger.register(registration(.integer(1), epoch: 4)))
@@ -167,41 +133,23 @@ final class ServerRequestLedgerTests: XCTestCase {
         )
     }
 
-    func testDirectCancellationProducesOneTypedErrorResponse() {
-        var ledger = CodexServerRequestLedger()
-        let requestKey = key(.string("cancel-me"))
-        XCTAssertRegistered(ledger.register(registration(.string("cancel-me"), method: "item/tool/call")))
-
-        guard case .applied(let transition) = ledger.cancel(requestKey) else {
-            return XCTFail("Expected cancellation")
-        }
-        XCTAssertEqual(transition.terminal.cause, .cancelled)
-        guard case .error(let error) = transition.outcome else {
-            return XCTFail("Cancellation must produce a typed JSON-RPC error")
-        }
-        XCTAssertEqual(error.code, -32_000)
-        XCTAssertEqual(transition.terminal.responseDisposition, .error)
-
-        guard case .alreadyTerminal = ledger.cancel(requestKey) else {
-            return XCTFail("Cancellation must be exactly once")
-        }
-    }
-
-    func testApprovalCorrelationIsSeparateFromWireRequestIdentity() {
+    func testApprovalCorrelationIsMetadataNotWireRequestIdentity() {
         var ledger = CodexServerRequestLedger()
         let correlation = CodexApprovalCorrelation(threadID: "thread-1", approvalID: "approval-shared")
         XCTAssertRegistered(ledger.register(registration(.integer(80), approvalID: "approval-shared")))
         XCTAssertRegistered(ledger.register(registration(.string("80"), approvalID: "approval-shared")))
         XCTAssertRegistered(ledger.register(registration(.integer(81), approvalID: "other")))
 
-        XCTAssertEqual(
-            ledger.pendingSnapshots(for: correlation).map(\.key.requestID),
-            [.integer(80), .string("80")]
-        )
+        let shared = ledger.pendingSnapshots().filter {
+            $0.approvalCorrelation == correlation
+        }
+        XCTAssertEqual(shared.map(\.key.requestID), [.integer(80), .string("80")])
 
         _ = ledger.resolve(key(.integer(80)), result: .null)
         XCTAssertEqual(
-            ledger.pendingSnapshots(for: correlation).map(\.key.requestID),
+            ledger.pendingSnapshots()
+                .filter { $0.approvalCorrelation == correlation }
+                .map(\.key.requestID),
             [.string("80")]
         )
     }
