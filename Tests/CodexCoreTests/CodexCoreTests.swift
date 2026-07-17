@@ -32,6 +32,50 @@ final class CodexCoreTests: XCTestCase {
         ))
     }
 
+    func testPinnedRuntimeVersionParserAcceptsExactDescriptorAmidDiagnostics() throws {
+        try Codex.validatePinnedRuntimeVersionOutput(
+            """
+            harmless wrapper diagnostic
+              \(CodexPinnedRuntime.package)   \(CodexPinnedRuntime.version)
+            """,
+            executablePath: "/test/codex"
+        )
+    }
+
+    func testPinnedRuntimeVersionParserRejectsAnotherCodexVersion() {
+        XCTAssertThrowsError(try Codex.validatePinnedRuntimeVersionOutput(
+            """
+            codex-cli 0.146.0
+            \(CodexPinnedRuntime.descriptor)
+            """,
+            executablePath: "/test/codex"
+        )) { error in
+            guard case CodexSDKError.runtimeVersionMismatch(
+                let path,
+                let expected,
+                let actual
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, "/test/codex")
+            XCTAssertEqual(expected, CodexPinnedRuntime.descriptor)
+            XCTAssertEqual(actual, "codex-cli 0.146.0")
+        }
+    }
+
+    func testPinnedRuntimeVersionParserReportsMissingVersionAsProbeFailure() {
+        XCTAssertThrowsError(try Codex.validatePinnedRuntimeVersionOutput(
+            "   \n",
+            executablePath: "/test/codex"
+        )) { error in
+            guard case CodexSDKError.runtimeVersionProbeFailed(let path, let reason) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, "/test/codex")
+            XCTAssertTrue(reason.contains("no version output"))
+        }
+    }
+
     func testJSONValueDecoding() throws {
         let data = try XCTUnwrap(#"{"s":"text","i":42,"d":3.14,"b":true,"n":null}"#
             .data(using: .utf8))

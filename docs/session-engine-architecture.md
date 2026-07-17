@@ -63,19 +63,19 @@ that state is complete.
 ## Runtime shape
 
 ```text
-CodexRuntime
-|- pinned app-server child process
-|- ~/.codexcore environment
-`- AppServerConnection (stdio framing + handshake)
-    `- CodexSession actor
-       |- ClientRequestBroker
-       |- CanonicalReplica
-       |- ThreadRuntimeRegistry
-       |- InteractionInbox
-       |- operation-specific trackers
-       `- ObservationHub
-           `- CodexPresentationStore
-               `- TranscriptV2 -> AppKit renderer
+Codex facade/runtime configuration
+`- CodexSession actor
+   |- AppServerConnection / frame transport
+   |  |- pinned app-server child process
+   |  `- ~/.codexcore environment + stdio framing
+   |- ClientRequestBroker
+   |- CanonicalReplica
+   |- ThreadRuntimeRegistry
+   |- InteractionInbox
+   |- operation-specific trackers
+   `- ObservationHub
+       `- CodexPresentationStore
+           `- TranscriptV2 -> AppKit renderer
 ```
 
 The values inside `CodexSession` are synchronous. They add domain structure without

@@ -106,6 +106,8 @@ public struct CodexConfig: Sendable {
 public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, LocalizedError {
     case runtimeNotFound
     case invalidRuntimePath(String)
+    case runtimeVersionProbeFailed(path: String, reason: String)
+    case runtimeVersionMismatch(path: String, expected: String, actual: String)
     case invalidResponse(method: String, value: CodexJSONValue)
     case codexHomeMismatch(expected: String, actual: String)
 
@@ -115,6 +117,10 @@ public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, Locali
             "Codex runtime not found. Set CodexConfig.codexBinaryPath, CODEX_BINARY, or CODEX_APP_BUNDLE; install codex on PATH; or install Codex.app."
         case .invalidRuntimePath(let path):
             "Codex runtime not found at \(path)."
+        case .runtimeVersionProbeFailed(let path, let reason):
+            "Could not determine the Codex runtime version at \(path): \(reason)"
+        case .runtimeVersionMismatch(let path, let expected, let actual):
+            "Codex runtime at \(path) is \(actual); this SDK requires \(expected)."
         case .invalidResponse(let method, let value):
             "Invalid \(method) response: \(value)"
         case .codexHomeMismatch(let expected, let actual):
@@ -280,8 +286,106 @@ public final class Codex: Sendable {
             arguments: config.appServerLaunchArguments,
             environment: config.environment,
             currentDirectoryURL: config.cwd.map { URL(fileURLWithPath: $0) },
-            prepareForLaunch: { try config.codexHome.prepareForLaunch() }
+            prepareForLaunch: {
+                try config.codexHome.prepareForLaunch()
+                try Self.verifyPinnedRuntime(at: binaryURL)
+            }
         )
+    }
+
+    /// Verifies the resolved executable itself before the SDK starts an
+    /// app-server. `InitializeResponse.userAgent` remains descriptive server
+    /// metadata; protocol identity is pinned at the process-launch boundary.
+    private static func verifyPinnedRuntime(at executableURL: URL) throws {
+        let result: (status: Int32, output: String)
+        do {
+            let process = Process()
+            process.executableURL = executableURL
+            process.arguments = ["--version"]
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = output
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            result = (
+                process.terminationStatus,
+                String(data: data, encoding: .utf8) ?? ""
+            )
+        } catch {
+            throw CodexSDKError.runtimeVersionProbeFailed(
+                path: executableURL.path,
+                reason: String(describing: error)
+            )
+        }
+
+        guard result.status == 0 else {
+            let diagnostic = boundedRuntimeProbeDiagnostic(result.output)
+            throw CodexSDKError.runtimeVersionProbeFailed(
+                path: executableURL.path,
+                reason: diagnostic.isEmpty
+                    ? "`--version` exited with status \(result.status)."
+                    : "`--version` exited with status \(result.status): \(diagnostic)"
+            )
+        }
+
+        try validatePinnedRuntimeVersionOutput(
+            result.output,
+            executablePath: executableURL.path
+        )
+    }
+
+    /// Internal for focused parser tests. The real CLI currently prints
+    /// `codex-cli <version>`; line and whitespace normalization tolerates shell
+    /// wrappers and harmless diagnostics without weakening the exact version.
+    static func validatePinnedRuntimeVersionOutput(
+        _ output: String,
+        executablePath: String
+    ) throws {
+        let lines = output
+            .split(whereSeparator: \Character.isNewline)
+            .map { line in
+                line.split(whereSeparator: \Character.isWhitespace)
+                    .map(String.init)
+            }
+
+        if let components = lines.first(where: {
+            $0.first == CodexPinnedRuntime.package
+        }) {
+            guard components.count >= 2 else {
+                throw CodexSDKError.runtimeVersionProbeFailed(
+                    path: executablePath,
+                    reason: "`--version` did not include a version after \(CodexPinnedRuntime.package)."
+                )
+            }
+            guard components[1] == CodexPinnedRuntime.version else {
+                throw CodexSDKError.runtimeVersionMismatch(
+                    path: executablePath,
+                    expected: CodexPinnedRuntime.descriptor,
+                    actual: "\(components[0]) \(components[1])"
+                )
+            }
+            return
+        }
+
+        let diagnostic = boundedRuntimeProbeDiagnostic(output)
+        guard !diagnostic.isEmpty else {
+            throw CodexSDKError.runtimeVersionProbeFailed(
+                path: executablePath,
+                reason: "`--version` produced no version output."
+            )
+        }
+        throw CodexSDKError.runtimeVersionProbeFailed(
+            path: executablePath,
+            reason: "unrecognized `--version` output: \(diagnostic)"
+        )
+    }
+
+    private static func boundedRuntimeProbeDiagnostic(_ value: String) -> String {
+        let normalized = value
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+        return String(normalized.prefix(512))
     }
 
     /// Resolves the Codex runtime executable used to launch the local app-server.
