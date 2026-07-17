@@ -210,15 +210,20 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             layout collectionViewLayout: NSCollectionViewLayout,
             sizeForItemAt indexPath: IndexPath
         ) -> NSSize {
+            // NSCollectionViewFlowLayout requires item width STRICTLY less than the
+            // collection width minus insets; returning an equal width logs
+            // "behavior ... not defined" per item and can corrupt layout during resize.
+            let fallbackWidth = max(1, collectionView.bounds.width.rounded(.down) - 1)
             guard let itemID = dataSource?.itemIdentifier(for: indexPath),
                   let item = currentSnapshot?.itemsByID[itemID] else {
-                return NSSize(width: collectionView.bounds.width, height: 28)
+                return NSSize(width: fallbackWidth, height: 28)
             }
             let viewportWidth = collectionView.enclosingScrollView?.contentSize.width
                 ?? collectionView.bounds.width
             let availableWidth = min(collectionView.bounds.width, viewportWidth)
             let metrics = CodexTranscriptColumnMetrics(viewportWidth: availableWidth)
-            return NSSize(width: metrics.cellWidth, height: item.measuredHeight)
+            let width = min(metrics.cellWidth.rounded(.down) - 1, fallbackWidth)
+            return NSSize(width: max(1, width), height: item.measuredHeight)
         }
 
         func collectionView(
