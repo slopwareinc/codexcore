@@ -611,7 +611,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         theme: CodexTranscriptAppKitTheme
     ) {
         chipBackground.isHidden = false
-        chipBackground.layer?.cornerRadius = theme.cardRadius
+        chipBackground.layer?.cornerRadius = CodexTranscriptColumnMetrics.actionCardRadius
         chipBackground.layer?.backgroundColor = theme.warning.withAlphaComponent(0.10).cgColor
         chipBackground.layer?.borderColor = theme.warning.withAlphaComponent(0.35).cgColor
         chipBackground.layer?.borderWidth = 1
@@ -643,7 +643,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         preserving selection: NSRange
     ) {
         chipBackground.isHidden = false
-        chipBackground.layer?.cornerRadius = theme.cardRadius
+        chipBackground.layer?.cornerRadius = CodexTranscriptColumnMetrics.actionCardRadius
         chipBackground.layer?.backgroundColor = theme.surfaceSunken.withAlphaComponent(0.65).cgColor
         chipIconView.image = NSImage(
             systemSymbolName: Self.directiveIconName(directive.kind),

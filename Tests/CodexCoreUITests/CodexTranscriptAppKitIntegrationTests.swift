@@ -189,6 +189,60 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.contentFrameForTesting.width < user.maxContentWidth)
     }
 
+    @Test func wideningViewportReflowsBubbleAndInvalidatesItsCollectionGeometry() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 360)
+        )
+        let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = container
+        coordinator.attach(to: container)
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: .init(
+                    id: "user",
+                    text: "This prompt is deliberately long enough to wrap several times in a narrow transcript before the window becomes wide."
+                ),
+                status: .done(durationMs: 1)
+            )])
+        )
+        coordinator.update(
+            presentation: presentation,
+            sessionStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        container.layoutSubtreeIfNeeded()
+        container.collectionView.layoutSubtreeIfNeeded()
+
+        let userID = try #require(coordinator.renderedItemIDsForTesting.first {
+            coordinator.renderedItemForTesting($0)?.textRole == .user
+        })
+        let narrowItem = try #require(coordinator.renderedItemForTesting(userID))
+
+        window.setContentSize(NSSize(width: 900, height: 360))
+        container.layoutSubtreeIfNeeded()
+        await coordinator.waitForProjectionForTesting()
+        container.collectionView.layoutSubtreeIfNeeded()
+
+        let wideItem = try #require(coordinator.renderedItemForTesting(userID))
+        let wideCell = try #require(coordinator.collectionItemForTesting(userID))
+        #expect(wideItem.measuredHeight < narrowItem.measuredHeight)
+        #expect(abs(wideCell.view.frame.height - wideItem.measuredHeight) < 1)
+        #expect(abs(wideCell.contentFrameForTesting.width - (wideItem.intrinsicContentWidth ?? 0)) < 1)
+        #expect(coordinator.diagnostics.targetedReconfigurePassCount >= 1)
+        coordinator.detach()
+    }
+
     @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async throws {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))

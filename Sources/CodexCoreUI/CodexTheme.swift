@@ -661,7 +661,9 @@ public struct CodexAgentTheme {
                 toolbarHeight: 46,
                 rowGap: 12,
                 cardMaxWidth: 640,
-                transcriptOuterMaxWidth: 860,
+                // Matches the composer's 736pt content width plus its 16pt
+                // framing allowance on each side, so both columns align.
+                transcriptOuterMaxWidth: 768,
                 userBubbleMaxWidth: 560,
                 chipPadding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
             )

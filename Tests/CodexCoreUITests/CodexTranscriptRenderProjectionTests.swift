@@ -12,10 +12,17 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexTranscriptColumnMetrics.itemGap == 4)
         #expect(CodexTranscriptColumnMetrics.userBubbleHorizontalPadding == 12)
         #expect(CodexTranscriptColumnMetrics.userBubbleVerticalPadding == 8)
+        #expect(CodexTranscriptColumnMetrics.workHeaderHeight == 22)
+        #expect(CodexTranscriptColumnMetrics.footerHeight == 22)
+        #expect(CodexTranscriptColumnMetrics.actionCardHeight == 32)
+        #expect(CodexTranscriptColumnMetrics.actionCardRadius == 10)
         #expect(CodexTranscriptColumnMetrics.topContentInset == 0)
 
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         #expect(theme.bubbleRadius == 16)
+        #expect(theme.transcriptOuterMaxWidth == 768)
+        #expect(CodexTranscriptColumnMetrics(viewportWidth: 1_200).outerWidth(theme) == 768)
+        #expect(CodexTranscriptColumnMetrics(viewportWidth: 300).outerWidth(theme) == 252)
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
                 id: "turn",

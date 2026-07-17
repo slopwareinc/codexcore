@@ -291,6 +291,17 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             let nextIDs = Set(projected.orderedItemIDs)
             hostedPreferredHeightByID = hostedPreferredHeightByID.filter { nextIDs.contains($0.key) }
             var changedIDs = projected.changedItemIDs.intersection(previousIDs).intersection(nextIDs)
+            if let previous {
+                let geometryChangedIDs = previousIDs.intersection(nextIDs).filter { id in
+                    guard let oldItem = previous.itemsByID[id],
+                          let newItem = projected.itemsByID[id] else { return false }
+                    return oldItem.measuredHeight != newItem.measuredHeight
+                        || oldItem.maxContentWidth != newItem.maxContentWidth
+                        || oldItem.intrinsicContentWidth != newItem.intrinsicContentWidth
+                        || oldItem.viewportWidth != newItem.viewportWidth
+                }
+                changedIDs.formUnion(geometryChangedIDs)
+            }
             if forceReconfigureAll {
                 changedIDs = previousIDs.intersection(nextIDs)
                 forceReconfigureAll = false
@@ -360,9 +371,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 configure(collectionItem, with: item)
             }
             guard !indexPaths.isEmpty else { return }
-            let context = NSCollectionViewFlowLayoutInvalidationContext()
-            context.invalidateItems(at: Set(indexPaths))
-            container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
+            invalidateLayoutMetrics(at: Set(indexPaths), in: container)
         }
 
         private func preferredHeightChanged(
@@ -377,13 +386,22 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             item.measuredHeight = height
             currentSnapshot?.itemsByID[id] = item
             guard let indexPath = dataSource?.indexPath(for: id), let container else { return }
-            let context = NSCollectionViewFlowLayoutInvalidationContext()
-            context.invalidateItems(at: [indexPath])
-            container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
+            invalidateLayoutMetrics(at: [indexPath], in: container)
             container.collectionView.layoutSubtreeIfNeeded()
             if currentPresentation?.isPinnedToBottom == true, selectedItemIDs.isEmpty {
                 scrollToBottom(markPinned: true)
             }
+        }
+
+        private func invalidateLayoutMetrics(
+            at indexPaths: Set<IndexPath>,
+            in container: CodexTranscriptCollectionContainerView
+        ) {
+            let context = NSCollectionViewFlowLayoutInvalidationContext()
+            context.invalidateFlowLayoutDelegateMetrics = true
+            context.invalidateFlowLayoutAttributes = true
+            context.invalidateItems(at: indexPaths)
+            container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
         }
 
         private func finishApply(
@@ -463,7 +481,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         private func widthDidChange(_ width: CGFloat) {
             guard abs(width - lastProjectedWidth) > 1 else { return }
-            forceReconfigureAll = true
             container?.collectionView.collectionViewLayout?.invalidateLayout()
             requestProjection(width: max(width, 320))
         }
@@ -638,6 +655,7 @@ final class CodexTranscriptCollectionContainerView: NSView {
         scrollView.documentView = collectionView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
+        scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.drawsBackground = false

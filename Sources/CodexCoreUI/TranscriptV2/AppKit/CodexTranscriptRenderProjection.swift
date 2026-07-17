@@ -13,6 +13,10 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let itemGap: CGFloat = 4
     static let userBubbleHorizontalPadding: CGFloat = 12
     static let userBubbleVerticalPadding: CGFloat = 8
+    static let workHeaderHeight: CGFloat = 22
+    static let footerHeight: CGFloat = 22
+    static let actionCardHeight: CGFloat = 32
+    static let actionCardRadius: CGFloat = 10
     static let topContentInset: CGFloat = 0
 
     var viewportWidth: CGFloat
@@ -22,7 +26,10 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     var cellWidth: CGFloat { max(1, viewportWidth - Self.flowLayoutHorizontalAllowance) }
 
     func outerWidth(_ theme: CodexTranscriptAppKitTheme) -> CGFloat {
-        max(280, min(viewportWidth - Self.horizontalMargin * 2, theme.transcriptOuterMaxWidth))
+        min(
+            max(1, viewportWidth - Self.horizontalMargin * 2),
+            theme.transcriptOuterMaxWidth
+        )
     }
 }
 
@@ -400,7 +407,7 @@ actor CodexTranscriptRenderProjector {
                     action: Self.workHeaderIsActionable(header) ? .toggleWork(turnID: turn.id) : nil,
                     accessibilityLabel: Self.workHeaderAccessibilityLabel(header),
                     maxWidthKind: .card,
-                    fixedHeight: 32
+                    fixedHeight: CodexTranscriptColumnMetrics.workHeaderHeight
                 ))
                 if turn.id == presentation.transcript.turns.last?.id,
                    case .working = turn.status {
@@ -780,7 +787,7 @@ private extension CodexTranscriptRenderProjector {
         let action: CodexTranscriptRenderAction?
         let label: String
         var preparedText: CodexPreparedTranscriptText?
-        var fixedHeight: CGFloat? = 32
+        var fixedHeight: CGFloat? = CodexTranscriptColumnMetrics.actionCardHeight
 
         switch directive.name {
         case "created-thread":
@@ -1028,7 +1035,7 @@ private extension CodexTranscriptRenderProjector {
             accessibilityLabel: "Presented at \(label)",
             isTrailingAligned: trailing,
             maxWidthKind: trailing ? .user : .card,
-            fixedHeight: 22
+            fixedHeight: CodexTranscriptColumnMetrics.footerHeight
         )
     }
 
