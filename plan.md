@@ -373,3 +373,16 @@ Order within this phase is free; each item is independent.
 - Do not regenerate anything under `Sources/CodexCore/Generated/` (owned by `Tools/regenerate.sh`).
 - Keep commits per phase: `git commit` after each green phase with message `Transcript V2: <phase title>`.
 - If a described anchor has drifted (line numbers are from July 2026), locate by symbol name — all symbols in this plan are exact.
+
+---
+
+## Phase 9 — User-message enrichment layer (attachments, harness templates, hover references)
+
+Goal: user messages containing harness-injected structure (e.g. `# Files mentioned by the user:` / `## <file>.png: /path` / `## My request for Codex: <text>`) must render as: attachment thumbnails ABOVE the bubble + only the real request text INSIDE the bubble, with reference tokens like `(image 1)` / `[Image #1]` hover-highlighting the matching attachment. Design for many such templates, not just this one.
+
+1. **Parser** (`Sources/CodexCore/Parser/CodexUserMessageEnricher.swift`): ordered registry of extractors, each `(String) -> CodexEnrichedUserMessage?`; first match wins, no match = passthrough.
+   `CodexEnrichedUserMessage { displayText: String; attachments: [Attachment { name, path, kind: .image/.file }]; references: [(Range<String.Index>, attachmentIndex: Int)] }`.
+   Extractor #1: the files-mentioned template above. Unit-test against real session payloads. Raw text is NEVER discarded — reducer/copy paths keep the original.
+2. **Projection**: run the enricher in the projector, cached by message-text digest. Emit attachment render items with stable IDs `"<sectionID>:user:<id>:attachment:<n>"` above the bubble item, trailing-aligned. Bubble uses `displayText`.
+3. **Thumbnails**: async, downsampled via `CGImageSource` thumbnail API (never full decode), memory-capped cache keyed by path+mtime. Missing/ephemeral paths (`/var/folders/...`) → filename chip placeholder — mandatory case, these paths expire.
+4. **Hover references**: while preparing bubble text, tag reference ranges with a custom attribute (`.codexAttachmentRef: Int`). Cell hover tracking resolves the attribute under the cursor → coordinator callback → highlight border on the matching attachment cell. Same mechanism generalizes to file/thread mentions later.
