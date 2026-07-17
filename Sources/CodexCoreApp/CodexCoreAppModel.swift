@@ -243,11 +243,19 @@ final class CodexCoreAppModel {
                 "type": .string("apiKey"),
                 "apiKey": .string(key),
             ]).decode(CodexSchemaLoginAccountParams.self)
-            let result = try await codex.startLogin(params)
-            guard case .completed = result else {
+            let transaction = try await codex.startLogin(params)
+            guard case .anonymous(let attempt) = transaction else {
                 throw CodexSDKError.invalidResponse(
                     method: CodexAppServerClientMethod.accountLoginStart.rawValue,
-                    value: result.response.rawValue
+                    value: transaction.response.rawValue
+                )
+            }
+            let completion = try await attempt.completion()
+            guard completion.success else {
+                throw CodexRPCError(
+                    code: -32_000,
+                    message: completion.error ?? "API key login did not complete",
+                    kind: .codexRpc
                 )
             }
             apiKey = ""
@@ -264,15 +272,15 @@ final class CodexCoreAppModel {
             let params = try CodexJSONValue.dictionary([
                 "type": .string("chatgptDeviceCode")
             ]).decode(CodexSchemaLoginAccountParams.self)
-            let result = try await codex.startLogin(params)
-            guard case .pending(let attempt) = result,
+            let transaction = try await codex.startLogin(params)
+            guard case .identified(let attempt) = transaction,
                   case .dictionary(let value) = attempt.response.rawValue,
                   case .string(let verificationURL)? = value["verificationUrl"],
                   case .string(let userCode)? = value["userCode"]
             else {
                 throw CodexSDKError.invalidResponse(
                     method: CodexAppServerClientMethod.accountLoginStart.rawValue,
-                    value: result.response.rawValue
+                    value: transaction.response.rawValue
                 )
             }
             appendActivity(authSession.deviceCodeStarted(url: verificationURL, code: userCode))

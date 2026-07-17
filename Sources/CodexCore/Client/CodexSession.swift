@@ -991,6 +991,15 @@ public actor CodexSession:
             )
         }
 
+        let anonymousKey = CodexLoginKey(
+            connectionEpoch: requestEpoch,
+            identity: .anonymous
+        )
+        if expectsAnonymous, activeLoginKeys.contains(anonymousKey) {
+            throw CodexSessionError.anonymousLoginAlreadyInProgress(
+                connectionEpoch: requestEpoch
+            )
+        }
         if expectsAnonymous,
            !anonymousLoginRequestEpochs.insert(requestEpoch).inserted {
             throw CodexSessionError.anonymousLoginAlreadyInProgress(

@@ -12,7 +12,7 @@ final class CodexSessionCommandsTests: XCTestCase {
             CodexRequest.nullableParameterMethods,
             [.remoteControlEnable, .remoteControlDisable]
         )
-        XCTAssertEqual(CodexRequest.specializedMethods.count, 7)
+        XCTAssertEqual(CodexRequest.specializedMethods.count, 9)
     }
 
     func testRequestFactoryPreservesMethodAndGeneratedParameters() throws {

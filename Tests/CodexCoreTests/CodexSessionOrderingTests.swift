@@ -94,10 +94,11 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
         _ = try await session.start()
 
-        let request = Task {
+        let requestParams = Self.renameRequest(name: "committed")
+        let request = Task { [session, requestParams] in
             try await session.performCall(
                 method: .threadNameSet,
-                params: Self.renameRequest(name: "committed")
+                params: requestParams
             )
         }
         try await waitUntil {
@@ -127,10 +128,11 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
         _ = try await session.start()
 
-        let request = Task {
+        let requestParams = Self.renameRequest(name: "never-committed")
+        let request = Task { [session, requestParams] in
             try await session.perform(
                 method: .threadNameSet,
-                params: Self.renameRequest(name: "never-committed")
+                params: requestParams
             )
         }
         try await waitUntil {
@@ -171,13 +173,14 @@ final class CodexSessionOrderingTests: XCTestCase {
         _ = try await session.start()
         let observation = await session.observeSessionState()
 
-        let request = Task {
+        let requestParams = CodexJSONValue.dictionary([
+            "threadId": .string(Self.threadID.rawValue),
+            "includeTurns": .bool(true),
+        ])
+        let request = Task { [session, requestParams] in
             try await session.performCall(
                 method: .threadRead,
-                params: .dictionary([
-                    "threadId": .string(Self.threadID.rawValue),
-                    "includeTurns": .bool(true),
-                ])
+                params: requestParams
             )
         }
         try await waitUntil {
@@ -751,10 +754,11 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
         _ = try await session.start()
 
-        let request = Task {
+        let requestParams = Self.renameRequest(name: "arrived-after-cancel")
+        let request = Task { [session, requestParams] in
             try await session.perform(
                 method: .threadNameSet,
-                params: Self.renameRequest(name: "arrived-after-cancel")
+                params: requestParams
             )
         }
         try await waitUntil {
@@ -827,10 +831,11 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
         _ = try await session.start()
 
-        let mutation = Task {
+        let mutationParams = Self.renameRequest(name: "one-attempt")
+        let mutation = Task { [session, mutationParams] in
             try await session.perform(
                 method: .threadNameSet,
-                params: Self.renameRequest(name: "one-attempt")
+                params: mutationParams
             )
         }
         try await waitUntil {
@@ -1993,10 +1998,11 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
         _ = try await session.start()
 
-        let request = Task {
+        let requestParams = Self.renameRequest(name: "converged")
+        let request = Task { [session, requestParams] in
             try await session.performCall(
                 method: .threadNameSet,
-                params: Self.renameRequest(name: "converged")
+                params: requestParams
             )
         }
         try await waitUntil {
