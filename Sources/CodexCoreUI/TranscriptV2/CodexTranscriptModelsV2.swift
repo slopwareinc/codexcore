@@ -101,15 +101,20 @@ public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
 
 extension CodexCollabAgentRowV2 {
     var label: String {
-        let names = agentNames.joined(separator: ", ")
+        let subject: String
+        if agentNames.count > 1 {
+            subject = "\(agentNames.count) agents"
+        } else if let name = agentNames.first, !name.isEmpty {
+            subject = "Agent \(name)"
+        } else {
+            subject = "Agent"
+        }
         return switch action {
-        case .created: "Created \(names)\(instructions.map { " with the instructions: \($0)" } ?? "")"
-        case .sentInput: "Sent input to \(names)"
-        case .waited: names.isEmpty ? "Waited for agents" : "Waited for \(names)"
-        case .closed: names.isEmpty ? "Closed agents" : "Closed \(names)"
-        case .started: "Started an agent"
-        case .interacted: "Messaged an agent"
-        case .interrupted: "Interrupted an agent"
+        case .created, .started: "\(subject) · \(status == .inProgress ? "working" : "started")"
+        case .sentInput, .interacted: "\(subject) · messaged"
+        case .waited: "\(subject) · \(status == .inProgress ? "waiting" : "finished")"
+        case .closed: "\(subject) · closed"
+        case .interrupted: "\(subject) · interrupted"
         }
     }
 }
@@ -117,6 +122,7 @@ extension CodexCollabAgentRowV2 {
      public var id: String; public var action: CodexCollabActionV2; public var agentNames: [String]
      public var agentThreadIDs: [String]
      public var instructions: String?; public var agentMessages: [String: String]
+    public var timeline: [CodexCollabActionV2]
     public var status: CodexWorkItemStatusV2
 
     public init(
@@ -126,10 +132,12 @@ extension CodexCollabAgentRowV2 {
          agentThreadIDs: [String] = [],
         instructions: String?,
         agentMessages: [String: String] = [:],
+        timeline: [CodexCollabActionV2]? = nil,
         status: CodexWorkItemStatusV2
     ) {
          self.id = id; self.action = action; self.agentNames = agentNames; self.agentThreadIDs = agentThreadIDs
-         self.instructions = instructions; self.agentMessages = agentMessages; self.status = status
+         self.instructions = instructions; self.agentMessages = agentMessages
+         self.timeline = timeline ?? [action]; self.status = status
     }
 }
 public struct CodexOtherWorkRowV2: Identifiable, Sendable, Equatable {

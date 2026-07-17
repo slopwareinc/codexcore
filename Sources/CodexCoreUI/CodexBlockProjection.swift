@@ -141,11 +141,6 @@ public enum CodexBlockProjector {
         streaming: Bool = false,
         cacheNamespace: String
     ) -> [CodexBlock] {
-        let regions = segment(text)
-        if regions.isEmpty {
-            return []
-        }
-
         // Fast path: when the new text extends the previous text
         // (typical streaming case) and the previous tail was a
         // non-fenced prose region, reuse every previous block as-is
@@ -155,6 +150,11 @@ public enum CodexBlockProjector {
             if let reused = reusePrevious(previous: previous, text: text, cacheNamespace: cacheNamespace) {
                 return reused
             }
+        }
+
+        let regions = segment(text)
+        if regions.isEmpty {
+            return []
         }
 
         return regions.enumerated().map { index, region in

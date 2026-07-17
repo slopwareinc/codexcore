@@ -4,6 +4,37 @@ import Foundation
 import Testing
 
 struct CodexTranscriptV2Tests {
+    @Test func collabLifecycleCoalescesIntoOneStableRow() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        func apply(_ id: String, tool: String, completed: Bool) {
+            reducer.apply(method: completed ? "item/completed" : "item/started", params: json([
+                "threadId": "t",
+                "turnId": "turn",
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "id": id,
+                    "tool": tool,
+                    "receiverThreadIds": ["agent-thread"]
+                ]
+            ]))
+        }
+
+        apply("spawn", tool: "spawnAgent", completed: false)
+        apply("wait", tool: "wait", completed: true)
+        apply("send", tool: "sendInput", completed: true)
+
+        let rows = try #require(reducer.transcript.turns.first).narrative.flatMap(\.rows)
+        #expect(rows.count == 1)
+        guard case .collabAgent(let row) = try #require(rows.first) else {
+            Issue.record("Expected collab-agent row")
+            return
+        }
+        #expect(row.id == "spawn")
+        #expect(row.action == .sentInput)
+        #expect(row.timeline == [.created, .waited, .sentInput])
+        #expect(row.agentThreadIDs == ["agent-thread"])
+    }
+
     @Test func repoInspectReplay() throws {
         let transcript = try replay("turn-repo-inspect")
         let turn = try #require(transcript.turns.first)
@@ -16,14 +47,14 @@ struct CodexTranscriptV2Tests {
     @Test func subagentsReplayFiltersChildren() throws {
         let transcript = try replay("turn-subagents"), turn = try #require(transcript.turns.first)
         #expect(transcript.turns.count == 1)
-        #expect(turn.narrative.flatMap(\.rows).count == 6)
-        #expect(turn.narrative.compactMap(\.header).contains("Created 2 agents"))
-        #expect(turn.narrative.compactMap(\.header).contains("Closed 2 agents"))
+        #expect(turn.narrative.flatMap(\.rows).count == 2)
         let agentRows = turn.narrative.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
             guard case .collabAgent(let value) = row else { return nil }
             return value
         }
         #expect(agentRows.contains { !$0.agentThreadIDs.isEmpty })
+        #expect(agentRows.allSatisfy { $0.timeline.contains(.created) })
+        #expect(agentRows.contains { $0.timeline.contains(.closed) })
         #expect(turn.narrative.contains(where: \.isProse) && turn.finalAnswer != nil)
     }
 
@@ -35,27 +66,17 @@ struct CodexTranscriptV2Tests {
         #expect(transcript.turns.count == 1)
         let turn = try #require(transcript.turns.first)
         let groups = turn.narrative.compactMap(\.workGroup)
-        let createdGroup = try #require(groups.first { $0.header == "Created 5 agents" })
-        let createdRows = createdGroup.rows.compactMap { row -> CodexCollabAgentRowV2? in
-            guard case .collabAgent(let value) = row, value.action == .created else { return nil }
+        let createdRows = groups.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let value) = row, value.timeline.contains(.created) else { return nil }
             return value
         }
         #expect(createdRows.count == 5)
-        let createdLabels = createdRows.map { row in
-            "Created \(row.agentNames.joined(separator: ", "))" +
-                (row.instructions.map { " with the instructions: \($0)" } ?? "")
-        }
-        #expect(createdLabels.count == 5)
-        #expect(createdLabels.allSatisfy { $0.hasPrefix("Created agent-019f") && $0.contains(" with the instructions: Count from ") })
+        #expect(createdRows.allSatisfy { $0.agentNames.first?.hasPrefix("agent-019f") == true })
+        #expect(createdRows.allSatisfy { $0.instructions?.contains("Count from ") == true })
 
-        let waitRows = groups.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
-            guard case .collabAgent(let value) = row, value.action == .waited else { return nil }
-            return value
-        }
-        #expect(groups.contains { $0.header == "Working" })
-        #expect(!waitRows.isEmpty)
-        #expect(waitRows.allSatisfy { !$0.agentNames.isEmpty })
-        #expect(waitRows.contains { !$0.agentMessages.isEmpty })
+        #expect(!createdRows.isEmpty)
+        #expect(createdRows.contains { $0.timeline.contains(.waited) })
+        #expect(createdRows.contains { !$0.agentMessages.isEmpty })
     }
 
     @Test func officialCollabReplayMatchesCapturedRowsAndFiltersChildThreads() throws {
@@ -64,14 +85,13 @@ struct CodexTranscriptV2Tests {
             threadID: "019f521f-4a88-7003-91ff-36afe08e67cf"
         )
         #expect(transcript.turns.count == 3)
-        let firstTurn = try #require(transcript.turns.first)
-        #expect(firstTurn.narrative.compactMap(\.header).contains("Created 2 agents"))
-        let labels = transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> String? in
+        let agents = transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
             guard case .collabAgent(let value) = row else { return nil }
-            return value.label
+            return value
         }
-        #expect(labels.contains { $0.hasPrefix("Created agent-019f521f with the instructions: In /Users/") })
-        #expect(labels.contains { $0.hasPrefix("Sent input to agent-") })
+        #expect(agents.filter { $0.timeline.contains(.created) }.count >= 2)
+        #expect(agents.contains { $0.instructions?.hasPrefix("In /Users/") == true })
+        #expect(agents.contains { $0.timeline.contains(.sentInput) })
     }
 
     @Test func ultraSubagentReplayBuildsTwoIndependentAgentTranscripts() throws {
@@ -108,13 +128,13 @@ struct CodexTranscriptV2Tests {
         )
         #expect(replay.transcript.turns.count == 3)
         #expect(replay.subagents.agents.count == 2)
-        #expect(replay.transcript.turns.first?.narrative.compactMap(\.header).contains("Created 2 agents") == true)
-        let labels = replay.transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> String? in
+        let agents = replay.transcript.turns.flatMap(\.narrative).flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
             guard case .collabAgent(let value) = row else { return nil }
-            return value.label
+            return value
         }
-        #expect(labels.contains { $0.hasPrefix("Created agent-019f521f with the instructions: In /Users/") })
-        #expect(labels.contains { $0.hasPrefix("Sent input to agent-") })
+        #expect(agents.filter { $0.timeline.contains(.created) }.count >= 2)
+        #expect(agents.contains { $0.instructions?.hasPrefix("In /Users/") == true })
+        #expect(agents.contains { $0.timeline.contains(.sentInput) })
     }
 
     @Test func mcpFailureReplay() throws {
@@ -280,6 +300,66 @@ struct CodexTranscriptV2Tests {
         }
         #expect(durationMs == 8_000)
         #expect(CodexWorkBlockViewV2.duration(durationMs) == "8s")
+    }
+
+    @Test func historyRestorePreservesTurnDurationFromThreadReadEnvelope() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.restoreHistory(turns: [json([
+            "id": "historical-turn",
+            "startedAt": 100,
+            "completedAt": 108,
+            "durationMs": 8_000,
+            "items": [[
+                "type": "agentMessage",
+                "id": "answer",
+                "text": "Done",
+                "phase": "final_answer"
+            ]]
+        ])])
+
+        let turn = try #require(reducer.transcript.turns.first)
+        #expect(turn.id == "historical-turn")
+        guard case .done(let durationMs) = turn.status else {
+            Issue.record("Expected restored turn to be complete")
+            return
+        }
+        #expect(durationMs == 8_000)
+        #expect(CodexWorkBlockViewV2.completedLabel(durationMs) == "Worked for 8s")
+    }
+
+    @Test func historyRestoreKeepsInProgressTurnWorkingForQueuedLiveReplay() throws {
+        var reducer = CodexTranscriptReducerV2(threadID: "t")
+        reducer.restoreHistory(turns: [json([
+            "id": "live-turn",
+            "status": "inProgress",
+            "startedAt": 100,
+            "completedAt": NSNull(),
+            "durationMs": NSNull(),
+            "items": []
+        ])])
+
+        let restored = try #require(reducer.transcript.turns.first)
+        guard case .working(let since) = restored.status else {
+            Issue.record("Expected in-progress history turn to remain working")
+            return
+        }
+        #expect(since == 100)
+
+        reducer.apply(method: "item/completed", params: json([
+            "threadId": "t",
+            "turnId": "live-turn",
+            "item": [
+                "type": "agentMessage",
+                "id": "answer",
+                "phase": "final_answer",
+                "text": "Live answer"
+            ]
+        ]))
+        #expect(reducer.transcript.turns.first?.finalAnswer?.text == "Live answer")
+        guard case .working = reducer.transcript.turns[0].status else {
+            Issue.record("Queued item replay must not complete the live turn")
+            return
+        }
     }
 
     private func replay(_ name: String, threadID explicitThreadID: String? = nil) throws -> CodexTranscriptV2 {

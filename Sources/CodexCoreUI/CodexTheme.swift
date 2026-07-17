@@ -286,6 +286,10 @@ public struct CodexAgentTheme {
         public var danger: Color
         public var running: Color
         public var tool: Color
+        public var codeKeyword: Color
+        public var codeString: Color
+        public var codeComment: Color
+        public var codeNumber: Color
 
         public init(
             canvas: Color,
@@ -310,7 +314,11 @@ public struct CodexAgentTheme {
             warning: Color,
             danger: Color,
             running: Color,
-            tool: Color
+            tool: Color,
+            codeKeyword: Color? = nil,
+            codeString: Color? = nil,
+            codeComment: Color? = nil,
+            codeNumber: Color? = nil
         ) {
             self.canvas = canvas
             self.surface = surface
@@ -335,6 +343,10 @@ public struct CodexAgentTheme {
             self.danger = danger
             self.running = running
             self.tool = tool
+            self.codeKeyword = codeKeyword ?? accent
+            self.codeString = codeString ?? success
+            self.codeComment = codeComment ?? codeFaint
+            self.codeNumber = codeNumber ?? warning
         }
     }
 
@@ -649,7 +661,9 @@ public struct CodexAgentTheme {
                 toolbarHeight: 46,
                 rowGap: 12,
                 cardMaxWidth: 640,
-                transcriptOuterMaxWidth: 860,
+                // Matches the composer's 736pt content width plus its 16pt
+                // framing allowance on each side, so both columns align.
+                transcriptOuterMaxWidth: 768,
                 userBubbleMaxWidth: 560,
                 chipPadding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
             )

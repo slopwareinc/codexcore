@@ -21,7 +21,7 @@ extension CodexCoreAppModel {
     }
 
     var transcriptV2: CodexTranscriptV2 {
-        runtimeSession.transcriptV2
+        runtimeSession.presentedTranscriptV2
     }
 
     /// The durable tool-panel state (terminals, browsers, sidebar open/selection)
@@ -61,7 +61,8 @@ extension CodexCoreAppModel {
             chats: allSidebarChats,
             currentWorkspacePath: workspacePath,
             currentThreadID: currentThreadID,
-            pinnedThreadIDs: pinnedThreadIDs
+            pinnedThreadIDs: pinnedThreadIDs,
+            threadStatusEntries: runtimeSession.threadStatusStore.entries
         )
     }
 
