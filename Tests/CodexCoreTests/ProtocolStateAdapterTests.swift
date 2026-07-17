@@ -21,9 +21,13 @@ final class ProtocolStateAdapterTests: XCTestCase {
                 let adaptation = try adapter.adaptNotification(method: method, params: [:])
                 XCTAssertEqual(adaptation.disposition, expected, method.rawValue)
             } catch let error as ProtocolStateAdapterError {
-                // State methods validate their payload before returning a disposition.
-                // The empty-object fixture must never make a non-state method decode.
-                XCTAssertEqual(expected, .state, "Unexpected decode for \(method.rawValue): \(error)")
+                // State and diagnostic methods validate their payload before
+                // returning a disposition. Operation-only and resolution
+                // methods must not decode the empty inventory probe.
+                XCTAssertTrue(
+                    expected == .state || expected == .diagnostic,
+                    "Unexpected decode for \(method.rawValue): \(error)"
+                )
             }
         }
     }
@@ -34,7 +38,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
             expectedDisposition(for: $0) == .state
         })
 
-        XCTAssertEqual(fixtures.count, 41)
+        XCTAssertEqual(fixtures.count, 42)
         XCTAssertEqual(
             Set(fixtures.keys),
             stateMethods,
@@ -678,6 +682,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
              .itemCompleted, .itemAgentMessageDelta, .itemPlanDelta,
              .itemCommandExecutionOutputDelta, .itemCommandExecutionTerminalInteraction,
              .itemFileChangeOutputDelta, .itemFileChangePatchUpdated, .itemMCPToolCallProgress,
+             .mcpServerStartupStatusUpdated,
              .accountUpdated, .accountRateLimitsUpdated,
              .itemReasoningSummaryTextDelta, .itemReasoningSummaryPartAdded,
              .itemReasoningTextDelta, .threadCompacted,
@@ -690,7 +695,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
 
         case .skillsChanged,
              .commandExecOutputDelta, .processOutputDelta, .processExited,
-             .mcpServerOAuthLoginCompleted, .mcpServerStartupStatusUpdated,
+             .mcpServerOAuthLoginCompleted,
              .appListUpdated, .remoteControlStatusChanged,
              .externalAgentConfigImportProgress, .externalAgentConfigImportCompleted,
              .fsChanged, .fuzzyFileSearchSessionUpdated, .fuzzyFileSearchSessionCompleted,
@@ -800,6 +805,9 @@ final class ProtocolStateAdapterTests: XCTestCase {
             ),
             .itemMCPToolCallProgress: try objectFixture(
                 #"{"itemId":"item-1","message":"working","threadId":"thread-1","turnId":"turn-1"}"#
+            ),
+            .mcpServerStartupStatusUpdated: try objectFixture(
+                #"{"name":"fixture-server","status":"ready","threadId":"thread-1"}"#
             ),
             .accountUpdated: try objectFixture(
                 #"{"authMode":"chatgpt","planType":"plus"}"#
