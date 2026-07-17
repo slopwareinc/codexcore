@@ -65,6 +65,16 @@ actual subscription state, transition phase, local generation, and opaque histor
 pagination state. The generation rejects stale local completions; it is not a server
 epoch or incarnation.
 
+## Thread history mode
+
+The app-server-declared persistence contract for a thread. In alpha.20, `legacy` returns
+authoritative turns from resume and supports fork, rollback, and full thread reads;
+`paginated` uses opaque turn/item cursors but does not support those operations. These
+are two current protocol modes, not two CodexCore runtimes. One thread runtime selects
+the correct hydration strategy from the declared mode and never guesses from null
+cursors. CodexCore defaults new alpha.20 threads to legacy until paginated mode reaches
+feature parity; paginated threads remain an explicit experiment.
+
 ## Retainer
 
 A local reason to desire a thread subscription or keep its detail readily available,

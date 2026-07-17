@@ -10,6 +10,17 @@ compatibility runtime.
 The implementation is currently transitioning toward this shape. Separate history and
 lease coordinators remain migration artifacts rather than target module boundaries.
 
+Alpha.20 exposes both `legacy` and `paginated` thread-history modes, and they are active
+protocol contracts rather than a source-compatibility concern. CodexCore cannot yet make
+`paginated` the universal product default while preserving the pinned server's features:
+alpha.20 rejects `thread/fork`, `thread/rollback`, and `thread/read(includeTurns: true)`
+for paginated threads. Until those server gaps close, CodexCore creates legacy threads by
+default and treats paginated history as an explicit per-thread experiment. The session
+selects behavior from the thread's declared history mode. It must never send a paginated
+resume to an unknown or legacy thread and infer that null cursors mean empty history.
+The app target's current explicit paginated start setting is therefore a transition
+artifact; it must become an opt-in only after operation gating lands.
+
 CodexCore launches a pinned app-server over stdio and uses an isolated `CODEX_HOME` at
 `~/.codexcore` by default. The normal Codex app's `~/.codex` state is not selected
 implicitly.
@@ -186,19 +197,38 @@ incarnation or erase canonical facts. The generation is only local concurrency c
 
 History and live reconciliation follows these rules:
 
-1. mark hydration in progress before sending `thread/resume`;
-2. reduce live notifications immediately while resume or paging is outstanding;
-3. merge the resume response as soon as it arrives and make available summary turns
-   visible immediately;
-4. treat turn and per-turn item cursors as independent opaque pagination tokens;
-5. load older turns lazily and load full item pages only for turns that need them;
+1. reserve the transition and its owner before sending `thread/resume`, so an inverse
+   unsubscribe cannot overtake or follow it unnoticed;
+2. select the request and hydration strategy from the server-declared history mode;
+3. for legacy history, reduce the authoritative turns returned by resume without
+   manufacturing pagination cursors;
+4. for paginated history, reduce live notifications immediately while paging, treat
+   turn and item cursors as independent opaque tokens, and merge overlapping pages
+   idempotently;
+5. make a resume usable as soon as its response is reduced, while exposing a separate
+   completion boundary for callers that require full hydration;
 6. reject results from an obsolete connection epoch or thread generation; and
-7. merge overlapping pages idempotently without allowing lower-authority history to
-   regress richer live state.
+7. retry safe subscription transitions with bounded per-thread backoff while desire and
+   connection epoch still match.
 
 There is no response-ordinal cut, live-frame buffer, or replay-after-history phase.
 Resume failure is not treated as proof that the server performed no subscription side
 effect; desired/actual reconciliation remains explicit.
+
+History mode is a strategy inside this registry, not a second store or reducer:
+
+| Declared mode | Resume and hydration | Alpha.20 feature policy |
+| --- | --- | --- |
+| Unknown | Read metadata without turns before reserving resume | Do not guess from cursor absence |
+| Legacy | Resume with turns and reduce the authoritative response directly | Fork, rollback, and full reads remain available |
+| Paginated | Resume without turns, then follow opaque turn/item anchors | Reject alpha.20 operations the server declares unsupported |
+
+An explicit resume first reserves its owner and generation in the same state machine used
+by background reconciliation. Unsubscribe, reconnect, and resume therefore cannot pass
+one another on the wire while leaving `actual` inverted. Safe resume/unsubscribe failures
+retry with bounded per-thread backoff; cancellation or a connection-generation change
+invalidates the retry. Subscription readiness and complete-history hydration are distinct
+awaitable conditions.
 
 ### Interaction inbox
 
