@@ -899,7 +899,7 @@ public actor CodexSession:
         _ = commandOutputs.cancel(token)
     }
 
-    public func operationDiagnostics() -> CodexOperationDiagnosticsSnapshot {
+    public func protocolDiagnostics() -> CodexProtocolDiagnosticsSnapshot {
         diagnostics.snapshot()
     }
 

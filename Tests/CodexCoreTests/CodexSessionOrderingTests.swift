@@ -564,7 +564,7 @@ final class CodexSessionOrderingTests: XCTestCase {
             ]
         )
         try await waitUntil {
-            await session.operationDiagnostics().entries.contains {
+            await session.protocolDiagnostics().entries.contains {
                 $0.kind == .lateServerRequestResolution
                     && $0.method == "serverRequest/resolved"
             }
@@ -590,7 +590,7 @@ final class CodexSessionOrderingTests: XCTestCase {
             result: .dictionary(["ignored": .bool(true)])
         ))
         try await waitUntil {
-            await session.operationDiagnostics().entries.contains {
+            await session.protocolDiagnostics().entries.contains {
                 $0.kind == .unmatchedResponse
                     && $0.method == "jsonrpc/response"
             }
@@ -807,7 +807,7 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
         try await waitUntil { await session.pendingServerRequests().isEmpty }
         let mismatchLifecycle = await session.lifecycle
-        let mismatchDiagnostics = await session.operationDiagnostics()
+        let mismatchDiagnostics = await session.protocolDiagnostics()
         XCTAssertEqual(mismatchLifecycle, .ready(connectionEpoch: 1))
         XCTAssertEqual(
             mismatchDiagnostics.entries.last?.kind,
@@ -856,10 +856,10 @@ final class CodexSessionOrderingTests: XCTestCase {
                 "requestId": .string("unknown-request-id"),
             ]
         )
-        try await waitUntil { await session.operationDiagnostics().entries.count == 1 }
+        try await waitUntil { await session.protocolDiagnostics().entries.count == 1 }
         let unknownLifecycle = await session.lifecycle
         let unknownPending = await session.pendingServerRequests()
-        let unknownDiagnostics = await session.operationDiagnostics()
+        let unknownDiagnostics = await session.protocolDiagnostics()
         XCTAssertEqual(unknownLifecycle, .ready(connectionEpoch: 1))
         XCTAssertEqual(unknownPending.count, 1)
         XCTAssertEqual(
@@ -2053,7 +2053,7 @@ final class CodexSessionOrderingTests: XCTestCase {
             ]
         )
         try await waitUntil {
-            await session.operationDiagnostics().entries.contains {
+            await session.protocolDiagnostics().entries.contains {
                 $0.kind == .unmatchedOperation
                     && $0.method == "command/exec/outputDelta"
             }

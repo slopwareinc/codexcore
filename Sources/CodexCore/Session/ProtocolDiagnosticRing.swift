@@ -1,6 +1,6 @@
 import Foundation
 
-public enum CodexOperationDiagnosticKind: Sendable, Hashable {
+public enum CodexProtocolDiagnosticKind: Sendable, Hashable {
     case warning
     case unknownMethod
     case unmatchedOperation
@@ -18,9 +18,9 @@ public enum CodexDiagnosticSeverity: String, Codable, Sendable, Hashable {
 
 /// Bounded metadata for a protocol frame that could not be applied normally.
 /// Raw notification parameters are deliberately never retained here.
-public struct CodexOperationDiagnostic: Sendable, Equatable {
+public struct CodexProtocolDiagnosticEntry: Sendable, Equatable {
     public let cursor: CodexWireCursor
-    public let kind: CodexOperationDiagnosticKind
+    public let kind: CodexProtocolDiagnosticKind
     public let severity: CodexDiagnosticSeverity
     public let method: String
     public let threadID: ThreadID?
@@ -32,7 +32,7 @@ public struct CodexOperationDiagnostic: Sendable, Equatable {
 
     public init(
         cursor: CodexWireCursor,
-        kind: CodexOperationDiagnosticKind,
+        kind: CodexProtocolDiagnosticKind,
         severity: CodexDiagnosticSeverity? = nil,
         method: String,
         threadID: ThreadID? = nil,
@@ -51,13 +51,13 @@ public struct CodexOperationDiagnostic: Sendable, Equatable {
     }
 }
 
-public struct CodexOperationDiagnosticsSnapshot: Sendable, Equatable {
-    public let entries: [CodexOperationDiagnostic]
+public struct CodexProtocolDiagnosticsSnapshot: Sendable, Equatable {
+    public let entries: [CodexProtocolDiagnosticEntry]
     public let totalRecordedCount: UInt64
     public let evictedCount: UInt64
 
     public init(
-        entries: [CodexOperationDiagnostic],
+        entries: [CodexProtocolDiagnosticEntry],
         totalRecordedCount: UInt64,
         evictedCount: UInt64
     ) {
@@ -73,7 +73,7 @@ public struct CodexOperationDiagnosticsSnapshot: Sendable, Equatable {
     )
 }
 
-private extension CodexOperationDiagnosticKind {
+private extension CodexProtocolDiagnosticKind {
     var defaultSeverity: CodexDiagnosticSeverity {
         switch self {
         case .warning:
@@ -104,7 +104,7 @@ struct CodexProtocolDiagnosticRing {
 
     let limits: Limits
 
-    private var entries: [CodexOperationDiagnostic?]
+    private var entries: [CodexProtocolDiagnosticEntry?]
     private var head = 0
     private var count = 0
     private var totalRecordedCount: UInt64 = 0
@@ -116,13 +116,13 @@ struct CodexProtocolDiagnosticRing {
     }
 
     mutating func record(
-        kind: CodexOperationDiagnosticKind,
+        kind: CodexProtocolDiagnosticKind,
         method: String,
         cursor: CodexWireCursor,
         keyDescription: String? = nil,
         detail: String? = nil
     ) {
-        append(CodexOperationDiagnostic(
+        append(CodexProtocolDiagnosticEntry(
             cursor: cursor,
             kind: kind,
             method: truncate(method),
@@ -131,8 +131,8 @@ struct CodexProtocolDiagnosticRing {
         ))
     }
 
-    func snapshot() -> CodexOperationDiagnosticsSnapshot {
-        var retained: [CodexOperationDiagnostic] = []
+    func snapshot() -> CodexProtocolDiagnosticsSnapshot {
+        var retained: [CodexProtocolDiagnosticEntry] = []
         retained.reserveCapacity(count)
         for offset in 0..<count {
             let index = (head + offset) % entries.count
@@ -149,7 +149,7 @@ struct CodexProtocolDiagnosticRing {
 }
 
 private extension CodexProtocolDiagnosticRing {
-    mutating func append(_ diagnostic: CodexOperationDiagnostic) {
+    mutating func append(_ diagnostic: CodexProtocolDiagnosticEntry) {
         if totalRecordedCount < UInt64.max {
             totalRecordedCount += 1
         }

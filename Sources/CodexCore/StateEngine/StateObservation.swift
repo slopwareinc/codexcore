@@ -26,7 +26,6 @@ public struct StateFieldMask: OptionSet, Codable, Sendable, Hashable {
     public static let usage = Self(rawValue: 1 << 13)
     public static let requests = Self(rawValue: 1 << 14)
     public static let submissionIntents = Self(rawValue: 1 << 15)
-    public static let operations = Self(rawValue: 1 << 16)
     public static let diagnostics = Self(rawValue: 1 << 17)
     public static let turnStructure = Self(rawValue: 1 << 18)
     public static let threadGoal = Self(rawValue: 1 << 19)
@@ -48,7 +47,7 @@ public struct StateFieldMask: OptionSet, Codable, Sendable, Hashable {
 
     public static let all: Self = [
         .connection, .account, .thread, .turn, .item, .requests,
-        .submissionIntents, .operations, .diagnostics, .moderation,
+        .submissionIntents, .diagnostics, .moderation,
         .extensions, .mcpServerStartup,
     ]
 }

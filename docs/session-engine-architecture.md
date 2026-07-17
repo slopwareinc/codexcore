@@ -7,10 +7,8 @@ This document defines the server-informed target runtime for the protocol pinned
 regenerating the wire layer and updating its drift tests, not by preserving a second
 compatibility runtime.
 
-The implementation is currently transitioning toward this shape. Some source names may
-still describe a state-change journal, a terminal request ledger, a universal operation
-registry, or separate history/lease coordinators. Those are migration artifacts, not
-target module boundaries.
+The implementation is currently transitioning toward this shape. Separate history and
+lease coordinators remain migration artifacts rather than target module boundaries.
 
 CodexCore launches a pinned app-server over stdio and uses an isolated `CODEX_HOME` at
 `~/.codexcore` by default. The normal Codex app's `~/.codex` state is not selected
