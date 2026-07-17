@@ -186,7 +186,7 @@ struct CodexCanonicalTranscriptProjectorTests {
         )
     }
 
-    @Test func incrementalProjectionUpsertsOnlyChangedTurnAndCarriesSourceRevision() throws {
+    @Test func incrementalProjectionUsesAggregateTurnRevisionAndLeavesUnrelatedTurnUntouched() throws {
         let threadID: ThreadID = "thread"
         let firstTurnID: TurnID = "one"
         let secondTurnID: TurnID = "two"
@@ -223,7 +223,6 @@ struct CodexCanonicalTranscriptProjectorTests {
         let result = try projector.project(
             snapshot: changed,
             threadID: threadID,
-            dirtyTurns: [.init(threadID: threadID, turnID: secondTurnID)],
             previous: previous
         )
 
@@ -325,7 +324,6 @@ struct CodexCanonicalTranscriptProjectorTests {
             snapshot: snapshot,
             threadID: threadID,
             requests: [otherThread, terminal, pending],
-            dirtyTurns: [],
             previous: previous
         )
 
@@ -349,7 +347,6 @@ struct CodexCanonicalTranscriptProjectorTests {
             try CodexCanonicalTranscriptProjector().project(
                 snapshot: .init(revision: StateRevision(9)),
                 threadID: threadID,
-                dirtyTurns: [],
                 previous: previous
             )
         }
@@ -367,7 +364,6 @@ struct CodexCanonicalTranscriptProjectorTests {
                 snapshot: .init(),
                 threadID: threadID,
                 requestRevision: 9,
-                dirtyTurns: [],
                 previous: previous
             )
         }

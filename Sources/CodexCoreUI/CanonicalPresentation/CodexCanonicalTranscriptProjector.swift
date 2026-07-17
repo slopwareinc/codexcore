@@ -21,7 +21,6 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
             threadID: threadID,
             requests: requests,
             requestRevision: requestRevision,
-            dirtyTurns: [],
             previous: nil
         )
     }
@@ -31,12 +30,11 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         threadID: ThreadID,
         requests: [CodexServerRequestSnapshot] = [],
         requestRevision: UInt64 = 0,
-        dirtyTurns: Set<TurnKey>,
         previous: CodexCanonicalTranscriptPresentation?
     ) throws -> CodexCanonicalTranscriptProjectionResult {
-        // `dirtyTurns` is the canonical change journal's complete affected-turn
-        // set since `previous`. An empty set therefore means no canonical turn
-        // content changed; request and local-intent changes are detected here.
+        // Canonical turn revisions aggregate every projected child item and
+        // submission change. Comparing them with the previous presentation makes
+        // incremental projection independent of retained change-set keys.
         if let previous,
            previous.threadID == threadID,
            snapshot.revision < previous.sourceRevision {
@@ -82,11 +80,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         let oldIDs = Set(old?.turnOrder ?? [])
         let newIDs = Set(order)
         let removed = oldIDs.subtracting(newIDs)
-        var dirtyIDs: Set<TurnID> = Set(
-            dirtyTurns.lazy
-                .filter { $0.threadID == threadID }
-                .map(\.turnID)
-        )
+        var dirtyIDs: Set<TurnID> = []
 
         if fullRebuild {
             dirtyIDs.formUnion(order)

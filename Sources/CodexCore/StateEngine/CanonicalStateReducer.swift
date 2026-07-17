@@ -587,6 +587,11 @@ internal struct CanonicalStateReducer: Sendable {
         }
 
         guard !changes.isEmpty else { return nil }
+        propagateAggregateTurnRevisions(
+            for: changes,
+            revision: revision,
+            graph: &graph
+        )
         graph.revision = revision
         return CanonicalStateChangeBatch(
             baseRevision: baseRevision,
@@ -599,6 +604,38 @@ internal struct CanonicalStateReducer: Sendable {
 // MARK: - Thread and turn merging
 
 private extension CanonicalStateReducer {
+    /// A turn's revision is the aggregate revision of everything projected inside
+    /// that turn. Keeping this invariant in the reducer lets downstream projections
+    /// discover item- and intent-only changes from a current snapshot without
+    /// replaying retained change-set keys.
+    func propagateAggregateTurnRevisions(
+        for changes: [CanonicalStateChange],
+        revision: StateRevision,
+        graph: inout CanonicalStateGraph
+    ) {
+        var affectedTurnKeys = Set(changes.compactMap(\.turnKey))
+        for change in changes {
+            let intentID: SubmissionIntentID?
+            switch change {
+            case .submissionIntentInserted(let id, _),
+                 .submissionIntentUpdated(let id, _):
+                intentID = id
+            default:
+                intentID = nil
+            }
+            guard let intentID,
+                  let intent = graph.submissionIntents[intentID],
+                  let turnID = intent.expectedTurnID else { continue }
+            affectedTurnKeys.insert(.init(threadID: intent.threadID, turnID: turnID))
+        }
+
+        for key in affectedTurnKeys {
+            guard var turn = graph.turns[key], turn.lastChangedRevision < revision else { continue }
+            turn.lastChangedRevision = revision
+            graph.turns[key] = turn
+        }
+    }
+
     func isWellFormed(_ mutation: CanonicalStateMutation) -> Bool {
         switch mutation {
         case .threadUpsert(let thread), .threadSnapshotReplaced(let thread):

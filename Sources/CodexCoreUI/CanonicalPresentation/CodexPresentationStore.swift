@@ -161,7 +161,6 @@ public final class CodexPresentationStore {
         revision: .zero,
         requests: []
     )
-    @ObservationIgnored private var pendingDirtyTurns: Set<TurnKey> = []
     @ObservationIgnored private var observationTask: Task<Void, Never>?
     @ObservationIgnored private var projectionTask: Task<Void, Never>?
     @ObservationIgnored private var observationGeneration: UInt64 = 0
@@ -442,18 +441,6 @@ private extension CodexPresentationStore {
         latestRequestBatch = requestBatch
         diagnostics.receivedChangeSetCount &+= changes.count
 
-        var dirtyTurns = Set(changes.flatMap(\.turnKeys))
-        dirtyTurns.formUnion(changes.flatMap(\.itemKeys).map(\.turnKey))
-        // `canonicalSnapshot()` may run one actor turn after `catchUp()`. If the
-        // graph advanced in that interval, parent turn revisions recover the
-        // complete dirty set without rescanning item payloads.
-        let previousTurnRevisions = activeCanonicalPresentation?.sourceTurnRevisions ?? [:]
-        for turn in snapshot.turns.values where turn.key.threadID == threadID {
-            if turn.lastChangedRevision > (previousTurnRevisions[turn.key.turnID] ?? .zero) {
-                dirtyTurns.insert(turn.key)
-            }
-        }
-        pendingDirtyTurns.formUnion(dirtyTurns)
         pendingSnapshot = snapshot
         pendingRequestBatch = requestBatch
 
@@ -486,7 +473,6 @@ private extension CodexPresentationStore {
         var threadID: ThreadID
         var snapshot: CanonicalStateSnapshot
         var requestBatch: CodexServerRequestSnapshotBatch
-        var dirtyTurns: Set<TurnKey>
         var previous: CodexCanonicalTranscriptPresentation?
     }
 
@@ -510,7 +496,6 @@ private extension CodexPresentationStore {
                         threadID: job.threadID,
                         requests: job.requestBatch.requests,
                         requestRevision: job.requestBatch.revision.rawValue,
-                        dirtyTurns: job.dirtyTurns,
                         previous: job.previous
                     )
                 } catch {
@@ -539,7 +524,6 @@ private extension CodexPresentationStore {
             threadID: threadID,
             snapshot: snapshot,
             requestBatch: pendingRequestBatch,
-            dirtyTurns: pendingDirtyTurns,
             previous: activeCanonicalPresentation
         )
         clearPendingProjection()
@@ -616,7 +600,6 @@ private extension CodexPresentationStore {
     func clearPendingProjection() {
         pendingSnapshot = nil
         pendingRequestBatch = .init(revision: .zero, requests: [])
-        pendingDirtyTurns = []
     }
 }
 

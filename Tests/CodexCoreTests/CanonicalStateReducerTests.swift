@@ -132,6 +132,47 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(graph.items[key]?.liveOverlay.agentMessage.joined(), "samesame")
     }
 
+    func testItemOnlyDeltaBumpsItsAggregateTurnRevisionWithoutTouchingOtherTurns() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let changedKey = itemKey(turn: "changed", item: "changed-item")
+        let untouchedKey = itemKey(turn: "untouched", item: "untouched-item")
+        _ = reducer.apply(.itemStarted(item(changedKey)), to: &graph)
+        _ = reducer.apply(.itemStarted(item(untouchedKey)), to: &graph)
+        let untouchedRevision = try XCTUnwrap(graph.turns[untouchedKey.turnKey]).lastChangedRevision
+
+        let batch = try XCTUnwrap(reducer.apply(
+            .itemDelta(key: changedKey, delta: .agentMessage("delta")),
+            to: &graph
+        ))
+
+        XCTAssertEqual(graph.turns[changedKey.turnKey]?.lastChangedRevision, batch.revision)
+        XCTAssertEqual(graph.turns[untouchedKey.turnKey]?.lastChangedRevision, untouchedRevision)
+    }
+
+    func testSubmissionIntentChangesBumpExpectedTurnAggregateRevision() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let key = TurnKey(threadID: "thread", turnID: "turn")
+        _ = reducer.apply(.turnStarted(CanonicalTurn(key: key), items: []), to: &graph)
+        let intent = SubmissionIntent(
+            id: "intent",
+            threadID: key.threadID,
+            expectedTurnID: key.turnID,
+            input: [.string("hello")],
+            localOrdinal: 1
+        )
+
+        let inserted = try XCTUnwrap(reducer.apply(.submissionIntentRegistered(intent), to: &graph))
+        XCTAssertEqual(graph.turns[key]?.lastChangedRevision, inserted.revision)
+
+        let failed = try XCTUnwrap(reducer.apply(
+            .submissionIntentFailed(id: intent.id, message: "failed"),
+            to: &graph
+        ))
+        XCTAssertEqual(graph.turns[key]?.lastChangedRevision, failed.revision)
+    }
+
     func testRepeatedTerminalInteractionsRemainLossless() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()
