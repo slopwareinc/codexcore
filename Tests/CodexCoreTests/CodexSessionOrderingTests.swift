@@ -522,6 +522,59 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
+    func testUnknownServerResolvedNotificationIsNonfatalAndDiagnosed() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        try await transport.sendNotification(
+            method: "serverRequest/resolved",
+            params: [
+                "threadId": .string(Self.threadID.rawValue),
+                "requestId": .string("already-gone"),
+            ]
+        )
+        try await waitUntil {
+            await session.operationDiagnostics().entries.contains {
+                $0.kind == .lateServerRequestResolution
+                    && $0.method == "serverRequest/resolved"
+            }
+        }
+
+        let lifecycle = await session.lifecycle
+        let pendingRequests = await session.pendingServerRequests()
+        XCTAssertEqual(lifecycle, .ready(connectionEpoch: 1))
+        XCTAssertTrue(pendingRequests.isEmpty)
+        await session.stop()
+    }
+
+    func testUnmatchedResponseIsNonfatalAndDiagnosed() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        try await transport.sendRawFrame(CodexJSONRPCCodec.encodeResult(
+            id: .string("already-gone"),
+            result: .dictionary(["ignored": .bool(true)])
+        ))
+        try await waitUntil {
+            await session.operationDiagnostics().entries.contains {
+                $0.kind == .unmatchedResponse
+                    && $0.method == "jsonrpc/response"
+            }
+        }
+
+        let lifecycle = await session.lifecycle
+        XCTAssertEqual(lifecycle, .ready(connectionEpoch: 1))
+        await session.stop()
+    }
+
     func testServerResolvedDropsMatchingReplyThatHasNotStartedWriting() async throws {
         let responseWriteGate = AsyncTestGate()
         let transport = ControllableCodexFrameTransport(

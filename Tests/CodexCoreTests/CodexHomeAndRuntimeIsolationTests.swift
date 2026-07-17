@@ -132,55 +132,40 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
         await session.stop()
     }
 
-    func testMismatchingPinnedRuntimeFailsWithUsefulVersionError() async throws {
-        let root = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let home = CodexHome(path: root.appendingPathComponent("home").path)
+    func testDifferentRuntimeUserAgentIsRetainedAsMetadata() async throws {
+        let home = CodexHome.default
         let userAgent = "Codex Desktop/0.146.0 (Mac OS 26.5.0; arm64) dumb"
         let transport = HandshakeSequenceTransport(responses: [
             .matching(home: home, userAgent: userAgent),
         ])
         let session = CodexSession(
             transport: transport,
-            configuration: .init(codexHome: home, reconnectPolicy: .disabled)
+            configuration: .init(reconnectPolicy: .disabled)
         )
 
-        do {
-            _ = try await session.start()
-            XCTFail("A different app-server runtime must not become ready")
-        } catch let error as CodexSessionError {
-            guard case .runtimeVersionMismatch(let expected, let actual, let actualUserAgent) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-            XCTAssertEqual(expected, CodexPinnedRuntime.version)
-            XCTAssertEqual(actual, "0.146.0")
-            XCTAssertEqual(actualUserAgent, userAgent)
-        }
+        let metadata = try await session.start()
+        XCTAssertEqual(metadata.userAgent, userAgent)
+        let lifecycle = await session.lifecycle
+        XCTAssertEqual(lifecycle, .ready(connectionEpoch: 1))
+        await session.stop()
     }
 
-    func testUnparseableRuntimeUserAgentFailsWithUsefulError() async throws {
-        let root = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let home = CodexHome(path: root.appendingPathComponent("home").path)
+    func testUnparseableRuntimeUserAgentIsRetainedAsMetadata() async throws {
+        let home = CodexHome.default
         let userAgent = "unexpected-app-server-identity"
         let transport = HandshakeSequenceTransport(responses: [
             .matching(home: home, userAgent: userAgent),
         ])
         let session = CodexSession(
             transport: transport,
-            configuration: .init(codexHome: home, reconnectPolicy: .disabled)
+            configuration: .init(reconnectPolicy: .disabled)
         )
 
-        do {
-            _ = try await session.start()
-            XCTFail("An unparseable app-server identity must not become ready")
-        } catch let error as CodexSessionError {
-            guard case .unparseableRuntimeUserAgent(let expected, let actual) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-            XCTAssertEqual(expected, CodexPinnedRuntime.version)
-            XCTAssertEqual(actual, userAgent)
-        }
+        let metadata = try await session.start()
+        XCTAssertEqual(metadata.userAgent, userAgent)
+        let lifecycle = await session.lifecycle
+        XCTAssertEqual(lifecycle, .ready(connectionEpoch: 1))
+        await session.stop()
     }
 
     func testMalformedInitializeResponseIsFatalInsteadOfReconnectable() async throws {
@@ -268,10 +253,8 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
         await session.stop()
     }
 
-    func testRuntimeMismatchOnReconnectStopsBeforeSecondEpochBecomesReady() async throws {
-        let root = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let home = CodexHome(path: root.appendingPathComponent("home").path)
+    func testDifferentRuntimeUserAgentOnReconnectBecomesReadyAndReplacesMetadata() async throws {
+        let home = CodexHome.default
         let transport = HandshakeSequenceTransport(responses: [
             .matching(home: home),
             .matching(
@@ -282,7 +265,6 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
         let session = CodexSession(
             transport: transport,
             configuration: .init(
-                codexHome: home,
                 reconnectPolicy: .init(
                     initialDelayMilliseconds: 0,
                     maximumDelayMilliseconds: 0
@@ -292,12 +274,16 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
 
         _ = try await session.start()
         await transport.finishCurrentConnection()
-        try await waitUntil { await session.lifecycle == .stopped }
+        try await waitUntil { await session.lifecycle == .ready(connectionEpoch: 2) }
 
         let openCount = await transport.openCount
         let retainedUserAgent = await session.initializeResponse?.userAgent
         XCTAssertEqual(openCount, 2)
-        XCTAssertEqual(retainedUserAgent, responsesUserAgent(at: 0))
+        XCTAssertEqual(
+            retainedUserAgent,
+            "Codex Desktop/0.146.0 (Mac OS 26.5.0; arm64) dumb"
+        )
+        await session.stop()
     }
 
     func testHomeMismatchOnReconnectStopsBeforeSecondEpochBecomesReady() async throws {

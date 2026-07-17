@@ -32,54 +32,6 @@ enum CodexNotificationOptOutPolicy {
     }
 }
 
-/// Extracts the runtime version from app-server user agents such as
-/// `Codex Desktop/0.145.0-alpha.20 (Mac OS ...; arm64) terminal ...`.
-/// Product, platform, terminal, and client-info fields legitimately vary; the
-/// semantic version immediately following the first slash does not.
-enum CodexRuntimeUserAgent {
-    static func version(from userAgent: String) -> String? {
-        let trimmed = userAgent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let separator = trimmed.firstIndex(of: "/") else { return nil }
-        let product = String(trimmed[..<separator])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !product.isEmpty else { return nil }
-
-        let versionStart = trimmed.index(after: separator)
-        let suffix = trimmed[versionStart...]
-        let token = String(suffix.prefix { !$0.isWhitespace })
-        guard isSemanticVersion(token) else { return nil }
-        return token
-    }
-
-    private static func isSemanticVersion(_ token: String) -> Bool {
-        guard !token.isEmpty else { return false }
-        let buildSplit = token.split(
-            separator: "+",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        guard buildSplit.count <= 2,
-              buildSplit.last?.isEmpty == false else { return false }
-        let releaseSplit = buildSplit[0].split(
-            separator: "-",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        let numericComponents = releaseSplit[0].split(
-            separator: ".",
-            omittingEmptySubsequences: false
-        )
-        guard numericComponents.count == 3,
-              numericComponents.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) else {
-            return false
-        }
-        if releaseSplit.count == 2, releaseSplit[1].isEmpty { return false }
-        return token.unicodeScalars.allSatisfy {
-            CharacterSet.alphanumerics.contains($0) || ".-+".unicodeScalars.contains($0)
-        }
-    }
-}
-
 // MARK: - Public session interface
 
 public enum CodexSessionLifecycle: Sendable, Equatable {
@@ -194,8 +146,6 @@ public enum CodexSessionError: Error, Sendable, Equatable, LocalizedError {
     case protocolViolation(String)
     case codexHomePreparationFailed(CodexHomePreparationError)
     case codexHomeMismatch(expected: String, actual: String)
-    case unparseableRuntimeUserAgent(expectedVersion: String, userAgent: String)
-    case runtimeVersionMismatch(expected: String, actual: String, userAgent: String)
     case handshakeBufferOverflow(limit: Int)
     case requestIdentifierExhausted
     case stateCommitFailed(String)
@@ -222,10 +172,6 @@ public enum CodexSessionError: Error, Sendable, Equatable, LocalizedError {
             error.localizedDescription
         case .codexHomeMismatch(let expected, let actual):
             "Codex app-server initialized with CODEX_HOME=\(actual), expected \(expected)."
-        case .unparseableRuntimeUserAgent(let expectedVersion, let userAgent):
-            "Codex app-server returned an unparseable user agent '\(userAgent)'; expected runtime version \(expectedVersion)."
-        case .runtimeVersionMismatch(let expected, let actual, let userAgent):
-            "Codex app-server runtime version \(actual) does not match pinned version \(expected) (user agent: \(userAgent))."
         case .handshakeBufferOverflow(let limit):
             "More than \(limit) frames arrived before initialization completed."
         case .requestIdentifierExhausted:
@@ -1596,22 +1542,9 @@ private extension CodexSession {
                 )
             }
         }
-
-        guard let actualVersion = CodexRuntimeUserAgent.version(
-            from: response.userAgent
-        ) else {
-            throw CodexSessionError.unparseableRuntimeUserAgent(
-                expectedVersion: CodexPinnedRuntime.version,
-                userAgent: response.userAgent
-            )
-        }
-        guard actualVersion == CodexPinnedRuntime.version else {
-            throw CodexSessionError.runtimeVersionMismatch(
-                expected: CodexPinnedRuntime.version,
-                actual: actualVersion,
-                userAgent: response.userAgent
-            )
-        }
+        // `userAgent` is descriptive server metadata, not a negotiated protocol
+        // version. Production pins the executable before launch; retain the raw
+        // value in `InitializeResponse` without inferring a wire contract from it.
     }
 
     func shouldReconnect(after error: Error) -> Bool {
@@ -1622,8 +1555,6 @@ private extension CodexSession {
              CodexSessionError.protocolViolation,
              CodexSessionError.codexHomePreparationFailed,
              CodexSessionError.codexHomeMismatch,
-             CodexSessionError.unparseableRuntimeUserAgent,
-             CodexSessionError.runtimeVersionMismatch,
              CodexSessionError.handshakeBufferOverflow,
              CodexSessionError.stateCommitFailed:
             return false
@@ -2008,12 +1939,14 @@ private extension CodexSession {
             id: response.id
         )
         guard let pending = pendingClientRequests.removeValue(forKey: key) else {
-            abortConnection(
-                cursor.connectionEpoch,
-                error: CodexSessionError.protocolViolation(
-                    "Response id \(response.id) has no request in this connection epoch"
-                )
+            operations.recordDiagnostic(
+                kind: .unmatchedResponse,
+                method: "jsonrpc/response",
+                cursor: cursor,
+                keyDescription: String(describing: response.id),
+                detail: "No pending request exists for this response id"
             )
+            try? commitSessionInvalidation(fields: .diagnostics)
             return
         }
         outboundFrames.removeAll { $0.token == pending.outboundToken }
@@ -2171,7 +2104,7 @@ private extension CodexSession {
             {
                 try applyServerResolvedNotification(
                     notification,
-                    connectionEpoch: cursor.connectionEpoch
+                    cursor: cursor
                 )
             }
 
@@ -2519,7 +2452,7 @@ private extension CodexSession {
 
     func applyServerResolvedNotification(
         _ notification: CodexJSONRPCNotificationEnvelope,
-        connectionEpoch: UInt64
+        cursor: CodexWireCursor
     ) throws {
         let resolved: CodexSchemaServerRequestResolvedNotification
         do {
@@ -2540,13 +2473,19 @@ private extension CodexSession {
             )
         }
         let key = CodexServerRequestKey(
-            connectionEpoch: connectionEpoch,
+            connectionEpoch: cursor.connectionEpoch,
             requestID: id
         )
         guard let pending = serverRequests.snapshot(for: key) else {
-            throw CodexSessionError.protocolViolation(
-                "serverRequest/resolved referenced an unknown request id"
+            operations.recordDiagnostic(
+                kind: .lateServerRequestResolution,
+                method: notification.method,
+                cursor: cursor,
+                keyDescription: String(describing: id),
+                detail: "No pending server request exists for this resolution"
             )
+            try? commitSessionInvalidation(fields: .diagnostics)
+            return
         }
         guard pending.scope.threadID == resolved.threadID else {
             throw CodexSessionError.protocolViolation(

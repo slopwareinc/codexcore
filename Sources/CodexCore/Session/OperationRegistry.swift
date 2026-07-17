@@ -326,6 +326,8 @@ public enum CodexOperationDiagnosticKind: Sendable, Hashable {
     case warning
     case unknownMethod
     case unmatchedOperation
+    case unmatchedResponse
+    case lateServerRequestResolution
     case malformedOperation
     case bufferOverflow
 }
@@ -379,7 +381,8 @@ private extension CodexOperationDiagnosticKind {
             .warning
         case .malformedOperation, .bufferOverflow:
             .error
-        case .unknownMethod, .unmatchedOperation:
+        case .unknownMethod, .unmatchedOperation, .unmatchedResponse,
+             .lateServerRequestResolution:
             .info
         }
     }
