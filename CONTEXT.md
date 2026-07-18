@@ -73,7 +73,9 @@ authoritative turns from resume and supports fork, rollback, and full thread rea
 are two current protocol modes, not two CodexCore runtimes. One thread runtime selects
 the correct hydration strategy from the declared mode and never guesses from null
 cursors. CodexCore defaults new alpha.20 threads to legacy until paginated mode reaches
-feature parity; paginated threads remain an explicit experiment.
+feature parity; paginated threads remain an explicit experiment selected through the
+persisted “New chat history” setting. Existing threads always resume according to their
+server-declared mode and are never migrated by that preference.
 
 ## Retainer
 

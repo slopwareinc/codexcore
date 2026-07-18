@@ -329,7 +329,8 @@ public extension CodexSession {
     func resumeThread(
         _ params: CodexSchemaThreadResumeParams
     ) async throws -> CodexThreadLease {
-        let request = CodexRequest.threadResume(params)
+        let resolvedParams = try await resumeParametersForStoredHistoryMode(params)
+        let request = CodexRequest.threadResume(resolvedParams)
         let encodedParams = try request.encodeParameters()
         guard case .dictionary? = encodedParams else {
             throw CodexSessionError.protocolViolation(
@@ -343,7 +344,7 @@ public extension CodexSession {
             resumeHistoryReason: .explicitObserver("CodexThreadLease")
         )
         let response = try call.value.decode(CodexSchemaThreadResumeResponse.self)
-        let expected = ThreadID(params.threadID)
+        let expected = ThreadID(resolvedParams.threadID)
         let actual = ThreadID(response.thread.id)
         guard actual == expected else {
             throw CodexLeaseError.responseThreadMismatch(expected: expected, actual: actual)
@@ -372,6 +373,7 @@ public extension CodexSession {
     func forkThread(
         _ params: CodexSchemaThreadForkParams
     ) async throws -> CodexThreadLease {
+        try await validateForkHistoryMode(threadID: ThreadID(params.threadID))
         let request = CodexRequest.threadFork(params)
         let call = try await performCall(
             method: request.method,

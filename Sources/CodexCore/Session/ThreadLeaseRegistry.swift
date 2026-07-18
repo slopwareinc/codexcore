@@ -105,9 +105,9 @@ public enum ThreadLeaseSubscriptionState: Sendable, Equatable {
     case idle
     /// At least one lease exists, but there is no usable connection.
     case stale
-    /// A resume plus paginated-history reconciliation is in flight.
+    /// Mode discovery and the corresponding resume reconciliation are in flight.
     case reconciling(connectionEpoch: UInt64, operationID: ThreadLeaseOperationID)
-    /// The current connection is subscribed and history/live state is reconciled.
+    /// The subscription is usable; paginated backfill may continue independently.
     case live(connectionEpoch: UInt64)
     /// The final lease disappeared while reconciliation was still in flight.
     case releaseAfterReconciliation(connectionEpoch: UInt64, operationID: ThreadLeaseOperationID)
@@ -280,8 +280,8 @@ public struct ThreadLeaseRegistry: Sendable {
     }
 
     /// Adopts a successful explicit `thread/resume` without emitting another
-    /// resume effect. The owning session seeds history paging from the response
-    /// that was already received at this reconciliation identity.
+    /// resume effect. The owning session completes legacy history immediately or
+    /// seeds paginated history from that same response.
     public mutating func acquireAdoptingResumeReconciliation(
         threadID: ThreadID,
         reason: ThreadLeaseReason,
@@ -383,8 +383,8 @@ public struct ThreadLeaseRegistry: Sendable {
         }
     }
 
-    /// Completes the full resume + history installation, not merely the resume
-    /// RPC. If the last lease disappeared meanwhile, unsubscribe is emitted now.
+    /// Marks resume usable after inline legacy history or paginated anchors were
+    /// installed. If the last lease disappeared meanwhile, unsubscribe is emitted.
     public mutating func reconciliationSucceeded(
         _ command: ThreadReconciliationCommand
     ) -> [ThreadLeaseEffect] {

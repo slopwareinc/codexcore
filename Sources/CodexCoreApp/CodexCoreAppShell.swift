@@ -178,6 +178,7 @@ struct CodexCoreAppShell: View {
                 reasoningSelection: $model.reasoningSelection,
                 isBottomPanelVisible: $model.isBottomTerminalVisible,
                 gitSettings: $model.gitSettings,
+                newThreadHistoryMode: $model.newThreadHistoryMode,
                 mcpServers: model.mcpServers,
                 isLoadingMCPServers: model.isLoadingMCPServers,
                 onBackToApp: { model.selectAppRoute(.chat) }

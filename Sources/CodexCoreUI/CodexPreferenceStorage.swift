@@ -88,6 +88,26 @@ public enum CodexGitSettingsStorage {
     }
 }
 
+public enum CodexNewThreadHistoryModeStorage {
+    private static let historyModeKey = "CodexCoreApp.newThreadHistoryMode.v1"
+
+    public static func load(
+        from store: any CodexStringListPreferenceStore
+    ) -> CodexNewThreadHistoryMode {
+        guard let rawValue = store.loadStrings(forKey: historyModeKey).first,
+              let mode = CodexNewThreadHistoryMode(rawValue: rawValue)
+        else { return .defaultForPinnedRelease }
+        return mode
+    }
+
+    public static func save(
+        _ mode: CodexNewThreadHistoryMode,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings([mode.rawValue], forKey: historyModeKey)
+    }
+}
+
 public enum CodexSidebarFontSizeStorage {
     public static let defaultFontSize = CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize
     public static let fontSizeRange = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange

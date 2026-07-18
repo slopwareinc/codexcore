@@ -219,6 +219,7 @@ final class CodexSessionOrderingTests: XCTestCase {
         _ = try await session.start()
         _ = await session.hydrateThreadHistory(Self.threadID)
 
+        try await respondToPaginatedHistoryModeProbe(transport)
         try await waitUntil {
             await transport.requestWriteCount(method: "thread/resume") == 1
         }
@@ -243,6 +244,234 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
+    func testLegacyHydrationUsesFullResumeWithoutPaging() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        let token = await session.hydrateThreadHistory(Self.threadID)
+
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/read") == 1
+        }
+        let recordedReads = await transport.requestObjectParams(method: "thread/read")
+        let readParams = try XCTUnwrap(recordedReads.last)
+        XCTAssertEqual(readParams["threadId"], .string(Self.threadID.rawValue))
+        XCTAssertEqual(readParams["includeTurns"], .bool(false))
+        try await transport.respondToLatestRequest(
+            method: "thread/read",
+            result: Self.legacyThreadMetadataResult
+        )
+
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/resume") == 1
+        }
+        let recordedResumes = await transport.requestObjectParams(method: "thread/resume")
+        let resumeParams = try XCTUnwrap(recordedResumes.last)
+        XCTAssertEqual(resumeParams["threadId"], .string(Self.threadID.rawValue))
+        XCTAssertNil(resumeParams["excludeTurns"])
+        XCTAssertNil(resumeParams["initialTurnsPage"])
+        try await transport.respondToLatestRequest(
+            method: "thread/resume",
+            result: Self.legacyHistoryResumeResult
+        )
+
+        let history = try await session.awaitThreadHistory(Self.threadID)
+        XCTAssertEqual(history.mode, .legacy)
+        XCTAssertEqual(history.turnsCoverage, .full)
+        XCTAssertNil(history.resumeCut)
+        XCTAssertTrue(history.turnsPage.isExhausted)
+        let turnsListCount = await transport.requestWriteCount(method: "thread/turns/list")
+        let itemsListCount = await transport.requestWriteCount(method: "thread/items/list")
+        XCTAssertEqual(turnsListCount, 0)
+        XCTAssertEqual(itemsListCount, 0)
+
+        let snapshot = await session.canonicalSnapshot()
+        XCTAssertNotNil(snapshot.items[ItemKey(
+            threadID: Self.threadID,
+            turnID: "turn-1",
+            itemID: "item-1"
+        )])
+
+        await session.releaseThreadHistory(token)
+        await session.stop()
+    }
+
+    func testExplicitResumeNormalizesLegacyParametersToPersistedMode() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        let requestedParams = CodexSchemaThreadResumeParams(
+            excludeTurns: true,
+            initialTurnsPage: .init(limit: 5),
+            threadID: Self.threadID.rawValue
+        )
+        let resume = Task { [session, requestedParams] in
+            try await session.resumeThread(requestedParams)
+        }
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/read") == 1
+        }
+        try await transport.respondToLatestRequest(
+            method: "thread/read",
+            result: Self.legacyThreadMetadataResult
+        )
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/resume") == 1
+        }
+
+        let recordedResumes = await transport.requestObjectParams(method: "thread/resume")
+        let params = try XCTUnwrap(recordedResumes.last)
+        XCTAssertNil(params["excludeTurns"])
+        XCTAssertNil(params["initialTurnsPage"])
+        try await transport.respondToLatestRequest(
+            method: "thread/resume",
+            result: Self.legacyHistoryResumeResult
+        )
+
+        let lease = try await resume.value
+        let snapshot = try await lease.snapshot(fields: .threadHistory)
+        let history = try XCTUnwrap(snapshot.threads[Self.threadID]?.history)
+        XCTAssertEqual(history.mode, .legacy)
+        XCTAssertEqual(history.turnsCoverage, .full)
+        XCTAssertNil(history.resumeCut)
+
+        await lease.close()
+        await session.stop()
+    }
+
+    func testExplicitResumeNormalizesPaginatedParametersToPersistedMode() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        let requestedParams = CodexSchemaThreadResumeParams(
+            excludeTurns: false,
+            initialTurnsPage: .init(limit: 5),
+            threadID: Self.threadID.rawValue
+        )
+        let resume = Task { [session, requestedParams] in
+            try await session.resumeThread(requestedParams)
+        }
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/read") == 1
+        }
+        try await transport.respondToLatestRequest(
+            method: "thread/read",
+            result: Self.paginatedThreadMetadataResult
+        )
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/resume") == 1
+        }
+
+        let recordedResumes = await transport.requestObjectParams(method: "thread/resume")
+        let params = try XCTUnwrap(recordedResumes.last)
+        XCTAssertEqual(params["excludeTurns"], .bool(true))
+        XCTAssertNil(params["initialTurnsPage"])
+        try await transport.respondToLatestRequest(
+            method: "thread/resume",
+            result: Self.historyResumeResult
+        )
+
+        let lease = try await resume.value
+        let snapshot = try await lease.snapshot(fields: .threadHistory)
+        let history = try XCTUnwrap(snapshot.threads[Self.threadID]?.history)
+        XCTAssertEqual(history.mode, .paginated)
+        XCTAssertNotNil(history.resumeCut)
+
+        await lease.close()
+        await session.stop()
+    }
+
+    func testExplicitResumeRejectsMissingPersistedHistoryModeInsteadOfGuessing() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        let requestedParams = CodexSchemaThreadResumeParams(
+            threadID: Self.threadID.rawValue
+        )
+        let resume = Task { [session, requestedParams] in
+            try await session.resumeThread(requestedParams)
+        }
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/read") == 1
+        }
+        try await transport.respondToLatestRequest(
+            method: "thread/read",
+            result: Self.threadMetadataWithoutHistoryModeResult
+        )
+
+        do {
+            _ = try await resume.value
+            XCTFail("Expected an absent persisted history mode to be rejected")
+        } catch let error as CodexSessionError {
+            guard case .protocolViolation(let message) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(message.contains("omitted historyMode"))
+        }
+        let resumeCount = await transport.requestWriteCount(method: "thread/resume")
+        XCTAssertEqual(resumeCount, 0)
+
+        await session.stop()
+    }
+
+    func testForkRejectsPaginatedThreadBeforeSendingUnsupportedRPC() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        let requestedParams = CodexSchemaThreadForkParams(
+            threadID: Self.threadID.rawValue
+        )
+        let fork = Task { [session, requestedParams] in
+            try await session.forkThread(requestedParams)
+        }
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/read") == 1
+        }
+        try await transport.respondToLatestRequest(
+            method: "thread/read",
+            result: Self.paginatedThreadMetadataResult
+        )
+
+        do {
+            _ = try await fork.value
+            XCTFail("Expected paginated fork to be rejected")
+        } catch let error as CodexSessionError {
+            guard case .unsupportedThreadOperation(
+                let threadID,
+                let method,
+                let historyMode
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(threadID, Self.threadID)
+            XCTAssertEqual(method, "thread/fork")
+            XCTAssertEqual(historyMode, .paginated)
+        }
+        let forkCount = await transport.requestWriteCount(method: "thread/fork")
+        XCTAssertEqual(forkCount, 0)
+
+        await session.stop()
+    }
+
     func testUnsubscribeAckDoesNotFabricateServerUnloadWhenReacquired() async throws {
         let transport = ControllableCodexFrameTransport()
         let session = CodexSession(
@@ -252,6 +481,7 @@ final class CodexSessionOrderingTests: XCTestCase {
         _ = try await session.start()
         let firstToken = await session.hydrateThreadHistory(Self.threadID)
 
+        try await respondToPaginatedHistoryModeProbe(transport)
         try await waitUntil {
             await transport.requestWriteCount(method: "thread/resume") == 1
         }
@@ -293,6 +523,7 @@ final class CodexSessionOrderingTests: XCTestCase {
         _ = try await session.start()
         _ = await session.hydrateThreadHistory(Self.threadID)
 
+        try await respondToPaginatedHistoryModeProbe(transport)
         try await waitUntil {
             await transport.requestWriteCount(method: "thread/resume") == 1
         }
@@ -411,6 +642,7 @@ final class CodexSessionOrderingTests: XCTestCase {
         _ = try await session.start()
         _ = await session.hydrateThreadHistory(Self.threadID)
 
+        try await respondToPaginatedHistoryModeProbe(transport)
         try await waitUntil {
             await transport.requestWriteCount(method: "thread/resume") == 1
         }
@@ -2210,6 +2442,22 @@ final class CodexSessionOrderingTests: XCTestCase {
         for _ in 0..<20 { await Task.yield() }
     }
 
+    private func respondToPaginatedHistoryModeProbe(
+        _ transport: ControllableCodexFrameTransport
+    ) async throws {
+        try await waitUntil {
+            await transport.requestWriteCount(method: "thread/read") == 1
+        }
+        let recordedReads = await transport.requestObjectParams(method: "thread/read")
+        let params = try XCTUnwrap(recordedReads.last)
+        XCTAssertEqual(params["threadId"], .string(Self.threadID.rawValue))
+        XCTAssertEqual(params["includeTurns"], .bool(false))
+        try await transport.respondToLatestRequest(
+            method: "thread/read",
+            result: Self.paginatedThreadMetadataResult
+        )
+    }
+
     private static func assertAtomic(
         _ state: CodexSessionStateSnapshot,
         file: StaticString = #filePath,
@@ -2286,58 +2534,103 @@ final class CodexSessionOrderingTests: XCTestCase {
         "platformOs": .string("macos"),
         "userAgent": .string("Codex Desktop/0.145.0-alpha.20 (Mac OS; arm64) test"),
     ])
-    private static let threadReadResult = CodexJSONValue.dictionary([
-        "thread": .dictionary([
+    private static let fullHistoryTurn = CodexJSONValue.dictionary([
+        "id": .string("turn-1"),
+        "items": .array([.dictionary([
+            "id": .string("item-1"),
+            "type": .string("agentMessage"),
+            "phase": .string("final_answer"),
+            "text": .string("done"),
+        ])]),
+        "itemsView": .string("full"),
+        "status": .string("completed"),
+    ])
+    private static let threadReadResult = threadResult(
+        historyMode: "legacy",
+        turns: [fullHistoryTurn]
+    )
+    private static let legacyThreadMetadataResult = threadResult(historyMode: "legacy")
+    private static let threadMetadataWithoutHistoryModeResult = threadResult(historyMode: nil)
+    private static let legacyHistoryResumeResult = resumeResult(
+        thread: threadObject(historyMode: "legacy", turns: [fullHistoryTurn])
+    )
+    private static let paginatedThreadMetadataResult = threadResult(
+        historyMode: "paginated",
+        preview: "",
+        updatedAt: 1
+    )
+    private static let historyResumeResult = resumeResult(
+        thread: threadObject(
+            historyMode: "paginated",
+            preview: "",
+            updatedAt: 1
+        ),
+        turnsBackwardsCursor: "turn-head",
+        itemsBackwardsCursor: "item-head"
+    )
+
+    private static func threadResult(
+        historyMode: String?,
+        turns: [CodexJSONValue] = [],
+        preview: String = "hello",
+        updatedAt: Int = 2
+    ) -> CodexJSONValue {
+        .dictionary(["thread": threadObject(
+            historyMode: historyMode,
+            turns: turns,
+            preview: preview,
+            updatedAt: updatedAt
+        )])
+    }
+
+    private static func threadObject(
+        historyMode: String?,
+        turns: [CodexJSONValue] = [],
+        preview: String = "hello",
+        updatedAt: Int = 2
+    ) -> CodexJSONValue {
+        var thread: [String: CodexJSONValue] = [
             "cliVersion": .string("alpha.20"),
             "createdAt": .int(1),
             "cwd": .string("/tmp"),
             "ephemeral": .bool(false),
-            "historyMode": .string("legacy"),
             "id": .string(threadID.rawValue),
             "modelProvider": .string("openai"),
-            "preview": .string("hello"),
+            "preview": .string(preview),
             "sessionId": .string("session-thread-1"),
             "source": .string("appServer"),
             "status": .dictionary(["type": .string("idle")]),
-            "turns": .array([.dictionary([
-                "id": .string("turn-1"),
-                "items": .array([.dictionary([
-                    "id": .string("item-1"),
-                    "type": .string("agentMessage"),
-                    "phase": .string("final_answer"),
-                    "text": .string("done"),
-                ])]),
-                "itemsView": .string("full"),
-                "status": .string("completed"),
-            ])]),
-            "updatedAt": .int(2),
-        ]),
-    ])
-    private static let historyResumeResult = CodexJSONValue.dictionary([
-        "approvalPolicy": .string("on-request"),
-        "approvalsReviewer": .string("auto_review"),
-        "cwd": .string("/tmp"),
-        "model": .string("gpt-5.6"),
-        "modelProvider": .string("openai"),
-        "sandbox": .dictionary(["type": .string("workspaceWrite")]),
-        "turnsBackwardsCursor": .string("turn-head"),
-        "itemsBackwardsCursor": .string("item-head"),
-        "thread": .dictionary([
-            "cliVersion": .string("alpha.20"),
-            "createdAt": .int(1),
+            "turns": .array(turns),
+            "updatedAt": .int(updatedAt),
+        ]
+        if let historyMode {
+            thread["historyMode"] = .string(historyMode)
+        }
+        return .dictionary(thread)
+    }
+
+    private static func resumeResult(
+        thread: CodexJSONValue,
+        turnsBackwardsCursor: String? = nil,
+        itemsBackwardsCursor: String? = nil
+    ) -> CodexJSONValue {
+        var result: [String: CodexJSONValue] = [
+            "approvalPolicy": .string("on-request"),
+            "approvalsReviewer": .string("auto_review"),
             "cwd": .string("/tmp"),
-            "ephemeral": .bool(false),
-            "historyMode": .string("paginated"),
-            "id": .string(threadID.rawValue),
+            "model": .string("gpt-5.6"),
             "modelProvider": .string("openai"),
-            "preview": .string(""),
-            "sessionId": .string("session-thread-1"),
-            "source": .string("appServer"),
-            "status": .dictionary(["type": .string("idle")]),
-            "turns": .array([]),
-            "updatedAt": .int(1),
-        ]),
-    ])
+            "sandbox": .dictionary(["type": .string("workspaceWrite")]),
+            "thread": thread,
+        ]
+        if let turnsBackwardsCursor {
+            result["turnsBackwardsCursor"] = .string(turnsBackwardsCursor)
+        }
+        if let itemsBackwardsCursor {
+            result["itemsBackwardsCursor"] = .string(itemsBackwardsCursor)
+        }
+        return .dictionary(result)
+    }
     private static let immediateReconnect = CodexReconnectPolicy(
         isEnabled: true,
         initialDelayMilliseconds: 0,

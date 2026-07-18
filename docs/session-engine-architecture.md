@@ -18,8 +18,10 @@ for paginated threads. Until those server gaps close, CodexCore creates legacy t
 default and treats paginated history as an explicit per-thread experiment. The session
 selects behavior from the thread's declared history mode. It must never send a paginated
 resume to an unknown or legacy thread and infer that null cursors mean empty history.
-The app target's current explicit paginated start setting is therefore a transition
-artifact; it must become an opt-in only after operation gating lands.
+Configuration therefore exposes a persisted new-chat history preference, defaults it
+to `legacy`, and sends the selection explicitly on `thread/start`. Changing the
+preference never migrates existing threads; their server-declared mode remains the
+source of truth for resume and operation policy.
 
 CodexCore launches a pinned app-server over stdio and uses an isolated `CODEX_HOME` at
 `~/.codexcore` by default. The normal Codex app's `~/.codex` state is not selected
@@ -205,8 +207,8 @@ History and live reconciliation follows these rules:
 4. for paginated history, reduce live notifications immediately while paging, treat
    turn and item cursors as independent opaque tokens, and merge overlapping pages
    idempotently;
-5. make a resume usable as soon as its response is reduced, while exposing a separate
-   completion boundary for callers that require full hydration;
+5. make a resume usable as soon as its response is reduced, while exposing paginated
+   loading state separately for callers that care about full hydration;
 6. reject results from an obsolete connection epoch or thread generation; and
 7. retry safe subscription transitions with bounded per-thread backoff while desire and
    connection epoch still match.

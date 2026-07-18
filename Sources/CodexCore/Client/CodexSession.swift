@@ -150,6 +150,11 @@ public enum CodexSessionError: Error, Sendable, Equatable, LocalizedError {
     case requestIdentifierExhausted
     case stateCommitFailed(String)
     case historyReconciliationFailed(threadID: ThreadID, message: String)
+    case unsupportedThreadOperation(
+        threadID: ThreadID,
+        method: String,
+        historyMode: CanonicalHistoryMode
+    )
     case unknownServerRequest(CodexServerRequestKey)
     case anonymousLoginAlreadyInProgress(connectionEpoch: UInt64)
     case loginCancellationNotFound(CodexLoginKey)
@@ -179,6 +184,8 @@ public enum CodexSessionError: Error, Sendable, Equatable, LocalizedError {
             "Canonical state commit failed: \(message)"
         case .historyReconciliationFailed(let threadID, let message):
             "History reconciliation for \(threadID) failed: \(message)"
+        case .unsupportedThreadOperation(let threadID, let method, let historyMode):
+            "\(method) is unavailable for \(historyMode.rawValue) thread \(threadID) with the pinned app-server."
         case .unknownServerRequest(let key):
             "No server request exists for epoch \(key.connectionEpoch), id \(key.requestID)."
         case .anonymousLoginAlreadyInProgress(let epoch):
@@ -1127,6 +1134,46 @@ public actor CodexSession:
         }
     }
 
+    func resumeParametersForStoredHistoryMode(
+        _ requested: CodexSchemaThreadResumeParams
+    ) async throws -> CodexSchemaThreadResumeParams {
+        var resolved = requested
+        switch try await resolvedThreadHistoryMode(for: ThreadID(requested.threadID)) {
+        case .legacy:
+            // Legacy resume is the authoritative full-history path. Do not
+            // accidentally select its optional wire-only pagination variant.
+            resolved.excludeTurns = nil
+            resolved.initialTurnsPage = nil
+        case .paginated:
+            // Alpha.20 requires this exact shape and rejects an inline page.
+            resolved.excludeTurns = true
+            resolved.initialTurnsPage = nil
+        case .unknown(let rawValue):
+            throw CodexSessionError.protocolViolation(
+                "Unsupported thread history mode \(rawValue) for \(requested.threadID)"
+            )
+        }
+        return resolved
+    }
+
+    func validateForkHistoryMode(
+        threadID: ThreadID
+    ) async throws {
+        let mode = try await resolvedThreadHistoryMode(for: threadID)
+        guard mode != .paginated else {
+            throw CodexSessionError.unsupportedThreadOperation(
+                threadID: threadID,
+                method: CodexAppServerClientMethod.threadFork.rawValue,
+                historyMode: mode
+            )
+        }
+        if case .unknown(let rawValue) = mode {
+            throw CodexSessionError.protocolViolation(
+                "Unsupported thread history mode \(rawValue) for \(threadID)"
+            )
+        }
+    }
+
     func acquireThreadLease(
         threadID: ThreadID,
         reason: ThreadLeaseReason
@@ -1160,9 +1207,9 @@ public actor CodexSession:
         return acquisition.token
     }
 
-    /// Seeds full paging from a successful explicit `thread/resume` response.
-    /// No second resume request is emitted, and the response's actual wire
-    /// cursor remains the cut used to filter buffered live events.
+    /// Adopts a successful explicit `thread/resume` using its declared history
+    /// mode. Legacy history is already complete in the response; paginated
+    /// history seeds paging from that exact response without a second resume.
     func adoptResumeAndSeedHistory(
         threadID: ThreadID,
         reason: ThreadLeaseReason,
@@ -1197,6 +1244,11 @@ public actor CodexSession:
                 actual: ThreadID(actualID)
             )
         }
+        guard let mode = graph.threads[threadID]?.history.mode else {
+            throw CodexSessionError.protocolViolation(
+                "thread/resume omitted historyMode for \(threadID)"
+            )
+        }
 
         unleasedThreadDetailLRU.removeAll { $0 == threadID }
         let seeded = leases.acquireAdoptingResumeReconciliation(
@@ -1204,6 +1256,23 @@ public actor CodexSession:
             reason: reason,
             connectionEpoch: epoch
         )
+        if mode == .legacy {
+            scheduleLeaseEffects(leases.reconciliationSucceeded(seeded.reconciliation))
+            resolveHistoryWaiters(
+                threadID: threadID,
+                history: graph.threads[threadID]?.history ?? .init()
+            )
+            return seeded.token
+        }
+        guard mode == .paginated else {
+            leases.reconciliationFailed(
+                seeded.reconciliation,
+                message: "Unsupported history mode \(mode.rawValue)"
+            )
+            throw CodexSessionError.protocolViolation(
+                "Unsupported thread history mode \(mode.rawValue) for \(threadID)"
+            )
+        }
         let initial = history.beginReconciliation(seeded.reconciliation)
         guard initial.count == 1,
               case .requestResume(let placeholder) = initial[0] else {
@@ -1242,7 +1311,8 @@ public actor CodexSession:
         refreshThreadDetailRetention(for: [token.threadID])
     }
 
-    /// Retains a thread and drives alpha.20 resume plus complete cursor paging.
+    /// Retains a thread and drives the history-mode-specific resume strategy.
+    /// Legacy installs inline history; paginated history continues cursor paging.
     /// Releasing the returned token deterministically tears the subscription down.
     public func hydrateThreadHistory(
         _ threadID: ThreadID,
@@ -1261,36 +1331,54 @@ public actor CodexSession:
         history.snapshot(for: threadID)
     }
 
-    /// Waits until the retained thread has installed all turn and item pages.
-    /// The returned value is the canonical history metadata from that same
-    /// actor transaction.
+    /// Waits until resume has established a usable retained history scope.
+    /// Paginated callers may receive partial coverage while older pages continue;
+    /// `threadHistoryLoadingState` exposes that independent completion state.
     public func awaitThreadHistory(
         _ threadID: ThreadID
     ) async throws -> CanonicalHistoryState {
-        guard let snapshot = history.snapshot(for: threadID) else {
-            throw CodexSessionError.historyReconciliationFailed(
-                threadID: threadID,
-                message: "The thread has no retained history scope"
-            )
-        }
-
         let connectionEpoch: UInt64?
-        switch snapshot.phase {
-        case .live:
-            return graph.threads[threadID]?.history ?? .init()
-        case .failed(let failure):
-            throw CodexSessionError.historyReconciliationFailed(
-                threadID: threadID,
-                message: String(describing: failure.reason)
-            )
-        case .paging:
-            // Resume has already established the subscription and installed
-            // its metadata/anchors. Older pages continue incrementally.
-            return graph.threads[threadID]?.history ?? .init()
-        case .awaitingResume(let epoch, _):
-            connectionEpoch = epoch
-        case .stale:
-            connectionEpoch = nil
+        if let snapshot = history.snapshot(for: threadID) {
+            switch snapshot.phase {
+            case .live:
+                return graph.threads[threadID]?.history ?? .init()
+            case .failed(let failure):
+                throw CodexSessionError.historyReconciliationFailed(
+                    threadID: threadID,
+                    message: String(describing: failure.reason)
+                )
+            case .paging:
+                // Resume has already established the subscription and installed
+                // its metadata/anchors. Older pages continue incrementally.
+                return graph.threads[threadID]?.history ?? .init()
+            case .awaitingResume(let epoch, _):
+                connectionEpoch = epoch
+            case .stale:
+                connectionEpoch = nil
+            }
+        } else {
+            guard let lease = leases.snapshot(for: threadID) else {
+                throw CodexSessionError.historyReconciliationFailed(
+                    threadID: threadID,
+                    message: "The thread has no retained history scope"
+                )
+            }
+            switch lease.subscriptionState {
+            case .live:
+                return graph.threads[threadID]?.history ?? .init()
+            case .reconciling(let epoch, _),
+                 .releaseAfterReconciliation(let epoch, _),
+                 .unsubscribing(let epoch, _),
+                 .reconcileAfterUnsubscribe(let epoch, _):
+                connectionEpoch = epoch
+            case .stale, .idle:
+                connectionEpoch = nil
+            case .failed(_, let message):
+                throw CodexSessionError.historyReconciliationFailed(
+                    threadID: threadID,
+                    message: message
+                )
+            }
         }
 
         guard !Task.isCancelled else { throw CancellationError() }
@@ -1519,10 +1607,9 @@ private extension CodexSession {
             )
         }
         lifecycle = .ready(connectionEpoch: epoch)
-        // Register every retained scope with the history coordinator before
-        // replaying frames buffered during initialization. The effect workers
-        // cannot run until this synchronous drain returns, but live frames now
-        // enter the correct cursor-bounded staging scope.
+        // Reserve reconciliation identities for every retained scope before
+        // replaying frames buffered during initialization. Effect workers select
+        // legacy or paginated hydration from each thread's persisted mode.
         scheduleLeaseEffects(leases.connectionReady(epoch))
 
         let buffered = bufferedHandshakeEnvelopes
@@ -2838,9 +2925,7 @@ private extension CodexSession {
         guard !effects.isEmpty else { return }
         for effect in effects {
             switch effect {
-            case .reconcile(let command):
-                scheduleHistoryEffects(history.beginReconciliation(command))
-            case .unsubscribe:
+            case .reconcile, .unsubscribe:
                 leaseEffectQueue.append(effect)
             case .evictDetail(let threadID):
                 evictThreadDetailAfterUnsubscribe(threadID)
@@ -2863,8 +2948,8 @@ private extension CodexSession {
 
     func executeLeaseEffect(_ effect: ThreadLeaseEffect) async {
         switch effect {
-        case .reconcile:
-            return
+        case .reconcile(let command):
+            await executeThreadReconciliation(command)
 
         case .evictDetail:
             return
@@ -2888,6 +2973,88 @@ private extension CodexSession {
                     message: String(describing: error)
                 ))
             }
+        }
+    }
+
+    func executeThreadReconciliation(_ command: ThreadReconciliationCommand) async {
+        guard activeConnectionEpoch == command.connectionEpoch,
+              isCurrentReconciliation(command) else { return }
+
+        do {
+            switch try await resolvedThreadHistoryMode(for: command.threadID) {
+            case .legacy:
+                guard activeConnectionEpoch == command.connectionEpoch,
+                      isCurrentReconciliation(command) else { return }
+                _ = try await performCall(
+                    method: .threadResume,
+                    params: .dictionary([
+                        "threadId": .string(command.threadID.rawValue),
+                    ])
+                )
+                scheduleLeaseEffects(leases.reconciliationSucceeded(command))
+                resolveHistoryWaiters(
+                    threadID: command.threadID,
+                    history: graph.threads[command.threadID]?.history ?? .init()
+                )
+
+            case .paginated:
+                guard activeConnectionEpoch == command.connectionEpoch,
+                      isCurrentReconciliation(command) else { return }
+                scheduleHistoryEffects(history.beginReconciliation(command))
+
+            case .unknown(let rawValue):
+                throw CodexSessionError.protocolViolation(
+                    "Unsupported thread history mode \(rawValue) for \(command.threadID)"
+                )
+            }
+        } catch {
+            guard isCurrentReconciliation(command) else { return }
+            leases.reconciliationFailed(
+                command,
+                message: String(describing: error)
+            )
+            failHistoryWaiters(
+                threadID: command.threadID,
+                connectionEpoch: command.connectionEpoch,
+                error: CodexSessionError.historyReconciliationFailed(
+                    threadID: command.threadID,
+                    message: String(describing: error)
+                )
+            )
+        }
+    }
+
+    func resolvedThreadHistoryMode(
+        for threadID: ThreadID
+    ) async throws -> CanonicalHistoryMode {
+        if let mode = graph.threads[threadID]?.history.mode {
+            return mode
+        }
+
+        _ = try await performCall(
+            method: .threadRead,
+            params: .dictionary([
+                "threadId": .string(threadID.rawValue),
+                "includeTurns": .bool(false),
+            ])
+        )
+        guard let mode = graph.threads[threadID]?.history.mode else {
+            throw CodexSessionError.protocolViolation(
+                "thread/read omitted historyMode for \(threadID)"
+            )
+        }
+        return mode
+    }
+
+    func isCurrentReconciliation(_ command: ThreadReconciliationCommand) -> Bool {
+        guard let snapshot = leases.snapshot(for: command.threadID) else { return false }
+        switch snapshot.subscriptionState {
+        case .reconciling(let epoch, let operationID),
+             .releaseAfterReconciliation(let epoch, let operationID):
+            return epoch == command.connectionEpoch && operationID == command.operationID
+        case .idle, .stale, .live, .unsubscribing,
+             .reconcileAfterUnsubscribe, .failed:
+            return false
         }
     }
 

@@ -97,6 +97,9 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 "platformOs": .string("macos"),
                 "userAgent": .string("codex/0.145.0-alpha.20"),
             ])
+        case "thread/read":
+            let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
+            result = Self.threadMetadataResult(threadID: threadID)
         case "thread/resume":
             resumeCount += 1
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
@@ -176,6 +179,30 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
         continuation?.yield(frame)
     }
 
+    private static func threadMetadataResult(threadID: String) -> CodexJSONValue {
+        .dictionary([
+            "thread": .dictionary([
+                "agentNickname": .string("Scout"),
+                "agentRole": .string("explorer"),
+                "cliVersion": .string("0.145.0-alpha.20"),
+                "createdAt": .int(1_700_000_000),
+                "cwd": .string("/tmp"),
+                "ephemeral": .bool(true),
+                "historyMode": .string("legacy"),
+                "id": .string(threadID),
+                "modelProvider": .string("openai"),
+                "parentThreadId": .string("parent"),
+                "path": .string("/root/scout"),
+                "preview": .string("Working"),
+                "sessionId": .string("session-\(threadID)"),
+                "source": .string("appServer"),
+                "status": .dictionary(["type": .string("active"), "activeFlags": .array([])]),
+                "turns": .array([]),
+                "updatedAt": .int(1_700_000_001),
+            ]),
+        ])
+    }
+
     private static func resumeResult(threadID: String) -> CodexJSONValue {
         .dictionary([
             "approvalPolicy": .string("on-request"),
@@ -184,8 +211,6 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
             "model": .string("gpt-5.6"),
             "modelProvider": .string("openai"),
             "sandbox": .dictionary(["type": .string("workspaceWrite")]),
-            "turnsBackwardsCursor": .null,
-            "itemsBackwardsCursor": .null,
             "thread": .dictionary([
                 "agentNickname": .string("Scout"),
                 "agentRole": .string("explorer"),
@@ -193,7 +218,7 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 "createdAt": .int(1_700_000_000),
                 "cwd": .string("/tmp"),
                 "ephemeral": .bool(true),
-                "historyMode": .string("paginated"),
+                "historyMode": .string("legacy"),
                 "id": .string(threadID),
                 "modelProvider": .string("openai"),
                 "parentThreadId": .string("parent"),

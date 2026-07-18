@@ -690,7 +690,7 @@ private extension ProtocolStateAdapter {
         metadata.updatedAt = ProtocolSeconds(Int64(value.updatedAt))
         metadata.extensions = (rawThread ?? [:]).filterKeys(excluding: Self.threadWireFields)
         let history = CanonicalHistoryState(
-            mode: CanonicalHistoryMode(rawValue: value.historyMode?.rawValue ?? "legacy"),
+            mode: value.historyMode.map { CanonicalHistoryMode(rawValue: $0.rawValue) },
             turnsCoverage: turnsCoverageOverride ?? (value.turns.isEmpty ? .notLoaded : .summary)
         )
         let thread = CanonicalThread(
@@ -1116,22 +1116,33 @@ private extension ProtocolStateAdapter {
                 )
             ))
             let initialPage = value.initialTurnsPage
+            guard let rawHistoryMode = value.thread.historyMode?.rawValue else {
+                throw ProtocolStateAdapterError.malformedResponse(
+                    method: context.method.rawValue,
+                    message: "thread omitted experimental historyMode"
+                )
+            }
+            let historyMode = CanonicalHistoryMode(rawValue: rawHistoryMode)
+            let isPaginated = historyMode == .paginated
             let history = CanonicalHistoryState(
-                mode: CanonicalHistoryMode(rawValue: value.thread.historyMode?.rawValue ?? "legacy"),
-                turnsCoverage: (value.thread.historyMode?.rawValue ?? "legacy") == "legacy"
+                mode: historyMode,
+                turnsCoverage: historyMode == .legacy
                     ? .full
                     : initialPage.map { pageCoverage(nextCursor: $0.nextCursor) }
                         ?? (value.thread.turns.isEmpty ? .notLoaded : .summary),
-                resumeCut: CanonicalResumeCut(
-                    connectionEpoch: context.connectionEpoch,
-                    resumeGeneration: context.resumeGeneration,
-                    turnsBackwardsCursor: value.turnsBackwardsCursor,
-                    itemsBackwardsCursor: value.itemsBackwardsCursor
-                ),
+                resumeCut: isPaginated
+                    ? CanonicalResumeCut(
+                        connectionEpoch: context.connectionEpoch,
+                        resumeGeneration: context.resumeGeneration,
+                        turnsBackwardsCursor: value.turnsBackwardsCursor,
+                        itemsBackwardsCursor: value.itemsBackwardsCursor
+                    )
+                    : nil,
                 turnsPage: CanonicalPageCursorState(
                     backwardsCursor: initialPage?.backwardsCursor,
                     nextCursor: initialPage?.nextCursor,
-                    isExhausted: initialPage != nil && initialPage?.nextCursor == nil
+                    isExhausted: historyMode == .legacy
+                        || (initialPage != nil && initialPage?.nextCursor == nil)
                 )
             )
             mutations.append(.threadHistoryReplaced(id: threadID, history: history))

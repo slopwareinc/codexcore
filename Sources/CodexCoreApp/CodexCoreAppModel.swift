@@ -28,6 +28,11 @@ final class CodexCoreAppModel {
             CodexGitSettingsStorage.saveGitSettings(gitSettings, to: preferenceStore)
         }
     }
+    var newThreadHistoryMode: CodexNewThreadHistoryMode = .defaultForPinnedRelease {
+        didSet {
+            CodexNewThreadHistoryModeStorage.save(newThreadHistoryMode, to: preferenceStore)
+        }
+    }
     var sidebarFontSize: Double = CodexSidebarFontSizeStorage.defaultFontSize {
         didSet {
             let clamped = CodexSidebarFontSizeStorage.clamped(sidebarFontSize)
@@ -115,6 +120,7 @@ final class CodexCoreAppModel {
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
+        self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
         self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
@@ -1493,7 +1499,7 @@ final class CodexCoreAppModel {
             approvalPolicy: protocolApprovalPolicy,
             approvalsReviewer: protocolApprovalsReviewer,
             cwd: workspacePath,
-            historyMode: .paginated,
+            historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
             model: modelSelection.modelIdentifier,
             sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue)
         )
