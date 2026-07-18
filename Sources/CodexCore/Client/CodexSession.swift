@@ -1658,7 +1658,8 @@ private extension CodexSession {
     func shouldReconnect(after error: Error) -> Bool {
         guard shouldRun, configuration.reconnectPolicy.isEnabled else { return false }
         switch error {
-        case is CodexJSONRPCErrorObject,
+        case is CodexSDKError,
+             is CodexJSONRPCErrorObject,
              is DecodingError,
              CodexSessionError.protocolViolation,
              CodexSessionError.codexHomePreparationFailed,

@@ -106,6 +106,7 @@ public struct CodexConfig: Sendable {
 public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, LocalizedError {
     case runtimeNotFound
     case invalidRuntimePath(String)
+    case invalidCodexCoreConfig(path: String, reason: String)
     case runtimeVersionProbeFailed(path: String, reason: String)
     case runtimeVersionMismatch(path: String, expected: String, actual: String)
     case invalidResponse(method: String, value: CodexJSONValue)
@@ -114,9 +115,11 @@ public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, Locali
     public var description: String {
         switch self {
         case .runtimeNotFound:
-            "Codex runtime not found. Set CodexConfig.codexBinaryPath, CODEX_BINARY, or CODEX_APP_BUNDLE; install codex on PATH; or install Codex.app."
+            "Codex runtime not found. Set CodexConfig.codexBinaryPath or [codexcore].codex_binary_path in CODEX_HOME/config.toml; set CODEX_BINARY or CODEX_APP_BUNDLE; install codex on PATH; or install Codex.app."
         case .invalidRuntimePath(let path):
             "Codex runtime not found at \(path)."
+        case .invalidCodexCoreConfig(let path, let reason):
+            "Invalid CodexCore configuration at \(path): \(reason)"
         case .runtimeVersionProbeFailed(let path, let reason):
             "Could not determine the Codex runtime version at \(path): \(reason)"
         case .runtimeVersionMismatch(let path, let expected, let actual):
@@ -391,12 +394,20 @@ public final class Codex: Sendable {
 
     /// Resolves the Codex runtime executable used to launch the local app-server.
     ///
-    /// Precedence is explicit SDK config, `CODEX_BINARY`, `CODEX_BIN`, `codex`
+    /// Precedence is explicit SDK config, the isolated home's
+    /// `[codexcore].codex_binary_path` pin, `CODEX_BINARY`, `CODEX_BIN`, `codex`
     /// from `PATH`, then a macOS Codex app bundle.
     public static func resolveCodexBinary(config: CodexConfig = CodexConfig()) throws -> URL {
         let fileManager = FileManager.default
 
         if let path = config.codexBinaryPath {
+            guard fileManager.isExecutableFile(atPath: path) else {
+                throw CodexSDKError.invalidRuntimePath(path)
+            }
+            return URL(fileURLWithPath: path)
+        }
+
+        if let path = try codexCoreRuntimePath(in: config.codexHome.configFileURL) {
             guard fileManager.isExecutableFile(atPath: path) else {
                 throw CodexSDKError.invalidRuntimePath(path)
             }
@@ -431,6 +442,63 @@ public final class Codex: Sendable {
         }
 
         throw CodexSDKError.runtimeNotFound
+    }
+
+    /// Reads only CodexCore's namespaced runtime pin. The remainder of the
+    /// shared TOML file belongs to app-server and is intentionally untouched.
+    static func codexCoreRuntimePath(in configURL: URL) throws -> String? {
+        guard FileManager.default.fileExists(atPath: configURL.path) else { return nil }
+
+        let contents: String
+        do {
+            contents = try String(contentsOf: configURL, encoding: .utf8)
+        } catch {
+            throw CodexSDKError.invalidCodexCoreConfig(
+                path: configURL.path,
+                reason: "could not read the file: \(error.localizedDescription)"
+            )
+        }
+
+        var isCodexCoreTable = false
+        for (offset, rawLine) in contents.split(
+            separator: "\n",
+            omittingEmptySubsequences: false
+        ).enumerated() {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+
+            if line.hasPrefix("[") {
+                isCodexCoreTable = line == "[codexcore]"
+                continue
+            }
+            guard isCodexCoreTable,
+                  let equals = line.firstIndex(of: "=") else {
+                continue
+            }
+            let key = line[..<equals].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard key == "codex_binary_path" else { continue }
+
+            let value = line[line.index(after: equals)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard value.first == "\"",
+                  let closingQuote = value.dropFirst().firstIndex(of: "\"") else {
+                throw CodexSDKError.invalidCodexCoreConfig(
+                    path: configURL.path,
+                    reason: "line \(offset + 1): codex_binary_path must be a double-quoted string"
+                )
+            }
+            let path = String(value[value.index(after: value.startIndex)..<closingQuote])
+            let suffix = value[value.index(after: closingQuote)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard suffix.isEmpty || suffix.hasPrefix("#"), path.hasPrefix("/") else {
+                throw CodexSDKError.invalidCodexCoreConfig(
+                    path: configURL.path,
+                    reason: "line \(offset + 1): codex_binary_path must contain only an absolute path"
+                )
+            }
+            return path
+        }
+        return nil
     }
 
     private static func codexAppBundleCandidates(fileManager: FileManager) -> [URL] {

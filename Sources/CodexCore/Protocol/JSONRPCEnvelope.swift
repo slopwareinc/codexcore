@@ -109,7 +109,7 @@ public enum CodexJSONRPCEnvelopeError: Error, Sendable, Equatable, LocalizedErro
         case .topLevelMustBeObject:
             "A JSON-RPC frame must contain one top-level object."
         case .invalidVersion:
-            "A JSON-RPC frame must declare jsonrpc \"2.0\"."
+            "An app-server frame's jsonrpc member must be \"2.0\" when present."
         case .invalidMethod:
             "A JSON-RPC request or notification must contain a string method."
         case .invalidIdentifier:
@@ -144,8 +144,8 @@ public enum CodexJSONRPCCodec {
         guard case .dictionary(let object) = value else {
             throw CodexJSONRPCEnvelopeError.topLevelMustBeObject
         }
-        guard object["jsonrpc"] == .string("2.0") else {
-            throw CodexJSONRPCEnvelopeError.invalidVersion(object["jsonrpc"])
+        if let version = object["jsonrpc"], version != .string("2.0") {
+            throw CodexJSONRPCEnvelopeError.invalidVersion(version)
         }
 
         if let rawMethod = object["method"] {

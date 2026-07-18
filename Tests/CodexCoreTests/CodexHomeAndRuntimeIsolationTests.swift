@@ -206,6 +206,34 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
         XCTAssertEqual(openCount, 1)
     }
 
+    func testRuntimeConfigurationFailuresAreFatalInsteadOfReconnectable() async {
+        let transport = OpenFailureTransport(error: CodexSDKError.runtimeVersionMismatch(
+            path: "/bad",
+            expected: "codex-cli 1",
+            actual: "codex-cli 2"
+        ))
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(
+                reconnectPolicy: .init(
+                    initialDelayMilliseconds: 0,
+                    maximumDelayMilliseconds: 0
+                )
+            )
+        )
+
+        do {
+            _ = try await session.start()
+            XCTFail("A deterministic runtime error must fail startup")
+        } catch CodexSDKError.runtimeVersionMismatch {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        let openCount = await transport.openCount
+        XCTAssertEqual(openCount, 1)
+    }
+
     func testLaunchArgumentsOverrideCannotDropAuthoritativeConfig() {
         let modelOverride = #"model="test-model""#
         let conflictingCredentialOverride = #"cli_auth_credentials_store="keyring""#
@@ -434,4 +462,21 @@ private actor HandshakeSequenceTransport: CodexFrameTransport {
     func finishCurrentConnection() {
         continuation?.finish()
     }
+}
+
+private actor OpenFailureTransport: CodexFrameTransport {
+    private let error: any Error & Sendable
+    private(set) var openCount = 0
+
+    init(error: any Error & Sendable) {
+        self.error = error
+    }
+
+    func open() async throws -> AsyncThrowingStream<Data, Error> {
+        openCount += 1
+        throw error
+    }
+
+    func write(_: Data) async throws {}
+    func close() async {}
 }

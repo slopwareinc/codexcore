@@ -32,6 +32,102 @@ final class CodexCoreTests: XCTestCase {
         ))
     }
 
+    func testResolveCodexBinaryUsesIsolatedHomeRuntimePin() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexCoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let binaryURL = directory.appendingPathComponent("pinned-codex")
+        try "#!/bin/sh\n".write(to: binaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: binaryURL.path
+        )
+        let home = CodexHome(path: directory.appendingPathComponent("home").path)
+        try FileManager.default.createDirectory(
+            at: home.directoryURL,
+            withIntermediateDirectories: true
+        )
+        try """
+        model = "test-model"
+
+        [codexcore]
+        codex_binary_path = "\(binaryURL.path)" # owned by CodexCore
+        """.write(to: home.configFileURL, atomically: true, encoding: .utf8)
+
+        let resolved = try Codex.resolveCodexBinary(
+            config: CodexConfig(codexHome: home)
+        )
+        XCTAssertEqual(resolved.path, binaryURL.path)
+    }
+
+    func testExplicitRuntimeOverrideTakesPriorityOverIsolatedHomePin() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexCoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let explicitURL = directory.appendingPathComponent("explicit-codex")
+        let pinnedURL = directory.appendingPathComponent("pinned-codex")
+        for url in [explicitURL, pinnedURL] {
+            try "#!/bin/sh\n".write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: url.path
+            )
+        }
+        let home = CodexHome(path: directory.appendingPathComponent("home").path)
+        try FileManager.default.createDirectory(
+            at: home.directoryURL,
+            withIntermediateDirectories: true
+        )
+        try """
+        [codexcore]
+        codex_binary_path = "\(pinnedURL.path)"
+        """.write(to: home.configFileURL, atomically: true, encoding: .utf8)
+
+        let resolved = try Codex.resolveCodexBinary(
+            config: CodexConfig(
+                codexHome: home,
+                codexBinaryPath: explicitURL.path
+            )
+        )
+        XCTAssertEqual(resolved.path, explicitURL.path)
+    }
+
+    func testResolveCodexBinaryRejectsMalformedIsolatedHomePin() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexCoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let home = CodexHome(path: directory.path)
+        try """
+        [codexcore]
+        codex_binary_path = "relative/codex"
+        """.write(to: home.configFileURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try Codex.resolveCodexBinary(
+            config: CodexConfig(codexHome: home)
+        )) { error in
+            guard case CodexSDKError.invalidCodexCoreConfig(let path, let reason) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, home.configFileURL.path)
+            XCTAssertTrue(reason.contains("absolute path"))
+        }
+    }
+
     func testPinnedRuntimeVersionParserAcceptsExactDescriptorAmidDiagnostics() throws {
         try Codex.validatePinnedRuntimeVersionOutput(
             """
