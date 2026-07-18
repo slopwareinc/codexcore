@@ -364,7 +364,7 @@ private extension CodexCanonicalTranscriptProjector {
                 appendNotice(id: item.key.itemID, message: "Waiting", to: &turn)
             case .commandExecution, .fileChange, .mcpToolCall, .collabAgentToolCall,
                     .subAgentActivity, .webSearch, .imageGeneration:
-                if let row = makeWorkRow(item, completed: completed) {
+                for row in makeWorkRows(item, completed: completed) {
                     appendWorkRow(row, to: &turn)
                 }
             case .unknown:
@@ -562,7 +562,7 @@ private extension CodexCanonicalTranscriptProjector {
 // MARK: - Work grammar
 
 private extension CodexCanonicalTranscriptProjector {
-    func makeWorkRow(_ item: CanonicalItem, completed: Bool) -> CodexWorkRowV2? {
+    func makeWorkRows(_ item: CanonicalItem, completed: Bool) -> [CodexWorkRowV2] {
         let id = item.key.itemID.rawValue
         let state = workStatus(item, completed: completed)
         switch item.kind {
@@ -570,7 +570,7 @@ private extension CodexCanonicalTranscriptProjector {
             let command = item.payload.string("command") ?? "Command"
             let baseOutput = item.payload.string("aggregatedOutput") ?? ""
             let output = completed ? baseOutput : baseOutput + item.liveOverlay.commandOutput.joined()
-            return .command(.init(
+            return [.command(.init(
                 id: id,
                 command: command,
                 label: "Ran `\(shortCommand(command))`",
@@ -579,21 +579,21 @@ private extension CodexCanonicalTranscriptProjector {
                 exitCode: item.payload.int("exitCode"),
                 durationMs: itemDuration(item),
                 output: output.isEmpty ? nil : output
-            ))
+            ))]
         case .fileChange:
             let files = item.payload.array("changes")?.compactMap { $0.object?.string("path") } ?? []
-            return .fileChange(.init(
+            return [.fileChange(.init(
                 id: id,
                 files: files,
                 status: state,
                 durationMs: itemDuration(item),
                 diff: item.payload.string("diff")
-            ))
+            ))]
         case .mcpToolCall:
             let app = item.payload.object("appContext")?.string("appName")
                 ?? item.payload.string("server")
                 ?? "Tool"
-            return .mcpToolCall(.init(
+            return [.mcpToolCall(.init(
                 id: id,
                 appName: app,
                 server: item.payload.string("server") ?? app,
@@ -603,20 +603,20 @@ private extension CodexCanonicalTranscriptProjector {
                 errorFirstLine: state == .failed ? mcpError(item.payload) : nil,
                 arguments: item.payload["arguments"],
                 result: item.payload["result"]
-            ))
+            ))]
         case .webSearch:
             guard let query = item.payload.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !query.isEmpty else { return nil }
-            return .webSearch(.init(id: id, query: query, status: state))
+                  !query.isEmpty else { return [] }
+            return [.webSearch(.init(id: id, query: query, status: state))]
         case .collabAgentToolCall:
-            return .collabAgent(collabToolRow(item, state: state))
+            return collabToolRows(item, fallbackState: state).map(CodexWorkRowV2.collabAgent)
         case .subAgentActivity:
-            guard let row = subagentActivityRow(item, state: state) else { return nil }
-            return .collabAgent(row)
+            guard let row = subagentActivityRow(item, state: state) else { return [] }
+            return [.collabAgent(row)]
         case .imageGeneration:
-            return .other(.init(id: id, label: "Generating an image", status: state))
+            return [.other(.init(id: id, label: "Generating an image", status: state))]
         default:
-            return nil
+            return []
         }
     }
 
@@ -640,29 +640,45 @@ private extension CodexCanonicalTranscriptProjector {
         }
     }
 
-    func collabToolRow(_ item: CanonicalItem, state: CodexWorkItemStatusV2) -> CodexCollabAgentRowV2 {
+    func collabToolRows(
+        _ item: CanonicalItem,
+        fallbackState: CodexWorkItemStatusV2
+    ) -> [CodexCollabAgentRowV2] {
         let action: CodexCollabActionV2 = switch item.payload.string("tool") {
         case "spawnAgent": .created
         case "sendInput": .sentInput
         case "closeAgent": .closed
         default: .waited
         }
-        let receiverIDs = item.payload.array("receiverThreadIds")?.compactMap(\.stringValue) ?? []
-        let names = receiverIDs.map(shortAgentName)
-        let messages = item.payload.object("agentsStates")?.reduce(into: [String: String]()) { result, entry in
-            if let message = entry.value.object?.string("message"), !message.isEmpty {
-                result[shortAgentName(entry.key)] = message
-            }
-        } ?? [:]
-        return .init(
-            id: item.key.itemID.rawValue,
-            action: action,
-            agentNames: names,
-            agentThreadIDs: receiverIDs,
-            instructions: item.payload.string("prompt"),
-            agentMessages: messages,
-            status: state
+        let states = item.payload.object("agentsStates") ?? [:]
+        let receiverIDs = orderedUnion(
+            item.payload.array("receiverThreadIds")?.compactMap(\.stringValue) ?? [],
+            states.keys.sorted()
         )
+        guard !receiverIDs.isEmpty else {
+            return [.init(
+                id: item.key.itemID.rawValue,
+                action: action,
+                agentNames: [],
+                instructions: item.payload.string("prompt"),
+                status: fallbackState
+            )]
+        }
+        return receiverIDs.map { threadID in
+            let name = shortAgentName(threadID)
+            let rawState = states[threadID]?.object
+            let message = rawState?.string("message")
+            let messages = message.flatMap { $0.isEmpty ? nil : [name: $0] } ?? [:]
+            return .init(
+                id: "agent:\(threadID)",
+                action: action,
+                agentNames: [name],
+                agentThreadIDs: [threadID],
+                instructions: item.payload.string("prompt"),
+                agentMessages: messages,
+                status: agentWorkStatus(rawState?.string("status"), fallback: fallbackState)
+            )
+        }
     }
 
     func subagentActivityRow(
@@ -677,9 +693,9 @@ private extension CodexCanonicalTranscriptProjector {
         default: return nil
         }
         let threadID = item.payload.string("agentThreadId")
-        let name = item.payload.string("agentPath") ?? threadID ?? "agent"
+        let name = displayAgentName(item.payload.string("agentPath") ?? threadID ?? "agent")
         return .init(
-            id: item.key.itemID.rawValue,
+            id: threadID.map { "agent:\($0)" } ?? item.key.itemID.rawValue,
             action: action,
             agentNames: [name],
             agentThreadIDs: threadID.map { [$0] } ?? [],
@@ -771,7 +787,7 @@ private extension CodexCanonicalTranscriptProjector {
         var merged = existing
         merged.action = incoming.action
         merged.status = incoming.status
-        merged.agentNames = orderedUnion(existing.agentNames, incoming.agentNames)
+        merged.agentNames = preferredAgentNames(existing.agentNames, incoming.agentNames)
         merged.agentThreadIDs = orderedUnion(existing.agentThreadIDs, incoming.agentThreadIDs)
         merged.instructions = incoming.instructions ?? existing.instructions
         merged.agentMessages.merge(incoming.agentMessages) { _, new in new }
@@ -815,7 +831,33 @@ private extension CodexCanonicalTranscriptProjector {
     }
 
     func shortAgentName(_ threadID: String) -> String {
-        "agent-\(threadID.split(separator: "-").first.map(String.init) ?? threadID)"
+        let suffix = threadID.split(separator: "-").last.map(String.init) ?? threadID
+        return "agent-\(suffix.prefix(6))"
+    }
+
+    func displayAgentName(_ value: String) -> String {
+        let leaf = value.split(separator: "/").last.map(String.init) ?? value
+        return leaf.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    func preferredAgentNames(_ existing: [String], _ incoming: [String]) -> [String] {
+        let existingNamed = existing.filter { !$0.hasPrefix("agent-") }
+        let incomingNamed = incoming.filter { !$0.hasPrefix("agent-") }
+        if !incomingNamed.isEmpty { return orderedUnion(existingNamed, incomingNamed) }
+        if !existingNamed.isEmpty { return existingNamed }
+        return orderedUnion(existing, incoming)
+    }
+
+    func agentWorkStatus(
+        _ rawStatus: String?,
+        fallback: CodexWorkItemStatusV2
+    ) -> CodexWorkItemStatusV2 {
+        switch rawStatus?.lowercased() {
+        case "completed", "done", "shutdown", "closed": .completed
+        case "errored", "error", "failed", "interrupted": .failed
+        case "pendinginit", "pending_init", "running", "working": .inProgress
+        default: fallback
+        }
     }
 
     func mcpError(_ item: [String: CodexJSONValue]) -> String? {

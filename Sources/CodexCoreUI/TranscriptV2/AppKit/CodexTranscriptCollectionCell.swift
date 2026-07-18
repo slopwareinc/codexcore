@@ -155,6 +155,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private let chipLabel = CodexShimmerTextField(frame: .zero)
     private let chipDurationLabel = NSTextField(labelWithString: "")
     private let chipDisclosureView = NSImageView()
+    private let agentChipContainer = NSView()
+    private var agentChipButtons: [NSButton] = []
+    private var agentThreadIDByButton: [ObjectIdentifier: String] = [:]
     private let approvalAllowButton = NSButton(title: "Allow", target: nil, action: nil)
     private let approvalDenyButton = NSButton(title: "Deny", target: nil, action: nil)
     private let footerTimestampLabel = NSTextField(labelWithString: "")
@@ -192,6 +195,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var chipIconDescriptionForTesting: String? { chipIconView.image?.accessibilityDescription }
     var chipIsActionableForTesting: Bool { !actionButton.isHidden && actionButton.isEnabled }
     var approvalButtonsVisibleForTesting: Bool { !approvalAllowButton.isHidden && !approvalDenyButton.isHidden }
+    var textViewportHeightForTesting: CGFloat { textScrollView.contentSize.height }
+    var textDocumentHeightForTesting: CGFloat { selectableTextView.frame.height }
+    var hasVerticalScrollerForTesting: Bool { textScrollView.hasVerticalScroller }
+    var agentChipCountForTesting: Int { agentChipButtons.count }
+    var textUsedHeightForTesting: CGFloat {
+        guard let layoutManager = selectableTextView.layoutManager,
+              let textContainer = selectableTextView.textContainer else { return 0 }
+        layoutManager.ensureLayout(for: textContainer)
+        return layoutManager.usedRect(for: textContainer).height
+    }
 
     func copyItemForTesting() { copyItem(copyButton) }
     func copyTurnForTesting() { copyTurn(footerCopyTurnButton) }
@@ -201,6 +214,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func setHoveredForTesting(_ hovered: Bool) { setHovered(hovered) }
     func allowApprovalForTesting() { allowApproval() }
     func denyApprovalForTesting() { denyApproval() }
+    func openAgentChipForTesting(at index: Int) {
+        guard agentChipButtons.indices.contains(index) else { return }
+        openAgentChip(agentChipButtons[index])
+    }
 
     override func loadView() {
         let hoverView = CodexTranscriptHoverView()
@@ -226,6 +243,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipBackground.addSubview(chipLabel)
         chipBackground.addSubview(chipDurationLabel)
         chipBackground.addSubview(chipDisclosureView)
+
+        agentChipContainer.isHidden = true
+        view.addSubview(agentChipContainer)
 
         approvalAllowButton.target = self
         approvalAllowButton.action = #selector(allowApproval)
@@ -308,6 +328,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copyButton.isHidden = true
         codeHeaderView.isHidden = true
         chipBackground.isHidden = true
+        clearAgentChips()
         chipBackground.layer?.borderWidth = 0
         chipLabel.stopShimmer()
         chipDurationLabel.stringValue = ""
@@ -363,6 +384,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copyButton.isHidden = true
         codeHeaderView.isHidden = true
         chipBackground.isHidden = true
+        clearAgentChips()
         chipBackground.layer?.borderWidth = 0
         chipLabel.stopShimmer()
         chipDurationLabel.stringValue = ""
@@ -428,6 +450,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 backgroundView.isHidden = false
             }
             copyButton.isHidden = item.textRole != .expandedOutput
+        } else if !item.agentChips.isEmpty {
+            configureAgentChips(item.agentChips, theme: appKitTheme)
         } else if let header = item.workHeader {
             actionButton.isHidden = false
             actionButton.font = appKitTheme.captionFont
@@ -524,7 +548,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             copyButton.frame = NSRect(x: contentFrame.maxX - 36, y: contentFrame.maxY - 29, width: 28, height: 26)
             layoutSelectableText(
                 in: NSRect(x: contentX + 12, y: 10, width: contentWidth - 24, height: max(20, view.bounds.height - 52)),
-                allowsHorizontalScrolling: true
+                allowsHorizontalScrolling: true,
+                allowsVerticalScrolling: item.isScrollableOutput
             )
         } else if item.preparedText != nil {
             let insetX: CGFloat = item.textRole == .user
@@ -537,9 +562,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             if item.textRole == .expandedOutput { textFrame.size.width = max(40, textFrame.width - 30) }
             layoutSelectableText(
                 in: textFrame,
-                allowsHorizontalScrolling: false
+                allowsHorizontalScrolling: false,
+                allowsVerticalScrolling: item.isScrollableOutput
             )
             copyButton.frame = NSRect(x: contentFrame.maxX - 30, y: contentFrame.maxY - 28, width: 26, height: 24)
+        } else if !item.agentChips.isEmpty {
+            layoutAgentChips(item.agentChips, in: contentFrame, theme: theme)
         } else if let row = item.workRow {
             chipBackground.frame = contentFrame
             let iconSize: CGFloat = 16
@@ -884,7 +912,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
     }
 
-    private func layoutSelectableText(in frame: NSRect, allowsHorizontalScrolling: Bool) {
+    private func layoutSelectableText(
+        in frame: NSRect,
+        allowsHorizontalScrolling: Bool,
+        allowsVerticalScrolling: Bool = false
+    ) {
+        guard let textContainer = selectableTextView.textContainer else { return }
+        textScrollView.hasVerticalScroller = allowsVerticalScrolling
         textScrollView.frame = frame
         let viewport = textScrollView.contentSize
         let documentWidth: CGFloat
@@ -897,16 +931,92 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         } else {
             documentWidth = viewport.width
         }
-        selectableTextView.textContainer?.containerSize = NSSize(
+        textContainer.containerSize = NSSize(
             width: documentWidth,
             height: CGFloat.greatestFiniteMagnitude
         )
-        selectableTextView.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: documentWidth,
-            height: max(20, viewport.height)
+        selectableTextView.layoutManager?.ensureLayout(for: textContainer)
+        let measuredHeight = selectableTextView.layoutManager?
+            .usedRect(for: textContainer).height ?? 0
+        let documentHeight = allowsVerticalScrolling
+            ? max(viewport.height, ceil(measuredHeight) + 2)
+            : max(20, viewport.height)
+        selectableTextView.minSize = NSSize(width: 0, height: viewport.height)
+        selectableTextView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
         )
+        selectableTextView.autoresizingMask = allowsHorizontalScrolling ? [] : [.width]
+        selectableTextView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
+    }
+
+    private func configureAgentChips(
+        _ chips: [CodexTranscriptAgentChipRender],
+        theme: CodexTranscriptAppKitTheme
+    ) {
+        clearAgentChips()
+        agentChipContainer.isHidden = false
+        for chip in chips {
+            let button = NSButton(title: chip.label, target: self, action: #selector(openAgentChip(_:)))
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.font = theme.captionFont
+            button.image = NSImage(
+                systemSymbolName: "person.2.fill",
+                accessibilityDescription: Self.agentStatusDescription(chip.status)
+            )
+            button.imagePosition = .imageLeading
+            button.contentTintColor = Self.statusColor(chip.status, theme: theme)
+            button.isEnabled = chip.threadID != nil
+            button.setAccessibilityLabel("\(chip.label), \(Self.agentStatusDescription(chip.status))")
+            agentChipContainer.addSubview(button)
+            agentChipButtons.append(button)
+            if let threadID = chip.threadID {
+                agentThreadIDByButton[ObjectIdentifier(button)] = threadID
+            }
+        }
+    }
+
+    private func layoutAgentChips(
+        _ chips: [CodexTranscriptAgentChipRender],
+        in contentFrame: NSRect,
+        theme: CodexTranscriptAppKitTheme
+    ) {
+        agentChipContainer.frame = contentFrame
+        let height: CGFloat = 30
+        let gap: CGFloat = 6
+        var x: CGFloat = 0
+        var y = contentFrame.height - height
+        for (chip, button) in zip(chips, agentChipButtons) {
+            let labelWidth = ceil((chip.label as NSString).size(withAttributes: [.font: theme.captionFont]).width)
+            let width = min(contentFrame.width, max(76, labelWidth + 42))
+            if x > 0, x + width > contentFrame.width {
+                x = 0
+                y -= height + gap
+            }
+            button.frame = NSRect(x: x, y: max(0, y), width: width, height: height)
+            x += width + gap
+        }
+    }
+
+    private func clearAgentChips() {
+        agentChipButtons.forEach { $0.removeFromSuperview() }
+        agentChipButtons.removeAll(keepingCapacity: true)
+        agentThreadIDByButton.removeAll(keepingCapacity: true)
+        agentChipContainer.isHidden = true
+    }
+
+    private static func agentStatusDescription(_ status: CodexWorkItemStatusV2) -> String {
+        switch status {
+        case .inProgress: "Working"
+        case .completed: "Finished"
+        case .failed: "Failed"
+        }
+    }
+
+    @objc private func openAgentChip(_ sender: NSButton) {
+        guard let threadID = agentThreadIDByButton[ObjectIdentifier(sender)] else { return }
+        performAction?(.openSubagent(threadID: threadID))
     }
 
     func updateWorkingHeader(at date: Date) {

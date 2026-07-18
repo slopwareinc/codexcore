@@ -17,6 +17,7 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let footerHeight: CGFloat = 22
     static let actionCardHeight: CGFloat = 32
     static let actionCardRadius: CGFloat = 10
+    static let scrollableOutputMaxHeight: CGFloat = 280
     static let topContentInset: CGFloat = 0
 
     var viewportWidth: CGFloat
@@ -91,6 +92,13 @@ struct CodexTranscriptWorkRowRender: Sendable, Equatable {
     var isActionable: Bool
 }
 
+struct CodexTranscriptAgentChipRender: Sendable, Equatable {
+    var id: String
+    var label: String
+    var status: CodexWorkItemStatusV2
+    var threadID: String?
+}
+
 enum CodexWorkRowKind: Sendable, Equatable {
     case command, fileChange, mcp, webSearch, agent, other
 }
@@ -128,6 +136,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var preparedText: CodexPreparedTranscriptText?
     var workHeader: CodexTranscriptWorkHeaderRender?
     var workRow: CodexTranscriptWorkRowRender?
+    var agentChips: [CodexTranscriptAgentChipRender]
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
@@ -144,6 +153,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var intrinsicContentWidth: CGFloat?
     var viewportWidth: CGFloat
     var measuredHeight: CGFloat
+    var isScrollableOutput: Bool
 }
 
 struct CodexTranscriptRenderDiagnostics: Sendable, Equatable {
@@ -336,6 +346,7 @@ actor CodexTranscriptRenderProjector {
                     preparedText: draft.preparedText,
                     workHeader: draft.workHeader,
                     workRow: draft.workRow,
+                    agentChips: draft.agentChips,
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
@@ -351,7 +362,8 @@ actor CodexTranscriptRenderProjector {
                     maxContentWidth: maxWidth,
                     intrinsicContentWidth: draft.intrinsicContentWidth,
                     viewportWidth: availableWidth,
-                    measuredHeight: measuredHeight
+                    measuredHeight: measuredHeight,
+                    isScrollableOutput: draft.isScrollableOutput
                 )
                 sectionItems.append(id)
                 itemsByID[id] = item
@@ -455,7 +467,27 @@ actor CodexTranscriptRenderProjector {
                             maxWidthKind: .card,
                             fixedHeight: 28
                         ))
+                        let agentChips = rows.compactMap { row -> CodexTranscriptAgentChipRender? in
+                            guard case .collabAgent(let agent) = row else { return nil }
+                            return .init(
+                                id: agent.id,
+                                label: Self.agentChipLabel(agent),
+                                status: agent.status,
+                                threadID: agent.agentThreadIDs.first
+                            )
+                        }
+                        if !agentChips.isEmpty {
+                            append(ItemDraft(
+                                id: "\(sectionID):group:\(group.id):agents",
+                                fingerprint: "agent-chips:\(String(describing: agentChips))",
+                                agentChips: agentChips,
+                                accessibilityLabel: Self.agentClusterAccessibilityLabel(agentChips),
+                                indentation: 12,
+                                maxWidthKind: .card
+                            ))
+                        }
                         for row in rows {
+                            if case .collabAgent = row { continue }
                             let rowID = row.id
                             let detail = Self.detail(for: row)
                             let diffFiles: [CodexDiffFile]? = {
@@ -502,7 +534,8 @@ actor CodexTranscriptRenderProjector {
                                         copyText: fullPatch,
                                         accessibilityLabel: "Patch for \(file.path), \(file.added) additions and \(file.removed) removals",
                                         indentation: 30,
-                                        maxWidthKind: .card
+                                        maxWidthKind: .card,
+                                        isScrollableOutput: true
                                     ))
                                 }
                             } else if presentation.expandedRowIDs.contains(rowID), let detail {
@@ -515,7 +548,8 @@ actor CodexTranscriptRenderProjector {
                                     copyText: detail,
                                     accessibilityLabel: "Expanded output: \(bounded)",
                                     indentation: 30,
-                                    maxWidthKind: .card
+                                    maxWidthKind: .card,
+                                    isScrollableOutput: true
                                 ))
                             }
                         }
@@ -646,6 +680,7 @@ private extension CodexTranscriptRenderProjector {
         var preparedText: CodexPreparedTranscriptText?
         var workHeader: CodexTranscriptWorkHeaderRender?
         var workRow: CodexTranscriptWorkRowRender?
+        var agentChips: [CodexTranscriptAgentChipRender]
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
@@ -659,6 +694,7 @@ private extension CodexTranscriptRenderProjector {
         var maxWidthKind: MaxWidthKind
         var fixedHeight: CGFloat?
         var intrinsicContentWidth: CGFloat?
+        var isScrollableOutput: Bool
 
         init(
             id: String,
@@ -667,6 +703,7 @@ private extension CodexTranscriptRenderProjector {
             preparedText: CodexPreparedTranscriptText? = nil,
             workHeader: CodexTranscriptWorkHeaderRender? = nil,
             workRow: CodexTranscriptWorkRowRender? = nil,
+            agentChips: [CodexTranscriptAgentChipRender] = [],
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
@@ -679,7 +716,8 @@ private extension CodexTranscriptRenderProjector {
             isTrailingAligned: Bool = false,
             maxWidthKind: MaxWidthKind = .full,
             fixedHeight: CGFloat? = nil,
-            intrinsicContentWidth: CGFloat? = nil
+            intrinsicContentWidth: CGFloat? = nil,
+            isScrollableOutput: Bool = false
         ) {
             self.id = id
             self.fingerprint = fingerprint
@@ -687,6 +725,7 @@ private extension CodexTranscriptRenderProjector {
             self.preparedText = preparedText
             self.workHeader = workHeader
             self.workRow = workRow
+            self.agentChips = agentChips
             self.code = code
             self.footer = footer
             self.productTool = productTool
@@ -700,6 +739,7 @@ private extension CodexTranscriptRenderProjector {
             self.maxWidthKind = maxWidthKind
             self.fixedHeight = fixedHeight
             self.intrinsicContentWidth = intrinsicContentWidth
+            self.isScrollableOutput = isScrollableOutput
         }
 
         func maxWidth(_ contentWidth: CGFloat, _ theme: CodexTranscriptAppKitTheme) -> CGFloat {
@@ -1073,6 +1113,13 @@ private extension CodexTranscriptRenderProjector {
         theme: CodexTranscriptAppKitTheme
     ) -> CGFloat {
         if let fixedHeight = draft.fixedHeight { return fixedHeight }
+        if !draft.agentChips.isEmpty {
+            return agentChipClusterHeight(
+                draft.agentChips,
+                width: max(80, width - draft.indentation),
+                font: theme.captionFont
+            )
+        }
         if let code = draft.code {
             let text = draft.preparedText?.attributedString
                 ?? preparePlain(code.code, font: theme.codeFont, color: theme.codeText, theme: theme).attributedString
@@ -1080,7 +1127,10 @@ private extension CodexTranscriptRenderProjector {
                 with: NSSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
-            return max(76, ceil(bounds.height) + 52)
+            let height = max(76, ceil(bounds.height) + 52)
+            return draft.isScrollableOutput
+                ? min(CodexTranscriptColumnMetrics.scrollableOutputMaxHeight, height)
+                : height
         }
         let horizontalPadding: CGFloat = draft.textRole == .user
             ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
@@ -1096,10 +1146,55 @@ private extension CodexTranscriptRenderProjector {
                 ? 64
                 : (draft.textRole == .user
                     ? CodexTranscriptColumnMetrics.userBubbleVerticalPadding * 2
-                    : (draft.textRole == .expandedOutput ? 16 : CodexTranscriptColumnMetrics.itemGap))
-            return max(18, ceil(bounds.height) + verticalPadding)
+                    : (draft.textRole == .expandedOutput
+                        ? 16
+                        : CodexTranscriptColumnMetrics.itemGap + 2))
+            let height = max(18, ceil(bounds.height) + verticalPadding)
+            return draft.isScrollableOutput
+                ? min(CodexTranscriptColumnMetrics.scrollableOutputMaxHeight, height)
+                : height
         }
         return 36
+    }
+
+    static func agentChipClusterHeight(
+        _ chips: [CodexTranscriptAgentChipRender],
+        width: CGFloat,
+        font: NSFont
+    ) -> CGFloat {
+        let height: CGFloat = 30
+        let gap: CGFloat = 6
+        var x: CGFloat = 0
+        var rows: CGFloat = 1
+        for chip in chips {
+            let labelWidth = ceil((chip.label as NSString).size(withAttributes: [.font: font]).width)
+            let chipWidth = min(width, max(76, labelWidth + 42))
+            if x > 0, x + chipWidth > width {
+                rows += 1
+                x = 0
+            }
+            x += chipWidth + gap
+        }
+        return rows * height + max(0, rows - 1) * gap
+    }
+
+    static func agentChipLabel(_ agent: CodexCollabAgentRowV2) -> String {
+        guard let raw = agent.agentNames.first, !raw.isEmpty else { return "Agent" }
+        let leaf = raw.split(separator: "/").last.map(String.init) ?? raw
+        return leaf.hasPrefix("Agent ") ? String(leaf.dropFirst(6)) : leaf.capitalized
+    }
+
+    static func agentClusterAccessibilityLabel(
+        _ chips: [CodexTranscriptAgentChipRender]
+    ) -> String {
+        chips.map { chip in
+            let status = switch chip.status {
+            case .inProgress: "working"
+            case .completed: "finished"
+            case .failed: "failed"
+            }
+            return "\(chip.label), \(status)"
+        }.joined(separator: "; ")
     }
 
     static func prepare(block: CodexBlock, role: CodexTranscriptTextRole, theme: CodexTranscriptAppKitTheme) -> CodexPreparedTranscriptText {

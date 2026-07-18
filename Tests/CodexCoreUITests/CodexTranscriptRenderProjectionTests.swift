@@ -111,6 +111,8 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(patches.count == 2)
         #expect(patches[0].copyText?.contains("A.swift") == true)
         #expect(patches[1].copyText?.contains("B.swift") == true)
+        #expect(patches.allSatisfy { $0.isScrollableOutput })
+        #expect(patches.allSatisfy { $0.measuredHeight <= CodexTranscriptColumnMetrics.scrollableOutputMaxHeight })
     }
 
 
@@ -283,7 +285,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(rawIDs.contains { $0.contains(":row:file") })
         #expect(rawIDs.contains { $0.contains(":row:mcp") })
         #expect(rawIDs.contains { $0.contains(":row:web") })
-        #expect(rawIDs.contains { $0.contains(":row:collab") })
+        #expect(rawIDs.contains { $0.contains(":group:group:agents") })
         #expect(rawIDs.contains { $0.contains(":row:other") })
         #expect(rawIDs.contains { $0.contains(":product:product") })
         #expect(rawIDs.contains { $0.contains(":notice:notice") })
@@ -293,8 +295,8 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(commandDetail.textRole == .expandedOutput)
         #expect(commandDetail.preparedText?.attributedString.string.contains("Output truncated for display") == true)
         #expect(commandDetail.copyText?.count == 20_100)
-        let collab = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":row:collab") }?.value)
-        #expect(collab.action == .openSubagent(threadID: "child-thread"))
+        let collab = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":group:group:agents") }?.value)
+        #expect(collab.agentChips.first?.threadID == "child-thread")
         #expect(collab.copyTurnText.contains("Assistant\n# Final"))
         #expect(snapshot.itemsByID.values.contains { item in
             guard let text = item.preparedText?.attributedString, text.length > 0 else { return false }
