@@ -15,12 +15,14 @@ case "$(uname -s)-$(uname -m)" in
         ;;
 esac
 
-CACHE_DIR="${CODEXCORE_TOOL_CACHE:-${TMPDIR:-/tmp}/codexcore-tools}"
+CACHE_DIR="${CODEXCORE_TOOL_CACHE:-$ROOT/.build/codexcore-tools}"
 BINARY="$CACHE_DIR/codex-$PINNED_VERSION-$target"
 
 if [ ! -x "$BINARY" ]; then
-    archive="$(mktemp "${TMPDIR:-/tmp}/codex-${PINNED_VERSION}.XXXXXX")"
-    extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/codex-${PINNED_VERSION}.XXXXXX")"
+    download_root="$ROOT/.build/protocol-generation"
+    mkdir -p "$download_root"
+    archive="$(mktemp "$download_root/codex-${PINNED_VERSION}.XXXXXX")"
+    extract_dir="$(mktemp -d "$download_root/codex-${PINNED_VERSION}.XXXXXX")"
     trap 'rm -f "$archive"; rm -rf "$extract_dir"' EXIT
     url="https://github.com/openai/codex/releases/download/rust-v${PINNED_VERSION}/codex-${target}.tar.gz"
     echo "Downloading codex-cli $PINNED_VERSION for $target..."

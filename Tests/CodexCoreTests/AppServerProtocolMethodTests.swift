@@ -32,6 +32,8 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.modelList))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.commandExec))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.environmentInfo))
+        XCTAssertTrue(CodexRequest.specializedMethods.contains(.accountLoginStart))
+        XCTAssertTrue(CodexRequest.specializedMethods.contains(.accountLoginCancel))
     }
 
     func testCoreNotificationAndServerRequestMethodsArePresent() {
@@ -74,7 +76,7 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(definitions.contains("GetWorkspaceMessagesResponse"))
         XCTAssertTrue(definitions.contains("ExternalAgentConfigImportProgressNotification"))
         XCTAssertTrue(definitions.contains("LegacyAppPathString"))
-        XCTAssertTrue(definitions.contains("AmazonBedrockCredentialSource"))
+        XCTAssertTrue(definitions.contains("EnvironmentStatusResponse"))
     }
 
     func testGeneratedSchemaTypeInventoryIsConsistent() {
@@ -109,6 +111,34 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(names.contains("AccountLoginCompletedNotification"))
     }
 
+    func testGeneratedV1HandshakeInventoryMatchesPinnedWireContract() throws {
+        XCTAssertEqual(
+            CodexAppServerSchemaInventory.v1HandshakeSchemas.count,
+            CodexAppServerSchemaInventory.v1HandshakeSchemaFileCount
+        )
+
+        let params = try XCTUnwrap(
+            CodexAppServerSchemaInventory.v1HandshakeSchemaByName["InitializeParams"]
+        )
+        XCTAssertEqual(Set(params.requiredFields), ["clientInfo"])
+        XCTAssertEqual(Set(params.propertyNames), ["capabilities", "clientInfo"])
+
+        let response = try XCTUnwrap(
+            CodexAppServerSchemaInventory.v1HandshakeSchemaByName["InitializeResponse"]
+        )
+        let required: Set<String> = [
+            "codexHome", "platformFamily", "platformOs", "userAgent",
+        ]
+        XCTAssertEqual(Set(response.requiredFields), required)
+        XCTAssertEqual(Set(response.propertyNames), required)
+        XCTAssertTrue(
+            CodexAppServerSchemaInventory.definitions.contains {
+                $0.name == "InitializeResponse"
+                    && $0.typeName == "CodexSchemaInitializeResponse"
+            }
+        )
+    }
+
     func testGeneratedSchemaTypesAreRealSwiftTypes() throws {
         // Plain object schemas become Codable structs with typed fields.
         let stepData = #"{"step":"Implement fix","status":"inProgress"}"#.data(using: .utf8)!
@@ -140,11 +170,13 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertEqual(
             CodexAppServerSchemaInventory.generatedEnumCount
                 + CodexAppServerSchemaInventory.generatedStructCount
+                + CodexAppServerSchemaInventory.generatedTaggedUnionCount
                 + CodexAppServerSchemaInventory.rawAliasCount,
             CodexAppServerSchemaInventory.definitionCount
         )
         XCTAssertGreaterThan(CodexAppServerSchemaInventory.generatedStructCount, 0)
         XCTAssertGreaterThan(CodexAppServerSchemaInventory.generatedEnumCount, 0)
+        XCTAssertGreaterThan(CodexAppServerSchemaInventory.generatedOpenEnumCount, 0)
     }
 
     func testCurrentAppSchemaAdditionsAreRealSwiftTypes() throws {
@@ -175,6 +207,7 @@ final class AppServerProtocolMethodTests: XCTestCase {
             write: [CodexAppServerSchemaValue(.string("/tmp/project/out"))]
         )
         XCTAssertEqual(permissions.read, [CodexAppServerSchemaValue(.string("/tmp/project"))])
-        XCTAssertEqual(CodexSchemaAmazonBedrockCredentialSource.allCases, [.codexManaged, .awsManaged])
+        let environment = CodexSchemaEnvironmentStatusResponse(status: .ready)
+        XCTAssertEqual(environment.status, .ready)
     }
 }

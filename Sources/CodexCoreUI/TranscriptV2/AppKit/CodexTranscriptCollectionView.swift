@@ -1,4 +1,5 @@
 import AppKit
+import CodexCore
 import SwiftUI
 
 struct CodexTranscriptCollectionDiagnostics: Sendable, Equatable {
@@ -19,14 +20,15 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     @Environment(\.codexClipboardService) private var clipboardService
 
     var presentation: CodexThreadUIPresentation
-    var sessionStore: CodexThreadUISessionStore?
+    var renderUpdate: CodexCanonicalTranscriptRenderUpdate?
+    var presentationStore: CodexPresentationStore?
     var bottomContentInset: CGFloat
     var contentHorizontalOffset: CGFloat
     var productToolRenderer: CodexProductToolRendererV2?
     var onOpenSubagent: (String) -> Void
     var onEditUserMessage: (String) -> Void
     var onForkChat: (() -> Void)?
-    var onResolveApproval: (String, Bool) -> Void
+    var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     var retryRevision: Int
     var onProjectionError: (String?) -> Void
 
@@ -43,7 +45,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     func updateNSView(_ container: CodexTranscriptCollectionContainerView, context: Context) {
         context.coordinator.update(
             presentation: presentation,
-            sessionStore: sessionStore,
+            renderUpdate: renderUpdate,
+            presentationStore: presentationStore,
             bottomContentInset: bottomContentInset,
             contentHorizontalOffset: contentHorizontalOffset,
             swiftUITheme: swiftUITheme,
@@ -72,7 +75,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var dataSource: NSCollectionViewDiffableDataSource<String, CodexTranscriptRenderItemID>?
         private var currentSnapshot: CodexTranscriptRenderSnapshot?
         private var currentPresentation: CodexThreadUIPresentation?
-        private var sessionStore: CodexThreadUISessionStore?
+        private var presentationStore: CodexPresentationStore?
         private var appKitTheme: CodexTranscriptAppKitTheme?
         private var swiftUITheme = CodexAgentTheme.officialDark
         private var clipboardService: any CodexClipboardService = CodexNoopClipboardService()
@@ -80,11 +83,12 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onOpenSubagent: (String) -> Void = { _ in }
         private var onEditUserMessage: (String) -> Void = { _ in }
         private var onForkChat: (() -> Void)?
-        private var onResolveApproval: (String, Bool) -> Void = { _, _ in }
+        private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
         private var onProjectionError: (String?) -> Void = { _ in }
         private var retryRevision = 0
         private var contentHorizontalOffset: CGFloat = 0
         private var projectionTask: Task<Void, Never>?
+        private var projectionGeneration: UInt64 = 0
         private var reflowDebounceTask: Task<Void, Never>?
         private var scrollRestorationTask: Task<Void, Never>?
         private var selectedItemIDs: Set<CodexTranscriptRenderItemID> = []
@@ -97,6 +101,19 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var pendingScrollAnchor: (id: CodexTranscriptRenderItemID, offset: CGFloat)?
         private var hasUnseenOutput = false
         private(set) var diagnostics = CodexTranscriptCollectionDiagnostics()
+
+        private struct CanonicalProjectionIdentity: Equatable {
+            var threadID: ThreadID
+            var sourceRevision: StateRevision
+            var requestRevision: UInt64
+            var expandedWorkTurnIDs: Set<String>
+            var expandedRowIDs: Set<String>
+            var selectedDiffFileIndexByRowID: [String: Int]
+            var agentDisplayNameByThreadID: [String: String]
+            var pendingApprovals: [CodexApprovalPrompt]
+        }
+
+        private var lastRequestedCanonicalIdentity: CanonicalProjectionIdentity?
 
         func attach(to container: CodexTranscriptCollectionContainerView) {
             self.container = container
@@ -130,7 +147,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         func update(
             presentation: CodexThreadUIPresentation,
-            sessionStore: CodexThreadUISessionStore?,
+            renderUpdate: CodexCanonicalTranscriptRenderUpdate? = nil,
+            presentationStore: CodexPresentationStore?,
             bottomContentInset: CGFloat,
             contentHorizontalOffset: CGFloat,
             swiftUITheme: CodexAgentTheme,
@@ -139,7 +157,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onOpenSubagent: @escaping (String) -> Void,
             onEditUserMessage: @escaping (String) -> Void,
             onForkChat: (() -> Void)?,
-            onResolveApproval: @escaping (String, Bool) -> Void = { _, _ in },
+            onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
             retryRevision: Int = 0,
             onProjectionError: @escaping (String?) -> Void = { _ in }
         ) {
@@ -150,7 +168,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 forceReconfigureAll = true
             }
             self.currentPresentation = presentation
-            self.sessionStore = sessionStore
+            self.presentationStore = presentationStore
             self.appKitTheme = nextTheme
             self.swiftUITheme = swiftUITheme
             self.clipboardService = clipboardService
@@ -165,14 +183,31 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.contentHorizontalOffset = contentHorizontalOffset
             container.bottomContentInset = max(0, bottomContentInset)
             container.layoutSubtreeIfNeeded()
-            requestProjection(width: max(container.scrollView.contentSize.width, 320))
             if shouldRetry { forceReconfigureAll = true }
+            let identity = renderUpdate.map {
+                CanonicalProjectionIdentity(
+                    threadID: $0.threadID,
+                    sourceRevision: $0.sourceRevision,
+                    requestRevision: $0.requestSourceRevision,
+                    expandedWorkTurnIDs: presentation.expandedWorkTurnIDs,
+                    expandedRowIDs: presentation.expandedRowIDs,
+                    selectedDiffFileIndexByRowID: presentation.selectedDiffFileIndexByRowID,
+                    agentDisplayNameByThreadID: presentation.agentDisplayNameByThreadID,
+                    pendingApprovals: presentation.pendingApprovals
+                )
+            }
+            let canonicalInputChanged = identity != nil && identity != lastRequestedCanonicalIdentity
+            if identity == nil || canonicalInputChanged || forceReconfigureAll {
+                lastRequestedCanonicalIdentity = identity
+                requestProjection(width: max(container.scrollView.contentSize.width, 320))
+            }
         }
 
         func detach() {
             NotificationCenter.default.removeObserver(self)
             projectionTask?.cancel()
             projectionTask = nil
+            projectionGeneration &+= 1
             reflowDebounceTask?.cancel()
             reflowDebounceTask = nil
             scrollRestorationTask?.cancel()
@@ -242,6 +277,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private func requestProjection(width: CGFloat) {
             guard let presentation = currentPresentation, let theme = appKitTheme else { return }
             projectionTask?.cancel()
+            projectionGeneration &+= 1
+            let generation = projectionGeneration
             lastProjectedWidth = width
             projectionTask = Task { [weak self, projector] in
                 do {
@@ -251,6 +288,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                         theme: theme
                     )
                     guard !Task.isCancelled else { return }
+                    guard self?.projectionGeneration == generation else { return }
                     self?.onProjectionError(nil)
                     self?.apply(snapshot, presentation: presentation)
                 } catch is CancellationError {
@@ -457,13 +495,29 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 let expanded = !presentation.expandedWorkTurnIDs.contains(turnID)
                 if expanded { presentation.expandedWorkTurnIDs.insert(turnID) }
                 else { presentation.expandedWorkTurnIDs.remove(turnID) }
-                sessionStore?.setWorkExpanded(expanded, turnID: turnID, threadID: presentation.threadID)
+                presentationStore?.setWorkExpanded(
+                    expanded,
+                    turnID: turnID,
+                    threadID: ThreadID(presentation.threadID)
+                )
             case .toggleRow(let rowID):
                 captureScrollAnchor()
                 let expanded = !presentation.expandedRowIDs.contains(rowID)
                 if expanded { presentation.expandedRowIDs.insert(rowID) }
                 else { presentation.expandedRowIDs.remove(rowID) }
-                sessionStore?.setRowExpanded(expanded, rowID: rowID, threadID: presentation.threadID)
+                presentationStore?.setRowExpanded(
+                    expanded,
+                    rowID: rowID,
+                    threadID: ThreadID(presentation.threadID)
+                )
+            case .selectDiffFile(let rowID, let index):
+                captureScrollAnchor()
+                presentation.selectedDiffFileIndexByRowID[rowID] = max(0, index)
+                presentationStore?.selectDiffFile(
+                    index: index,
+                    rowID: rowID,
+                    threadID: ThreadID(presentation.threadID)
+                )
             case .openSubagent(let threadID):
                 onOpenSubagent(threadID)
                 return
@@ -515,8 +569,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             presentation.rawScrollOffset = rawOffset
             presentation.isPinnedToBottom = pinned
             currentPresentation = presentation
-            sessionStore?.updateScrollState(
-                threadID: presentation.threadID,
+            presentationStore?.updateScrollState(
+                threadID: ThreadID(presentation.threadID),
                 rawOffset: rawOffset,
                 isPinnedToBottom: pinned
             )
@@ -571,8 +625,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 presentation.rawScrollOffset = targetY
                 presentation.isPinnedToBottom = true
                 currentPresentation = presentation
-                sessionStore?.updateScrollState(
-                    threadID: presentation.threadID,
+                presentationStore?.updateScrollState(
+                    threadID: ThreadID(presentation.threadID),
                     rawOffset: targetY,
                     isPinnedToBottom: true
                 )
@@ -619,7 +673,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         }
 
         private func updateTicker(_ snapshot: CodexTranscriptRenderSnapshot) {
-            let nextID = sessionStore == nil ? nil : snapshot.orderedItemIDs.reversed().first { id in
+            let nextID = presentationStore == nil ? nil : snapshot.orderedItemIDs.reversed().first { id in
                 guard let header = snapshot.itemsByID[id]?.workHeader,
                       case .working(_, let showsDuration) = header.state else { return false }
                 return showsDuration

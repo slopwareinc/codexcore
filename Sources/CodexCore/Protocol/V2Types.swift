@@ -1,68 +1,17 @@
 import Foundation
 
-// Hand-maintained app-server v2 protocol types.
+// Hand-maintained conveniences layered on the generated app-server protocol.
 //
-// NOTE: This file is intentionally NOT under Sources/CodexCore/Generated. It is
-// authored by hand — it is not produced by Tools/regenerate.sh and not verified
-// by Tools/check_drift.sh (which only cover AppServerProtocolMethods.swift and
-// AppServerSchemaTypes.swift). Keeping it out of Generated/ avoids the false
-// impression that `regenerate.sh` rebuilds it or that `check_drift.sh` guards it.
+// Wire models belong in Sources/CodexCore/Generated. In particular, the v1
+// initialize types are generated from their standalone schemas so handshake
+// required fields participate in the pinned drift gate.
 
 public struct EmptyResponse: Codable, Sendable, Equatable {
     public init() {}
 }
 
-public struct ServerInfo: Codable, Sendable, Equatable {
-    public var name: String?
-    public var version: String?
-
-    public init(name: String? = nil, version: String? = nil) {
-        self.name = name
-        self.version = version
-    }
-}
-
-public struct InitializeResponse: Codable, Sendable, Equatable {
-    public var serverInfo: ServerInfo?
-    public var userAgent: String?
-    public var platformFamily: String?
-    public var platformOs: String?
-    public var codexHome: String?
-
-    public init(serverInfo: ServerInfo? = nil, userAgent: String? = nil, platformFamily: String? = nil, platformOs: String? = nil, codexHome: String? = nil) {
-        self.serverInfo = serverInfo
-        self.userAgent = userAgent
-        self.platformFamily = platformFamily
-        self.platformOs = platformOs
-        self.codexHome = codexHome
-    }
-}
-
-public struct InitializeCapabilities: Codable, Sendable, Equatable {
-    public var experimentalAPI: Bool?
-    public var mcpServerOpenAIFormElicitation: Bool?
-    public var optOutNotificationMethods: [String]?
-    public var requestAttestation: Bool?
-
-    private enum CodingKeys: String, CodingKey {
-        case experimentalAPI = "experimentalApi"
-        case mcpServerOpenAIFormElicitation = "mcpServerOpenaiFormElicitation"
-        case optOutNotificationMethods
-        case requestAttestation
-    }
-
-    public init(
-        experimentalAPI: Bool? = nil,
-        mcpServerOpenAIFormElicitation: Bool? = nil,
-        optOutNotificationMethods: [String]? = nil,
-        requestAttestation: Bool? = nil
-    ) {
-        self.experimentalAPI = experimentalAPI
-        self.mcpServerOpenAIFormElicitation = mcpServerOpenAIFormElicitation
-        self.optOutNotificationMethods = optOutNotificationMethods
-        self.requestAttestation = requestAttestation
-    }
-}
+public typealias InitializeResponse = CodexSchemaInitializeResponse
+public typealias InitializeCapabilities = CodexSchemaInitializeCapabilities
 
 public enum ApprovalMode: String, Codable, Sendable, Equatable {
     case denyAll = "deny_all"

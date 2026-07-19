@@ -73,6 +73,17 @@ public struct CodexWorkGroupV2: Identifiable, Sendable, Equatable {
 
 public enum CodexWorkItemStatusV2: Sendable, Equatable { case inProgress, completed, failed }
 
+/// User-facing lifecycle for one collaboration agent. This stays distinct from
+/// `CodexWorkItemStatusV2`: completing a spawn request does not mean the child
+/// agent has completed its task, and a closed child is not the same as success.
+public enum CodexAgentDisplayStatusV2: Sendable, Equatable {
+    case starting
+    case working
+    case done
+    case failed
+    case closed
+}
+
 public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var command: String; public var label: String
     public var action: CodexWorkCategoryV2; public var status: CodexWorkItemStatusV2
@@ -124,6 +135,7 @@ extension CodexCollabAgentRowV2 {
      public var instructions: String?; public var agentMessages: [String: String]
     public var timeline: [CodexCollabActionV2]
     public var status: CodexWorkItemStatusV2
+    public var displayStatus: CodexAgentDisplayStatusV2
 
     public init(
         id: String,
@@ -133,11 +145,19 @@ extension CodexCollabAgentRowV2 {
         instructions: String?,
         agentMessages: [String: String] = [:],
         timeline: [CodexCollabActionV2]? = nil,
-        status: CodexWorkItemStatusV2
+        status: CodexWorkItemStatusV2,
+        displayStatus: CodexAgentDisplayStatusV2? = nil
     ) {
          self.id = id; self.action = action; self.agentNames = agentNames; self.agentThreadIDs = agentThreadIDs
          self.instructions = instructions; self.agentMessages = agentMessages
          self.timeline = timeline ?? [action]; self.status = status
+         self.displayStatus = displayStatus ?? {
+             switch status {
+             case .inProgress: .working
+             case .completed: .done
+             case .failed: .failed
+             }
+         }()
     }
 }
 public struct CodexOtherWorkRowV2: Identifiable, Sendable, Equatable {

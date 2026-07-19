@@ -12,7 +12,9 @@ fi
 
 source "$TOOLS_DIR/app_server_schema_common.sh"
 
-WORK_DIR="$(mktemp -d)"
+WORK_ROOT="$ROOT/.build/protocol-generation"
+mkdir -p "$WORK_ROOT"
+WORK_DIR="$(mktemp -d "$WORK_ROOT/drift.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 SCHEMA_DIR="$WORK_DIR/schema"
 mkdir -p "$SCHEMA_DIR"
@@ -21,16 +23,28 @@ generate_app_server_schema "$SCHEMA_DIR" >/dev/null
 generate_app_server_swift \
     "$SCHEMA_DIR" \
     "$WORK_DIR/AppServerProtocolMethods.swift" \
-    "$WORK_DIR/AppServerSchemaTypes.swift"
+    "$WORK_DIR/AppServerSchemaTypes.swift" \
+    "$WORK_DIR/CodexSessionCommands.swift"
+generate_pinned_runtime_swift "$WORK_DIR/PinnedRuntimeVersion.swift"
 
 status=0
-for file in AppServerProtocolMethods.swift AppServerSchemaTypes.swift; do
+for file in AppServerProtocolMethods.swift AppServerSchemaTypes.swift PinnedRuntimeVersion.swift; do
     if ! diff -u "$ROOT/Sources/CodexCore/Generated/$file" "$WORK_DIR/$file" > "$WORK_DIR/$file.diff"; then
         echo "DRIFT: Sources/CodexCore/Generated/$file is stale vs $("$CODEX_BIN" --version)."
         head -40 "$WORK_DIR/$file.diff"
         status=1
     fi
 done
+
+if ! diff -u \
+    "$ROOT/Sources/CodexCore/Client/CodexSessionCommands.swift" \
+    "$WORK_DIR/CodexSessionCommands.swift" \
+    > "$WORK_DIR/CodexSessionCommands.swift.diff"
+then
+    echo "DRIFT: Sources/CodexCore/Client/CodexSessionCommands.swift is stale vs $($CODEX_BIN --version)."
+    head -40 "$WORK_DIR/CodexSessionCommands.swift.diff"
+    status=1
+fi
 
 if [ "$status" -eq 0 ]; then
     echo "Generated protocol files match $("$CODEX_BIN" --version)."

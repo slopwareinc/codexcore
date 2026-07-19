@@ -1,4 +1,5 @@
 import SwiftUI
+import CodexCore
 
 /// Host hook for product-specific dynamic tool-call presentation.
 public struct CodexProductToolRendererV2 {
@@ -16,7 +17,7 @@ public struct CodexProductToolRendererV2 {
 public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let transcript: CodexTranscriptV2
     private let threadID: String
-    private let sessionStore: CodexThreadUISessionStore?
+    private let presentationStore: CodexPresentationStore?
     private let productToolRenderer: CodexProductToolRendererV2?
     private let emptyState: EmptyState
     private let contentHorizontalOffset: CGFloat
@@ -25,33 +26,65 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onEditUserMessage: (String) -> Void
     private let onForkChat: (() -> Void)?
     private let pendingApprovals: [CodexApprovalPrompt]
-    private let onResolveApproval: (String, Bool) -> Void
+    private let agentDisplayNameByThreadID: [String: String]
+    private let onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     @State private var fallbackPresentedAt = Date()
     @State private var projectionError: String?
     @State private var projectionRetryRevision = 0
 
     public init(
-        transcript: CodexTranscriptV2,
-        threadID: String = "standalone",
-        sessionStore: CodexThreadUISessionStore? = nil,
+        presentationStore: CodexPresentationStore,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
+        agentDisplayNameByThreadID: [String: String] = [:],
         pendingApprovals: [CodexApprovalPrompt] = [],
-        onResolveApproval: @escaping (String, Bool) -> Void = { _, _ in },
+        onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
         @ViewBuilder emptyState: () -> EmptyState
     ) {
-        self.transcript = transcript
-        self.threadID = threadID
-        self.sessionStore = sessionStore
+        self.transcript = .init()
+        self.threadID = "unassigned"
+        self.presentationStore = presentationStore
         self.productToolRenderer = productToolRenderer
         self.contentHorizontalOffset = contentHorizontalOffset
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
+        self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
+        self.pendingApprovals = pendingApprovals
+        self.onResolveApproval = onResolveApproval
+        self.emptyState = emptyState()
+        self.bottomContentInset = max(0, bottomContentInset)
+    }
+
+    /// Standalone renderer Interface for previews and deterministic fixtures.
+    /// Production hosts should use the canonical `presentationStore` initializer.
+    public init(
+        transcript: CodexTranscriptV2,
+        threadID: String = "standalone",
+        productToolRenderer: CodexProductToolRendererV2? = nil,
+        contentHorizontalOffset: CGFloat = 0,
+        bottomContentInset: CGFloat = 170,
+        onOpenSubagent: @escaping (String) -> Void = { _ in },
+        onEditUserMessage: @escaping (String) -> Void = { _ in },
+        onForkChat: (() -> Void)? = nil,
+        agentDisplayNameByThreadID: [String: String] = [:],
+        pendingApprovals: [CodexApprovalPrompt] = [],
+        onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
+        @ViewBuilder emptyState: () -> EmptyState
+    ) {
+        self.transcript = transcript
+        self.threadID = threadID
+        self.presentationStore = nil
+        self.productToolRenderer = productToolRenderer
+        self.contentHorizontalOffset = contentHorizontalOffset
+        self.onOpenSubagent = onOpenSubagent
+        self.onEditUserMessage = onEditUserMessage
+        self.onForkChat = onForkChat
+        self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.pendingApprovals = pendingApprovals
         self.onResolveApproval = onResolveApproval
         self.emptyState = emptyState()
@@ -70,7 +103,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
             } else {
                 CodexTranscriptListHost(
                     presentation: effectivePresentation,
-                    sessionStore: sessionStore,
+                    renderUpdate: presentationStore?.activeRenderUpdate,
+                    presentationStore: presentationStore,
                     bottomContentInset: bottomContentInset,
                     contentHorizontalOffset: contentHorizontalOffset,
                     productToolRenderer: productToolRenderer,
@@ -104,13 +138,21 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     }
 
     private var effectivePresentation: CodexThreadUIPresentation {
-        if var presentation = sessionStore?.activePresentation {
-            presentation.pendingApprovals = pendingApprovals.filter { $0.threadId == nil || $0.threadId == presentation.threadID }
+        if var presentation = presentationStore?.activePresentation {
+            // The independently revisioned request-inbox facet supplies rich
+            // prompt bodies; the thread facet supplies transcript state and
+            // ledger placement metadata. This disposable composition is not a
+            // second protocol reducer.
+            presentation.pendingApprovals = pendingApprovals.filter {
+                $0.threadId == presentation.threadID
+            }
+            presentation.agentDisplayNameByThreadID = agentDisplayNameByThreadID
             return presentation
         }
         return CodexThreadUIPresentation(
             threadID: threadID,
             transcript: transcript,
+            agentDisplayNameByThreadID: agentDisplayNameByThreadID,
             presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) }),
             pendingApprovals: pendingApprovals
         )
@@ -119,9 +161,22 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
 
 public extension CodexTranscriptViewV2 where EmptyState == EmptyView {
     init(
+        presentationStore: CodexPresentationStore,
+        productToolRenderer: CodexProductToolRendererV2? = nil,
+        contentHorizontalOffset: CGFloat = 0,
+        bottomContentInset: CGFloat = 170
+    ) {
+        self.init(
+            presentationStore: presentationStore,
+            productToolRenderer: productToolRenderer,
+            contentHorizontalOffset: contentHorizontalOffset,
+            bottomContentInset: bottomContentInset
+        ) { EmptyView() }
+    }
+
+    init(
         transcript: CodexTranscriptV2,
         threadID: String = "standalone",
-        sessionStore: CodexThreadUISessionStore? = nil,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170
@@ -129,7 +184,6 @@ public extension CodexTranscriptViewV2 where EmptyState == EmptyView {
         self.init(
             transcript: transcript,
             threadID: threadID,
-            sessionStore: sessionStore,
             productToolRenderer: productToolRenderer,
             contentHorizontalOffset: contentHorizontalOffset,
             bottomContentInset: bottomContentInset

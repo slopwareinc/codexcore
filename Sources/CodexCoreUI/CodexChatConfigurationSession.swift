@@ -101,7 +101,8 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexChatConfigurationActivity {
         do {
-            return applyPermissionProfileResponse(try CodexJSONValue(encoding: await codex.permissionProfileList()))
+            let response = try await codex.perform(CodexRequest.permissionProfileList(.init()))
+            return applyPermissionProfileResponse(try CodexJSONValue(encoding: response))
         } catch {
             return failPermissionProfileRefresh(message: errorMessage(error))
         }
@@ -146,7 +147,8 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexChatConfigurationActivity {
         do {
-            return applyCollaborationModeResponse(try CodexJSONValue(encoding: await codex.collaborationModeList()))
+            let response = try await codex.perform(CodexRequest.collaborationModeList(.init()))
+            return applyCollaborationModeResponse(try CodexJSONValue(encoding: response))
         } catch {
             return failCollaborationModeRefresh(message: errorMessage(error))
         }
@@ -160,7 +162,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     }
 
     @discardableResult
-    public mutating func applyModelResponse(_ response: ModelListResponse) -> CodexChatConfigurationActivity {
+    public mutating func applyModelResponse(_ response: CodexSchemaModelListResponse) -> CodexChatConfigurationActivity {
         let options = CodexModelSelection.options(from: response)
         guard !options.isEmpty else {
             modelOptions = CodexModelSelection.defaultOptions
@@ -182,7 +184,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexChatConfigurationActivity {
         do {
-            return applyModelResponse(try await codex.models(includeHidden: false))
+            return applyModelResponse(try await codex.perform(CodexRequest.modelList(.init(includeHidden: false))))
         } catch {
             return failModelRefresh(message: errorMessage(error))
         }
@@ -209,7 +211,11 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         errorMessage: (Error) -> String
     ) async -> CodexChatConfigurationActivity {
         do {
-            return applySlashCommandResponse(try CodexJSONValue(encoding: await codex.skillsList(cwds: cwds, forceReload: forceReload)))
+            let response = try await codex.perform(CodexRequest.skillsList(.init(
+                cwds: cwds.isEmpty ? nil : cwds,
+                forceReload: forceReload ? true : nil
+            )))
+            return applySlashCommandResponse(try CodexJSONValue(encoding: response))
         } catch {
             return failSlashCommandRefresh(message: errorMessage(error))
         }

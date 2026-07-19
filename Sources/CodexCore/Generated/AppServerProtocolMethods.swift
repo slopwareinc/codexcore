@@ -49,6 +49,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case pluginShareList = "plugin/share/list"
     case pluginShareCheckout = "plugin/share/checkout"
     case pluginShareDelete = "plugin/share/delete"
+    case appRead = "app/read"
     case appList = "app/list"
     case fsReadFile = "fs/readFile"
     case fsWriteFile = "fs/writeFile"
@@ -88,6 +89,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case mockExperimentalMethod = "mock/experimentalMethod"
     case environmentAdd = "environment/add"
     case environmentInfo = "environment/info"
+    case environmentStatus = "environment/status"
     case mcpServerOAuthLogin = "mcpServer/oauth/login"
     case configMCPServerReload = "config/mcpServer/reload"
     case mcpServerStatusList = "mcpServerStatus/list"
@@ -137,6 +139,8 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case threadNameUpdated = "thread/name/updated"
     case threadGoalUpdated = "thread/goal/updated"
     case threadGoalCleared = "thread/goal/cleared"
+    case threadEnvironmentConnected = "thread/environment/connected"
+    case threadEnvironmentDisconnected = "thread/environment/disconnected"
     case threadSettingsUpdated = "thread/settings/updated"
     case threadTokenUsageUpdated = "thread/tokenUsage/updated"
     case turnStarted = "turn/started"
@@ -209,7 +213,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 122
-    public static let notificationMethodCount = 68
+    public static let clientMethodCount = 124
+    public static let notificationMethodCount = 70
     public static let serverRequestMethodCount = 11
 }

@@ -28,6 +28,11 @@ final class CodexCoreAppModel {
             CodexGitSettingsStorage.saveGitSettings(gitSettings, to: preferenceStore)
         }
     }
+    var newThreadHistoryMode: CodexNewThreadHistoryMode = .defaultForPinnedRelease {
+        didSet {
+            CodexNewThreadHistoryModeStorage.save(newThreadHistoryMode, to: preferenceStore)
+        }
+    }
     var sidebarFontSize: Double = CodexSidebarFontSizeStorage.defaultFontSize {
         didSet {
             let clamped = CodexSidebarFontSizeStorage.clamped(sidebarFontSize)
@@ -50,7 +55,28 @@ final class CodexCoreAppModel {
 
     private var codex: Codex?
     var authSession = CodexAuthSession()
-    let threadSession = CodexThreadSession()
+    private(set) var currentThreadLease: CodexThreadLease?
+    private(set) var selectedThreadID: String?
+    private(set) var activeTurnLease: CodexTurnLease?
+    private var activeSideChatThreadLease: CodexThreadLease?
+    private var activeSideChatTurnLease: CodexTurnLease?
+    private var currentThreadObservationTask: Task<Void, Never>?
+    private var currentThreadObservationGeneration: UInt64 = 0
+    private var threadIndexObservationTask: Task<Void, Never>?
+    private var threadIndexObservationGeneration: UInt64 = 0
+    private var accountObservationTask: Task<Void, Never>?
+    private var accountObservationGeneration: UInt64 = 0
+    private var accountPreferredDisplayName: String?
+    private var skillsChangedObservationTask: Task<Void, Never>?
+    private var skillsChangedObservationGeneration: UInt64 = 0
+    private var activeTurnCompletionTask: Task<Void, Never>?
+    private var sideChatTurnCompletionTask: Task<Void, Never>?
+    private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
+    private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
+    private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
+    private var lastSeenAttentionRevisionByThreadID: [ThreadID: StateRevision] = [:]
+    private var hasSeededThreadIndex = false
+    private(set) var goalPursuitEnabled = false
     private var loginTask: Task<Void, Never>?
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
     var sidebarNavigationSession = CodexSidebarNavigationSession(currentWorkspacePath: defaultWorkspacePath())
@@ -65,8 +91,6 @@ final class CodexCoreAppModel {
     private let mentionSearchSession = CodexMentionSearchSession()
     var modelIDByThread: [String: String]
     var lastManualModelID: String?
-    private var threadHistoryCache = CodexThreadHistoryCache(capacity: 20)
-    private(set) var threadHistoryPaginationState: CodexThreadHistoryPaginationState = .idle
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     private var chatSelectionGeneration = 0
     var isThreadLoading = false
@@ -84,15 +108,19 @@ final class CodexCoreAppModel {
 
     private let clipboardService: any CodexClipboardService
     let preferenceStore: any CodexStringListPreferenceStore
+    let codexHome: CodexHome
 
     init(
+        codexHome: CodexHome = .default,
         clipboardService: any CodexClipboardService,
         preferenceStore: any CodexStringListPreferenceStore
     ) {
+        self.codexHome = codexHome
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
+        self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
         self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
@@ -115,63 +143,52 @@ final class CodexCoreAppModel {
     func connect() async {
         guard authSession.beginConnecting() else { return }
 
-        resetSessionState()
-        startInteractivePromptEventListener()
+        await resetSessionState()
         do {
-            // `.ask` publishes approvals and user-input questions to
-            // `codex.store.pendingApprovals` / `pendingUserInputs` and suspends
-            // the server reply until this app answers them.
             let config = CodexConfig(
+                codexHome: codexHome,
                 cwd: workspacePath,
                 clientName: "codex_core_app",
                 clientTitle: "CodexCore App",
                 clientVersion: "1.0.0",
-                approvalPolicy: .ask,
-                initializeCapabilities: InitializeCapabilities(
+                capabilities: InitializeCapabilities(
                     mcpServerOpenAIFormElicitation: true
                 )
             )
-            let codex = try await Codex(config: config, serverRequestHandler: { [weak self] request in
-                // MCP elicitations are not covered by the approval policy;
-                // bridge them into the interactive prompt UI. Everything else
-                // falls through (nil) to the SDK's `.ask` flow.
-                guard let self else { return nil }
-                return await self.promptRuntime.handleMCPServerElicitationRequest(request)
-            })
+            let codex = try await Codex(config: config)
             self.codex = codex
-            runtimeSession.bindHost(
-                currentThreadID: { [weak self] in self?.currentThreadID },
-                store: { [weak self] in self?.codex?.store },
-                applyResult: { [weak self] result in self?.apply(result) },
-                applySideChatUpdate: { [weak self] update in self?.applySideChat(update) }
-            )
-            runtimeSession.consumeGlobalNotifications(from: codex)
-            bindApprovalStore(from: codex.store)
-            let server = codex.metadata.serverInfo?.name ?? "Codex"
+            await runtimeSession.connect(to: codex)
+            promptRuntime.connect(to: codex.session) { [weak self] activity in
+                self?.appendActivity(.notice, title: activity.title, detail: activity.detail)
+            }
+            startThreadIndexObservation(session: codex.session)
+            await startSkillsChangedObservation(session: codex.session)
+            let server = "Codex"
             // Codex construction does not return until initialize + initialized
             // complete, so ready is never exposed during the wire handshake.
             authSession.connectedAfterHandshake(server: server)
             accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
+            accountPreferredDisplayName = CodexAuthTokenProfileReader.displayName(codexHome: codex.codexHome)
 
+            var shouldContinue = true
             do {
-                let account = try await codex.account(refreshToken: false)
+                let account = try await codex.perform(CodexRequest.accountRead(.init(refreshToken: false)))
                 print("[codextrace] account/read \(CodexAccountDetailLog.json(from: account))")
-                let tokenDisplayName = CodexAuthTokenProfileReader.displayName(codexHome: defaultCodexHome())
                 accountMenuSummary = CodexAccountMenuSummary(
                     account: account.account,
-                    displayName: tokenDisplayName,
+                    displayName: accountPreferredDisplayName,
                     serverName: server
                 )
                 let authCheck = authSession.applyAccount(account)
                 if let activity = authCheck.activity {
                     appendActivity(activity)
                 }
-                if !authCheck.shouldContinue {
-                    return
-                }
+                shouldContinue = authCheck.shouldContinue
             } catch {
                 appendActivity(authSession.accountCheckSkipped(message: friendlyError(error)))
             }
+            startAccountObservation(session: codex.session)
+            guard shouldContinue else { return }
 
             try await refreshConnectedSession(using: codex)
         } catch {
@@ -181,16 +198,40 @@ final class CodexCoreAppModel {
 
     func disconnect() async {
         await stopBottomTerminalSession()
+        await runtimeSession.disconnect()
         runtimeSession.reset()
-        promptRuntime.reset()
+        promptRuntime.disconnect()
+        cancelThreadIndexObservation()
+        cancelAccountObservation()
+        cancelSkillsChangedObservation()
         mentionSearchSession.reset()
         loginTask?.cancel()
-        await promptRuntime.cancelAllPrompts()
         loginTask = nil
-        threadSession.reset()
-        threadHistoryCache.removeAll()
+        cancelCurrentThreadObservation()
+        cancelThreadIndexObservation()
+        activeTurnCompletionTask?.cancel()
+        sideChatTurnCompletionTask?.cancel()
+        activeTurnCompletionTask = nil
+        sideChatTurnCompletionTask = nil
+        activeTurnLease = nil
+        activeSideChatTurnLease = nil
+        if let lease = activeSideChatThreadLease {
+            await lease.close()
+        }
+        activeSideChatThreadLease = nil
+        if let lease = currentThreadLease {
+            await lease.close()
+        }
+        currentThreadLease = nil
+        selectedThreadID = nil
+        selectedThreadSessionSnapshot = nil
+        canonicalThreadIndexSnapshot = nil
+        canonicalThreadStatusEntries.removeAll(keepingCapacity: false)
+        lastSeenAttentionRevisionByThreadID.removeAll(keepingCapacity: false)
+        hasSeededThreadIndex = false
         workspacePanel.removeAll()
         accountRateLimitsSnapshot = nil
+        accountPreferredDisplayName = nil
         gitBranch = nil
         environmentInfoState = .unavailable
         let codex = self.codex
@@ -204,7 +245,25 @@ final class CodexCoreAppModel {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
         do {
-            try await codex.loginAPIKey(key)
+            let params = try CodexJSONValue.dictionary([
+                "type": .string("apiKey"),
+                "apiKey": .string(key),
+            ]).decode(CodexSchemaLoginAccountParams.self)
+            let transaction = try await codex.startLogin(params)
+            guard case .anonymous(let attempt) = transaction else {
+                throw CodexSDKError.invalidResponse(
+                    method: CodexAppServerClientMethod.accountLoginStart.rawValue,
+                    value: transaction.response.rawValue
+                )
+            }
+            let completion = try await attempt.completion()
+            guard completion.success else {
+                throw CodexRPCError(
+                    code: -32_000,
+                    message: completion.error ?? "API key login did not complete",
+                    kind: .codexRpc
+                )
+            }
             apiKey = ""
             appendActivity(authSession.apiKeyAccepted())
             try await refreshConnectedSession(using: codex)
@@ -216,12 +275,34 @@ final class CodexCoreAppModel {
     func startDeviceCodeLogin() async {
         guard let codex else { return }
         do {
-            let handle = try await codex.loginChatGPTDeviceCode()
-            appendActivity(authSession.deviceCodeStarted(url: handle.verificationUrl, code: handle.userCode))
+            let params = try CodexJSONValue.dictionary([
+                "type": .string("chatgptDeviceCode")
+            ]).decode(CodexSchemaLoginAccountParams.self)
+            let transaction = try await codex.startLogin(params)
+            guard case .identified(let attempt) = transaction,
+                  case .dictionary(let value) = attempt.response.rawValue,
+                  case .string(let verificationURL)? = value["verificationUrl"],
+                  case .string(let userCode)? = value["userCode"]
+            else {
+                throw CodexSDKError.invalidResponse(
+                    method: CodexAppServerClientMethod.accountLoginStart.rawValue,
+                    value: transaction.response.rawValue
+                )
+            }
+            appendActivity(authSession.deviceCodeStarted(url: verificationURL, code: userCode))
             loginTask?.cancel()
             loginTask = Task { [weak self] in
                 do {
-                    _ = try await handle.wait()
+                    let completion = try await attempt.completion()
+                    guard completion.success else {
+                        await CodexMainActorProjection.run {
+                            guard let self else { return }
+                            self.appendActivity(self.authSession.deviceCodeEnded(
+                                message: completion.error ?? "Device login did not complete"
+                            ))
+                        }
+                        return
+                    }
                     await self?.finishDeviceCodeLogin()
                 } catch {
                     await CodexMainActorProjection.run {
@@ -251,110 +332,132 @@ final class CodexCoreAppModel {
         case .goal(let submission):
             await sendGoalDraft(submission)
         case .turn(let submission):
-            let didStart = await runtimeSession.submitMainTurn(
-                submission,
-                start: {
-                    let thread = try await self.ensureThread()
-                    self.protectThreadHistoryCache(threadID: thread.id)
-                    var configuration = self.turnLaunchConfiguration
-                    configuration.parameters["clientUserMessageId"] = .string(submission.clientID)
-                    return try await thread.turn(submission.turnInput, configuration: configuration)
-                },
-                onActivity: { [weak self] activity in self?.appendActivity(activity) },
-                errorMessage: CodexErrorFormat.localizedDescription
-            )
-            if !didStart {
-                composerSession.restore(submission)
-            }
+            await startMainTurn(submission, restoreDraftOnFailure: true)
         }
     }
 
     /// Handles send while a turn is already running: steer it immediately or
     /// queue the message for the next turn, per `followUpBehavior`.
     private func sendFollowUp(prompt: String) async {
-        let activeTurn = runtimeSession.activeTurn
-        switch runtimeSession.prepareFollowUp(
-            prompt: prompt,
-            composerSession: &composerSession,
-            followUpBehavior: followUpBehavior,
-            canSteer: activeTurn != nil
-        ) {
-        case .queued(_, let activity):
-            appendActivity(activity)
-            protectCurrentThreadHistoryCache()
-        case .steer(let prompt, let activity):
-            appendActivity(activity)
-            protectCurrentThreadHistoryCache()
-            guard let activeTurn else { return }
+        if followUpBehavior == .steer, let activeTurnLease {
+            appendActivity(.turn, title: "Steering turn", detail: prompt)
             do {
-                _ = try await activeTurn.steer(prompt)
+                _ = try await activeTurnLease.steer(.init(
+                    clientUserMessageID: UUID().uuidString,
+                    expectedTurnID: activeTurnLease.key.turnID.rawValue,
+                    input: [CodexSchemaUserInput(CodexInput.text(prompt).jsonValue)],
+                    threadID: activeTurnLease.key.threadID.rawValue
+                ))
             } catch {
+                composerSession.enqueueFollowUp(prompt)
                 appendActivity(CodexTurnSubmissionSession.failSteeredFollowUp(
                     prompt: prompt,
                     message: friendlyError(error),
                     composerSession: &composerSession
                 ))
             }
+            return
         }
+
+        composerSession.enqueueFollowUp(prompt)
+        appendActivity(.turn, title: "Follow-up queued", detail: prompt)
     }
 
     /// Sends the next queued follow-up as a fresh turn. Called after a turn
     /// finishes; messages were already rendered when they were queued.
     private func flushQueuedFollowUps() {
-        guard let submission = runtimeSession.dequeueQueuedFollowUp(
-            composerSession: &composerSession,
-            isSending: isSending
-        ) else {
-            return
-        }
-        protectCurrentThreadHistoryCache()
-        appendActivity(submission.activity)
+        guard let prompt = composerSession.dequeueQueuedFollowUp(isSending: isSending) else { return }
+        let submission = CodexComposerSubmission(prompt: prompt)
 
         Task { [weak self] in
             guard let self else { return }
+            await startMainTurn(submission, restoreDraftOnFailure: false)
+        }
+    }
+
+    private func startMainTurn(
+        _ submission: CodexComposerSubmission,
+        restoreDraftOnFailure: Bool
+    ) async {
+        appendActivity(runtimeSession.beginMainTurnSubmission(submission))
+        do {
+            let thread = try await ensureThread()
+            let lease = try await thread.startTurn(turnStartParameters(
+                threadID: thread.id,
+                input: submission.turnInput,
+                clientUserMessageID: submission.clientID
+            ))
+            activeTurnLease = lease
+            runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
+            monitorMainTurn(lease)
+        } catch {
+            if restoreDraftOnFailure {
+                composerSession.restore(submission)
+            } else {
+                composerSession.requeueFollowUp(submission.prompt)
+            }
+            appendActivity(runtimeSession.failMainTurnSubmission(message: friendlyError(error)))
+        }
+    }
+
+    private func monitorMainTurn(_ lease: CodexTurnLease) {
+        activeTurnCompletionTask?.cancel()
+        activeTurnCompletionTask = Task { [weak self] in
             do {
-                let thread = try await ensureThread()
-                protectThreadHistoryCache(threadID: thread.id)
-                let handle = try await thread.turn(submission.input, configuration: turnLaunchConfiguration)
-                await CodexMainActorProjection.run {
-                    self.runtimeSession.startMainTurn(handle)
-                    self.runtimeSession.consumeMainTurn(handle)
+                let terminal = try await lease.awaitTerminal()
+                guard !Task.isCancelled, let self else { return }
+                if activeTurnLease?.key == lease.key {
+                    activeTurnLease = nil
                 }
+                _ = runtimeSession.finishMainTurn(id: lease.key.turnID.rawValue)
+                let failed = terminal.turn.status == .failed
+                appendActivity(
+                    .turn,
+                    title: failed ? "Turn failed" : "Turn finished",
+                    detail: terminal.turn.error?.message ?? lease.key.turnID.rawValue
+                )
+                Task { await refreshRecentChats() }
+                flushQueuedFollowUps()
+            } catch is CancellationError {
+                return
             } catch {
-                await CodexMainActorProjection.run {
-                    self.appendActivity(self.runtimeSession.failQueuedFollowUp(
-                        submission,
-                        message: self.friendlyError(error),
-                        composerSession: &self.composerSession
-                    ))
+                guard !Task.isCancelled, let self else { return }
+                if activeTurnLease?.key == lease.key {
+                    activeTurnLease = nil
                 }
+                _ = runtimeSession.finishMainTurn(id: lease.key.turnID.rawValue)
+                appendActivity(.turn, title: "Turn stream ended", detail: friendlyError(error))
             }
         }
     }
 
     private func sendGoalDraft(_ submission: CodexComposerSubmission) async {
-        let didStart = await runtimeSession.submitGoal(
-            submission,
-            start: {
-                let thread = try await self.ensureThread()
-                self.protectThreadHistoryCache(threadID: thread.id)
-                let response = try await thread.setGoal(objective: submission.prompt, status: .active)
-                return response.goal
-            },
-            onActivity: { [weak self] activity in self?.appendActivity(activity) },
-            errorMessage: CodexErrorFormat.localizedDescription
-        )
-        if !didStart {
+        appendActivity(.turn, title: "Starting goal", detail: submission.prompt)
+        do {
+            let thread = try await ensureThread()
+            guard let codex else { throw CodexSDKError.runtimeNotFound }
+            _ = try await codex.perform(CodexRequest.threadGoalSet(.init(
+                objective: submission.prompt,
+                status: .active,
+                threadID: thread.id.rawValue
+            )))
+            goalPursuitEnabled = true
+            appendActivity(.notice, title: "Goal started", detail: submission.prompt)
+        } catch {
             composerSession.restore(submission)
+            appendActivity(.turn, title: "Goal failed to start", detail: friendlyError(error))
         }
     }
 
     func setGoalPursuitEnabled(_ enabled: Bool) {
-        guard let change = runtimeSession.setGoalPursuitEnabled(enabled) else { return }
-        if let activity = change.activity {
-            appendActivity(.notice, title: activity.title, detail: activity.detail)
-        }
-        if change.shouldClearRemoteGoal {
+        guard goalPursuitEnabled != enabled else { return }
+        goalPursuitEnabled = enabled
+        appendActivity(
+            .notice,
+            title: enabled ? "Goal pursuit enabled" : "Goal pursuit disabled",
+            detail: enabled ? "The next message starts a goal." : "Returning to normal turns."
+        )
+        if !enabled, selectedThreadGoal != nil {
             Task { await clearCurrentGoal() }
         }
     }
@@ -403,20 +506,17 @@ final class CodexCoreAppModel {
     }
 
     func clearCurrentGoal() async {
-        guard let thread = threadSession.currentThread, runtimeSession.hasActiveGoal else {
-            runtimeSession.resetGoal()
+        guard let codex, let threadID = currentThreadID, selectedThreadGoal != nil else {
+            goalPursuitEnabled = false
             return
         }
         do {
-            threadHistoryCache.remove(threadID: thread.id)
-            let response = try await thread.clearGoal()
-            if response.cleared {
-                clearGoalState()
-                appendActivity(.notice, title: "Goal cleared", detail: "Thread goal removed")
-            }
+            _ = try await codex.perform(CodexRequest.threadGoalClear(.init(threadID: threadID)))
+            goalPursuitEnabled = false
+            appendActivity(.notice, title: "Goal cleared", detail: "Thread goal removed")
         } catch {
             appendActivity(.notice, title: "Goal clear failed", detail: friendlyError(error))
-            runtimeSession.restorePursuitAfterClearFailure()
+            goalPursuitEnabled = true
         }
     }
 
@@ -449,7 +549,7 @@ final class CodexCoreAppModel {
     }
 
     private func refreshRateLimits(using codex: Codex) async throws {
-        let response = try await codex.rateLimits()
+        let response = try await codex.perform(CodexRequest.accountRateLimitsRead())
         accountRateLimitsSnapshot = response.rateLimits
     }
 
@@ -460,8 +560,242 @@ final class CodexCoreAppModel {
         }
     }
 
-    private func syncAccountMetadata() {
-        accountRateLimitsSnapshot = codex?.store.accountRateLimits ?? accountRateLimitsSnapshot
+    private func activateThread(_ lease: CodexThreadLease) async {
+        let previous = currentThreadLease
+        currentThreadLease = lease
+        selectedThreadID = lease.id.rawValue
+        selectedThreadSessionSnapshot = nil
+        goalPursuitEnabled = false
+        runtimeSession.selectThread(lease.id.rawValue)
+        if let summary = canonicalThreadIndexSnapshot?.summary(for: lease.id) {
+            lastSeenAttentionRevisionByThreadID[lease.id] = summary.attentionRevision
+        }
+        syncComposerThreadID()
+        if let codex {
+            startCurrentThreadObservation(session: codex.session, threadID: lease.id)
+        }
+        if let previous, previous !== lease {
+            await previous.close()
+        }
+    }
+
+    private func startCurrentThreadObservation(session: CodexSession, threadID: ThreadID) {
+        cancelCurrentThreadObservation()
+        currentThreadObservationGeneration &+= 1
+        let generation = currentThreadObservationGeneration
+        let fields: StateFieldMask = [.thread, .turn, .item, .requests]
+        currentThreadObservationTask = Task { [weak self] in
+            let observation = await session.observeSessionState(
+                scope: .thread(threadID, fields: fields)
+            )
+            defer {
+                Task { await session.cancelObservation(observation.id) }
+            }
+            guard let self,
+                  currentThreadObservationGeneration == generation,
+                  selectedThreadID == threadID.rawValue
+            else { return }
+            applySelectedThreadSnapshot(observation.seed)
+
+            for await _ in observation.signals {
+                guard !Task.isCancelled,
+                      currentThreadObservationGeneration == generation,
+                      selectedThreadID == threadID.rawValue
+                else { return }
+                let snapshot = await session.sessionStateSnapshot(
+                    scope: .thread(threadID, fields: fields)
+                )
+                applySelectedThreadSnapshot(snapshot)
+            }
+        }
+    }
+
+    private func cancelCurrentThreadObservation() {
+        currentThreadObservationGeneration &+= 1
+        currentThreadObservationTask?.cancel()
+        currentThreadObservationTask = nil
+    }
+
+    private func startThreadIndexObservation(session: CodexSession) {
+        cancelThreadIndexObservation()
+        threadIndexObservationGeneration &+= 1
+        let generation = threadIndexObservationGeneration
+        threadIndexObservationTask = Task { [weak self] in
+            let observation = await session.observeThreadIndex()
+            defer {
+                Task { await session.cancelObservation(observation.id) }
+            }
+            guard let self, threadIndexObservationGeneration == generation else { return }
+            applyThreadIndexSnapshot(observation.seed)
+            for await _ in observation.signals {
+                guard !Task.isCancelled, threadIndexObservationGeneration == generation else { return }
+                applyThreadIndexSnapshot(await session.threadIndexSnapshot())
+            }
+        }
+    }
+
+    private func cancelThreadIndexObservation() {
+        threadIndexObservationGeneration &+= 1
+        threadIndexObservationTask?.cancel()
+        threadIndexObservationTask = nil
+    }
+
+    private func startAccountObservation(session: CodexSession) {
+        cancelAccountObservation()
+        accountObservationGeneration &+= 1
+        let generation = accountObservationGeneration
+        accountObservationTask = Task { [weak self] in
+            let scope = StateObservationScope.global(fields: .account)
+            let observation = await session.observeSessionState(scope: scope)
+            defer {
+                Task { await session.cancelObservation(observation.id) }
+            }
+            guard let self, accountObservationGeneration == generation else { return }
+            applyCanonicalAccountState(observation.seed.canonical.account)
+            for await _ in observation.signals {
+                guard !Task.isCancelled, accountObservationGeneration == generation else { return }
+                let snapshot = await session.sessionStateSnapshot(scope: scope)
+                applyCanonicalAccountState(snapshot.canonical.account)
+            }
+        }
+    }
+
+    private func cancelAccountObservation() {
+        accountObservationGeneration &+= 1
+        accountObservationTask?.cancel()
+        accountObservationTask = nil
+    }
+
+    private func startSkillsChangedObservation(session: CodexSession) async {
+        cancelSkillsChangedObservation()
+        skillsChangedObservationGeneration &+= 1
+        let generation = skillsChangedObservationGeneration
+        do {
+            let changes = try await session.observeSkillsChanges()
+            skillsChangedObservationTask = Task { [weak self] in
+                do {
+                    for try await _ in changes {
+                        guard !Task.isCancelled,
+                              let self,
+                              skillsChangedObservationGeneration == generation
+                        else { return }
+                        await refreshSlashCommands(forceReload: true)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard let self,
+                          skillsChangedObservationGeneration == generation
+                    else { return }
+                    appendActivity(
+                        .notice,
+                        title: "Skill updates unavailable",
+                        detail: friendlyError(error)
+                    )
+                }
+            }
+        } catch {
+            appendActivity(
+                .notice,
+                title: "Skill updates unavailable",
+                detail: friendlyError(error)
+            )
+        }
+    }
+
+    private func cancelSkillsChangedObservation() {
+        skillsChangedObservationGeneration &+= 1
+        skillsChangedObservationTask?.cancel()
+        skillsChangedObservationTask = nil
+    }
+
+    private func applyCanonicalAccountState(_ account: CanonicalAccountState) {
+        guard account.lastChangedRevision != .zero
+                || account.authMode != nil
+                || account.planType != nil
+                || !account.rateLimits.isEmpty
+                || !account.extensions.isEmpty
+        else { return }
+
+        accountMenuSummary = CodexAccountMenuSummary(
+            accountState: account,
+            displayName: accountPreferredDisplayName,
+            serverName: authSession.serverName
+        )
+        if account.rateLimits.isEmpty {
+            accountRateLimitsSnapshot = nil
+        } else {
+            accountRateLimitsSnapshot = try? CodexJSONValue.dictionary(account.rateLimits)
+                .decode(CodexSchemaRateLimitSnapshot.self)
+        }
+        if let activity = authSession.applyCanonicalAccount(account).activity {
+            appendActivity(activity)
+        }
+    }
+
+    private func applyThreadIndexSnapshot(_ snapshot: CanonicalThreadIndexSnapshot) {
+        canonicalThreadIndexSnapshot = snapshot
+        if !hasSeededThreadIndex {
+            for summary in snapshot.threads {
+                lastSeenAttentionRevisionByThreadID[summary.id] = summary.attentionRevision
+            }
+            hasSeededThreadIndex = true
+        }
+
+        var entries: [String: CodexThreadStatusEntry] = [:]
+        entries.reserveCapacity(snapshot.threads.count)
+        for summary in snapshot.threads {
+            let isSelected = summary.id.rawValue == selectedThreadID
+            if isSelected {
+                lastSeenAttentionRevisionByThreadID[summary.id] = summary.attentionRevision
+            }
+            let lastSeen = lastSeenAttentionRevisionByThreadID[summary.id] ?? .zero
+            let status: CodexThreadLiveStatus
+            if summary.status.isActive || summary.latestTurnStatus == .inProgress {
+                status = .running
+            } else if summary.latestTurnStatus == .failed {
+                status = .failed
+            } else {
+                status = .idle
+            }
+            entries[summary.id.rawValue] = .init(
+                status: status,
+                hasUnreadWhileInactive: !isSelected && lastSeen < summary.attentionRevision,
+                lastEventAt: Date()
+            )
+        }
+        canonicalThreadStatusEntries = entries
+    }
+
+    private func applySelectedThreadSnapshot(_ snapshot: CodexSessionStateSnapshot) {
+        guard let threadID = selectedThreadID,
+              snapshot.canonical.threads[ThreadID(threadID)] != nil
+        else { return }
+        let id = ThreadID(threadID)
+        let previousGoal = selectedThreadSessionSnapshot?.canonical.threads[id]?.goal
+        selectedThreadSessionSnapshot = snapshot
+        runtimeSession.applyCanonicalSnapshot(snapshot)
+
+        let thread = snapshot.canonical.threads[id]
+        if thread?.goal != nil {
+            goalPursuitEnabled = true
+        } else if previousGoal != nil {
+            goalPursuitEnabled = false
+        }
+        let turns = snapshot.canonical.turns(in: id)
+        let liveStatus: CodexThreadLiveStatus
+        if thread?.status.isActive == true || turns.last?.status == .inProgress {
+            liveStatus = .running
+        } else if turns.last?.status == .failed {
+            liveStatus = .failed
+        } else {
+            liveStatus = .idle
+        }
+        canonicalThreadStatusEntries[threadID] = CodexThreadStatusEntry(
+            status: liveStatus,
+            hasUnreadWhileInactive: false,
+            lastEventAt: Date()
+        )
     }
 
     nonisolated private static func gitBranch(in path: String) async -> String? {
@@ -589,7 +923,9 @@ final class CodexCoreAppModel {
         }
         environmentInfoState = .loading
         do {
-            let info = try await codex.environmentInfo(environmentId: environmentID)
+            let info = try await codex.perform(CodexRequest.environmentInfo(.init(
+                environmentID: environmentID
+            )))
             environmentInfoState = .available(
                 cwd: info.cwd.flatMap { value in
                     guard case .string(let cwd) = value.rawValue else { return nil }
@@ -712,8 +1048,7 @@ final class CodexCoreAppModel {
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
         runtimeSession.selectThread(threadID)
-        guard !threadSession.isCurrentThread(id: threadID) else { return }
-        let hasWarmTranscriptSession = runtimeSession.hasWarmTranscriptSession(threadID: threadID)
+        guard selectedThreadID != threadID || currentThreadLease?.isClosed != false else { return }
         applyPreferredModel(for: threadID)
         chatSelectionGeneration += 1
         let selectionGeneration = chatSelectionGeneration
@@ -728,29 +1063,15 @@ final class CodexCoreAppModel {
             totalSpan.end(metadata: ["threadID": threadID, "outcome": totalOutcome])
         }
 
-        if await restoreCachedThreadHistory(
-            threadID: threadID,
-            using: codex,
-            trace: trace,
-            selectionGeneration: selectionGeneration
-        ) {
-            return
-        }
-
         let clearSpan = trace.begin("chatLoad.clearThreadState", metadata: ["threadID": threadID])
         clearThreadState(preserveActiveTranscript: true)
         clearSpan.end(metadata: ["threadID": threadID])
         do {
             let resumeSpan = trace.begin("chatLoad.threadResume", metadata: ["threadID": threadID])
-            let resumeResult: CodexThreadResumeResult
+            let lease: CodexThreadLease
             do {
-                resumeResult = try await threadSession.resumeThreadWithHistory(
-                    id: threadID,
-                    using: codex,
-                    configuration: threadLaunchConfiguration,
-                    activate: false
-                )
-                resumeSpan.end(metadata: ["threadID": resumeResult.thread.id, "outcome": "success"])
+                lease = try await codex.resumeThread(threadResumeParameters(threadID: threadID))
+                resumeSpan.end(metadata: ["threadID": lease.id.rawValue, "outcome": "success"])
             } catch {
                 resumeSpan.end(metadata: ["threadID": threadID, "outcome": "failure", "error": errorType(error)])
                 throw error
@@ -758,41 +1079,31 @@ final class CodexCoreAppModel {
             guard chatSelectionGeneration == selectionGeneration else {
                 totalOutcome = "superseded"
                 trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
+                await lease.close()
                 return
             }
-
-            if let result = await hydrateThreadHistory(
-                from: resumeResult,
-                using: codex,
-                trace: trace,
-                restoreTranscript: !hasWarmTranscriptSession,
-                shouldApply: { self.chatSelectionGeneration == selectionGeneration }
-            ) {
-                threadHistoryCache.store(result)
-            }
-            guard chatSelectionGeneration == selectionGeneration else {
-                totalOutcome = "superseded"
-                trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
-                return
-            }
-            threadSession.activateResumedThread(resumeResult.thread, using: codex)
+            await activateThread(lease)
+            await attachResumedTurnIfNeeded(
+                lease,
+                selectionGeneration: selectionGeneration,
+                trace: trace
+            )
             applyPreferredModel(for: threadID)
             syncComposerThreadID()
-            await refreshGoal(
-                for: resumeResult.thread,
-                trace: trace,
-                shouldApply: { self.chatSelectionGeneration == selectionGeneration }
-            )
+            let goalResponse = try? await codex.perform(CodexRequest.threadGoalGet(.init(
+                threadID: threadID
+            )))
             guard chatSelectionGeneration == selectionGeneration else {
                 totalOutcome = "superseded"
                 trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
                 return
             }
+            goalPursuitEnabled = goalResponse?.goal != nil
 
-            let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": resumeResult.thread.id])
-            sidebarNavigationSession.selectChat(resumeResult.thread.id, workspacePath: workspacePath)
-            sidebarSpan.end(metadata: ["threadID": resumeResult.thread.id])
-            appendActivity(.notice, title: "Resumed chat", detail: resumeResult.thread.id)
+            let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": lease.id.rawValue])
+            sidebarNavigationSession.selectChat(lease.id.rawValue, workspacePath: workspacePath)
+            sidebarSpan.end(metadata: ["threadID": lease.id.rawValue])
+            appendActivity(.notice, title: "Resumed chat", detail: lease.id.rawValue)
         } catch {
             totalOutcome = "failure"
             trace.event("chatLoad.error", metadata: ["threadID": threadID, "error": errorType(error)])
@@ -901,8 +1212,7 @@ final class CodexCoreAppModel {
             archiveGeneration = nil
         }
         do {
-            _ = try await codex.threadArchive(chat.id)
-            threadHistoryCache.remove(threadID: chat.id)
+            _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: chat.id)))
             setThreadPinned(chat.id, pinned: false, announces: false)
             removeChatFromSidebar(chat.id)
             if shouldClearSelection, chatSelectionGeneration == archiveGeneration {
@@ -930,49 +1240,77 @@ final class CodexCoreAppModel {
         Task { await prepareAutomationDraft(request) }
     }
 
-    func resolveApprovalPrompt(id: String, approved: Bool) {
+    func resolveApprovalPrompt(id: CodexServerRequestKey, approved: Bool) {
         Task { [weak self] in
             guard let self else { return }
-            if let activity = await promptRuntime.resolveApprovalPrompt(id: id, approved: approved, using: codex) {
-                appendActivity(.notice, title: activity.title, detail: activity.detail)
+            do {
+                if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, approved: approved) {
+                    appendActivity(.notice, title: activity.title, detail: activity.detail)
+                }
+            } catch {
+                appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
         }
     }
 
-    func resolveApprovalPrompt(id: String, decision: CodexCommandApprovalDecision) {
+    func resolveApprovalPrompt(
+        id: CodexServerRequestKey,
+        decision: CodexCommandApprovalDecision
+    ) {
         Task { [weak self] in
             guard let self else { return }
-            if let activity = await promptRuntime.resolveApprovalPrompt(id: id, decision: decision, using: codex) {
-                appendActivity(.notice, title: activity.title, detail: activity.detail)
+            do {
+                if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, decision: decision) {
+                    appendActivity(.notice, title: activity.title, detail: activity.detail)
+                }
+            } catch {
+                appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
         }
     }
 
-    func submitInteractivePrompt(id: String, answers: [String: String]) {
+    func submitInteractivePrompt(
+        id: CodexServerRequestKey,
+        answers: [String: String]
+    ) {
         Task { [weak self] in
             guard let self else { return }
-            _ = await promptRuntime.submitInteractivePrompt(
-                id: id,
-                answers: answers,
-                using: codex
-            )
+            do {
+                if let activity = try await promptRuntime.submitInteractivePrompt(
+                    id: id,
+                    answers: answers
+                ) {
+                    appendActivity(.notice, title: activity.title, detail: activity.detail)
+                }
+            } catch {
+                appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
+            }
         }
     }
 
-    func acceptInteractivePrompt(id: String) {
+    func acceptInteractivePrompt(id: CodexServerRequestKey) {
         Task { [weak self] in
             guard let self else { return }
-            await promptRuntime.acceptInteractivePrompt(id: id)
+            do {
+                if let activity = try await promptRuntime.acceptInteractivePrompt(id: id) {
+                    appendActivity(.notice, title: activity.title, detail: activity.detail)
+                }
+            } catch {
+                appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
+            }
         }
     }
 
-    func declineInteractivePrompt(id: String) {
+    func declineInteractivePrompt(id: CodexServerRequestKey) {
         Task { [weak self] in
             guard let self else { return }
-            _ = await promptRuntime.declineInteractivePrompt(
-                id: id,
-                using: codex
-            )
+            do {
+                if let activity = try await promptRuntime.declineInteractivePrompt(id: id) {
+                    appendActivity(.notice, title: activity.title, detail: activity.detail)
+                }
+            } catch {
+                appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
+            }
         }
     }
 
@@ -992,32 +1330,19 @@ final class CodexCoreAppModel {
     }
 
     func forkCurrentChat() async {
-        guard let codex else { return }
+        guard let codex, let source = currentThreadLease else { return }
         let sourceSelectionGeneration = chatSelectionGeneration
+        let sourceID = source.id.rawValue
         do {
-            guard let fork = try await threadSession.forkCurrentThread(
-                using: codex,
-                configuration: threadLaunchConfiguration,
-                activate: false
-            ) else {
-                return
-            }
+            let fork = try await source.fork(threadForkParameters(threadID: sourceID))
             guard chatSelectionGeneration == sourceSelectionGeneration else { return }
             invalidatePendingChatSelection()
             let forkSelectionGeneration = chatSelectionGeneration
-            threadSession.activateResumedThread(fork.thread, using: codex)
             clearThreadState(keepCurrentThread: true)
-            if let result = await hydrateThreadHistory(
-                for: fork.thread,
-                using: codex,
-                activateParent: false,
-                shouldApply: { self.chatSelectionGeneration == forkSelectionGeneration }
-            ) {
-                threadHistoryCache.store(result)
-            }
+            await activateThread(fork)
             guard chatSelectionGeneration == forkSelectionGeneration else { return }
-            sidebarNavigationSession.selectChat(fork.thread.id, workspacePath: workspacePath)
-            appendActivity(.notice, title: "Forked chat", detail: fork.sourceID)
+            sidebarNavigationSession.selectChat(fork.id.rawValue, workspacePath: workspacePath)
+            appendActivity(.notice, title: "Forked chat", detail: sourceID)
             await refreshRecentChats(using: codex)
         } catch {
             appendActivity(.notice, title: "Fork failed", detail: friendlyError(error))
@@ -1025,13 +1350,11 @@ final class CodexCoreAppModel {
     }
 
     func archiveCurrentChat() async {
-        guard let codex, let thread = threadSession.currentThread else { return }
-        let archivedID = thread.id
+        guard let codex, let archivedID = currentThreadID else { return }
         invalidatePendingChatSelection()
         let archiveGeneration = chatSelectionGeneration
         do {
-            _ = try await codex.threadArchive(archivedID)
-            threadHistoryCache.remove(threadID: archivedID)
+            _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: archivedID)))
             setThreadPinned(archivedID, pinned: false, announces: false)
             removeChatFromSidebar(archivedID)
             if chatSelectionGeneration == archiveGeneration {
@@ -1046,12 +1369,15 @@ final class CodexCoreAppModel {
     }
 
     func renameCurrentChat(to name: String) async {
-        guard let thread = threadSession.currentThread else { return }
+        guard let codex, let threadID = currentThreadID else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do {
-            _ = try await thread.setName(trimmed)
-            renameChatInSidebar(thread.id, title: trimmed)
+            _ = try await codex.perform(CodexRequest.threadNameSet(.init(
+                name: trimmed,
+                threadID: threadID
+            )))
+            renameChatInSidebar(threadID, title: trimmed)
             appendActivity(.notice, title: "Renamed chat", detail: trimmed)
             await refreshRecentChats()
         } catch {
@@ -1060,13 +1386,12 @@ final class CodexCoreAppModel {
     }
 
     func compactCurrentChat() async {
-        guard let thread = threadSession.currentThread else {
+        guard let codex, let threadID = currentThreadID else {
             appendActivity(.notice, title: "Compact unavailable", detail: "No active chat to compact")
             return
         }
         do {
-            threadHistoryCache.remove(threadID: thread.id)
-            _ = try await thread.compact()
+            _ = try await codex.perform(CodexRequest.threadCompactStart(.init(threadID: threadID)))
             appendActivity(.notice, title: "Compact started", detail: "App-server is compacting this chat")
         } catch {
             appendActivity(.notice, title: "Compact failed", detail: friendlyError(error))
@@ -1074,242 +1399,179 @@ final class CodexCoreAppModel {
     }
 
     @discardableResult
-    private func ensureThread() async throws -> CodexThread {
+    private func ensureThread() async throws -> CodexThreadLease {
         guard let codex else { throw CodexSDKError.runtimeNotFound }
-        let result = try await threadSession.ensureThread(
-            using: codex,
-            configuration: threadLaunchConfiguration
-        )
-        syncComposerThreadID()
-        if result.didStart {
-            rememberModelSelection(for: result.thread.id)
-            workspacePanel.migrateUnassigned(to: result.thread.id)
-            await refreshGoal(for: result.thread)
-            appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
+        if let currentThreadLease, !currentThreadLease.isClosed {
+            return currentThreadLease
         }
-        return result.thread
+        let thread = try await codex.startThread(threadStartParameters())
+        await activateThread(thread)
+        syncComposerThreadID()
+        rememberModelSelection(for: thread.id.rawValue)
+        workspacePanel.migrateUnassigned(to: thread.id.rawValue)
+        appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
+        return thread
     }
 
-    private func refreshGoal(
-        for thread: CodexThread,
-        trace: CodexPerformanceTrace? = nil,
-        shouldApply: () -> Bool = { true }
+    private var selectedCanonicalThread: CanonicalThread? {
+        guard let threadID = currentThreadID else { return nil }
+        return selectedThreadSessionSnapshot?.canonical.threads[ThreadID(threadID)]
+    }
+
+    private var selectedThreadTurns: [CanonicalTurn] {
+        guard let threadID = currentThreadID else { return [] }
+        return selectedThreadSessionSnapshot?.canonical.turns(in: ThreadID(threadID)) ?? []
+    }
+
+    private var selectedThreadGoal: CanonicalThreadGoal? {
+        selectedCanonicalThread?.goal
+    }
+
+    /// Restores the control capability for a turn that was already running
+    /// when this thread was resumed. The canonical snapshot identifies the
+    /// exact composite turn; `attachTurn` performs no protocol request and
+    /// keeps steer, interrupt, and terminal waiting on the thread lease.
+    private func attachResumedTurnIfNeeded(
+        _ thread: CodexThreadLease,
+        selectionGeneration: Int,
+        trace: CodexPerformanceTrace
     ) async {
-        let span = trace?.begin("chatLoad.goal.refresh", metadata: ["threadID": thread.id])
         do {
-            let response = try await thread.goal()
-            guard shouldApply() else {
-                span?.end(metadata: ["threadID": thread.id, "outcome": "superseded"])
-                return
-            }
-            if let goal = response.goal {
-                applyGoal(goal, turnID: nil, shouldAnnounce: false)
-                span?.end(metadata: ["threadID": thread.id, "outcome": "success", "goal": "present"])
-            } else {
-                clearGoalState()
-                span?.end(metadata: ["threadID": thread.id, "outcome": "success", "goal": "none"])
-            }
+            let snapshot = try await thread.snapshot(fields: [
+                .turnStructure,
+                .turnStatus,
+            ])
+            guard chatSelectionGeneration == selectionGeneration,
+                  currentThreadLease === thread,
+                  let turn = snapshot.turns(in: thread.id).last(where: {
+                      $0.status == .inProgress
+                  })
+            else { return }
+
+            let lease = try await thread.attachTurn(turn.key.turnID)
+            guard chatSelectionGeneration == selectionGeneration,
+                  currentThreadLease === thread
+            else { return }
+            activeTurnLease = lease
+            runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
+            monitorMainTurn(lease)
+            trace.event("chatLoad.activeTurnAttached", metadata: [
+                "threadID": lease.key.threadID.rawValue,
+                "turnID": lease.key.turnID.rawValue,
+            ])
         } catch {
-            guard shouldApply() else {
-                span?.end(metadata: ["threadID": thread.id, "outcome": "superseded"])
-                return
-            }
-            span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
-            appendActivity(.notice, title: "Goal unavailable", detail: friendlyError(error))
+            guard chatSelectionGeneration == selectionGeneration,
+                  currentThreadLease === thread
+            else { return }
+            trace.event("chatLoad.activeTurnAttachFailed", metadata: [
+                "threadID": thread.id.rawValue,
+                "error": errorType(error),
+            ])
+            appendActivity(
+                .notice,
+                title: "Active turn controls unavailable",
+                detail: friendlyError(error)
+            )
         }
     }
 
-    @discardableResult
-    private func hydrateThreadHistory(
-        for thread: CodexThread,
-        using codex: Codex,
-        trace: CodexPerformanceTrace? = nil,
-        activateParent: Bool = true,
-        restoreTranscript: Bool = true,
-        shouldApply: () -> Bool = { true }
-    ) async -> CodexThreadHistoryRestoreResult? {
-        let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": thread.id])
-        threadHistoryPaginationState = .loading
-        do {
-            let result = try await CodexThreadHistorySession.load(
-                threadID: thread.id,
-                using: codex,
-                trace: trace,
-                activateParent: activateParent
-            )
-            guard shouldApply() else {
-                span?.end(metadata: ["threadID": thread.id, "outcome": "superseded"])
-                return nil
-            }
-            let metadata = applyThreadHistoryRestore(result, trace: trace, restoreTranscript: restoreTranscript)
-            span?.end(metadata: metadata)
-            return result
-        } catch {
-            threadHistoryPaginationState = CodexThreadHistoryPaginationState(
-                phase: .failed,
-                errorMessage: friendlyError(error)
-            )
-            span?.end(metadata: ["threadID": thread.id, "outcome": "failure", "error": errorType(error)])
-            appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
-            return nil
+    private var protocolApprovalPolicy: CodexSchemaAskForApproval? {
+        if case .string(let raw)? = configurationSession.turnParameterOverrides["approvalPolicy"] {
+            return CodexSchemaAskForApproval(.string(raw))
+        }
+        return approvalSelection.approvalMode.settings.approvalPolicy.map {
+            CodexSchemaAskForApproval(.string($0.rawValue))
         }
     }
 
-    @discardableResult
-    private func hydrateThreadHistory(
-        from resume: CodexThreadResumeResult,
-        using codex: Codex,
-        trace: CodexPerformanceTrace? = nil,
-        restoreTranscript: Bool = true,
-        shouldApply: () -> Bool = { true }
-    ) async -> CodexThreadHistoryRestoreResult? {
-        let span = trace?.begin("chatLoad.historyRestore", metadata: ["threadID": resume.thread.id])
-        threadHistoryPaginationState = .loading
-        do {
-            let parentRaw = try resume.rawResponse()
-            let result = await CodexThreadHistorySession.load(
-                parentRaw: parentRaw,
-                using: codex,
-                trace: trace,
-                activateParent: false
-            )
-            guard shouldApply() else {
-                span?.end(metadata: ["threadID": resume.thread.id, "outcome": "superseded"])
-                return nil
-            }
-            let metadata = applyThreadHistoryRestore(result, trace: trace, restoreTranscript: restoreTranscript)
-            span?.end(metadata: metadata)
-            return result
-        } catch {
-            threadHistoryPaginationState = CodexThreadHistoryPaginationState(
-                phase: .failed,
-                errorMessage: friendlyError(error)
-            )
-            span?.end(metadata: ["threadID": resume.thread.id, "outcome": "failure", "error": errorType(error)])
-            appendActivity(.notice, title: "Transcript unavailable", detail: friendlyError(error))
-            return nil
-        }
-    }
-
-    private func restoreCachedThreadHistory(
-        threadID: String,
-        using codex: Codex,
-        trace: CodexPerformanceTrace,
-        selectionGeneration: Int
-    ) async -> Bool {
-        guard let result = threadHistoryCache.result(for: threadID) else {
-            trace.event("chatLoad.cache.miss", metadata: ["threadID": threadID])
-            return false
-        }
-        let cacheSpan = trace.begin("chatLoad.cache.restore", metadata: ["threadID": threadID])
-        let hasWarmTranscriptSession = runtimeSession.hasWarmTranscriptSession(threadID: threadID)
-        clearThreadState(preserveActiveTranscript: true)
-        codex.store.hydrate(result.hydration)
-        let thread = threadSession.activateCachedThread(id: threadID, using: codex)
-        syncComposerThreadID()
-        let metadata = applyThreadHistoryRestore(
-            result,
-            trace: trace,
-            restoreTranscript: !hasWarmTranscriptSession
-        )
-        cacheSpan.end(metadata: metadata.merging(["threadID": thread.id, "outcome": "success"]) { _, new in new })
-        sidebarNavigationSession.selectChat(thread.id, workspacePath: workspacePath)
-        appendActivity(.notice, title: "Restored chat", detail: thread.id)
-        await refreshGoal(
-            for: thread,
-            trace: trace,
-            shouldApply: { self.chatSelectionGeneration == selectionGeneration }
-        )
-        return true
-    }
-
-    private func protectCurrentThreadHistoryCache() {
-        guard let currentThreadID else { return }
-        protectThreadHistoryCache(threadID: currentThreadID)
-    }
-
-    private func protectThreadHistoryCache(threadID: String) {
-        threadHistoryCache.protect(threadID: threadID)
-        refreshThreadHistoryCache(threadID: threadID, protected: true)
-    }
-
-    private func syncCurrentThreadHistoryCacheAfterMutation() {
-        guard let currentThreadID else { return }
-        if threadHistoryCache.isProtected(threadID: currentThreadID) {
-            refreshThreadHistoryCache(threadID: currentThreadID)
+    private var protocolApprovalsReviewer: CodexSchemaApprovalsReviewer? {
+        let raw: String?
+        if case .string(let override)? = configurationSession.turnParameterOverrides["approvalsReviewer"] {
+            raw = override
         } else {
-            threadHistoryCache.remove(threadID: currentThreadID)
+            raw = approvalSelection.approvalMode.settings.approvalsReviewer?.rawValue
         }
+        return raw.flatMap(CodexSchemaApprovalsReviewer.init(rawValue:))
     }
 
-    private func refreshThreadHistoryCache(threadID: String, protected: Bool = false) {
-        guard let codex else { return }
-        let parentSnapshot = codex.store.threadSnapshot(id: threadID)
-            ?? CodexThreadSnapshot(id: threadID, updatedAt: Date())
-        let childThreads = parentSnapshot.childThreads.compactMap { reference in
-            codex.store.threadSnapshot(id: reference.threadID).map {
-                CodexHydratedThread(snapshot: $0)
-            }
+    private func threadStartParameters() -> CodexSchemaThreadStartParams {
+        CodexSchemaThreadStartParams(
+            approvalPolicy: protocolApprovalPolicy,
+            approvalsReviewer: protocolApprovalsReviewer,
+            cwd: workspacePath,
+            historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
+            model: modelSelection.modelIdentifier,
+            sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue)
+        )
+    }
+
+    private func threadResumeParameters(threadID: String) -> CodexSchemaThreadResumeParams {
+        CodexSchemaThreadResumeParams(
+            approvalPolicy: protocolApprovalPolicy,
+            approvalsReviewer: protocolApprovalsReviewer,
+            cwd: workspacePath,
+            model: modelSelection.modelIdentifier,
+            sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue),
+            threadID: threadID
+        )
+    }
+
+    private func threadForkParameters(
+        threadID: String,
+        ephemeral: Bool = false
+    ) -> CodexSchemaThreadForkParams {
+        CodexSchemaThreadForkParams(
+            approvalPolicy: protocolApprovalPolicy,
+            approvalsReviewer: protocolApprovalsReviewer,
+            cwd: workspacePath,
+            ephemeral: ephemeral,
+            model: modelSelection.modelIdentifier,
+            sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue),
+            threadID: threadID
+        )
+    }
+
+    private func turnStartParameters(
+        threadID: ThreadID,
+        input: [CodexInput],
+        clientUserMessageID: String
+    ) -> CodexSchemaTurnStartParams {
+        let overrides = configurationSession.turnParameterOverrides
+        let collaborationMode = overrides["collaborationMode"].flatMap {
+            try? $0.decode(CodexSchemaCollaborationMode.self)
         }
-        let snapshot = runtimeSession.threadHistorySnapshot
-        let hydration = CodexThreadHistoryHydrationResult(
-            parent: CodexHydratedThread(snapshot: parentSnapshot),
-            childThreads: childThreads
+        return CodexSchemaTurnStartParams(
+            approvalPolicy: protocolApprovalPolicy,
+            approvalsReviewer: protocolApprovalsReviewer,
+            clientUserMessageID: clientUserMessageID,
+            collaborationMode: collaborationMode,
+            cwd: workspacePath,
+            effort: CodexSchemaReasoningEffort(.string(reasoningSelection.effort.rawValue)),
+            input: input.map { CodexSchemaUserInput($0.jsonValue) },
+            model: modelSelection.modelIdentifier,
+            sandboxPolicy: CodexSchemaSandboxPolicy(approvalSelection.sandbox.turnPolicy),
+            threadID: threadID.rawValue
         )
-        let result = CodexThreadHistoryRestoreResult(
-            snapshot: snapshot,
-            hydration: hydration,
-            restoredChildThreadCount: snapshot.subagentThreadIDs.count
-        )
-        threadHistoryCache.store(result, protected: protected)
-    }
-
-    private func invalidateCurrentThreadHistoryCache() {
-        guard let currentThreadID else { return }
-        threadHistoryCache.remove(threadID: currentThreadID)
-    }
-
-    private func applyThreadHistoryRestore(
-        _ result: CodexThreadHistoryRestoreResult,
-        trace: CodexPerformanceTrace?,
-        restoreTranscript: Bool = true
-    ) -> [String: String] {
-        threadHistoryPaginationState = result.paginationState
-        let applySpan = trace?.begin("chatLoad.transcript.apply", metadata: historyMetadata(for: result))
-        let activity = runtimeSession.applyHistoryRestore(result, restoreTranscript: restoreTranscript)
-        appendActivity(activity.kind, title: activity.title, detail: activity.detail)
-        let metadata = historyMetadata(for: result).merging(["outcome": "success"]) { _, new in new }
-        applySpan?.end(metadata: metadata)
-        return metadata
     }
 
     @discardableResult
-    private func ensureSideChatThread() async throws -> CodexThread {
-        guard let codex else { throw CodexSDKError.runtimeNotFound }
-        let result = try await threadSession.ensureSideChatThread(
-            using: codex,
-            configuration: threadLaunchConfiguration
-        )
-        if result.didFork {
-            appendActivity(.notice, title: "Side chat ready", detail: "Forked focused branch")
+    private func ensureSideChatThread() async throws -> CodexThreadLease {
+        if let activeSideChatThreadLease, !activeSideChatThreadLease.isClosed {
+            return activeSideChatThreadLease
         }
-        return result.thread
+        guard let source = currentThreadLease else { throw CodexSDKError.runtimeNotFound }
+        let lease = try await source.fork(
+            threadForkParameters(threadID: source.id.rawValue, ephemeral: true)
+        )
+        activeSideChatThreadLease = lease
+        appendActivity(.notice, title: "Side chat ready", detail: "Forked focused branch")
+        return lease
     }
 
     func interrupt() async {
-        if let activeTurn = runtimeSession.activeTurn {
-            do {
-                _ = try await activeTurn.interrupt()
-                appendActivity(.turn, title: "Interrupt sent", detail: "Stopping the current turn")
-            } catch {
-                appendActivity(.turn, title: "Interrupt failed", detail: friendlyError(error))
-            }
-            return
-        }
-
-        guard let thread = threadSession.currentThread, let activeGoalTurnID = runtimeSession.activeGoalTurnID else { return }
+        guard let activeTurnLease else { return }
         do {
-            _ = try await thread.interrupt(turnId: activeGoalTurnID)
+            try await activeTurnLease.interrupt()
             appendActivity(.turn, title: "Interrupt sent", detail: "Stopping the current turn")
         } catch {
             appendActivity(.turn, title: "Interrupt failed", detail: friendlyError(error))
@@ -1325,33 +1587,64 @@ final class CodexCoreAppModel {
         let prompt = composerSession.trimmedSideChatDraft
         guard !prompt.isEmpty else { return }
         composerSession.clearSideChatDraft()
-        await runtimeSession.submitSideChat(
-            prompt: prompt,
-            start: {
-                let thread = try await self.ensureSideChatThread()
-                self.protectCurrentThreadHistoryCache()
-                return try await thread.turn([.text(prompt)], configuration: self.turnLaunchConfiguration)
-            },
-            onActivity: { [weak self] activity in self?.appendActivity(activity) },
-            errorMessage: CodexErrorFormat.localizedDescription
-        )
+        for activity in runtimeSession.beginSideChatSubmission(prompt: prompt) {
+            appendActivity(activity)
+        }
+        do {
+            let thread = try await ensureSideChatThread()
+            let lease = try await thread.startTurn(turnStartParameters(
+                threadID: thread.id,
+                input: [.text(prompt)],
+                clientUserMessageID: UUID().uuidString
+            ))
+            activeSideChatTurnLease = lease
+            runtimeSession.startSideChat(id: lease.key.turnID.rawValue, threadID: thread.id.rawValue)
+            monitorSideChatTurn(lease)
+        } catch {
+            appendActivity(runtimeSession.failSideChatSubmission(message: friendlyError(error)))
+        }
     }
 
     func interruptSideChat() async {
-        guard let activeSideChatTurn = runtimeSession.activeSideChatTurn else { return }
+        guard let activeSideChatTurnLease else { return }
         do {
-            _ = try await activeSideChatTurn.interrupt()
+            try await activeSideChatTurnLease.interrupt()
             appendActivity(.turn, title: "Side chat interrupt sent", detail: "Stopping the side chat turn")
         } catch {
             appendActivity(.turn, title: "Side chat interrupt failed", detail: friendlyError(error))
         }
     }
 
+    private func monitorSideChatTurn(_ lease: CodexTurnLease) {
+        sideChatTurnCompletionTask?.cancel()
+        sideChatTurnCompletionTask = Task { [weak self] in
+            do {
+                _ = try await lease.awaitTerminal()
+                guard !Task.isCancelled, let self else { return }
+                if activeSideChatTurnLease?.key == lease.key {
+                    activeSideChatTurnLease = nil
+                }
+                if let activity = runtimeSession.finishSideChat(id: lease.key.turnID.rawValue)?.activity {
+                    appendActivity(activity)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                if activeSideChatTurnLease?.key == lease.key {
+                    activeSideChatTurnLease = nil
+                }
+                _ = runtimeSession.finishSideChat(id: lease.key.turnID.rawValue)
+                appendActivity(.turn, title: "Side chat ended", detail: friendlyError(error))
+            }
+        }
+    }
+
     func copyChatTranscript() {
-        let transcript = CodexChatUtilitySession.transcriptText(transcript: runtimeSession.transcriptV2)
+        let transcript = CodexChatUtilitySession.transcriptText(transcript: transcriptV2)
         clipboardService.copy(transcript)
 
-        let detail = CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: runtimeSession.transcriptV2.turns.count)
+        let detail = CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: transcriptV2.turns.count)
         appendActivity(.notice, title: "Copied chat", detail: detail)
     }
 
@@ -1398,57 +1691,6 @@ final class CodexCoreAppModel {
         }
     }
 
-    private func apply(_ result: CodexChatNotificationPipelineResult) {
-        syncAccountMetadata()
-        if result.syncMainTranscript || result.syncAgentState {
-            syncCurrentThreadHistoryCacheAfterMutation()
-        }
-        for activity in result.activities {
-            appendActivity(activity.kind, title: activity.title, detail: activity.detail)
-        }
-        for action in result.actions {
-            switch action {
-            case .refreshRecentChats:
-                Task { await refreshRecentChats() }
-            case .refreshSlashCommands(let forceReload):
-                Task { await refreshSlashCommands(forceReload: forceReload) }
-            case .flushQueuedFollowUps:
-                flushQueuedFollowUps()
-            }
-        }
-    }
-
-    private func applySideChat(_ update: CodexSideChatSessionUpdate) {
-        if let activity = update.activity {
-            appendActivity(activity.kind, title: activity.title, detail: activity.detail)
-        }
-    }
-
-    // MARK: - Goal State
-
-    private func applyGoal(_ goal: ThreadGoal, turnID: String?, shouldAnnounce: Bool = true) {
-        if let activity = runtimeSession.applyGoal(goal, turnID: turnID, shouldAnnounce: shouldAnnounce) {
-            appendActivity(activity)
-        }
-    }
-
-    private func clearGoalState() {
-        runtimeSession.resetGoal()
-    }
-
-    private func bindApprovalStore(from store: CodexCoreStore) {
-        promptRuntime.bindApprovalStore(from: store) { [weak self] activity in
-            guard let self else { return }
-            appendActivity(.notice, title: activity.title, detail: activity.detail)
-        }
-    }
-
-    private func startInteractivePromptEventListener() {
-        promptRuntime.startInteractivePromptEventListener { [weak self] activity in
-            self?.appendActivity(.notice, title: activity.title, detail: activity.detail)
-        }
-    }
-
     func dismissTranscriptMessage(_ id: UUID) {
         structuredPanelDismissalState.dismiss(messageID: id)
     }
@@ -1483,17 +1725,6 @@ final class CodexCoreAppModel {
         String(describing: type(of: error))
     }
 
-    private func historyMetadata(for result: CodexThreadHistoryRestoreResult) -> [String: String] {
-        [
-            "threadID": result.hydration.parent.snapshot.id,
-            "turnCount": "\(result.hydration.parent.snapshot.turns.count)",
-            "itemCount": "\(result.hydration.parent.snapshot.turns.reduce(0) { $0 + $1.items.count })",
-            "messageCount": "\(result.messageCount)",
-            "restoredChildThreadCount": "\(result.restoredChildThreadCount)",
-            "failedChildThreadCount": "\(result.hydration.failedChildThreadIDs.count)"
-        ]
-    }
-
     private func applyFastCommand() {
         let activity = configurationSession.applyFastCommand()
         rememberManualModelSelection(configurationSession.modelSelection)
@@ -1514,7 +1745,7 @@ final class CodexCoreAppModel {
             modelDisplayName: modelSelection.displayName,
             reasoningDisplayName: reasoningSelection.displayName,
             approvalDisplayName: approvalSelection.displayName,
-            messageCount: runtimeSession.transcriptV2.turns.count,
+            messageCount: transcriptV2.turns.count,
             isSideChatOpen: sideChat != nil,
             activeSubagentCount: subagents.filter { $0.status == .running }.count,
             subagentCount: subagents.count,
@@ -1539,11 +1770,8 @@ final class CodexCoreAppModel {
     }
 
     private var currentTokenUsageSummary: String? {
-        guard let threadID = currentThreadID,
-              let usage = codex?.store.threadSnapshot(id: threadID)?.turns.last?.usage else {
-            return nil
-        }
-        return CodexChatFormat.tokenUsageSummary(usage)
+        guard let usage = selectedThreadTurns.last?.tokenUsage else { return nil }
+        return "\(usage.total.totalTokens) tokens"
     }
 
     // MARK: - @-mention file search
@@ -1569,29 +1797,49 @@ final class CodexCoreAppModel {
         preserveActiveTranscript: Bool = false
     ) {
         if !keepCurrentThread {
-            threadSession.reset()
+            cancelCurrentThreadObservation()
+            activeTurnCompletionTask?.cancel()
+            sideChatTurnCompletionTask?.cancel()
+            activeTurnCompletionTask = nil
+            sideChatTurnCompletionTask = nil
+            activeTurnLease = nil
+            activeSideChatTurnLease = nil
+            let current = currentThreadLease
+            let sideChat = activeSideChatThreadLease
+            currentThreadLease = nil
+            activeSideChatThreadLease = nil
+            selectedThreadID = nil
+            selectedThreadSessionSnapshot = nil
+            Task {
+                await sideChat?.close()
+                await current?.close()
+            }
         }
         runtimeSession.resetThreadState(deactivateTranscript: !preserveActiveTranscript)
         syncComposerThreadID()
         composerSession.clearThreadState()
-        promptRuntime.reset()
-        Task { await promptRuntime.cancelAllPrompts() }
     }
 
     private func syncComposerThreadID() {
         composerSession.setActiveThreadID(currentThreadID)
     }
 
-    private func resetSessionState() {
-        Task { await stopBottomTerminalSession() }
-        runtimeSession.cancelGlobalNotifications()
-        promptRuntime.reset()
+    private func resetSessionState() async {
+        await stopBottomTerminalSession()
+        await runtimeSession.disconnect()
+        promptRuntime.disconnect()
+        cancelCurrentThreadObservation()
+        cancelThreadIndexObservation()
+        cancelAccountObservation()
+        cancelSkillsChangedObservation()
         mentionSearchSession.reset()
         structuredPanelDismissalState = CodexStructuredPanelDismissalState()
         loginTask?.cancel()
         loginTask = nil
-        Task { await promptRuntime.cancelAllPrompts() }
+        let previousCodex = codex
         codex = nil
+        await previousCodex?.close()
+        accountPreferredDisplayName = nil
         authSession.resetAuthentication()
         threadListSession.reset(currentWorkspacePath: workspacePath)
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
@@ -1670,11 +1918,12 @@ final class CodexCoreAppModel {
         isBottomTerminalRunning = true
 
         do {
-            let session = try await codex.startCommandSession(
-                ["echo", "Codex terminal demo"],
+            let session = try await codex.session.startCommandExec(.init(
+                command: ["echo", "Codex terminal demo"],
                 cwd: workspacePath,
+                processID: UUID().uuidString,
                 tty: false
-            )
+            ))
             terminalSession = session
             bottomTerminalStatus = "Running in \(workspacePath)"
 

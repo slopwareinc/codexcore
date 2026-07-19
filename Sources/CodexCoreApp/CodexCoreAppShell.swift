@@ -178,6 +178,7 @@ struct CodexCoreAppShell: View {
                 reasoningSelection: $model.reasoningSelection,
                 isBottomPanelVisible: $model.isBottomTerminalVisible,
                 gitSettings: $model.gitSettings,
+                newThreadHistoryMode: $model.newThreadHistoryMode,
                 mcpServers: model.mcpServers,
                 isLoadingMCPServers: model.isLoadingMCPServers,
                 onBackToApp: { model.selectAppRoute(.chat) }
@@ -189,8 +190,7 @@ struct CodexCoreAppShell: View {
     private func chatWorkspace(proxy: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             CodexChatWorkspaceView(
-                transcriptV2: model.transcriptV2,
-                transcriptSessionStore: model.runtimeSession.transcriptSessions,
+                presentationStore: model.runtimeSession.presentationStore,
                 lifecycleEvents: model.lifecycleEvents,
                 sideChat: model.sideChat,
                 subagents: model.subagents,

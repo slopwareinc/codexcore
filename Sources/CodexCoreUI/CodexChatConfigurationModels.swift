@@ -248,62 +248,28 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         return sol ?? options.first(where: \.isDefault) ?? options.first ?? .appServerDefault
     }
 
-    public static func options(from response: ModelListResponse) -> [CodexModelSelection] {
-        let rawModels = response.data ?? response.models ?? []
-        return rawModels.compactMap(option(from:))
-    }
-
-    private static func option(from value: CodexJSONValue) -> CodexModelSelection? {
-        switch value {
-        case .string(let model):
-            return CodexModelSelection(id: model, displayName: model, modelIdentifier: model)
-        case .dictionary(let object):
-            let model = string(in: object, keys: ["model", "id", "name"])
-            let id = string(in: object, keys: ["id", "model", "name"])
-            guard let model, let id else { return nil }
-            let displayName = string(in: object, keys: ["displayName", "name", "title"]) ?? model
+    public static func options(from response: CodexSchemaModelListResponse) -> [CodexModelSelection] {
+        response.data.map { model in
+            let supportedReasoning = model.supportedReasoningEfforts.compactMap {
+                reasoningSelection(
+                    from: CodexJSONCoercion.flatString(from: $0.reasoningEffort.rawValue)
+                )
+            }
             return CodexModelSelection(
-                id: id,
-                displayName: displayName,
-                modelIdentifier: model,
-                detail: string(in: object, keys: ["description", "subtitle"]),
-                isDefault: CodexJSONCoercion.bool(in: object, key: "isDefault") ?? false,
-                defaultReasoning: reasoningSelection(from: string(in: object, keys: ["defaultReasoningEffort"])),
-                supportedReasoning: supportedReasoningSelections(from: object["supportedReasoningEfforts"]),
-                isFastModel: CodexJSONCoercion.bool(in: object, key: "isFastModel") ?? false
+                id: model.id,
+                displayName: model.displayName,
+                modelIdentifier: model.model,
+                detail: model.description,
+                isDefault: model.isDefault,
+                defaultReasoning: reasoningSelection(
+                    from: CodexJSONCoercion.flatString(from: model.defaultReasoningEffort.rawValue)
+                ),
+                supportedReasoning: supportedReasoning.isEmpty
+                    ? CodexReasoningSelection.defaultOptions
+                    : supportedReasoning,
+                isFastModel: model.additionalSpeedTiers?.contains("fast") == true
             )
-        case .int, .double, .bool, .array, .null:
-            return nil
         }
-    }
-
-    private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string): return string
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null: continue
-            }
-        }
-        return nil
-    }
-
-    private static func supportedReasoningSelections(from value: CodexJSONValue?) -> [CodexReasoningSelection] {
-        guard case .array(let values)? = value else { return CodexReasoningSelection.defaultOptions }
-        let selections = values.compactMap { value -> CodexReasoningSelection? in
-            switch value {
-            case .string(let raw):
-                return reasoningSelection(from: raw)
-            case .dictionary(let object):
-                return reasoningSelection(from: string(in: object, keys: ["reasoningEffort", "id", "value"]))
-            case .int, .double, .bool, .array, .null:
-                return nil
-            }
-        }
-        return selections.isEmpty ? CodexReasoningSelection.defaultOptions : selections
     }
 
     private static func reasoningSelection(from rawValue: String?) -> CodexReasoningSelection? {

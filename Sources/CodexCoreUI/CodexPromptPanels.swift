@@ -126,14 +126,14 @@ public struct CodexApprovalRequestsPanel: View {
     @Environment(\.codexAgentTheme) private var theme
 
     public let prompts: [CodexApprovalPrompt]
-    public let onApprove: (String) -> Void
-    public let onDeny: (String) -> Void
-    public let onDecision: (String, CodexCommandApprovalDecision) -> Void
+    public let onApprove: (CodexServerRequestKey) -> Void
+    public let onDeny: (CodexServerRequestKey) -> Void
+    public let onDecision: (CodexServerRequestKey, CodexCommandApprovalDecision) -> Void
 
     public init(
         prompts: [CodexApprovalPrompt],
-        onApprove: @escaping (String) -> Void,
-        onDeny: @escaping (String) -> Void
+        onApprove: @escaping (CodexServerRequestKey) -> Void,
+        onDeny: @escaping (CodexServerRequestKey) -> Void
     ) {
         self.prompts = prompts
         self.onApprove = onApprove
@@ -145,7 +145,7 @@ public struct CodexApprovalRequestsPanel: View {
 
     public init(
         prompts: [CodexApprovalPrompt],
-        onDecision: @escaping (String, CodexCommandApprovalDecision) -> Void
+        onDecision: @escaping (CodexServerRequestKey, CodexCommandApprovalDecision) -> Void
     ) {
         self.prompts = prompts
         self.onApprove = { id in onDecision(id, .accept) }
@@ -192,15 +192,15 @@ private struct CodexApprovalPromptRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let prompt: CodexApprovalPrompt
-    let onApprove: (String) -> Void
-    let onDeny: (String) -> Void
-    let onDecision: (String, CodexCommandApprovalDecision) -> Void
+    let onApprove: (CodexServerRequestKey) -> Void
+    let onDeny: (CodexServerRequestKey) -> Void
+    let onDecision: (CodexServerRequestKey, CodexCommandApprovalDecision) -> Void
 
     init(
         prompt: CodexApprovalPrompt,
-        onApprove: @escaping (String) -> Void,
-        onDeny: @escaping (String) -> Void,
-        onDecision: @escaping (String, CodexCommandApprovalDecision) -> Void
+        onApprove: @escaping (CodexServerRequestKey) -> Void,
+        onDeny: @escaping (CodexServerRequestKey) -> Void,
+        onDecision: @escaping (CodexServerRequestKey, CodexCommandApprovalDecision) -> Void
     ) {
         self.prompt = prompt
         self.onApprove = onApprove
@@ -310,15 +310,15 @@ public struct CodexInteractivePromptsPanel: View {
     @Environment(\.codexAgentTheme) private var theme
 
     public let prompts: [CodexInteractivePrompt]
-    public let onSubmit: (String, [String: String]) -> Void
-    public let onAccept: (String) -> Void
-    public let onDecline: (String) -> Void
+    public let onSubmit: (CodexServerRequestKey, [String: String]) -> Void
+    public let onAccept: (CodexServerRequestKey) -> Void
+    public let onDecline: (CodexServerRequestKey) -> Void
 
     public init(
         prompts: [CodexInteractivePrompt],
-        onSubmit: @escaping (String, [String: String]) -> Void,
-        onAccept: @escaping (String) -> Void,
-        onDecline: @escaping (String) -> Void
+        onSubmit: @escaping (CodexServerRequestKey, [String: String]) -> Void,
+        onAccept: @escaping (CodexServerRequestKey) -> Void,
+        onDecline: @escaping (CodexServerRequestKey) -> Void
     ) {
         self.prompts = prompts
         self.onSubmit = onSubmit
@@ -368,17 +368,17 @@ private struct CodexInteractivePromptRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let prompt: CodexInteractivePrompt
-    let onSubmit: (String, [String: String]) -> Void
-    let onAccept: (String) -> Void
-    let onDecline: (String) -> Void
+    let onSubmit: (CodexServerRequestKey, [String: String]) -> Void
+    let onAccept: (CodexServerRequestKey) -> Void
+    let onDecline: (CodexServerRequestKey) -> Void
     @State private var progress = CodexInteractivePromptProgress()
     @State private var otherQuestionIDs: Set<String> = []
 
     init(
         prompt: CodexInteractivePrompt,
-        onSubmit: @escaping (String, [String: String]) -> Void,
-        onAccept: @escaping (String) -> Void,
-        onDecline: @escaping (String) -> Void
+        onSubmit: @escaping (CodexServerRequestKey, [String: String]) -> Void,
+        onAccept: @escaping (CodexServerRequestKey) -> Void,
+        onDecline: @escaping (CodexServerRequestKey) -> Void
     ) {
         self.prompt = prompt
         self.onSubmit = onSubmit

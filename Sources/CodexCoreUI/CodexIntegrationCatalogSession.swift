@@ -86,7 +86,12 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     ) async -> CodexIntegrationCatalogActivity {
         beginMCPRefresh()
         do {
-            let raw = try CodexJSONValue(encoding: await codex.mcpServerStatusList(threadId: threadID, detail: .full, limit: 100))
+            let response = try await codex.perform(CodexRequest.mcpServerStatusList(.init(
+                detail: .full,
+                limit: 100,
+                threadID: threadID
+            )))
+            let raw = try CodexJSONValue(encoding: response)
             return applyMCPResponse(raw)
         } catch {
             return failMCPRefresh(message: errorMessage(error))
@@ -99,14 +104,6 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingMCPServers = false
         mcpErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "MCP status unavailable", detail: message)
-    }
-
-    public mutating func applyMCPStartupStatus(_ update: CodexMCPServerStartupStatus) {
-        if let index = mcpServers.firstIndex(where: { $0.name == update.name }) {
-            mcpServers[index] = mcpServers[index].applyingStartupStatus(update.status, error: update.error)
-        } else {
-            mcpServers.append(CodexMCPServerStatus(name: update.name, startupStatus: update.status, error: update.error))
-        }
     }
 
     public mutating func requirePluginConnection(message: String) {
@@ -145,7 +142,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     ) async -> CodexIntegrationCatalogActivity {
         beginPluginRefresh()
         do {
-            return applyPluginResponse(try CodexJSONValue(encoding: await codex.pluginList(cwds: cwds)))
+            let response = try await codex.perform(CodexRequest.pluginList(.init(
+                cwds: cwds.isEmpty ? nil : cwds.map { CodexAppServerSchemaValue(.string($0)) }
+            )))
+            return applyPluginResponse(try CodexJSONValue(encoding: response))
         } catch {
             return failPluginRefresh(message: errorMessage(error))
         }
@@ -177,7 +177,11 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     ) async -> CodexIntegrationCatalogActivity {
         beginSkillRefresh()
         do {
-            return applySkillResponse(try CodexJSONValue(encoding: await codex.skillsList(cwds: cwds, forceReload: forceReload)))
+            let response = try await codex.perform(CodexRequest.skillsList(.init(
+                cwds: cwds.isEmpty ? nil : cwds,
+                forceReload: forceReload ? true : nil
+            )))
+            return applySkillResponse(try CodexJSONValue(encoding: response))
         } catch {
             return failSkillRefresh(message: errorMessage(error))
         }

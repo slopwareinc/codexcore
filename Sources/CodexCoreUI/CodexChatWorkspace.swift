@@ -49,8 +49,7 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
 public struct CodexChatWorkspaceView: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    private let transcriptV2: CodexTranscriptV2
-    private let transcriptSessionStore: CodexThreadUISessionStore?
+    private let presentationStore: CodexPresentationStore
     private let lifecycleEvents: [CodexAgentLifecycleEvent]
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
@@ -103,7 +102,7 @@ public struct CodexChatWorkspaceView: View {
     private let onPromptSelected: ((String) -> Void)?
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
     private let approvalPrompts: [CodexApprovalPrompt]
-    private let onResolveApproval: (String, Bool) -> Void
+    private let onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     @ObservedObject private var panel: CodexWorkspacePanelState
     private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
@@ -112,8 +111,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var hiddenSubagentTabIDs: Set<String> = []
 
     public init(
-        transcriptV2: CodexTranscriptV2,
-        transcriptSessionStore: CodexThreadUISessionStore? = nil,
+        presentationStore: CodexPresentationStore,
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState] = [],
@@ -168,10 +166,9 @@ public struct CodexChatWorkspaceView: View {
         onPromptSelected: ((String) -> Void)? = nil,
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
         approvalPrompts: [CodexApprovalPrompt] = [],
-        onResolveApproval: @escaping (String, Bool) -> Void = { _, _ in }
+        onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in }
     ) {
-        self.transcriptV2 = transcriptV2
-        self.transcriptSessionStore = transcriptSessionStore
+        self.presentationStore = presentationStore
         self.lifecycleEvents = lifecycleEvents
         self.sideChat = sideChat
         self.subagents = subagents
@@ -308,14 +305,15 @@ public struct CodexChatWorkspaceView: View {
 
         return ZStack(alignment: .topTrailing) {
             CodexTranscriptViewV2(
-                transcript: transcriptV2,
-                threadID: currentThreadID ?? "unassigned",
-                sessionStore: transcriptSessionStore,
+                presentationStore: presentationStore,
                 contentHorizontalOffset: -contentShift,
                 bottomContentInset: composerOverlayHeight + 20,
                 onOpenSubagent: openPanelTab,
                 onEditUserMessage: { draft = $0 },
                 onForkChat: chatActions.forkChat,
+                agentDisplayNameByThreadID: Dictionary(
+                    uniqueKeysWithValues: subagents.map { ($0.id, $0.name) }
+                ),
                 pendingApprovals: approvalPrompts,
                 onResolveApproval: onResolveApproval
             ) {

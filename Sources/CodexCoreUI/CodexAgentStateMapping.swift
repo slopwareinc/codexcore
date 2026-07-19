@@ -4,163 +4,198 @@ import Foundation
 public struct CodexAgentItemUpdate: Equatable, Sendable {
     public var activityTitle: String
     public var activityDetail: String
+
     public init(activityTitle: String, activityDetail: String) {
-        self.activityTitle = activityTitle; self.activityDetail = activityDetail
+        self.activityTitle = activityTitle
+        self.activityDetail = activityDetail
     }
 }
 
-/// V2-only agent panel state. Child transcripts are turn-native.
+/// Pure presentation mapping for the agent panel.
+///
+/// It consumes canonical parent state plus already-projected child threads. It
+/// never receives app-server notifications and owns no child protocol reducer.
 public struct CodexAgentStateMapper: Sendable {
-    public private(set) var lifecycleEvents: [CodexAgentLifecycleEvent]
-    public private(set) var sideChat: CodexSideChatState?
-    public private(set) var subagents: [CodexSubagentState]
-    private var childReducers: [String: CodexTranscriptReducerV2]
+    public private(set) var lifecycleEvents: [CodexAgentLifecycleEvent] = []
+    public private(set) var subagents: [CodexSubagentState] = []
 
-    public init(
-        lifecycleEvents: [CodexAgentLifecycleEvent] = [],
-        sideChat: CodexSideChatState? = nil,
-        subagents: [CodexSubagentState] = [],
-        childReducers: [String: CodexTranscriptReducerV2] = [:]
-    ) {
-        self.lifecycleEvents = lifecycleEvents; self.sideChat = sideChat; self.subagents = subagents; self.childReducers = childReducers
+    private var lifecycleEventIDs: [ItemKey: UUID] = [:]
+
+    public init() {}
+
+    public mutating func reset() {
+        lifecycleEvents.removeAll(keepingCapacity: false)
+        subagents.removeAll(keepingCapacity: false)
+        lifecycleEventIDs.removeAll(keepingCapacity: false)
     }
 
-    public mutating func reset() { lifecycleEvents = []; sideChat = nil; subagents = []; childReducers = [:] }
-    public func isSubagentItem(_ item: ThreadItem) -> Bool { item.type == "collabAgentToolCall" }
-    public mutating func itemStarted(_ item: ThreadItem) -> CodexAgentItemUpdate? { collabUpdate(item, completed: false) }
-    public mutating func itemCompleted(_ item: ThreadItem) -> CodexAgentItemUpdate? { collabUpdate(item, completed: true) }
-    public mutating func messageDelta(_: String, itemID _: String) -> Bool { false }
-    public mutating func assistantMessageCompleted(_: String) -> Bool { false }
-    public func hasSubagentThread(id: String) -> Bool { subagents.contains { $0.id == id } }
-
+    /// Rebuilds panel state from canonical identities. UUIDs used by SwiftUI
+    /// rows remain stable for the lifetime of the mapper because they are keyed
+    /// by the canonical composite item identity.
     @discardableResult
-    public mutating func updateSubagentMetadata(id: String, name: String?, role _: String? = nil) -> Bool {
-        guard let index = subagents.firstIndex(where: { $0.id == id }), let name, !name.isEmpty else { return false }
-        subagents[index].name = name; return true
-    }
-
-    /// Registers a child thread as soon as the server announces it. This keeps
-    /// the overview responsive even when the spawn tool notification arrives
-    /// before the child thread metadata or transcript has been hydrated.
-    @discardableResult
-    public mutating func registerSubagentThread(
-        id: String,
-        name: String?,
-        role: String?,
-        prompt: String? = nil
+    public mutating func applyCanonicalSnapshot(
+        _ parentSnapshot: CanonicalStateSnapshot,
+        parentThreadID: ThreadID,
+        projectedChildren: [CodexSubagentV2]
     ) -> Bool {
-        ensureSubagent(
-            id: id,
-            name: name.flatMap { $0.isEmpty ? nil : $0 } ?? shortAgentName(id),
-            title: role.flatMap { $0.isEmpty ? nil : $0 } ?? "Subagent",
-            prompt: prompt ?? "Subagent task",
-            status: .running
+        let previousEvents = lifecycleEvents
+        let previousSubagents = subagents
+        lifecycleEvents = projectLifecycle(
+            parentSnapshot,
+            parentThreadID: parentThreadID
+        )
+        subagents = projectedChildren.map(Self.panelState)
+        return previousEvents != lifecycleEvents || previousSubagents != subagents
+    }
+}
+
+private extension CodexAgentStateMapper {
+    mutating func projectLifecycle(
+        _ snapshot: CanonicalStateSnapshot,
+        parentThreadID: ThreadID
+    ) -> [CodexAgentLifecycleEvent] {
+        var events: [CodexAgentLifecycleEvent] = []
+        var liveKeys: Set<ItemKey> = []
+
+        for turn in snapshot.turns(in: parentThreadID) {
+            for item in snapshot.items(in: turn.key) {
+                guard item.kind == .collabAgentToolCall || item.kind == .subAgentActivity else {
+                    continue
+                }
+                liveKeys.insert(item.key)
+                let id = lifecycleEventIDs[item.key] ?? UUID()
+                lifecycleEventIDs[item.key] = id
+                if let event = Self.lifecycleEvent(id: id, item: item) {
+                    events.append(event)
+                }
+            }
+        }
+
+        lifecycleEventIDs = lifecycleEventIDs.filter { liveKeys.contains($0.key) }
+        return events
+    }
+
+    static func lifecycleEvent(
+        id: UUID,
+        item: CanonicalItem
+    ) -> CodexAgentLifecycleEvent? {
+        switch item.kind {
+        case .collabAgentToolCall:
+            let tool = item.payload.string("tool") ?? "update"
+            let completed = item.authority == .completed
+            let threadIDs = item.payload.stringArray("receiverThreadIds")
+            let names = threadIDs.map(shortAgentName)
+            let status = lifecycleStatus(tool: tool, completed: completed, payload: item.payload)
+            return CodexAgentLifecycleEvent(
+                id: id,
+                status: status,
+                title: lifecycleTitle(
+                    tool: tool,
+                    completed: completed,
+                    names: names
+                ),
+                detail: item.key.itemID.rawValue,
+                agentNames: names,
+                createdAt: itemDate(item)
+            )
+
+        case .subAgentActivity:
+            guard let threadID = item.payload.string("agentThreadId") else { return nil }
+            let name = item.payload.string("agentPath") ?? shortAgentName(threadID)
+            let kind = item.payload.string("kind") ?? "updated"
+            let status: CodexAgentLifecycleEvent.Status = switch kind {
+            case "started", "interacted": .running
+            case "interrupted": .failed
+            default: .running
+            }
+            let title = switch kind {
+            case "started": "Started \(name)"
+            case "interacted": "\(name) interacted"
+            case "interrupted": "Interrupted \(name)"
+            default: "Updated \(name)"
+            }
+            return CodexAgentLifecycleEvent(
+                id: id,
+                status: status,
+                title: title,
+                detail: item.key.itemID.rawValue,
+                agentNames: [name],
+                createdAt: itemDate(item)
+            )
+
+        default:
+            return nil
+        }
+    }
+
+    static func panelState(_ child: CodexSubagentV2) -> CodexSubagentState {
+        CodexSubagentState(
+            id: child.threadID,
+            name: child.displayName,
+            title: child.role ?? "Subagent",
+            prompt: child.prompt ?? "Subagent task",
+            status: child.panelStatus,
+            transcript: child.transcript,
+            createdAt: child.createdAt,
+            completedAt: child.completedAt
         )
     }
 
-    @discardableResult public mutating func applyChildThreadReferences(_ references: [CodexChildThreadReference]) -> Bool {
-        var changed = false
-        for reference in references {
-            changed = ensureSubagent(id: reference.threadID, name: reference.name ?? shortAgentName(reference.threadID), title: reference.title ?? "Subagent", prompt: reference.prompt ?? "Subagent task", status: normalizedStatus(reference.status)) || changed
+    static func lifecycleStatus(
+        tool: String,
+        completed: Bool,
+        payload: [String: CodexJSONValue]
+    ) -> CodexAgentLifecycleEvent.Status {
+        if tool == "closeAgent", completed { return .closed }
+        let statuses = payload.object("agentsStates")?.values.compactMap {
+            CodexJSONCoercion.dictionary(from: $0)?.string("status")?.lowercased()
+        } ?? []
+        if statuses.contains(where: { $0 == "failed" || $0 == "error" }) { return .failed }
+        if completed, tool == "wait" { return .completed }
+        if completed, tool == "spawnAgent" { return .running }
+        return completed ? .completed : (tool == "spawnAgent" ? .spawning : .running)
+    }
+
+    static func lifecycleTitle(
+        tool: String,
+        completed: Bool,
+        names: [String]
+    ) -> String {
+        let label: String
+        if names.isEmpty { label = "subagents" }
+        else if names.count == 1 { label = names[0] }
+        else { label = "\(names.count) agents" }
+        switch tool {
+        case "spawnAgent": return completed ? "Spawned \(label)" : "Spawning \(label)"
+        case "sendInput": return completed ? "Sent input to \(label)" : "Sending input to \(label)"
+        case "resumeAgent": return completed ? "Resumed \(label)" : "Resuming \(label)"
+        case "wait": return completed ? "Finished waiting" : "Waiting for \(label)"
+        case "closeAgent": return completed ? "Closed \(label)" : "Closing \(label)"
+        default: return "Subagent update"
         }
-        return changed
     }
 
-    @discardableResult public mutating func applyHydratedChildThread(_ child: CodexHydratedThread, reference: CodexChildThreadReference? = nil) -> Bool {
-        let reference = reference ?? CodexChildThreadReference(threadID: child.snapshot.id, name: child.agentName, title: child.agentRole)
-        var changed = ensureSubagent(id: child.snapshot.id, name: reference.name ?? child.agentName ?? shortAgentName(child.snapshot.id), title: reference.title ?? child.agentRole ?? "Subagent", prompt: reference.prompt ?? "Subagent task", status: .completed)
-        for turn in child.snapshot.turns {
-            for item in turn.items {
-                changed = applyTimelineItem(item, threadID: child.snapshot.id, completed: true) || changed
-            }
-        }
-        if let index = subagents.firstIndex(where: { $0.id == child.snapshot.id }) { subagents[index].status = .completed; subagents[index].completedAt = Date() }
-        return changed
+    static func itemDate(_ item: CanonicalItem) -> Date {
+        let milliseconds = item.completedAt?.rawValue ?? item.startedAt?.rawValue
+        return milliseconds.map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000) }
+            ?? Date(timeIntervalSince1970: 0)
     }
 
-    @discardableResult public mutating func subagentTurnStarted(threadID: String) -> CodexAgentItemUpdate? {
-        guard let index = subagents.firstIndex(where: { $0.id == threadID }) else { return nil }
-        subagents[index].status = .running
-        return CodexAgentItemUpdate(activityTitle: "Subagent working", activityDetail: threadID)
+    static func shortAgentName(_ id: String) -> String {
+        "agent-\(id.split(separator: "-").first.map(String.init) ?? id)"
+    }
+}
+
+private extension Dictionary where Key == String, Value == CodexJSONValue {
+    func string(_ key: String) -> String? {
+        CodexJSONCoercion.flatString(from: self[key])
     }
 
-    @discardableResult public mutating func subagentItemStarted(threadID: String, item: ThreadItem) -> CodexAgentItemUpdate? {
-        guard hasSubagentThread(id: threadID) else { return nil }
-        _ = applyChildItem(item, threadID: threadID, completed: false)
-        if let index = subagents.firstIndex(where: { $0.id == threadID }), subagents[index].status == .completed { subagents[index].status = .running; subagents[index].completedAt = nil }
-        return CodexAgentItemUpdate(activityTitle: "Subagent working", activityDetail: threadID)
+    func object(_ key: String) -> [String: CodexJSONValue]? {
+        CodexJSONCoercion.dictionary(from: self[key])
     }
 
-    @discardableResult public mutating func subagentItemCompleted(threadID: String, item: ThreadItem) -> CodexAgentItemUpdate? {
-        guard hasSubagentThread(id: threadID) else { return nil }
-        _ = applyChildItem(item, threadID: threadID, completed: true)
-        return CodexAgentItemUpdate(activityTitle: "Subagent updated", activityDetail: threadID)
+    func stringArray(_ key: String) -> [String] {
+        CodexJSONCoercion.stringArray(in: self, key: key)
     }
-
-    @discardableResult public mutating func subagentTurnCompleted(threadID: String, error: String? = nil) -> CodexAgentItemUpdate? {
-        guard let index = subagents.firstIndex(where: { $0.id == threadID }) else { return nil }
-        subagents[index].status = error == nil ? .completed : .failed
-        subagents[index].completedAt = Date()
-        if let reducer = childReducers[threadID], let turn = reducer.transcript.turns.last {
-            if let turnIndex = reducer.transcript.turns.firstIndex(where: { $0.id == turn.id }) {
-                // The child reducer owns turn status; leave its content intact and expose it through the state.
-                _ = turnIndex
-            }
-        }
-        syncTranscript(for: threadID)
-        return CodexAgentItemUpdate(activityTitle: error == nil ? "Subagent completed" : "Subagent failed", activityDetail: error ?? threadID)
-    }
-
-    private mutating func collabUpdate(_ item: ThreadItem, completed: Bool) -> CodexAgentItemUpdate? {
-        guard item.type == "collabAgentToolCall" else { return nil }
-        guard let payload = CodexAgentItemParser.collabPayload(from: item) else { return nil }
-        let ids = payload.receiverThreadIDs
-        for id in ids {
-            let name = CodexAgentItemParser.metadataDisplayName(in: payload.states[id]) ?? shortAgentName(id)
-            let status: CodexSubagentState.Status = payload.tool == "closeAgent" && completed ? .closed : (completed && payload.tool == "wait" ? .completed : .running)
-            _ = ensureSubagent(id: id, name: name, title: name, prompt: payload.prompt, status: status)
-        }
-        let title = CodexAgentItemParser.collabLifecycleTitle(tool: payload.tool, completed: completed, status: completed ? .completed : .running, names: ids.map(shortAgentName))
-        lifecycleEvents.append(.init(status: completed ? (payload.tool == "closeAgent" ? .closed : .completed) : .running, title: title, detail: item.id, agentNames: ids.map(shortAgentName)))
-        return CodexAgentItemUpdate(activityTitle: title, activityDetail: item.id)
-    }
-
-    private mutating func ensureSubagent(id: String, name: String, title: String, prompt: String, status: CodexSubagentState.Status) -> Bool {
-        if let index = subagents.firstIndex(where: { $0.id == id }) {
-            subagents[index].name = name; subagents[index].title = title; subagents[index].prompt = prompt; subagents[index].status = status
-            if status != .running { subagents[index].completedAt = Date() }
-            return true
-        }
-        subagents.append(.init(id: id, name: name, title: title, prompt: prompt, status: status))
-        childReducers[id] = CodexTranscriptReducerV2(threadID: id)
-        return true
-    }
-
-    private mutating func applyChildItem(_ item: ThreadItem, threadID: String, completed: Bool) -> Bool {
-        guard var reducer = childReducers[threadID] else { return false }
-        let explicitTurnID: String?
-        if case .string(let value)? = item.raw["turnId"] { explicitTurnID = value } else { explicitTurnID = nil }
-        let turnID = explicitTurnID ?? ("live-" + threadID)
-        var raw = item.raw; raw["threadId"] = .string(threadID); raw["turnId"] = .string(turnID)
-        reducer.apply(method: completed ? "item/completed" : "item/started", params: .dictionary(["threadId": .string(threadID), "turnId": .string(turnID), "item": .dictionary(raw)]))
-        childReducers[threadID] = reducer; syncTranscript(for: threadID); return true
-    }
-
-    private mutating func applyTimelineItem(_ item: CodexTimelineItem, threadID: String, completed: Bool) -> Bool {
-        guard let index = subagents.firstIndex(where: { $0.id == threadID }) else { return false }
-        switch item {
-        case .assistantMessage(_, let text, _, _): subagents[index].transcript.turns.append(.init(id: item.id, finalAnswer: .init(id: item.id, text: text, isStreaming: false), status: .done(durationMs: nil)))
-        case .userMessage(_, let text, _): subagents[index].transcript.turns.append(.init(id: item.id, userMessage: .init(id: item.id, text: text), status: .done(durationMs: nil)))
-        default: break
-        }
-        return completed
-    }
-
-    private mutating func syncTranscript(for id: String) {
-        guard let index = subagents.firstIndex(where: { $0.id == id }), let reducer = childReducers[id] else { return }
-        subagents[index].transcript = reducer.transcript
-    }
-
-    private func normalizedStatus(_ raw: String?) -> CodexSubagentState.Status { CodexSubagentState.Status.normalized(raw) ?? .running }
-    private func shortAgentName(_ id: String) -> String { "agent-\(id.split(separator: "-").first.map(String.init) ?? id)" }
 }

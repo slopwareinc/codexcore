@@ -1,24 +1,20 @@
 import Foundation
-import CodexCore
 
+/// UI-local optimistic lifecycle state.
+///
+/// Durable turn truth is owned by `CodexSession`; this value only bridges the
+/// interval between submitting a command and receiving the canonical update.
 public struct CodexTurnLifecycleSession: Sendable {
     public private(set) var isSending: Bool
     public private(set) var activeTurnID: String?
 
-    private var activeTurnHandle: CodexTurnHandle?
-
-    public var activeTurn: CodexTurnHandle? {
-        activeTurnHandle
-    }
-
     public var canSteer: Bool {
-        isSending && activeTurnHandle != nil
+        isSending && activeTurnID != nil
     }
 
     public init() {
         self.isSending = false
         self.activeTurnID = nil
-        self.activeTurnHandle = nil
     }
 
     public mutating func startPending() {
@@ -28,25 +24,16 @@ public struct CodexTurnLifecycleSession: Sendable {
     public mutating func start(turnID: String) {
         isSending = true
         activeTurnID = turnID
-        activeTurnHandle = nil
-    }
-
-    public mutating func start(_ handle: CodexTurnHandle) {
-        isSending = true
-        activeTurnID = handle.id
-        activeTurnHandle = handle
     }
 
     public mutating func failToStart() {
         isSending = false
         activeTurnID = nil
-        activeTurnHandle = nil
     }
 
     public mutating func reset() {
         isSending = false
         activeTurnID = nil
-        activeTurnHandle = nil
     }
 
     @discardableResult
@@ -62,25 +49,4 @@ public struct CodexTurnLifecycleSession: Sendable {
         return true
     }
 
-    public func isCompletion(_ notification: CodexNotification) -> Bool {
-        guard isTurnCompletion(notification),
-              let activeTurnID,
-              CodexNotificationMetadata.turnID(from: notification) == activeTurnID else {
-            return false
-        }
-        return true
-    }
-
-    private func isTurnCompletion(_ notification: CodexNotification) -> Bool {
-        switch notification.payload {
-        case .turnCompleted:
-            return true
-        case .known(let method, _):
-            return method == .turnCompleted
-        case .unknown(let method, _):
-            return method == CodexAppServerNotificationMethod.turnCompleted.rawValue
-        default:
-            return false
-        }
-    }
 }

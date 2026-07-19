@@ -49,7 +49,7 @@ struct WelcomeFlowView: View {
                 .buttonStyle(.plain)
                 .disabled(model.isConnecting)
 
-                Text("Uses CODEX_HOME=\(defaultCodexHome()) for installed auth.")
+                Text("Uses CODEX_HOME=\(model.codexHome.path) for isolated auth and state.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.colors.textTertiary)
             }

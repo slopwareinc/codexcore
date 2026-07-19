@@ -9,6 +9,8 @@ DerivedData/
 *.xcuserdata/
 .ai/
 .commandcode/
+__pycache__/
+*.py[cod]
 
 # Stray build artifact from a scratch `t/t.swift` experiment.
 /t

@@ -2,22 +2,86 @@ import Foundation
 import Observation
 import CodexCore
 
+/// Narrow seam used by the prompt projection. `CodexSession` is the production
+/// adapter; tests use an in-memory actor with the same exact-key semantics.
+public protocol CodexPromptSessionAdapter: Actor {
+    func serverRequestInboxSnapshot(
+        entities: StateEntityScope
+    ) -> CodexServerRequestInboxSnapshot
+
+    func observeServerRequests(
+        entities: StateEntityScope
+    ) -> StateSnapshotObservation<CodexServerRequestInboxSnapshot>
+
+    func cancelObservation(_ observationID: StateObservationID)
+
+    func resolveServerRequest(
+        _ key: CodexServerRequestKey,
+        result: CodexJSONValue
+    ) throws
+
+    func failServerRequest(
+        _ key: CodexServerRequestKey,
+        error: CodexServerRequestResponseError
+    ) throws
+}
+
+extension CodexSession: CodexPromptSessionAdapter {}
+
+public enum CodexPromptRuntimeError: Error, Sendable, Equatable, LocalizedError {
+    case notConnected
+    case unknownPrompt(CodexServerRequestKey)
+    case unsupportedApprovalDecision(
+        CodexApprovalPromptKind,
+        CodexCommandApprovalDecision
+    )
+    case wrongInteractivePromptKind(
+        expected: CodexInteractivePromptKind,
+        actual: CodexInteractivePromptKind
+    )
+    case invalidElicitationSubmission(CodexServerRequestKey)
+    case missingRequestedPermissions(CodexServerRequestKey)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected:
+            "The prompt runtime is not connected to a Codex session."
+        case .unknownPrompt(let key):
+            "No pending prompt exists for \(key.presentationID)."
+        case .unsupportedApprovalDecision(let kind, let decision):
+            "Approval kind \(kind.rawValue) cannot use decision \(String(describing: decision))."
+        case .wrongInteractivePromptKind(let expected, let actual):
+            "Expected a \(expected.rawValue) prompt, received \(actual.rawValue)."
+        case .invalidElicitationSubmission(let key):
+            "The MCP form response for \(key.presentationID) is incomplete or unsupported."
+        case .missingRequestedPermissions(let key):
+            "The permissions request \(key.presentationID) has no sanitized permission profile."
+        }
+    }
+}
+
 @MainActor
 @Observable
 public final class CodexPromptRuntimeSession {
-    private var promptSession: CodexPromptStateSession
-    private let eventSession: CodexPromptEventSession
-    private let bridge: CodexInteractivePromptBridge
-    private var approvalStoreBindingGeneration = 0
+    private var promptSession = CodexPromptStateSession()
 
-    public init(
-        promptSession: CodexPromptStateSession = CodexPromptStateSession(),
-        eventSession: CodexPromptEventSession = CodexPromptEventSession(),
-        bridge: CodexInteractivePromptBridge = CodexInteractivePromptBridge()
-    ) {
-        self.promptSession = promptSession
-        self.eventSession = eventSession
-        self.bridge = bridge
+    @ObservationIgnored
+    private var adapter: (any CodexPromptSessionAdapter)?
+    @ObservationIgnored
+    private var observationTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var observationID: StateObservationID?
+    @ObservationIgnored
+    private var connectionGeneration: UInt64 = 0
+    @ObservationIgnored
+    private var automaticallyHandledKeys: Set<CodexServerRequestKey> = []
+    @ObservationIgnored
+    private var onActivity: (@MainActor (CodexPromptStateActivity) -> Void)?
+    @ObservationIgnored
+    private let now: @Sendable () -> Date
+
+    public init(now: @escaping @Sendable () -> Date = { Date() }) {
+        self.now = now
     }
 
     public var approvalPrompts: [CodexApprovalPrompt] {
@@ -28,115 +92,327 @@ public final class CodexPromptRuntimeSession {
         promptSession.interactivePrompts
     }
 
-    public func handleMCPServerElicitationRequest(_ request: JSONRPCServerRequest) async -> CodexJSONValue? {
-        guard request.method == CodexAppServerServerRequestMethod.mcpServerElicitationRequest.rawValue else {
-            return nil
-        }
-        return await bridge.handle(request)
+    public func connect(
+        to session: CodexSession,
+        onActivity: @escaping @MainActor (CodexPromptStateActivity) -> Void = { _ in }
+    ) {
+        connect(adapter: session, onActivity: onActivity)
     }
 
-    public func bindApprovalStore(
-        from store: CodexCoreStore,
-        onActivity: @escaping @MainActor (CodexPromptStateActivity) -> Void
+    public func connect(
+        adapter: any CodexPromptSessionAdapter,
+        onActivity: @escaping @MainActor (CodexPromptStateActivity) -> Void = { _ in }
     ) {
-        cancelApprovalStoreBinding()
-        approvalStoreBindingGeneration += 1
-        observeApprovalStore(
-            store,
-            generation: approvalStoreBindingGeneration,
-            onActivity: onActivity
-        )
-    }
+        disconnect()
+        self.adapter = adapter
+        self.onActivity = onActivity
+        connectionGeneration &+= 1
+        let generation = connectionGeneration
+        observationTask = Task { @MainActor [weak self, adapter] in
+            let observation = await adapter.observeServerRequests(entities: .all)
+            guard let self, generation == connectionGeneration, !Task.isCancelled else {
+                await adapter.cancelObservation(observation.id)
+                return
+            }
+            observationID = observation.id
+            await apply(observation.seed, from: adapter, generation: generation)
 
-    public func startInteractivePromptEventListener(
-        onActivity: @escaping @MainActor (CodexPromptStateActivity) -> Void
-    ) {
-        eventSession.startInteractivePromptEventListener(from: bridge) { [weak self] event in
-            guard let self else { return }
-            if let activity = promptSession.apply(event) {
-                onActivity(activity)
+            for await _ in observation.signals {
+                guard generation == connectionGeneration, !Task.isCancelled else { break }
+                let snapshot = await adapter.serverRequestInboxSnapshot(entities: .all)
+                await apply(snapshot, from: adapter, generation: generation)
+            }
+
+            await adapter.cancelObservation(observation.id)
+            if generation == connectionGeneration, observationID == observation.id {
+                observationID = nil
             }
         }
     }
 
-    public func resolveApprovalPrompt(
-        id: String,
-        approved: Bool,
-        using codex: Codex?
-    ) async -> CodexPromptStateActivity? {
-        let effect = await promptSession.resolveApprovalPrompt(id: id, approved: approved, using: codex)
-        return promptSession.apply(effect)
-    }
-
-    public func resolveApprovalPrompt(
-        id: String,
-        decision: CodexCommandApprovalDecision,
-        using codex: Codex?
-    ) async -> CodexPromptStateActivity? {
-        let effect = await promptSession.resolveApprovalPrompt(id: id, decision: decision, using: codex)
-        return promptSession.apply(effect)
-    }
-
-    public func submitInteractivePrompt(
-        id: String,
-        answers: [String: String],
-        using codex: Codex?
-    ) async -> CodexPromptStateActivity? {
-        let effect = await promptSession.submitInteractivePrompt(
-            id: id,
-            answers: answers,
-            using: codex,
-            bridge: bridge
-        )
-        return promptSession.apply(effect)
-    }
-
-    public func acceptInteractivePrompt(id: String) async {
-        await promptSession.acceptInteractivePrompt(id: id, bridge: bridge)
-    }
-
-    public func declineInteractivePrompt(
-        id: String,
-        using codex: Codex?
-    ) async -> CodexPromptStateActivity? {
-        let effect = await promptSession.declineInteractivePrompt(
-            id: id,
-            using: codex,
-            bridge: bridge
-        )
-        return promptSession.apply(effect)
-    }
-
-    public func reset() {
-        cancelApprovalStoreBinding()
-        eventSession.reset()
+    public func disconnect() {
+        connectionGeneration &+= 1
+        observationTask?.cancel()
+        observationTask = nil
+        if let adapter, let observationID {
+            Task { await adapter.cancelObservation(observationID) }
+        }
+        observationID = nil
+        adapter = nil
+        onActivity = nil
+        automaticallyHandledKeys.removeAll(keepingCapacity: false)
         promptSession.reset()
     }
 
-    public func cancelAllPrompts() async {
-        await bridge.cancelAll()
+    /// Clears disposable presentation state and immediately reseeds it from the
+    /// connected session. This never responds to or cancels a pending request.
+    public func reset() {
+        promptSession.reset()
+        automaticallyHandledKeys.removeAll(keepingCapacity: false)
+        guard let adapter else { return }
+        let generation = connectionGeneration
+        Task { @MainActor [weak self, adapter] in
+            let snapshot = await adapter.serverRequestInboxSnapshot(entities: .all)
+            guard let self, generation == connectionGeneration else { return }
+            await apply(snapshot, from: adapter, generation: generation)
+        }
     }
 
-    public func cancelApprovalStoreBinding() {
-        approvalStoreBindingGeneration += 1
+    public func resolveApprovalPrompt(
+        id key: CodexServerRequestKey,
+        approved: Bool
+    ) async throws -> CodexPromptStateActivity? {
+        try await resolveApprovalPrompt(
+            id: key,
+            decision: approved ? .accept : .decline
+        )
     }
 
-    private func observeApprovalStore(
-        _ store: CodexCoreStore,
-        generation: Int,
-        onActivity: @escaping @MainActor (CodexPromptStateActivity) -> Void
-    ) {
-        withObservationTracking {
-            let approvals = store.pendingApprovals
-            let userInputs = store.pendingUserInputs
-            for activity in promptSession.sync(approvalRequests: approvals, userInputs: userInputs) {
-                onActivity(activity)
+    public func resolveApprovalPrompt(
+        id key: CodexServerRequestKey,
+        decision: CodexCommandApprovalDecision
+    ) async throws -> CodexPromptStateActivity? {
+        guard let prompt = promptSession.approvalPrompt(for: key) else {
+            throw CodexPromptRuntimeError.unknownPrompt(key)
+        }
+        let result = try approvalResult(for: prompt, decision: decision)
+        let adapter = try connectedAdapter()
+        try await adapter.resolveServerRequest(key, result: result)
+        return promptSession.resolutionActivity(for: key)
+    }
+
+    public func submitInteractivePrompt(
+        id key: CodexServerRequestKey,
+        answers: [String: String]
+    ) async throws -> CodexPromptStateActivity? {
+        guard let prompt = promptSession.interactivePrompt(for: key) else {
+            throw CodexPromptRuntimeError.unknownPrompt(key)
+        }
+        let result: CodexJSONValue
+        switch prompt.kind {
+        case .userInput:
+            result = prompt.userInputResult(answers: answers)
+        case .mcpElicitation:
+            guard prompt.isElicitationSubmissionValid(answers: answers) else {
+                throw CodexPromptRuntimeError.invalidElicitationSubmission(key)
             }
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, generation == self.approvalStoreBindingGeneration else { return }
-                self.observeApprovalStore(store, generation: generation, onActivity: onActivity)
+            result = prompt.elicitationResult(answers: answers)
+        }
+        let adapter = try connectedAdapter()
+        try await adapter.resolveServerRequest(key, result: result)
+        return promptSession.resolutionActivity(for: key)
+    }
+
+    public func acceptInteractivePrompt(
+        id key: CodexServerRequestKey
+    ) async throws -> CodexPromptStateActivity? {
+        guard let prompt = promptSession.interactivePrompt(for: key) else {
+            throw CodexPromptRuntimeError.unknownPrompt(key)
+        }
+        guard prompt.kind == .mcpElicitation else {
+            throw CodexPromptRuntimeError.wrongInteractivePromptKind(
+                expected: .mcpElicitation,
+                actual: prompt.kind
+            )
+        }
+        guard prompt.canAcceptElicitation else {
+            throw CodexPromptRuntimeError.invalidElicitationSubmission(key)
+        }
+        let adapter = try connectedAdapter()
+        try await adapter.resolveServerRequest(
+            key,
+            result: prompt.acceptElicitationResult()
+        )
+        return promptSession.resolutionActivity(for: key)
+    }
+
+    public func declineInteractivePrompt(
+        id key: CodexServerRequestKey
+    ) async throws -> CodexPromptStateActivity? {
+        guard let prompt = promptSession.interactivePrompt(for: key) else {
+            throw CodexPromptRuntimeError.unknownPrompt(key)
+        }
+        let adapter = try connectedAdapter()
+        try await adapter.resolveServerRequest(key, result: prompt.declineResult())
+        return promptSession.resolutionActivity(for: key)
+    }
+
+    public func failPrompt(
+        id key: CodexServerRequestKey,
+        error: CodexServerRequestResponseError
+    ) async throws {
+        guard promptSession.contains(key) else {
+            throw CodexPromptRuntimeError.unknownPrompt(key)
+        }
+        let adapter = try connectedAdapter()
+        try await adapter.failServerRequest(key, error: error)
+    }
+
+    private func connectedAdapter() throws -> any CodexPromptSessionAdapter {
+        guard let adapter else { throw CodexPromptRuntimeError.notConnected }
+        return adapter
+    }
+
+    private func approvalResult(
+        for prompt: CodexApprovalPrompt,
+        decision: CodexCommandApprovalDecision
+    ) throws -> CodexJSONValue {
+        switch prompt.kind {
+        case .command:
+            return CodexValidatedServerRequestResult.commandApproval(decision).jsonValue
+
+        case .fileChange:
+            guard let scalar = decision.scalarDecision else {
+                throw CodexPromptRuntimeError.unsupportedApprovalDecision(
+                    prompt.kind,
+                    decision
+                )
             }
+            return CodexValidatedServerRequestResult.fileChangeApproval(scalar).jsonValue
+
+        case .permissions:
+            guard let scalar = decision.scalarDecision else {
+                throw CodexPromptRuntimeError.unsupportedApprovalDecision(
+                    prompt.kind,
+                    decision
+                )
+            }
+            let permissions: CodexJSONValue
+            if scalar.isApproval {
+                guard let requested = prompt.additionalPermissions else {
+                    throw CodexPromptRuntimeError.missingRequestedPermissions(prompt.id)
+                }
+                permissions = requested
+            } else {
+                permissions = .dictionary([:])
+            }
+            return CodexValidatedServerRequestResult.permissions(
+                permissions: permissions,
+                scope: scalar == .acceptForSession ? .session : .turn,
+                strictAutoReview: nil
+            ).jsonValue
+
+        case .execCommand:
+            return CodexValidatedServerRequestResult.legacyExecCommandApproval(
+                decision.legacyDecision
+            ).jsonValue
+
+        case .applyPatch:
+            return CodexValidatedServerRequestResult.legacyApplyPatchApproval(
+                decision.legacyDecision
+            ).jsonValue
+        }
+    }
+
+    private func apply(
+        _ snapshot: CodexServerRequestInboxSnapshot,
+        from adapter: any CodexPromptSessionAdapter,
+        generation: UInt64
+    ) async {
+        guard generation == connectionGeneration else { return }
+        let activities = promptSession.sync(snapshot, presentedAt: now())
+        activities.forEach { onActivity?($0) }
+
+        let currentKeys = Set(snapshot.requests.map(\.key))
+        automaticallyHandledKeys.formIntersection(currentKeys)
+        for entry in snapshot.requests {
+            guard case .unsupported(let kind) = entry.body,
+                  !automaticallyHandledKeys.contains(entry.key),
+                  generation == connectionGeneration else { continue }
+            do {
+                try await automaticallyHandle(entry.key, kind: kind, using: adapter)
+                automaticallyHandledKeys.insert(entry.key)
+            } catch CodexSessionError.unknownServerRequest {
+                automaticallyHandledKeys.insert(entry.key)
+            } catch {
+                onActivity?(.init(
+                    title: "Request handling failed",
+                    detail: "\(kind.method): \(error.localizedDescription)"
+                ))
+            }
+        }
+    }
+
+    private func automaticallyHandle(
+        _ key: CodexServerRequestKey,
+        kind: CodexServerRequestKind,
+        using adapter: any CodexPromptSessionAdapter
+    ) async throws {
+        switch kind {
+        case .currentTime:
+            let seconds = Int64(now().timeIntervalSince1970.rounded(.down))
+            try await adapter.resolveServerRequest(
+                key,
+                result: CodexValidatedServerRequestResult.currentTime(
+                    unixSeconds: seconds
+                ).jsonValue
+            )
+
+        case .dynamicToolCall:
+            try await adapter.resolveServerRequest(
+                key,
+                result: CodexValidatedServerRequestResult.dynamicTool(
+                    success: false,
+                    contentItems: []
+                ).jsonValue
+            )
+
+        case .tokenRefresh, .attestation:
+            try await adapter.failServerRequest(
+                key,
+                error: .init(
+                    code: -32_004,
+                    message: "Client capability is not configured",
+                    data: .dictionary(["method": .string(kind.method)])
+                )
+            )
+
+        case .unknown(let method):
+            try await adapter.failServerRequest(
+                key,
+                error: .init(
+                    code: -32_601,
+                    message: "Method not found",
+                    data: .dictionary(["method": .string(method)])
+                )
+            )
+
+        case .commandApproval, .fileChangeApproval, .permissionsApproval,
+             .userInput, .mcpElicitation, .legacyApplyPatchApproval,
+             .legacyExecCommandApproval:
+            try await adapter.failServerRequest(
+                key,
+                error: .init(
+                    code: -32_603,
+                    message: "Interactive request could not be projected",
+                    data: .dictionary(["method": .string(kind.method)])
+                )
+            )
+        }
+    }
+}
+
+private extension CodexCommandApprovalDecision {
+    var scalarDecision: CodexApprovalDecision? {
+        switch self {
+        case .accept: .accept
+        case .acceptForSession: .acceptForSession
+        case .decline: .decline
+        case .cancel: .cancel
+        case .acceptWithExecpolicyAmendment, .applyNetworkPolicyAmendment: nil
+        }
+    }
+
+    var legacyDecision: CodexLegacyReviewDecision {
+        switch self {
+        case .accept: .approved
+        case .acceptForSession: .approvedForSession
+        case .acceptWithExecpolicyAmendment(let amendment):
+            .approvedExecpolicyAmendment(amendment)
+        case .applyNetworkPolicyAmendment(let amendment):
+            .networkPolicyAmendment(amendment)
+        case .decline: .denied
+        case .cancel: .abort
         }
     }
 }

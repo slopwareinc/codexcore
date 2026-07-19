@@ -1,4 +1,5 @@
 import AppKit
+@testable import CodexCore
 @testable import CodexCoreUI
 import Foundation
 import SwiftUI
@@ -7,8 +8,12 @@ import Testing
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
     @Test func pendingApprovalRendersInlineAndRoutesBothDecisions() async throws {
+        let requestKey = CodexServerRequestKey(
+            connectionEpoch: 2,
+            requestID: .string("approval-1")
+        )
         let prompt = CodexApprovalPrompt(
-            id: "approval-1", method: "item/commandExecution/requestApproval", kind: .command,
+            id: requestKey, method: "item/commandExecution/requestApproval", kind: .command,
             title: "Approve command?", detail: "Run tests", primaryValue: "swift test", threadId: "thread"
         )
         let snapshot = try await CodexTranscriptRenderProjector().project(
@@ -43,8 +48,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         cell.allowApprovalForTesting()
         cell.denyApprovalForTesting()
         #expect(actions == [
-            .resolveApproval(requestID: "approval-1", approve: true),
-            .resolveApproval(requestID: "approval-1", approve: false)
+            .resolveApproval(requestID: requestKey, approve: true),
+            .resolveApproval(requestID: requestKey, approve: false)
         ])
         let workRow = try #require(snapshot.itemsByID.values.first { $0.workRow != nil })
         cell.configure(
@@ -56,7 +61,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(!cell.approvalButtonsVisibleForTesting)
     }
 
-    @Test func workChipUsesSemanticIconAndOnlyEnablesRealActions() async throws {
+    @Test func collapsedWorkRowsUsePlainTextWithSemanticStatus() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let presentation = CodexThreadUIPresentation(
@@ -99,7 +104,219 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(cell.chipLabelForTesting.contains("Running swift test"))
         #expect(cell.chipIconDescriptionForTesting == "In progress")
+        #expect(cell.workRowStatusForTesting == "running")
+        #expect(row.indentation == 0)
+        #expect(!cell.workRowBackgroundIsVisibleForTesting)
         #expect(!cell.chipIsActionableForTesting)
+        #expect(row.bottomSpacing == 8)
+    }
+
+    @Test func singleLineAssistantRepliesFitTheirNativeTextLayout() async throws {
+        let replies = [
+            "Hello world! 👋",
+            "Wherever you’d like—building, debugging, exploring, or simply testing the system. 🚀",
+            "Exactly. A little chaos, a little computation. 😄",
+            "Hello world—again! 🌍",
+        ]
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+
+        for (index, reply) in replies.enumerated() {
+            let snapshot = try await projector.project(
+                presentation: .init(
+                    threadID: "thread-\(index)",
+                    transcript: .init(turns: [.init(
+                        id: "turn",
+                        finalAnswer: .init(id: "answer", text: reply, isStreaming: false),
+                        status: .done(durationMs: 1)
+                    )])
+                ),
+                availableWidth: 1_640,
+                theme: theme
+            )
+            let answer = try #require(snapshot.itemsByID.values.first { $0.textRole == .finalAnswer })
+            let cell = CodexTranscriptCollectionItem()
+            _ = cell.view
+            cell.view.frame = NSRect(x: 0, y: 0, width: 1_640, height: answer.measuredHeight)
+            cell.configure(
+                item: answer, appKitTheme: theme, swiftUITheme: .officialDark,
+                contentHorizontalOffset: 0, productToolRenderer: nil,
+                performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+                forkChat: nil, selectionChanged: { _, _ in }
+            )
+            cell.view.layoutSubtreeIfNeeded()
+
+            #expect(cell.textViewportHeightForTesting >= cell.textUsedHeightForTesting + 1)
+        }
+    }
+
+    @Test func expandedCommandOutputUsesABoundedInternalScroller() async throws {
+        let output = (0..<300).map { "Sources/File\($0).swift" }.joined(separator: "\n")
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "group", rows: [.command(.init(
+                id: "command", command: "rg --files", label: "Listed files",
+                action: .list, status: .completed, durationMs: 10, output: output
+            ))]))],
+            status: .done(durationMs: 10)
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id],
+                expandedRowIDs: ["command"]
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let detail = try #require(snapshot.itemsByID.values.first { $0.textRole == .expandedOutput })
+        #expect(detail.measuredHeight <= 280)
+
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: detail.measuredHeight)
+        cell.configure(
+            item: detail, appKitTheme: theme, swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+        #expect(cell.hasVerticalScrollerForTesting)
+        #expect(cell.textDocumentHeightForTesting > cell.textViewportHeightForTesting)
+        #expect(cell.glassPanelIsVisibleForTesting)
+    }
+
+    @Test func collaborationRowsRenderAsOneInlineChipCluster() async throws {
+        let rows: [CodexWorkRowV2] = (1...5).map { index in
+            .collabAgent(.init(
+                id: "agent-\(index)", action: .waited,
+                agentNames: ["Agent \(index)"], agentThreadIDs: ["thread-\(index)"],
+                instructions: index == 2 ? "Inspect transcript rendering" : nil,
+                agentMessages: index == 2 ? ["Agent 2": "Updated the AppKit cell"] : [:],
+                status: index == 2 ? .inProgress : .completed,
+                displayStatus: index == 2 ? .working : .done
+            ))
+        }
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "agents", rows: rows))],
+            status: .done(durationMs: 10)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread", transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id],
+                agentDisplayNameByThreadID: ["thread-2": "Ramanujan"]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+
+        let cluster = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
+        #expect(cluster.agentChips.count == 5)
+        #expect(cluster.indentation == 0)
+        #expect(cluster.bottomSpacing == 8)
+        #expect(!snapshot.itemsByID.values.contains { $0.workRow?.kind == .agent })
+
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: cluster.measuredHeight)
+        cell.configure(
+            item: cluster, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+        #expect(cell.agentChipCountForTesting == 5)
+        #expect(cell.agentChipTitlesForTesting[1] == "Ramanujan · working")
+        #expect(cell.agentPillsUseGlassForTesting)
+        let preview = try #require(cell.agentPreviewForTesting(at: 1))
+        #expect(preview.taskSummary == "Inspect transcript rendering")
+        #expect(preview.latestUpdate == "Updated the AppKit cell")
+    }
+
+    @Test func expandedDiffUsesOneGlassPanelAndRoutesTabSelection() async throws {
+        let diff = """
+        diff --git a/A.swift b/A.swift
+        --- a/A.swift
+        +++ b/A.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        diff --git a/B.swift b/B.swift
+        --- a/B.swift
+        +++ b/B.swift
+        @@ -0,0 +1 @@
+        +added
+        """
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "work", rows: [.fileChange(.init(
+                id: "files", files: ["A.swift", "B.swift"], status: .completed, diff: diff
+            ))]))],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread", transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id], expandedRowIDs: ["files"]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+        let panel = try #require(snapshot.itemsByID.values.first { $0.diffPanel != nil })
+        let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange })
+        #expect(panel.indentation == row.indentation)
+        #expect(panel.indentation == 0)
+        #expect(row.bottomSpacing == 2)
+        var action: CodexTranscriptRenderAction?
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: panel.measuredHeight)
+        cell.configure(
+            item: panel, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { action = $0 }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+
+        #expect(cell.diffTabCountForTesting == 2)
+        #expect(cell.glassPanelIsVisibleForTesting)
+        cell.selectDiffTabForTesting(at: 1)
+        #expect(action == .selectDiffFile(rowID: "files", index: 1))
+    }
+
+    @Test func completedWorkHeaderUsesVerticallyCenteredSymbolDisclosure() async throws {
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.prose(.init(id: "work", text: "Inspecting", isStreaming: false))],
+            status: .done(durationMs: 1_000)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
+        cell.configure(
+            item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+        #expect(cell.workHeaderHasAlignedDisclosureForTesting)
+        let gap = try #require(cell.workHeaderTitleAndDisclosureGapForTesting)
+        #expect(gap >= 0)
+        #expect(gap <= 8)
     }
 
     @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {
@@ -210,7 +427,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         coordinator.update(
             presentation: presentation,
-            sessionStore: nil,
+            presentationStore: nil,
             bottomContentInset: 0,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -254,7 +471,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         var presentation = longPresentation(answerSuffix: "", date: date)
         coordinator.update(
             presentation: presentation,
-            sessionStore: nil,
+            presentationStore: nil,
             bottomContentInset: 190,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -278,7 +495,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         presentation = longPresentation(answerSuffix: " streamed", date: date)
         coordinator.update(
             presentation: presentation,
-            sessionStore: nil,
+            presentationStore: nil,
             bottomContentInset: 190,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -555,12 +772,12 @@ struct CodexTranscriptAppKitIntegrationTests {
         window.contentView = container
         coordinator.attach(to: container)
         let clipboard = RecordingClipboard()
-        let store = CodexThreadUISessionStore()
+        let store = CodexPresentationStore()
         let date = Date(timeIntervalSince1970: 100)
         var presentation = workingPresentation(date: date)
         coordinator.update(
             presentation: presentation,
-            sessionStore: store,
+            presentationStore: store,
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -589,7 +806,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         ))
         coordinator.update(
             presentation: presentation,
-            sessionStore: store,
+            presentationStore: store,
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -609,7 +826,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         presentation.expandedWorkTurnIDs.insert("turn")
         coordinator.update(
             presentation: presentation,
-            sessionStore: store,
+            presentationStore: store,
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
@@ -665,7 +882,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             theme: theme
         )
         let user = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":user:user") }?.value)
-        let agent = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":row:agent") }?.value)
+        let agent = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
         let product = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":product:product") }?.value)
         let final = try #require(snapshot.itemsByID.first {
             $0.key.rawValue.contains(":final:final:selection-surface:")
@@ -700,7 +917,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         }
 
         configure(agent)
-        cell.invokePrimaryActionForTesting()
+        cell.openAgentChipForTesting(at: 0)
         #expect(openedThreadID == "child-thread")
 
         configure(user)
@@ -741,7 +958,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         for presentation in [threadA, threadB, threadA] {
             coordinator.update(
                 presentation: presentation,
-                sessionStore: nil,
+                presentationStore: nil,
                 bottomContentInset: 190,
                 contentHorizontalOffset: 0,
                 swiftUITheme: .officialDark,

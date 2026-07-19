@@ -62,7 +62,7 @@ extension CodexCoreAppModel {
             currentWorkspacePath: workspacePath,
             currentThreadID: currentThreadID,
             pinnedThreadIDs: pinnedThreadIDs,
-            threadStatusEntries: runtimeSession.threadStatusStore.entries
+            threadStatusEntries: canonicalThreadStatusEntries
         )
     }
 
@@ -165,7 +165,7 @@ extension CodexCoreAppModel {
     }
 
     var isGoalPursuitEnabled: Bool {
-        runtimeSession.isGoalPursuitEnabled
+        goalPursuitEnabled
     }
 
     var currentPlan: [TurnPlanStep] {
@@ -235,11 +235,11 @@ extension CodexCoreAppModel {
     }
 
     var isThreadReady: Bool {
-        threadSession.isThreadReady
+        currentThreadLease?.isClosed == false
     }
 
     var currentThreadID: String? {
-        threadSession.currentThreadID
+        selectedThreadID
     }
 
     var currentChatTitle: String {
@@ -262,7 +262,7 @@ extension CodexCoreAppModel {
     }
 
     var canSendFollowUp: Bool {
-        runtimeSession.canSendFollowUp(hasActiveTurnHandle: runtimeSession.activeTurn != nil)
+        runtimeSession.canSendFollowUp(canSteer: activeTurnLease != nil)
     }
 
     var followUpHint: String? {
@@ -283,26 +283,6 @@ extension CodexCoreAppModel {
 
     var canUsePlanMode: Bool {
         configurationSession.canUsePlanMode
-    }
-
-    var threadLaunchConfiguration: CodexThreadLaunchConfiguration {
-        CodexThreadLaunchConfiguration(
-            approvalMode: approvalSelection.approvalMode,
-            cwd: workspacePath,
-            modelIdentifier: modelSelection.modelIdentifier,
-            sandbox: approvalSelection.sandbox
-        )
-    }
-
-    var turnLaunchConfiguration: CodexTurnLaunchConfiguration {
-        CodexTurnLaunchConfiguration(
-            approvalMode: approvalSelection.approvalMode,
-            cwd: workspacePath,
-            effort: reasoningSelection.effort,
-            modelIdentifier: modelSelection.modelIdentifier,
-            sandbox: approvalSelection.sandbox,
-            parameters: configurationSession.turnParameterOverrides
-        )
     }
 
     func applyPreferredModel(for threadID: String?) {

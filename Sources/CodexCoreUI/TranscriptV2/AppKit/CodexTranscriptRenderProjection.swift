@@ -17,6 +17,9 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let footerHeight: CGFloat = 22
     static let actionCardHeight: CGFloat = 32
     static let actionCardRadius: CGFloat = 10
+    static let interactiveBottomSpacing: CGFloat = 8
+    static let scrollableOutputMaxHeight: CGFloat = 220
+    static let diffPanelHeight: CGFloat = 240
     static let topContentInset: CGFloat = 0
 
     var viewportWidth: CGFloat
@@ -46,14 +49,15 @@ enum CodexTranscriptTextRole: Sendable, Equatable {
 enum CodexTranscriptRenderAction: Sendable, Equatable {
     case toggleWork(turnID: String)
     case toggleRow(rowID: String)
+    case selectDiffFile(rowID: String, index: Int)
     case openSubagent(threadID: String)
     case openURL(String)
     case openFile(path: String, line: Int?)
-    case resolveApproval(requestID: String, approve: Bool)
+    case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
 }
 
 struct CodexTranscriptApprovalRender: Sendable, Equatable {
-    var requestID: String
+    var requestID: CodexServerRequestKey
     var summary: String
 }
 
@@ -89,6 +93,26 @@ struct CodexTranscriptWorkRowRender: Sendable, Equatable {
     var hasDetail: Bool
     var isSubagentLink: Bool
     var isActionable: Bool
+}
+
+struct CodexTranscriptAgentChipRender: Sendable, Equatable {
+    var id: String
+    var label: String
+    var status: CodexAgentDisplayStatusV2
+    var threadID: String?
+    var taskSummary: String?
+    var latestUpdate: String?
+}
+
+struct CodexTranscriptDiffPanelRender: Sendable, Equatable {
+    var rowID: String
+    var files: [CodexDiffFile]
+    var selectedFileIndex: Int
+
+    var selectedFile: CodexDiffFile? {
+        guard files.indices.contains(selectedFileIndex) else { return files.first }
+        return files[selectedFileIndex]
+    }
 }
 
 enum CodexWorkRowKind: Sendable, Equatable {
@@ -128,6 +152,8 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var preparedText: CodexPreparedTranscriptText?
     var workHeader: CodexTranscriptWorkHeaderRender?
     var workRow: CodexTranscriptWorkRowRender?
+    var agentChips: [CodexTranscriptAgentChipRender]
+    var diffPanel: CodexTranscriptDiffPanelRender?
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
@@ -144,6 +170,8 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var intrinsicContentWidth: CGFloat?
     var viewportWidth: CGFloat
     var measuredHeight: CGFloat
+    var bottomSpacing: CGFloat
+    var isScrollableOutput: Bool
 }
 
 struct CodexTranscriptRenderDiagnostics: Sendable, Equatable {
@@ -336,6 +364,8 @@ actor CodexTranscriptRenderProjector {
                     preparedText: draft.preparedText,
                     workHeader: draft.workHeader,
                     workRow: draft.workRow,
+                    agentChips: draft.agentChips,
+                    diffPanel: draft.diffPanel,
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
@@ -351,7 +381,9 @@ actor CodexTranscriptRenderProjector {
                     maxContentWidth: maxWidth,
                     intrinsicContentWidth: draft.intrinsicContentWidth,
                     viewportWidth: availableWidth,
-                    measuredHeight: measuredHeight
+                    measuredHeight: measuredHeight,
+                    bottomSpacing: draft.bottomSpacing,
+                    isScrollableOutput: draft.isScrollableOutput
                 )
                 sectionItems.append(id)
                 itemsByID[id] = item
@@ -418,8 +450,8 @@ actor CodexTranscriptRenderProjector {
                         let summary = (prompt.primaryValue ?? prompt.detail)
                             .split(separator: "\n", maxSplits: 1).first.map(String.init) ?? prompt.title
                         append(ItemDraft(
-                            id: "\(sectionID):approval:\(prompt.id)",
-                            fingerprint: "approval:\(prompt.id):\(summary)",
+                            id: "\(sectionID):approval:\(prompt.id.presentationID)",
+                            fingerprint: "approval:\(prompt.id.presentationID):\(summary)",
                             approval: .init(requestID: prompt.id, summary: summary),
                             accessibilityLabel: "Approval needed — \(summary)",
                             maxWidthKind: .card,
@@ -453,9 +485,34 @@ actor CodexTranscriptRenderProjector {
                             preparedText: headerText,
                             accessibilityLabel: groupHeader,
                             maxWidthKind: .card,
-                            fixedHeight: 28
+                            fixedHeight: 24
                         ))
+                        let agentChips = rows.compactMap { row -> CodexTranscriptAgentChipRender? in
+                            guard case .collabAgent(let agent) = row else { return nil }
+                            let threadID = agent.agentThreadIDs.first
+                            return .init(
+                                id: agent.id,
+                                label: threadID.flatMap { presentation.agentDisplayNameByThreadID[$0] }
+                                    ?? Self.agentChipLabel(agent),
+                                status: agent.displayStatus,
+                                threadID: threadID,
+                                taskSummary: agent.instructions?.codexAppKitNilIfEmpty,
+                                latestUpdate: agent.agentMessages.values.first?.codexAppKitNilIfEmpty
+                            )
+                        }
+                        if !agentChips.isEmpty {
+                            append(ItemDraft(
+                                id: "\(sectionID):group:\(group.id):agents",
+                                fingerprint: "agent-chips:\(String(describing: agentChips))",
+                                agentChips: agentChips,
+                                accessibilityLabel: Self.agentClusterAccessibilityLabel(agentChips),
+                                indentation: 0,
+                                maxWidthKind: .card,
+                                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                            ))
+                        }
                         for row in rows {
+                            if case .collabAgent = row { continue }
                             let rowID = row.id
                             let detail = Self.detail(for: row)
                             let diffFiles: [CodexDiffFile]? = {
@@ -482,29 +539,42 @@ actor CodexTranscriptRenderProjector {
                                     ?? (detail == nil ? nil : .toggleRow(rowID: rowID)),
                                 copyText: detail,
                                 accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
-                                indentation: 12,
+                                indentation: 0,
                                 maxWidthKind: .card,
-                                fixedHeight: 30
+                                fixedHeight: 30,
+                                bottomSpacing: rowRender.isExpanded
+                                    ? 2
+                                    : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                             ))
-                            if presentation.expandedRowIDs.contains(rowID), let diffFiles {
-                                for (fileIndex, file) in diffFiles.enumerated() {
-                                    let fullPatch = Self.patchText(for: file)
-                                    let displayPatch = Self.boundedLines(fullPatch, limit: 400)
-                                    let prepared = cachedPreparedText(
-                                        content: displayPatch, style: "diff-file", theme: theme,
-                                        cacheHits: &preparedTextCacheHits, cacheMisses: &preparedTextCacheMisses
-                                    ) { Self.prepareDiffFile(file, displayedPatch: displayPatch, theme: theme) }
-                                    append(ItemDraft(
-                                        id: "\(sectionID):row:\(rowID):diff:\(fileIndex)",
-                                        fingerprint: "diff-file:\(file.path):\(fullPatch)",
-                                        preparedText: prepared,
-                                        code: .init(language: "diff", code: displayPatch),
-                                        copyText: fullPatch,
-                                        accessibilityLabel: "Patch for \(file.path), \(file.added) additions and \(file.removed) removals",
-                                        indentation: 30,
-                                        maxWidthKind: .card
-                                    ))
-                                }
+                            if presentation.expandedRowIDs.contains(rowID),
+                               let diffFiles,
+                               !diffFiles.isEmpty {
+                                let requestedIndex = presentation.selectedDiffFileIndexByRowID[rowID] ?? 0
+                                let selectedIndex = min(max(0, requestedIndex), diffFiles.count - 1)
+                                let selectedFile = diffFiles[selectedIndex]
+                                let fullPatch = Self.patchText(for: selectedFile)
+                                let displayPatch = Self.boundedLines(fullPatch, limit: 400)
+                                let prepared = cachedPreparedText(
+                                    content: displayPatch, style: "diff-file", theme: theme,
+                                    cacheHits: &preparedTextCacheHits, cacheMisses: &preparedTextCacheMisses
+                                ) { Self.prepareDiffFile(selectedFile, displayedPatch: displayPatch, theme: theme) }
+                                append(ItemDraft(
+                                    id: "\(sectionID):row:\(rowID):diff-panel",
+                                    fingerprint: "diff-panel:\(selectedIndex):\(String(describing: diffFiles))",
+                                    preparedText: prepared,
+                                    diffPanel: .init(
+                                        rowID: rowID,
+                                        files: diffFiles,
+                                        selectedFileIndex: selectedIndex
+                                    ),
+                                    copyText: Self.patchText(for: selectedFile),
+                                    accessibilityLabel: "Patch for \(selectedFile.path), \(selectedFile.added) additions and \(selectedFile.removed) removals",
+                                    indentation: 0,
+                                    maxWidthKind: .card,
+                                    fixedHeight: CodexTranscriptColumnMetrics.diffPanelHeight,
+                                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
+                                    isScrollableOutput: true
+                                ))
                             } else if presentation.expandedRowIDs.contains(rowID), let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
                                 append(ItemDraft(
@@ -514,8 +584,10 @@ actor CodexTranscriptRenderProjector {
                                     preparedText: Self.preparePlain(bounded, font: theme.codeFont, color: theme.textSecondary, theme: theme),
                                     copyText: detail,
                                     accessibilityLabel: "Expanded output: \(bounded)",
-                                    indentation: 30,
-                                    maxWidthKind: .card
+                                    indentation: 0,
+                                    maxWidthKind: .card,
+                                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
+                                    isScrollableOutput: true
                                 ))
                             }
                         }
@@ -646,6 +718,8 @@ private extension CodexTranscriptRenderProjector {
         var preparedText: CodexPreparedTranscriptText?
         var workHeader: CodexTranscriptWorkHeaderRender?
         var workRow: CodexTranscriptWorkRowRender?
+        var agentChips: [CodexTranscriptAgentChipRender]
+        var diffPanel: CodexTranscriptDiffPanelRender?
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
@@ -659,6 +733,8 @@ private extension CodexTranscriptRenderProjector {
         var maxWidthKind: MaxWidthKind
         var fixedHeight: CGFloat?
         var intrinsicContentWidth: CGFloat?
+        var bottomSpacing: CGFloat
+        var isScrollableOutput: Bool
 
         init(
             id: String,
@@ -667,6 +743,8 @@ private extension CodexTranscriptRenderProjector {
             preparedText: CodexPreparedTranscriptText? = nil,
             workHeader: CodexTranscriptWorkHeaderRender? = nil,
             workRow: CodexTranscriptWorkRowRender? = nil,
+            agentChips: [CodexTranscriptAgentChipRender] = [],
+            diffPanel: CodexTranscriptDiffPanelRender? = nil,
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
@@ -679,7 +757,9 @@ private extension CodexTranscriptRenderProjector {
             isTrailingAligned: Bool = false,
             maxWidthKind: MaxWidthKind = .full,
             fixedHeight: CGFloat? = nil,
-            intrinsicContentWidth: CGFloat? = nil
+            intrinsicContentWidth: CGFloat? = nil,
+            bottomSpacing: CGFloat = 0,
+            isScrollableOutput: Bool = false
         ) {
             self.id = id
             self.fingerprint = fingerprint
@@ -687,6 +767,8 @@ private extension CodexTranscriptRenderProjector {
             self.preparedText = preparedText
             self.workHeader = workHeader
             self.workRow = workRow
+            self.agentChips = agentChips
+            self.diffPanel = diffPanel
             self.code = code
             self.footer = footer
             self.productTool = productTool
@@ -700,6 +782,8 @@ private extension CodexTranscriptRenderProjector {
             self.maxWidthKind = maxWidthKind
             self.fixedHeight = fixedHeight
             self.intrinsicContentWidth = intrinsicContentWidth
+            self.bottomSpacing = bottomSpacing
+            self.isScrollableOutput = isScrollableOutput
         }
 
         func maxWidth(_ contentWidth: CGFloat, _ theme: CodexTranscriptAppKitTheme) -> CGFloat {
@@ -1072,7 +1156,14 @@ private extension CodexTranscriptRenderProjector {
         width: CGFloat,
         theme: CodexTranscriptAppKitTheme
     ) -> CGFloat {
-        if let fixedHeight = draft.fixedHeight { return fixedHeight }
+        if let fixedHeight = draft.fixedHeight { return fixedHeight + draft.bottomSpacing }
+        if !draft.agentChips.isEmpty {
+            return agentChipClusterHeight(
+                draft.agentChips,
+                width: max(80, width - draft.indentation),
+                font: theme.captionFont
+            ) + draft.bottomSpacing
+        }
         if let code = draft.code {
             let text = draft.preparedText?.attributedString
                 ?? preparePlain(code.code, font: theme.codeFont, color: theme.codeText, theme: theme).attributedString
@@ -1080,7 +1171,11 @@ private extension CodexTranscriptRenderProjector {
                 with: NSSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
-            return max(76, ceil(bounds.height) + 52)
+            let height = max(76, ceil(bounds.height) + 52)
+            let measured = draft.isScrollableOutput
+                ? min(CodexTranscriptColumnMetrics.scrollableOutputMaxHeight, height)
+                : height
+            return measured + draft.bottomSpacing
         }
         let horizontalPadding: CGFloat = draft.textRole == .user
             ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
@@ -1096,10 +1191,69 @@ private extension CodexTranscriptRenderProjector {
                 ? 64
                 : (draft.textRole == .user
                     ? CodexTranscriptColumnMetrics.userBubbleVerticalPadding * 2
-                    : (draft.textRole == .expandedOutput ? 16 : CodexTranscriptColumnMetrics.itemGap))
-            return max(18, ceil(bounds.height) + verticalPadding)
+                    : (draft.textRole == .expandedOutput
+                        ? 16
+                        : CodexTranscriptColumnMetrics.itemGap + 2))
+            let height = max(18, ceil(bounds.height) + verticalPadding)
+            let measured = draft.isScrollableOutput
+                ? min(CodexTranscriptColumnMetrics.scrollableOutputMaxHeight, height)
+                : height
+            return measured + draft.bottomSpacing
         }
-        return 36
+        return 36 + draft.bottomSpacing
+    }
+
+    static func agentChipClusterHeight(
+        _ chips: [CodexTranscriptAgentChipRender],
+        width: CGFloat,
+        font: NSFont
+    ) -> CGFloat {
+        let height: CGFloat = 26
+        let gap: CGFloat = 6
+        var x: CGFloat = 0
+        var rows: CGFloat = 1
+        for chip in chips {
+            let title = "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
+            let labelWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
+            let chipWidth = min(width, max(74, labelWidth + 28))
+            if x > 0, x + chipWidth > width {
+                rows += 1
+                x = 0
+            }
+            x += chipWidth + gap
+        }
+        return rows * height + max(0, rows - 1) * gap
+    }
+
+    static func agentChipLabel(_ agent: CodexCollabAgentRowV2) -> String {
+        guard let raw = agent.agentNames.first, !raw.isEmpty else { return "Agent" }
+        let leaf = raw.split(separator: "/").last.map(String.init) ?? raw
+        return leaf.capitalized
+    }
+
+    static func agentClusterAccessibilityLabel(
+        _ chips: [CodexTranscriptAgentChipRender]
+    ) -> String {
+        chips.map { chip in
+            let status = switch chip.status {
+            case .starting: "starting"
+            case .working: "working"
+            case .done: "done"
+            case .failed: "failed"
+            case .closed: "closed"
+            }
+            return "\(chip.label), \(status)"
+        }.joined(separator: "; ")
+    }
+
+    static func agentStatusTitle(_ status: CodexAgentDisplayStatusV2) -> String {
+        switch status {
+        case .starting: "Starting"
+        case .working: "Working"
+        case .done: "Done"
+        case .failed: "Failed"
+        case .closed: "Closed"
+        }
     }
 
     static func prepare(block: CodexBlock, role: CodexTranscriptTextRole, theme: CodexTranscriptAppKitTheme) -> CodexPreparedTranscriptText {
@@ -1304,7 +1458,7 @@ private extension CodexTranscriptRenderProjector {
     }
 
     static func color(for role: CodexTranscriptTextRole, theme: CodexTranscriptAppKitTheme) -> NSColor {
-        role == .commentary ? theme.textSecondary : theme.textPrimary
+        theme.textPrimary
     }
 
     static func isStreaming(_ turn: CodexTurnV2) -> Bool {

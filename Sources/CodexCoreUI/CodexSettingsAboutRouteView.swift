@@ -132,6 +132,7 @@ public struct CodexSettingsAboutRouteView: View {
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var isBottomPanelVisible: Bool
     @Binding private var gitSettings: CodexGitSettings
+    @Binding private var newThreadHistoryMode: CodexNewThreadHistoryMode
 
     private let sidebarFontSizeRange: ClosedRange<Double>
 
@@ -148,6 +149,9 @@ public struct CodexSettingsAboutRouteView: View {
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         isBottomPanelVisible: Binding<Bool> = .constant(false),
         gitSettings: Binding<CodexGitSettings> = .constant(.defaults),
+        newThreadHistoryMode: Binding<CodexNewThreadHistoryMode> = .constant(
+            .defaultForPinnedRelease
+        ),
         mcpServers: [CodexMCPServerStatus] = [],
         isLoadingMCPServers: Bool = false,
         onBackToApp: (() -> Void)? = nil
@@ -164,6 +168,7 @@ public struct CodexSettingsAboutRouteView: View {
         self._reasoningSelection = reasoningSelection
         self._isBottomPanelVisible = isBottomPanelVisible
         self._gitSettings = gitSettings
+        self._newThreadHistoryMode = newThreadHistoryMode
         self.mcpServers = mcpServers
         self.isLoadingMCPServers = isLoadingMCPServers
         self.onBackToApp = onBackToApp
@@ -278,7 +283,11 @@ public struct CodexSettingsAboutRouteView: View {
         case .profile:
             CodexSettingsProfilePage(accountSummary: accountSummary, serverName: metadata.serverName)
         case .configuration:
-            CodexSettingsConfigurationPage(metadata: metadata, approvalSelection: approvalSelection)
+            CodexSettingsConfigurationPage(
+                metadata: metadata,
+                approvalSelection: approvalSelection,
+                newThreadHistoryMode: $newThreadHistoryMode
+            )
         case .git:
             CodexSettingsGitPage(settings: $gitSettings)
         case .integrations:
@@ -433,6 +442,7 @@ public struct CodexSettingsConfigurationPage: View {
 
     let metadata: CodexAboutMetadata
     let approvalSelection: CodexApprovalSelection
+    @Binding var newThreadHistoryMode: CodexNewThreadHistoryMode
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -450,6 +460,15 @@ public struct CodexSettingsConfigurationPage: View {
                     value: approvalSelection.sandbox.displayName,
                     systemImage: "shippingbox"
                 )
+                CodexSettingsMenuRow(
+                    title: "New chat history",
+                    detail: newThreadHistoryMode.detail,
+                    value: newThreadHistoryMode.displayName
+                ) {
+                    ForEach(CodexNewThreadHistoryMode.allCases) { mode in
+                        Button(mode.displayName) { newThreadHistoryMode = mode }
+                    }
+                }
                 CodexSettingsReadOnlyRow(
                     title: "Workspace dependencies",
                     detail: "Bundled dependency runtime version",

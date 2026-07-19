@@ -3,9 +3,21 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexSessionStateTests: XCTestCase {
+    private func account(
+        type: String,
+        email: String? = nil,
+        planType: String = "unknown"
+    ) -> CodexSchemaAccount {
+        CodexSchemaAccount(.dictionary([
+            "type": .string(type),
+            "email": email.map(CodexJSONValue.string) ?? .null,
+            "planType": .string(planType),
+        ]))
+    }
+
     func testAccountMenuSummaryPrefersTokenDisplayName() {
         let summary = CodexAccountMenuSummary(
-            account: Account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "pro"),
+            account: account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "pro"),
             displayName: "Pranjal Paliwal",
             serverName: "Codex"
         )
@@ -17,7 +29,7 @@ final class CodexSessionStateTests: XCTestCase {
 
     func testAccountMenuSummaryFallsBackToEmailWhenTokenNameIsMissing() {
         let summary = CodexAccountMenuSummary(
-            account: Account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "pro"),
+            account: account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "pro"),
             serverName: "Codex"
         )
 
@@ -32,9 +44,29 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(fallback.detail, "Available")
     }
 
+    func testAccountMenuSummaryReadsCanonicalLiveAccountState() {
+        let state = CanonicalAccountState(
+            authMode: "chatgpt",
+            planType: "pro",
+            extensions: [
+                "account": .dictionary([
+                    "type": .string("chatgpt"),
+                    "email": .string("pranjal.paliwal@example.com"),
+                ]),
+                "requiresOpenaiAuth": .bool(true),
+            ]
+        )
+
+        let summary = CodexAccountMenuSummary(accountState: state, serverName: "Codex")
+
+        XCTAssertEqual(summary.displayName, "Pranjal Paliwal")
+        XCTAssertEqual(summary.detail, "Pro")
+        XCTAssertEqual(summary.initials, "PP")
+    }
+
     func testAccountDetailLogPrintsServerAccountResponseJSON() {
-        let json = CodexAccountDetailLog.json(from: GetAccountResponse(
-            account: Account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "plus"),
+        let json = CodexAccountDetailLog.json(from: CodexSchemaGetAccountResponse(
+            account: account(type: "chatgpt", email: "pranjal.paliwal@example.com", planType: "plus"),
             requiresOpenAIAuth: false
         ))
 
@@ -53,8 +85,8 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertTrue(session.isConnected)
         XCTAssertEqual(session.serverName, "Codex")
 
-        let signedIn = session.applyAccount(GetAccountResponse(
-            account: Account(type: "chatgpt", email: "dev@example.com", planType: nil),
+        let signedIn = session.applyAccount(CodexSchemaGetAccountResponse(
+            account: account(type: "chatgpt", email: "dev@example.com"),
             requiresOpenAIAuth: true
         ))
         XCTAssertTrue(signedIn.shouldContinue)
@@ -62,7 +94,10 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(session.authLabel, "chatgpt · dev@example.com")
         XCTAssertTrue(session.isAuthenticated)
 
-        let required = session.applyAccount(GetAccountResponse(account: nil, requiresOpenAIAuth: true))
+        let required = session.applyAccount(CodexSchemaGetAccountResponse(
+            account: nil,
+            requiresOpenAIAuth: true
+        ))
         XCTAssertFalse(required.shouldContinue)
         XCTAssertEqual(required.activity?.title, "Authentication required")
         XCTAssertEqual(session.authLabel, "Sign-in required")
@@ -95,6 +130,38 @@ final class CodexSessionStateTests: XCTestCase {
         session.resetAuthentication()
         XCTAssertEqual(session.authLabel, "Checking auth")
         XCTAssertTrue(session.isAuthenticated)
+    }
+
+    func testAuthSessionAppliesCanonicalLiveAccountAndLogout() {
+        var session = CodexAuthSession()
+        let signedIn = CanonicalAccountState(
+            authMode: "chatgpt",
+            planType: "pro",
+            extensions: [
+                "account": .dictionary([
+                    "type": .string("chatgpt"),
+                    "email": .string("dev@example.com"),
+                ]),
+                "requiresOpenaiAuth": .bool(true),
+            ]
+        )
+
+        let result = session.applyCanonicalAccount(signedIn)
+        XCTAssertTrue(result.shouldContinue)
+        XCTAssertEqual(result.activity?.title, "Signed in")
+        XCTAssertEqual(session.authLabel, "chatgpt · dev@example.com")
+        XCTAssertTrue(session.isAuthenticated)
+        XCTAssertNil(session.applyCanonicalAccount(signedIn).activity)
+
+        let signedOut = CanonicalAccountState(extensions: [
+            "account": .null,
+            "requiresOpenaiAuth": .bool(true),
+        ])
+        let logout = session.applyCanonicalAccount(signedOut)
+        XCTAssertFalse(logout.shouldContinue)
+        XCTAssertEqual(logout.activity?.title, "Authentication required")
+        XCTAssertEqual(session.authLabel, "Sign-in required")
+        XCTAssertFalse(session.isAuthenticated)
     }
 
     func testComposerStateSessionScopesDraftByActiveThread() throws {

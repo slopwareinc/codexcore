@@ -147,23 +147,3 @@ public struct CodexNetworkPolicyAmendment: Codable, Sendable, Equatable {
         self.init(action: action, host: host)
     }
 }
-
-/// How the SDK answers escalated server requests (approvals and user-input
-/// questions) when the host has not installed a custom `serverRequestHandler`.
-public enum CodexApprovalPolicy: Sendable, Equatable {
-    /// Approve every escalated request immediately. This preserves the historic
-    /// SDK behavior and suits trusted/headless automation. Prefer shaping the
-    /// policy server-side via `ApprovalMode` on `threadStart` so the server
-    /// only escalates what you intend to allow.
-    case autoApprove
-    /// Decline every escalated request immediately.
-    case autoDecline
-    /// Publish the request to the store (`pendingApprovals` / `pendingUserInputs`)
-    /// and suspend the JSON-RPC reply until the host resolves it via
-    /// `resolveApproval(requestId:decision:)` / `resolveUserInput(requestId:answers:)`.
-    case ask
-}
-
-/// Answers for an `item/tool/requestUserInput` server request, keyed by
-/// question id. Each question can carry multiple answer strings.
-public typealias CodexUserInputAnswers = [String: [String]]

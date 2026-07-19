@@ -90,13 +90,13 @@ public struct CodexThreadListSession: Sendable {
             let currentSpan = trace?.begin("threadList.currentWorkspace.read", metadata: ["limit": "50"])
             let currentRaw: CodexJSONValue
             do {
-                currentRaw = try CodexJSONValue(encoding: await codex.threadListSchema(CodexSchemaThreadListParams(
+                currentRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
                     archived: false,
                     cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
                     limit: 50,
                     sortDirection: .desc,
                     sortKey: .recencyAt
-                )))
+                ))))
                 currentSpan?.end(metadata: ["outcome": "success"])
             } catch {
                 currentSpan?.end(metadata: ["outcome": "failure", "error": Self.errorType(error)])
@@ -106,12 +106,12 @@ public struct CodexThreadListSession: Sendable {
             let allSpan = trace?.begin("threadList.all.read", metadata: ["limit": "100"])
             let allRaw: CodexJSONValue
             do {
-                allRaw = try CodexJSONValue(encoding: await codex.threadListSchema(CodexSchemaThreadListParams(
+                allRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
                     archived: false,
                     limit: 100,
                     sortDirection: .desc,
                     sortKey: .recencyAt
-                )))
+                ))))
                 allSpan?.end(metadata: ["outcome": "success"])
             } catch {
                 allSpan?.end(metadata: ["outcome": "failure", "error": Self.errorType(error)])
@@ -177,7 +177,14 @@ public struct CodexThreadListSession: Sendable {
 
         beginSearch()
         do {
-            let raw = try CodexJSONValue(encoding: await codex.threadSearch(searchTerm: searchTerm, limit: 25))
+            let response = try await codex.perform(CodexRequest.threadSearch(.init(
+                archived: false,
+                limit: 25,
+                searchTerm: searchTerm,
+                sortDirection: .desc,
+                sortKey: .recencyAt
+            )))
+            let raw = try CodexJSONValue(encoding: response)
             let count = applySearchResults(from: raw)
             return CodexThreadListActivity(title: "Searched chats", detail: "\(count) matches for \(searchTerm)")
         } catch {

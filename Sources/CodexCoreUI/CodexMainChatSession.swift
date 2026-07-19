@@ -1,5 +1,4 @@
 import Foundation
-import CodexCore
 
 public struct CodexMainChatUpdate: Equatable, Sendable {
     public var actions: [CodexMainChatAction]
@@ -11,30 +10,14 @@ public struct CodexMainChatUpdate: Equatable, Sendable {
 
 public enum CodexMainChatAction: Equatable, Sendable {
     case activity(kind: CodexActivity.Kind, title: String, detail: String)
-    case assistantMessageCompleted(String)
-    case subagentItemStarted(ThreadItem)
-    case subagentItemCompleted(ThreadItem)
-    case goalUpdated(goal: ThreadGoal, turnID: String?)
-    case goalCleared(threadID: String?)
     case refreshRecentChats
     case flushQueuedFollowUps
 }
 
-public struct CodexAgentMessageDeltaRoute: Equatable, Sendable {
-    public var itemID: String
-    public var delta: String
-
-    public init(itemID: String, delta: String) {
-        self.itemID = itemID
-        self.delta = delta
-    }
-}
-
+/// UI-local optimistic state for composer submission. Protocol-derived plan,
+/// diff, activity and completion state come from the canonical projection.
 public struct CodexMainChatSession: Sendable {
     private var turnLifecycle: CodexTurnLifecycleSession
-    public private(set) var currentPlan: [TurnPlanStep] = []
-    public private(set) var currentPlanExplanation: String?
-    public private(set) var currentDiff: String?
 
     public var isSending: Bool {
         turnLifecycle.isSending
@@ -44,8 +27,8 @@ public struct CodexMainChatSession: Sendable {
         turnLifecycle.activeTurnID
     }
 
-    public var activeTurn: CodexTurnHandle? {
-        turnLifecycle.activeTurn
+    public var canSteer: Bool {
+        turnLifecycle.canSteer
     }
 
     public init(
@@ -55,7 +38,6 @@ public struct CodexMainChatSession: Sendable {
     }
 
     public mutating func reset() {
-        currentPlan = []; currentPlanExplanation = nil; currentDiff = nil
         turnLifecycle.reset()
     }
 
@@ -109,75 +91,8 @@ public struct CodexMainChatSession: Sendable {
         turnLifecycle.start(turnID: turnID)
     }
 
-    public mutating func start(_ handle: CodexTurnHandle) {
-        turnLifecycle.start(handle)
-    }
-
     public mutating func failToStart() {
         turnLifecycle.failToStart()
-    }
-
-    public func isCompletion(_ notification: CodexNotification) -> Bool {
-        turnLifecycle.isCompletion(notification)
-    }
-
-    public static func agentMessageDelta(from notification: CodexNotification) -> CodexAgentMessageDeltaRoute? {
-        guard case .agentMessageDelta(let delta) = notification.payload else { return nil }
-        return CodexAgentMessageDeltaRoute(itemID: delta.itemId, delta: delta.delta)
-    }
-
-    public mutating func apply(
-        _ notification: CodexNotification,
-        turnSnapshot: CodexTurnSnapshot?,
-        isSubagentItem: (ThreadItem) -> Bool
-    ) -> CodexMainChatUpdate? {
-        switch notification.payload {
-        case .itemStarted(let payload):
-            if isSubagentItem(payload.item) {
-                return CodexMainChatUpdate(actions: [.subagentItemStarted(payload.item)])
-            }
-            return activity(.tool, title: "Working", detail: CodexNotificationPresentation.itemTypeTitle(payload.item.type))
-
-        case .itemCompleted(let payload):
-            if isSubagentItem(payload.item) {
-                return CodexMainChatUpdate(actions: [.subagentItemCompleted(payload.item)])
-            }
-            return activity(.tool, title: CodexNotificationPresentation.itemTypeTitle(payload.item.type), detail: "Completed")
-
-        case .threadTokenUsageUpdated(let payload):
-            return activity(.token, title: "Token usage updated", detail: CodexNotificationPresentation.tokenUsageSummary(payload.tokenUsage))
-
-        case .turnStarted:
-            syncTurnChrome(from: turnSnapshot, resetWhenMissing: true)
-            return activity(.turn, title: "Codex is working", detail: "Turn started")
-
-        case .turnCompleted(let payload):
-            syncTurnChrome(from: turnSnapshot)
-            return finishActiveTurn(id: payload.turn.id)
-
-        case .threadGoalUpdated(let payload):
-            return CodexMainChatUpdate(actions: [.goalUpdated(goal: payload.goal, turnID: payload.turnId)])
-
-        case .threadGoalCleared(let payload):
-            return CodexMainChatUpdate(actions: [.goalCleared(threadID: payload.threadId)])
-
-        case .accountLoginCompleted:
-            return activity(.login, title: "Login completed", detail: "Authentication updated")
-
-        case .known(let method, let params):
-            if method == .turnCompleted {
-                let turnID = CodexNotificationMetadata.turnID(from: params)
-                syncTurnChrome(from: turnSnapshot)
-                return finishActiveTurn(id: turnID)
-            }
-            return activity(.notice, title: CodexNotificationPresentation.methodTitle(method.rawValue), detail: "App-server notification")
-
-        case .unknown(let method, _):
-            return activity(.notice, title: CodexNotificationPresentation.methodTitle(method), detail: "Notification")
-
-        default:
-            return nil
-        }
     }
 
     @discardableResult
@@ -188,20 +103,6 @@ public struct CodexMainChatSession: Sendable {
             .refreshRecentChats,
             .flushQueuedFollowUps
         ])
-    }
-
-    private mutating func syncTurnChrome(from snapshot: CodexTurnSnapshot?, resetWhenMissing: Bool = false) {
-        if let snapshot {
-            currentPlan = snapshot.plan ?? []
-            currentPlanExplanation = snapshot.planExplanation
-            currentDiff = snapshot.diff
-        } else if resetWhenMissing {
-            currentPlan = []; currentPlanExplanation = nil; currentDiff = nil
-        }
-    }
-
-    private func activity(_ kind: CodexActivity.Kind, title: String, detail: String) -> CodexMainChatUpdate {
-        CodexMainChatUpdate(actions: [.activity(kind: kind, title: title, detail: detail)])
     }
 
 }
