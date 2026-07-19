@@ -225,6 +225,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         else { return false }
         return abs(imageRect.midY - actionButton.bounds.midY) <= 1
     }
+    var workHeaderTitleAndDisclosureGapForTesting: CGFloat? {
+        guard actionButton.image != nil,
+              let cell = actionButton.cell as? NSButtonCell
+        else { return nil }
+        let titleRect = cell.titleRect(forBounds: actionButton.bounds)
+        let imageRect = cell.imageRect(forBounds: actionButton.bounds)
+        return imageRect.minX - titleRect.maxX
+    }
     var textUsedHeightForTesting: CGFloat {
         guard let layoutManager = selectableTextView.layoutManager,
               let textContainer = selectableTextView.textContainer else { return 0 }
@@ -528,6 +536,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             actionButton.image = Self.workHeaderDisclosureImage(header)
             actionButton.imagePosition = .imageTrailing
             actionButton.imageScaling = .scaleProportionallyDown
+            actionButton.imageHugsTitle = true
             actionButton.isEnabled = item.action != nil
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
         } else if let row = item.workRow {
@@ -651,6 +660,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             copyButton.frame = NSRect(x: contentFrame.maxX - 30, y: contentFrame.maxY - 28, width: 26, height: 24)
         } else if !item.agentChips.isEmpty {
             layoutAgentChips(item.agentChips, in: contentFrame, theme: theme)
+        } else if item.workHeader != nil {
+            let titleWidth = ceil((actionButton.title as NSString).size(
+                withAttributes: [.font: actionButton.font ?? theme.captionFont]
+            ).width)
+            actionButton.frame = NSRect(
+                x: contentFrame.minX,
+                y: contentFrame.minY,
+                width: min(contentFrame.width, titleWidth + (actionButton.image == nil ? 8 : 24)),
+                height: contentFrame.height
+            )
         } else if let row = item.workRow {
             chipBackground.frame = contentFrame
             let rowMidY = contentFrame.height / 2

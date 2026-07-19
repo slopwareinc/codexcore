@@ -105,6 +105,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.chipLabelForTesting.contains("Running swift test"))
         #expect(cell.chipIconDescriptionForTesting == "In progress")
         #expect(cell.workRowStatusForTesting == "running")
+        #expect(row.indentation == 0)
         #expect(!cell.workRowBackgroundIsVisibleForTesting)
         #expect(!cell.chipIsActionableForTesting)
         #expect(row.bottomSpacing == 8)
@@ -270,6 +271,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         let panel = try #require(snapshot.itemsByID.values.first { $0.diffPanel != nil })
         let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange })
         #expect(panel.indentation == row.indentation)
+        #expect(panel.indentation == 0)
+        #expect(row.bottomSpacing == 2)
         var action: CodexTranscriptRenderAction?
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
@@ -311,6 +314,9 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         cell.view.layoutSubtreeIfNeeded()
         #expect(cell.workHeaderHasAlignedDisclosureForTesting)
+        let gap = try #require(cell.workHeaderTitleAndDisclosureGapForTesting)
+        #expect(gap >= 0)
+        #expect(gap <= 8)
     }
 
     @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {

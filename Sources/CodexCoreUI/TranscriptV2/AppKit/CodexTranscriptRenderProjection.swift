@@ -485,7 +485,7 @@ actor CodexTranscriptRenderProjector {
                             preparedText: headerText,
                             accessibilityLabel: groupHeader,
                             maxWidthKind: .card,
-                            fixedHeight: 28
+                            fixedHeight: 24
                         ))
                         let agentChips = rows.compactMap { row -> CodexTranscriptAgentChipRender? in
                             guard case .collabAgent(let agent) = row else { return nil }
@@ -539,10 +539,12 @@ actor CodexTranscriptRenderProjector {
                                     ?? (detail == nil ? nil : .toggleRow(rowID: rowID)),
                                 copyText: detail,
                                 accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
-                                indentation: 12,
+                                indentation: 0,
                                 maxWidthKind: .card,
                                 fixedHeight: 30,
-                                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                                bottomSpacing: rowRender.isExpanded
+                                    ? 2
+                                    : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                             ))
                             if presentation.expandedRowIDs.contains(rowID),
                                let diffFiles,
@@ -567,7 +569,7 @@ actor CodexTranscriptRenderProjector {
                                     ),
                                     copyText: Self.patchText(for: selectedFile),
                                     accessibilityLabel: "Patch for \(selectedFile.path), \(selectedFile.added) additions and \(selectedFile.removed) removals",
-                                    indentation: 12,
+                                    indentation: 0,
                                     maxWidthKind: .card,
                                     fixedHeight: CodexTranscriptColumnMetrics.diffPanelHeight,
                                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
@@ -582,7 +584,7 @@ actor CodexTranscriptRenderProjector {
                                     preparedText: Self.preparePlain(bounded, font: theme.codeFont, color: theme.textSecondary, theme: theme),
                                     copyText: detail,
                                     accessibilityLabel: "Expanded output: \(bounded)",
-                                    indentation: 12,
+                                    indentation: 0,
                                     maxWidthKind: .card,
                                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
                                     isScrollableOutput: true
