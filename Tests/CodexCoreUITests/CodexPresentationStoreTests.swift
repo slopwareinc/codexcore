@@ -124,6 +124,7 @@ struct CodexPresentationStoreTests {
         store.updateScrollState(threadID: "thread", rawOffset: 417, isPinnedToBottom: false)
         store.setWorkExpanded(true, turnID: "turn", threadID: "thread")
         store.setRowExpanded(true, rowID: "answer", threadID: "thread")
+        store.selectDiffFile(index: 2, rowID: "diff", threadID: "thread")
 
         store.select(threadID: "warm-neighbor")
         store.select(threadID: "thread")
@@ -133,6 +134,7 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.presentedAtByTurnID["turn"] == firstPresentedAt)
         #expect(store.activePresentation?.expandedWorkTurnIDs == ["turn"])
         #expect(store.activePresentation?.expandedRowIDs == ["answer"])
+        #expect(store.activePresentation?.selectedDiffFileIndexByRowID == ["diff": 2])
 
         for index in 0..<12 {
             store.select(threadID: ThreadID("other-\(index)"))
@@ -150,6 +152,7 @@ struct CodexPresentationStoreTests {
         // eviction is proven by the reset scroll/expansion state above.
         #expect(store.activePresentation?.expandedWorkTurnIDs.isEmpty == true)
         #expect(store.activePresentation?.expandedRowIDs.isEmpty == true)
+        #expect(store.activePresentation?.selectedDiffFileIndexByRowID.isEmpty == true)
     }
 }
 

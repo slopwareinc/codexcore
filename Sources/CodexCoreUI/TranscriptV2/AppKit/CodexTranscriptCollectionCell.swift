@@ -154,10 +154,18 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private let chipIconView = NSImageView()
     private let chipLabel = CodexShimmerTextField(frame: .zero)
     private let chipDurationLabel = NSTextField(labelWithString: "")
+    private let chipStatusLabel = NSTextField(labelWithString: "")
     private let chipDisclosureView = NSImageView()
     private let agentChipContainer = NSView()
-    private var agentChipButtons: [NSButton] = []
-    private var agentThreadIDByButton: [ObjectIdentifier: String] = [:]
+    private var agentChipHosts: [NSHostingView<AnyView>] = []
+    private var configuredAgentChips: [CodexTranscriptAgentChipRender] = []
+    private var agentPreviewPopover: NSPopover?
+    private var agentPreviewCloseTask: DispatchWorkItem?
+    private var pointerIsInsideAgentPreview = false
+    private let diffTabContainer = NSView()
+    private var diffTabButtons: [NSButton] = []
+    private let diffSelectedUnderline = NSView()
+    private var glassBackgroundView: NSHostingView<AnyView>?
     private let approvalAllowButton = NSButton(title: "Allow", target: nil, action: nil)
     private let approvalDenyButton = NSButton(title: "Deny", target: nil, action: nil)
     private let footerTimestampLabel = NSTextField(labelWithString: "")
@@ -168,6 +176,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var hostedView: NSView?
     private var item: CodexTranscriptRenderItem?
     private var appKitTheme: CodexTranscriptAppKitTheme?
+    private var swiftUITheme = CodexAgentTheme.officialDark
     private var contentHorizontalOffset: CGFloat = 0
     private var performAction: ((CodexTranscriptRenderAction) -> Void)?
     private var copy: ((String) -> Void)?
@@ -198,7 +207,24 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var textViewportHeightForTesting: CGFloat { textScrollView.contentSize.height }
     var textDocumentHeightForTesting: CGFloat { selectableTextView.frame.height }
     var hasVerticalScrollerForTesting: Bool { textScrollView.hasVerticalScroller }
-    var agentChipCountForTesting: Int { agentChipButtons.count }
+    var agentChipCountForTesting: Int { agentChipHosts.count }
+    var agentChipTitlesForTesting: [String] {
+        configuredAgentChips.map { "\($0.label) · \(Self.agentStatusTitle($0.status).lowercased())" }
+    }
+    var agentPillsUseGlassForTesting: Bool { !agentChipHosts.isEmpty }
+    var workRowStatusForTesting: String { chipStatusLabel.stringValue }
+    var workRowBackgroundIsVisibleForTesting: Bool {
+        guard let color = chipBackground.layer?.backgroundColor else { return false }
+        return NSColor(cgColor: color)?.alphaComponent ?? 0 > 0.01
+    }
+    var glassPanelIsVisibleForTesting: Bool { glassBackgroundView != nil }
+    var diffTabCountForTesting: Int { diffTabButtons.count }
+    var workHeaderHasAlignedDisclosureForTesting: Bool {
+        guard actionButton.image != nil,
+              let imageRect = (actionButton.cell as? NSButtonCell)?.imageRect(forBounds: actionButton.bounds)
+        else { return false }
+        return abs(imageRect.midY - actionButton.bounds.midY) <= 1
+    }
     var textUsedHeightForTesting: CGFloat {
         guard let layoutManager = selectableTextView.layoutManager,
               let textContainer = selectableTextView.textContainer else { return 0 }
@@ -215,8 +241,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func allowApprovalForTesting() { allowApproval() }
     func denyApprovalForTesting() { denyApproval() }
     func openAgentChipForTesting(at index: Int) {
-        guard agentChipButtons.indices.contains(index) else { return }
-        openAgentChip(agentChipButtons[index])
+        guard configuredAgentChips.indices.contains(index),
+              let threadID = configuredAgentChips[index].threadID else { return }
+        performAction?(.openSubagent(threadID: threadID))
+    }
+    func agentPreviewForTesting(at index: Int) -> CodexTranscriptAgentChipRender? {
+        configuredAgentChips.indices.contains(index) ? configuredAgentChips[index] : nil
+    }
+    func selectDiffTabForTesting(at index: Int) {
+        guard diffTabButtons.indices.contains(index) else { return }
+        selectDiffTab(diffTabButtons[index])
     }
 
     override func loadView() {
@@ -242,10 +276,17 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipBackground.addSubview(chipIconView)
         chipBackground.addSubview(chipLabel)
         chipBackground.addSubview(chipDurationLabel)
+        chipBackground.addSubview(chipStatusLabel)
         chipBackground.addSubview(chipDisclosureView)
 
         agentChipContainer.isHidden = true
         view.addSubview(agentChipContainer)
+
+        diffTabContainer.wantsLayer = true
+        diffTabContainer.isHidden = true
+        diffSelectedUnderline.wantsLayer = true
+        diffTabContainer.addSubview(diffSelectedUnderline)
+        view.addSubview(diffTabContainer)
 
         approvalAllowButton.target = self
         approvalAllowButton.action = #selector(allowApproval)
@@ -321,10 +362,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         lastReportedPreferredHeight = nil
         hostedView?.removeFromSuperview()
         hostedView = nil
+        clearGlassBackground()
+        clearDiffTabs()
+        closeAgentPreview()
         selectableTextView.string = ""
         selectableTextView.isSelectable = false
         textScrollView.isHidden = true
         actionButton.isHidden = true
+        actionButton.image = nil
         copyButton.isHidden = true
         codeHeaderView.isHidden = true
         chipBackground.isHidden = true
@@ -332,6 +377,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipBackground.layer?.borderWidth = 0
         chipLabel.stopShimmer()
         chipDurationLabel.stringValue = ""
+        chipStatusLabel.stringValue = ""
         chipDisclosureView.image = nil
         approvalAllowButton.isHidden = true
         approvalDenyButton.isHidden = true
@@ -369,6 +415,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if !preservesIdentity { lastReportedPreferredHeight = nil }
         self.item = item
         self.appKitTheme = appKitTheme
+        self.swiftUITheme = swiftUITheme
         self.contentHorizontalOffset = contentHorizontalOffset
         self.performAction = performAction
         self.copy = copy
@@ -378,9 +425,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.preferredHeightChanged = preferredHeightChanged
         hostedView?.removeFromSuperview()
         hostedView = nil
+        clearGlassBackground()
+        clearDiffTabs()
+        closeAgentPreview()
         backgroundView.isHidden = true
         textScrollView.isHidden = true
         actionButton.isHidden = true
+        actionButton.image = nil
         copyButton.isHidden = true
         codeHeaderView.isHidden = true
         chipBackground.isHidden = true
@@ -388,6 +439,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipBackground.layer?.borderWidth = 0
         chipLabel.stopShimmer()
         chipDurationLabel.stringValue = ""
+        chipStatusLabel.stringValue = ""
         chipDisclosureView.image = nil
         approvalAllowButton.isHidden = true
         approvalDenyButton.isHidden = true
@@ -407,6 +459,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             configureApproval(approval, item: item, theme: appKitTheme)
         } else if let directive = item.directive {
             configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
+        } else if let diffPanel = item.diffPanel {
+            configureDiffPanel(
+                diffPanel,
+                item: item,
+                theme: appKitTheme,
+                swiftUITheme: swiftUITheme,
+                preserving: selectionToRestore
+            )
         } else if let code = item.code {
             textScrollView.isHidden = false
             textScrollView.hasHorizontalScroller = true
@@ -432,6 +492,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             codeLanguageLabel.font = appKitTheme.captionFont
             codeLanguageLabel.textColor = appKitTheme.codeFaint
             copyButton.isHidden = false
+            if item.isScrollableOutput {
+                backgroundView.isHidden = true
+                installGlassBackground(theme: swiftUITheme)
+            }
         } else if let preparedText = item.preparedText {
             textScrollView.isHidden = false
             textScrollView.hasHorizontalScroller = false
@@ -450,18 +514,27 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 backgroundView.isHidden = false
             }
             copyButton.isHidden = item.textRole != .expandedOutput
+            if item.isScrollableOutput {
+                backgroundView.isHidden = true
+                installGlassBackground(theme: swiftUITheme)
+            }
         } else if !item.agentChips.isEmpty {
-            configureAgentChips(item.agentChips, theme: appKitTheme)
+            configureAgentChips(item.agentChips, theme: appKitTheme, swiftUITheme: swiftUITheme)
         } else if let header = item.workHeader {
             actionButton.isHidden = false
             actionButton.font = appKitTheme.captionFont
             actionButton.contentTintColor = appKitTheme.textTertiary
             actionButton.title = Self.workHeaderTitle(header, at: Date())
+            actionButton.image = Self.workHeaderDisclosureImage(header)
+            actionButton.imagePosition = .imageTrailing
+            actionButton.imageScaling = .scaleProportionallyDown
             actionButton.isEnabled = item.action != nil
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
         } else if let row = item.workRow {
             chipBackground.isHidden = false
-            chipBackground.layer?.cornerRadius = appKitTheme.cardRadius
+            chipBackground.layer?.cornerRadius = 0
+            chipBackground.layer?.backgroundColor = NSColor.clear.cgColor
+            chipBackground.layer?.borderWidth = 0
             chipIconView.image = NSImage(
                 systemSymbolName: Self.chipIconName(row),
                 accessibilityDescription: Self.chipIconAccessibilityDescription(row)
@@ -474,6 +547,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipDurationLabel.stringValue = row.durationMs.map(CodexWorkBlockViewV2.duration) ?? ""
             chipDurationLabel.font = appKitTheme.microFont
             chipDurationLabel.textColor = appKitTheme.textTertiary
+            chipStatusLabel.stringValue = Self.workStatusTitle(row.status)
+            chipStatusLabel.font = appKitTheme.captionFont
+            chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
             actionButton.isHidden = !row.isActionable
@@ -481,7 +557,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             actionButton.title = ""
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
             (view as? CodexTranscriptHoverView)?.usesPointingHand = row.isActionable
-            updateChipAppearance()
         } else if let productTool = item.productTool {
             if let rendered = productToolRenderer?.render(productTool) {
                 let hosting = NSHostingView(rootView: AnyView(rendered.codexAgentTheme(swiftUITheme)))
@@ -526,6 +601,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         backgroundView.layer?.backgroundColor = Self.backgroundColor(item: item, theme: theme).cgColor
         backgroundView.layer?.borderColor = Self.borderColor(item: item, theme: theme).cgColor
         backgroundView.layer?.borderWidth = backgroundView.isHidden ? 0 : 1
+        glassBackgroundView?.frame = contentFrame
 
         if item.footer != nil {
             layoutFooter(in: contentFrame, trailing: item.isTrailingAligned)
@@ -533,6 +609,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             layoutApproval(in: contentFrame)
         } else if let directive = item.directive {
             layoutDirective(directive, item: item, in: contentFrame)
+        } else if let diffPanel = item.diffPanel {
+            layoutDiffPanel(diffPanel, in: contentFrame)
         } else if item.code != nil {
             let headerHeight: CGFloat = 32
             codeHeaderView.frame = NSRect(
@@ -570,28 +648,43 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             layoutAgentChips(item.agentChips, in: contentFrame, theme: theme)
         } else if let row = item.workRow {
             chipBackground.frame = contentFrame
-            let iconSize: CGFloat = 16
-            chipIconView.frame = NSRect(x: 8, y: contentFrame.midY - iconSize / 2, width: iconSize, height: iconSize)
+            let rowMidY = contentFrame.height / 2
+            let disclosureWidth: CGFloat = row.isActionable ? 14 : 0
+            chipDisclosureView.frame = NSRect(
+                x: 0,
+                y: rowMidY - 7,
+                width: disclosureWidth,
+                height: 14
+            )
+            let iconSize: CGFloat = 15
+            let iconX = disclosureWidth > 0 ? disclosureWidth + 6 : 0
+            chipIconView.frame = NSRect(x: iconX, y: rowMidY - iconSize / 2, width: iconSize, height: iconSize)
+
+            chipStatusLabel.sizeToFit()
+            chipDurationLabel.sizeToFit()
+            let statusWidth = chipStatusLabel.frame.width
             chipDurationLabel.sizeToFit()
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
-            let disclosureWidth: CGFloat = row.isActionable ? 16 : 0
-            chipDisclosureView.frame = NSRect(
-                x: contentFrame.width - 8 - disclosureWidth,
-                y: contentFrame.midY - 8,
-                width: disclosureWidth,
-                height: 16
+            let labelX = iconX + iconSize + 8
+            let trailingWidth = statusWidth + (durationWidth > 0 ? durationWidth + 10 : 0)
+            let naturalLabelWidth = ceil((chipLabel.stringValue as NSString).size(
+                withAttributes: [.font: chipLabel.font ?? theme.captionFont]
+            ).width)
+            let labelWidth = min(
+                naturalLabelWidth,
+                max(20, contentFrame.width - labelX - trailingWidth - 20)
             )
+            chipLabel.frame = NSRect(x: labelX, y: rowMidY - 10, width: labelWidth, height: 20)
             chipDurationLabel.frame = NSRect(
-                x: chipDisclosureView.frame.minX - (durationWidth > 0 ? durationWidth + 8 : 0),
-                y: contentFrame.midY - 9,
+                x: chipLabel.frame.maxX + (durationWidth > 0 ? 10 : 0),
+                y: rowMidY - 9,
                 width: durationWidth,
                 height: 18
             )
-            let labelX: CGFloat = 32
-            chipLabel.frame = NSRect(
-                x: labelX,
-                y: contentFrame.midY - 10,
-                width: max(20, chipDurationLabel.frame.minX - labelX - 8),
+            chipStatusLabel.frame = NSRect(
+                x: (durationWidth > 0 ? chipDurationLabel.frame.maxX : chipLabel.frame.maxX) + 10,
+                y: rowMidY - 10,
+                width: statusWidth,
                 height: 20
             )
             actionButton.frame = contentFrame
@@ -850,9 +943,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func updateChipAppearance() {
-        guard let theme = appKitTheme, let row = item?.workRow else { return }
-        let alpha: CGFloat = row.isActionable && isHovered ? 0.9 : 0.45
-        chipBackground.layer?.backgroundColor = theme.surfaceSunken.withAlphaComponent(alpha).cgColor
+        guard item?.workRow != nil else { return }
+        chipBackground.layer?.backgroundColor = NSColor.clear.cgColor
+        chipBackground.layer?.borderWidth = 0
     }
 
     private func updateFooterChromeVisibility() {
@@ -950,30 +1043,139 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         selectableTextView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
     }
 
-    private func configureAgentChips(
-        _ chips: [CodexTranscriptAgentChipRender],
+    private func installGlassBackground(theme: CodexAgentTheme) {
+        clearGlassBackground()
+        let surface = CodexTranscriptGlassSurface()
+            .codexAgentTheme(theme)
+        let host = NSHostingView(rootView: AnyView(surface))
+        host.setAccessibilityElement(false)
+        view.addSubview(host, positioned: .above, relativeTo: backgroundView)
+        glassBackgroundView = host
+    }
+
+    private func clearGlassBackground() {
+        glassBackgroundView?.removeFromSuperview()
+        glassBackgroundView = nil
+    }
+
+    private func configureDiffPanel(
+        _ panel: CodexTranscriptDiffPanelRender,
+        item: CodexTranscriptRenderItem,
+        theme: CodexTranscriptAppKitTheme,
+        swiftUITheme: CodexAgentTheme,
+        preserving selection: NSRange
+    ) {
+        installGlassBackground(theme: swiftUITheme)
+        configureDiffTabs(panel, theme: theme)
+        textScrollView.isHidden = false
+        textScrollView.hasHorizontalScroller = true
+        textScrollView.hasVerticalScroller = true
+        selectableTextView.isHorizontallyResizable = true
+        selectableTextView.textContainer?.widthTracksTextView = false
+        selectableTextView.configureLinkAppearance(theme: theme, automaticDetection: false)
+        selectableTextView.bind(
+            item.preparedText?.attributedString ?? NSAttributedString(),
+            accessibilityLabel: item.accessibilityLabel,
+            preserving: selection
+        )
+        copyButton.isHidden = false
+    }
+
+    private func configureDiffTabs(
+        _ panel: CodexTranscriptDiffPanelRender,
         theme: CodexTranscriptAppKitTheme
     ) {
-        clearAgentChips()
-        agentChipContainer.isHidden = false
-        for chip in chips {
-            let button = NSButton(title: chip.label, target: self, action: #selector(openAgentChip(_:)))
-            button.bezelStyle = .rounded
-            button.controlSize = .small
+        clearDiffTabs()
+        diffTabContainer.isHidden = false
+        diffSelectedUnderline.layer?.backgroundColor = theme.accent.cgColor
+        for (index, file) in panel.files.enumerated() {
+            let button = NSButton(title: (file.path as NSString).lastPathComponent, target: self, action: #selector(selectDiffTab(_:)))
+            button.tag = index
+            button.isBordered = false
+            button.bezelStyle = .inline
             button.font = theme.captionFont
-            button.image = NSImage(
-                systemSymbolName: "person.2.fill",
-                accessibilityDescription: Self.agentStatusDescription(chip.status)
-            )
-            button.imagePosition = .imageLeading
-            button.contentTintColor = Self.statusColor(chip.status, theme: theme)
-            button.isEnabled = chip.threadID != nil
-            button.setAccessibilityLabel("\(chip.label), \(Self.agentStatusDescription(chip.status))")
-            agentChipContainer.addSubview(button)
-            agentChipButtons.append(button)
-            if let threadID = chip.threadID {
-                agentThreadIDByButton[ObjectIdentifier(button)] = threadID
+            button.contentTintColor = index == panel.selectedFileIndex ? theme.textPrimary : theme.textTertiary
+            button.alignment = .center
+            button.lineBreakMode = .byTruncatingMiddle
+            button.setAccessibilityLabel("Show diff for \(file.path)")
+            diffTabContainer.addSubview(button)
+            diffTabButtons.append(button)
+        }
+        diffTabContainer.addSubview(diffSelectedUnderline, positioned: .above, relativeTo: nil)
+    }
+
+    private func clearDiffTabs() {
+        diffTabButtons.forEach { $0.removeFromSuperview() }
+        diffTabButtons.removeAll(keepingCapacity: true)
+        diffSelectedUnderline.removeFromSuperview()
+        diffTabContainer.isHidden = true
+    }
+
+    private func layoutDiffPanel(
+        _ panel: CodexTranscriptDiffPanelRender,
+        in contentFrame: NSRect
+    ) {
+        let headerHeight: CGFloat = 36
+        diffTabContainer.frame = NSRect(
+            x: contentFrame.minX,
+            y: contentFrame.maxY - headerHeight,
+            width: contentFrame.width,
+            height: headerHeight
+        )
+        let copyReserve: CGFloat = 42
+        let availableWidth = max(80, contentFrame.width - copyReserve)
+        let tabWidth = min(190, max(92, availableWidth / CGFloat(max(1, panel.files.count))))
+        var x: CGFloat = 8
+        for (index, button) in diffTabButtons.enumerated() {
+            let width = min(tabWidth, max(70, availableWidth - x))
+            button.frame = NSRect(x: x, y: 5, width: width, height: 28)
+            if index == panel.selectedFileIndex {
+                diffSelectedUnderline.frame = NSRect(x: x + 4, y: 1, width: max(12, width - 8), height: 2)
             }
+            x += width
+            if x >= availableWidth { break }
+        }
+        copyButton.frame = NSRect(x: contentFrame.maxX - 36, y: contentFrame.maxY - 32, width: 28, height: 26)
+        layoutSelectableText(
+            in: NSRect(
+                x: contentFrame.minX + 12,
+                y: 10,
+                width: contentFrame.width - 24,
+                height: max(40, contentFrame.height - headerHeight - 18)
+            ),
+            allowsHorizontalScrolling: true,
+            allowsVerticalScrolling: true
+        )
+    }
+
+    @objc private func selectDiffTab(_ sender: NSButton) {
+        guard let rowID = item?.diffPanel?.rowID else { return }
+        performAction?(.selectDiffFile(rowID: rowID, index: sender.tag))
+    }
+
+    private func configureAgentChips(
+        _ chips: [CodexTranscriptAgentChipRender],
+        theme: CodexTranscriptAppKitTheme,
+        swiftUITheme: CodexAgentTheme
+    ) {
+        clearAgentChips()
+        configuredAgentChips = chips
+        agentChipContainer.isHidden = false
+        for (index, chip) in chips.enumerated() {
+            let pill = CodexTranscriptAgentPill(
+                chip: chip,
+                onHover: { [weak self] hovered in
+                    self?.setAgentPreviewHover(hovered, index: index)
+                },
+                onOpen: { [weak self] in
+                    guard let threadID = chip.threadID else { return }
+                    self?.performAction?(.openSubagent(threadID: threadID))
+                }
+            )
+            let host = NSHostingView(rootView: AnyView(pill.codexAgentTheme(swiftUITheme)))
+            host.setAccessibilityLabel("\(chip.label), \(Self.agentStatusTitle(chip.status))")
+            agentChipContainer.addSubview(host)
+            agentChipHosts.append(host)
         }
     }
 
@@ -983,40 +1185,96 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         theme: CodexTranscriptAppKitTheme
     ) {
         agentChipContainer.frame = contentFrame
-        let height: CGFloat = 30
+        let height: CGFloat = 26
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var y = contentFrame.height - height
-        for (chip, button) in zip(chips, agentChipButtons) {
-            let labelWidth = ceil((chip.label as NSString).size(withAttributes: [.font: theme.captionFont]).width)
-            let width = min(contentFrame.width, max(76, labelWidth + 42))
+        for (chip, host) in zip(chips, agentChipHosts) {
+            let title = "\(chip.label) · \(Self.agentStatusTitle(chip.status).lowercased())"
+            let labelWidth = ceil((title as NSString).size(withAttributes: [.font: theme.captionFont]).width)
+            let width = min(contentFrame.width, max(74, labelWidth + 28))
             if x > 0, x + width > contentFrame.width {
                 x = 0
                 y -= height + gap
             }
-            button.frame = NSRect(x: x, y: max(0, y), width: width, height: height)
+            host.frame = NSRect(x: x, y: max(0, y), width: width, height: height)
             x += width + gap
         }
     }
 
     private func clearAgentChips() {
-        agentChipButtons.forEach { $0.removeFromSuperview() }
-        agentChipButtons.removeAll(keepingCapacity: true)
-        agentThreadIDByButton.removeAll(keepingCapacity: true)
+        agentChipHosts.forEach { $0.removeFromSuperview() }
+        agentChipHosts.removeAll(keepingCapacity: true)
+        configuredAgentChips.removeAll(keepingCapacity: true)
         agentChipContainer.isHidden = true
     }
 
-    private static func agentStatusDescription(_ status: CodexWorkItemStatusV2) -> String {
+    private static func agentStatusTitle(_ status: CodexAgentDisplayStatusV2) -> String {
         switch status {
-        case .inProgress: "Working"
-        case .completed: "Finished"
+        case .starting: "Starting"
+        case .working: "Working"
+        case .done: "Done"
         case .failed: "Failed"
+        case .closed: "Closed"
         }
     }
 
-    @objc private func openAgentChip(_ sender: NSButton) {
-        guard let threadID = agentThreadIDByButton[ObjectIdentifier(sender)] else { return }
-        performAction?(.openSubagent(threadID: threadID))
+    private func setAgentPreviewHover(_ hovered: Bool, index: Int) {
+        agentPreviewCloseTask?.cancel()
+        guard hovered else {
+            scheduleAgentPreviewClose()
+            return
+        }
+        guard configuredAgentChips.indices.contains(index),
+              agentChipHosts.indices.contains(index),
+              view.window != nil else { return }
+        showAgentPreview(configuredAgentChips[index], relativeTo: agentChipHosts[index])
+    }
+
+    private func showAgentPreview(
+        _ chip: CodexTranscriptAgentChipRender,
+        relativeTo anchor: NSView
+    ) {
+        closeAgentPreview()
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.animates = true
+        let preview = CodexTranscriptAgentHoverPreview(
+            chip: chip,
+            onHover: { [weak self] hovered in
+                self?.pointerIsInsideAgentPreview = hovered
+                if !hovered { self?.scheduleAgentPreviewClose() }
+            },
+            onOpen: { [weak self] in
+                guard let threadID = chip.threadID else { return }
+                self?.performAction?(.openSubagent(threadID: threadID))
+                self?.closeAgentPreview()
+            }
+        )
+        popover.contentViewController = NSHostingController(
+            rootView: AnyView(preview.codexAgentTheme(swiftUITheme))
+        )
+        let hasDetails = chip.taskSummary != nil || chip.latestUpdate != nil
+        popover.contentSize = NSSize(width: 300, height: hasDetails ? 142 : 92)
+        agentPreviewPopover = popover
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+    }
+
+    private func scheduleAgentPreviewClose() {
+        let task = DispatchWorkItem { [weak self] in
+            guard let self, !self.pointerIsInsideAgentPreview else { return }
+            self.closeAgentPreview()
+        }
+        agentPreviewCloseTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: task)
+    }
+
+    private func closeAgentPreview() {
+        agentPreviewCloseTask?.cancel()
+        agentPreviewCloseTask = nil
+        agentPreviewPopover?.close()
+        agentPreviewPopover = nil
+        pointerIsInsideAgentPreview = false
     }
 
     func updateWorkingHeader(at date: Date) {
@@ -1136,10 +1394,19 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .working(let startedAt, let showsDuration):
             return showsDuration ? "Working for \(max(0, Int(date.timeIntervalSince(startedAt))))s" : "Thinking"
         case .done(let durationMs, let isExpanded):
-            return "\(CodexWorkBlockViewV2.completedLabel(durationMs))  \(isExpanded ? "⌄" : "›")"
+            _ = isExpanded
+            return CodexWorkBlockViewV2.completedLabel(durationMs)
         case .failed(let message):
             return message.isEmpty ? "Work failed" : message
         }
+    }
+
+    private static func workHeaderDisclosureImage(_ header: CodexTranscriptWorkHeaderRender) -> NSImage? {
+        guard case .done(_, let isExpanded) = header.state else { return nil }
+        return NSImage(
+            systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+            accessibilityDescription: isExpanded ? "Collapse work" : "Expand work"
+        )
     }
 
     private static func workRowTitle(
@@ -1197,6 +1464,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
     }
 
+    private static func workStatusTitle(_ status: CodexWorkItemStatusV2) -> String {
+        switch status {
+        case .inProgress: "running"
+        case .completed: "finished"
+        case .failed: "failed"
+        }
+    }
+
     private static func paragraphStyle(_ theme: CodexTranscriptAppKitTheme) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = theme.lineSpacing
@@ -1211,5 +1486,161 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
     private static func borderColor(item: CodexTranscriptRenderItem, theme: CodexTranscriptAppKitTheme) -> NSColor {
         item.textRole == .user ? theme.userBubbleStroke : theme.border
+    }
+}
+
+private struct CodexTranscriptGlassSurface: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    var body: some View {
+        Color.clear
+            .codexGlass(
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous),
+                tint: theme.colors.surface.opacity(0.34)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(theme.colors.borderStrong.opacity(0.58), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+    }
+}
+
+private struct CodexTranscriptAgentPill: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let chip: CodexTranscriptAgentChipRender
+    let onHover: (Bool) -> Void
+    let onOpen: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 6, height: 6)
+            Text(chip.label)
+                .foregroundStyle(theme.colors.textPrimary)
+            Text("· \(statusTitle.lowercased())")
+                .foregroundStyle(theme.colors.textSecondary)
+        }
+        .font(theme.fonts.caption)
+        .lineLimit(1)
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+        .contentShape(Capsule())
+        .codexGlass(Capsule(), tint: statusColor.opacity(0.055), interactive: chip.threadID != nil)
+        .overlay {
+            Capsule().stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1)
+        }
+        .onTapGesture(perform: onOpen)
+        .onHover(perform: onHover)
+        .help("\(chip.label) — \(statusTitle)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(chip.label), \(statusTitle)")
+        .accessibilityAddTraits(chip.threadID == nil ? [] : .isButton)
+    }
+
+    private var statusTitle: String {
+        switch chip.status {
+        case .starting: "Starting"
+        case .working: "Working"
+        case .done: "Done"
+        case .failed: "Failed"
+        case .closed: "Closed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch chip.status {
+        case .starting: theme.colors.warning
+        case .working: theme.colors.running
+        case .done: theme.colors.success
+        case .failed: theme.colors.danger
+        case .closed: theme.colors.textTertiary
+        }
+    }
+}
+
+private struct CodexTranscriptAgentHoverPreview: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let chip: CodexTranscriptAgentChipRender
+    let onHover: (Bool) -> Void
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Circle().fill(statusColor).frame(width: 7, height: 7)
+                Text(chip.label).font(theme.fonts.label)
+                Spacer(minLength: 8)
+                Text(statusTitle).font(theme.fonts.caption).foregroundStyle(statusColor)
+            }
+
+            if let task = chip.taskSummary {
+                previewRow("Task", task)
+            }
+            if let latest = chip.latestUpdate {
+                previewRow("Latest update", latest)
+            }
+
+            if chip.threadID != nil {
+                Divider().overlay(theme.colors.border)
+                Button(action: onOpen) {
+                    HStack {
+                        Image(systemName: "arrow.up.right.square")
+                        Text("Open task")
+                        Spacer(minLength: 0)
+                    }
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textPrimary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .frame(width: 300, alignment: .leading)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous),
+            tint: theme.colors.surface.opacity(0.38)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                .stroke(theme.colors.borderStrong.opacity(0.6), lineWidth: 1)
+        }
+        .onHover(perform: onHover)
+    }
+
+    private func previewRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(title)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+                .frame(width: 82, alignment: .leading)
+            Text(value)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+                .lineLimit(2)
+        }
+    }
+
+    private var statusTitle: String {
+        switch chip.status {
+        case .starting: "Starting"
+        case .working: "Working"
+        case .done: "Done"
+        case .failed: "Failed"
+        case .closed: "Closed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch chip.status {
+        case .starting: theme.colors.warning
+        case .working: theme.colors.running
+        case .done: theme.colors.success
+        case .failed: theme.colors.danger
+        case .closed: theme.colors.textTertiary
+        }
     }
 }

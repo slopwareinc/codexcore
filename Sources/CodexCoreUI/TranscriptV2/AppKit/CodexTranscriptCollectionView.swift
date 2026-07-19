@@ -108,6 +108,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             var requestRevision: UInt64
             var expandedWorkTurnIDs: Set<String>
             var expandedRowIDs: Set<String>
+            var selectedDiffFileIndexByRowID: [String: Int]
+            var agentDisplayNameByThreadID: [String: String]
             var pendingApprovals: [CodexApprovalPrompt]
         }
 
@@ -189,6 +191,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     requestRevision: $0.requestSourceRevision,
                     expandedWorkTurnIDs: presentation.expandedWorkTurnIDs,
                     expandedRowIDs: presentation.expandedRowIDs,
+                    selectedDiffFileIndexByRowID: presentation.selectedDiffFileIndexByRowID,
+                    agentDisplayNameByThreadID: presentation.agentDisplayNameByThreadID,
                     pendingApprovals: presentation.pendingApprovals
                 )
             }
@@ -503,6 +507,14 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 else { presentation.expandedRowIDs.remove(rowID) }
                 presentationStore?.setRowExpanded(
                     expanded,
+                    rowID: rowID,
+                    threadID: ThreadID(presentation.threadID)
+                )
+            case .selectDiffFile(let rowID, let index):
+                captureScrollAnchor()
+                presentation.selectedDiffFileIndexByRowID[rowID] = max(0, index)
+                presentationStore?.selectDiffFile(
+                    index: index,
                     rowID: rowID,
                     threadID: ThreadID(presentation.threadID)
                 )

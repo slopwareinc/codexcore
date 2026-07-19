@@ -26,6 +26,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onEditUserMessage: (String) -> Void
     private let onForkChat: (() -> Void)?
     private let pendingApprovals: [CodexApprovalPrompt]
+    private let agentDisplayNameByThreadID: [String: String]
     private let onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     @State private var fallbackPresentedAt = Date()
     @State private var projectionError: String?
@@ -39,6 +40,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
+        agentDisplayNameByThreadID: [String: String] = [:],
         pendingApprovals: [CodexApprovalPrompt] = [],
         onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
         @ViewBuilder emptyState: () -> EmptyState
@@ -51,6 +53,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
+        self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.pendingApprovals = pendingApprovals
         self.onResolveApproval = onResolveApproval
         self.emptyState = emptyState()
@@ -68,6 +71,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
+        agentDisplayNameByThreadID: [String: String] = [:],
         pendingApprovals: [CodexApprovalPrompt] = [],
         onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
         @ViewBuilder emptyState: () -> EmptyState
@@ -80,6 +84,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
+        self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.pendingApprovals = pendingApprovals
         self.onResolveApproval = onResolveApproval
         self.emptyState = emptyState()
@@ -141,11 +146,13 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
             presentation.pendingApprovals = pendingApprovals.filter {
                 $0.threadId == presentation.threadID
             }
+            presentation.agentDisplayNameByThreadID = agentDisplayNameByThreadID
             return presentation
         }
         return CodexThreadUIPresentation(
             threadID: threadID,
             transcript: transcript,
+            agentDisplayNameByThreadID: agentDisplayNameByThreadID,
             presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) }),
             pendingApprovals: pendingApprovals
         )

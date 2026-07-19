@@ -311,6 +311,9 @@ public struct CodexChatWorkspaceView: View {
                 onOpenSubagent: openPanelTab,
                 onEditUserMessage: { draft = $0 },
                 onForkChat: chatActions.forkChat,
+                agentDisplayNameByThreadID: Dictionary(
+                    uniqueKeysWithValues: subagents.map { ($0.id, $0.name) }
+                ),
                 pendingApprovals: approvalPrompts,
                 onResolveApproval: onResolveApproval
             ) {

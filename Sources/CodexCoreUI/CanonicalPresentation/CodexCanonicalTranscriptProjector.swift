@@ -661,7 +661,8 @@ private extension CodexCanonicalTranscriptProjector {
                 action: action,
                 agentNames: [],
                 instructions: item.payload.string("prompt"),
-                status: fallbackState
+                status: fallbackState,
+                displayStatus: action == .closed ? .closed : agentDisplayStatus(nil, fallback: fallbackState)
             )]
         }
         return receiverIDs.map { threadID in
@@ -676,7 +677,10 @@ private extension CodexCanonicalTranscriptProjector {
                 agentThreadIDs: [threadID],
                 instructions: item.payload.string("prompt"),
                 agentMessages: messages,
-                status: agentWorkStatus(rawState?.string("status"), fallback: fallbackState)
+                status: agentWorkStatus(rawState?.string("status"), fallback: fallbackState),
+                displayStatus: action == .closed
+                    ? .closed
+                    : agentDisplayStatus(rawState?.string("status"), fallback: fallbackState)
             )
         }
     }
@@ -700,7 +704,8 @@ private extension CodexCanonicalTranscriptProjector {
             agentNames: [name],
             agentThreadIDs: threadID.map { [$0] } ?? [],
             instructions: nil,
-            status: state
+            status: state,
+            displayStatus: action == .interrupted ? .failed : .working
         )
     }
 
@@ -787,6 +792,7 @@ private extension CodexCanonicalTranscriptProjector {
         var merged = existing
         merged.action = incoming.action
         merged.status = incoming.status
+        merged.displayStatus = incoming.displayStatus
         merged.agentNames = preferredAgentNames(existing.agentNames, incoming.agentNames)
         merged.agentThreadIDs = orderedUnion(existing.agentThreadIDs, incoming.agentThreadIDs)
         merged.instructions = incoming.instructions ?? existing.instructions
@@ -857,6 +863,25 @@ private extension CodexCanonicalTranscriptProjector {
         case "errored", "error", "failed", "interrupted": .failed
         case "pendinginit", "pending_init", "running", "working": .inProgress
         default: fallback
+        }
+    }
+
+    func agentDisplayStatus(
+        _ rawStatus: String?,
+        fallback: CodexWorkItemStatusV2
+    ) -> CodexAgentDisplayStatusV2 {
+        switch rawStatus?.lowercased() {
+        case "pendinginit", "pending_init", "pending": .starting
+        case "running", "working": .working
+        case "completed", "done": .done
+        case "shutdown", "closed", "cancelled", "canceled": .closed
+        case "errored", "error", "failed", "interrupted": .failed
+        default:
+            switch fallback {
+            case .inProgress: .working
+            case .completed: .done
+            case .failed: .failed
+            }
         }
     }
 

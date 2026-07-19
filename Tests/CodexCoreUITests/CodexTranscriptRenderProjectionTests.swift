@@ -48,6 +48,30 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func expandedWorkProseUsesTheFinalAnswerForeground() async throws {
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.prose(.init(id: "work", text: "Inspecting the implementation", isStreaming: false))],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread", transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id]
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let prose = try #require(snapshot.itemsByID.values.first { $0.textRole == .commentary })
+        let color = prose.preparedText?.attributedString.attribute(
+            .foregroundColor,
+            at: 0,
+            effectiveRange: nil
+        ) as? NSColor
+        #expect(color == theme.textPrimary)
+    }
+
     @Test func inlineDirectivesInterleaveWithAssistantProse() async throws {
         let projector = CodexTranscriptRenderProjector()
         let text = """
@@ -76,7 +100,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(content[2].preparedText?.attributedString.string.contains("After the handoff") == true)
     }
 
-    @Test func expandedFileChangeProjectsOneColoredPatchItemPerFile() async throws {
+    @Test func expandedFileChangeProjectsOneTabbedColoredPatchPanel() async throws {
         let diff = """
         diff --git a/A.swift b/A.swift
         --- a/A.swift
@@ -100,19 +124,21 @@ struct CodexTranscriptRenderProjectionTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "thread", transcript: .init(turns: [turn]),
-                expandedWorkTurnIDs: ["turn"], expandedRowIDs: ["files"]
+                expandedWorkTurnIDs: ["turn"], expandedRowIDs: ["files"],
+                selectedDiffFileIndexByRowID: ["files": 1]
             ),
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark)
         )
         let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange })
         #expect(row.workRow?.label == "Edited 2 files · +2 −1")
-        let patches = snapshot.orderedItemIDs.compactMap { snapshot.itemsByID[$0] }.filter { $0.code?.language == "diff" }
-        #expect(patches.count == 2)
-        #expect(patches[0].copyText?.contains("A.swift") == true)
-        #expect(patches[1].copyText?.contains("B.swift") == true)
-        #expect(patches.allSatisfy { $0.isScrollableOutput })
-        #expect(patches.allSatisfy { $0.measuredHeight <= CodexTranscriptColumnMetrics.scrollableOutputMaxHeight })
+        let panel = try #require(snapshot.itemsByID.values.first { $0.diffPanel != nil })
+        #expect(panel.diffPanel?.files.count == 2)
+        #expect(panel.diffPanel?.selectedFileIndex == 1)
+        #expect(panel.diffPanel?.selectedFile?.path == "B.swift")
+        #expect(panel.copyText?.contains("B.swift") == true)
+        #expect(panel.isScrollableOutput)
+        #expect(panel.measuredHeight == CodexTranscriptColumnMetrics.diffPanelHeight)
     }
 
 
@@ -297,6 +323,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(commandDetail.copyText?.count == 20_100)
         let collab = try #require(snapshot.itemsByID.first { $0.key.rawValue.contains(":group:group:agents") }?.value)
         #expect(collab.agentChips.first?.threadID == "child-thread")
+        #expect(collab.agentChips.first?.status == .done)
         #expect(collab.copyTurnText.contains("Assistant\n# Final"))
         #expect(snapshot.itemsByID.values.contains { item in
             guard let text = item.preparedText?.attributedString, text.length > 0 else { return false }

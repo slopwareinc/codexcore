@@ -76,6 +76,7 @@ public struct CodexThreadPresentationLocalState: Sendable, Equatable {
     public var isPinnedToBottom: Bool
     public var expandedWorkTurnIDs: Set<String>
     public var expandedRowIDs: Set<String>
+    public var selectedDiffFileIndexByRowID: [String: Int]
     public var firstPresentedAtByTurnID: [String: Date]
     public var lastSeenAttentionRevision: StateRevision
 
@@ -84,6 +85,7 @@ public struct CodexThreadPresentationLocalState: Sendable, Equatable {
         isPinnedToBottom: Bool = true,
         expandedWorkTurnIDs: Set<String> = [],
         expandedRowIDs: Set<String> = [],
+        selectedDiffFileIndexByRowID: [String: Int] = [:],
         firstPresentedAtByTurnID: [String: Date] = [:],
         lastSeenAttentionRevision: StateRevision = .zero
     ) {
@@ -91,6 +93,7 @@ public struct CodexThreadPresentationLocalState: Sendable, Equatable {
         self.isPinnedToBottom = isPinnedToBottom
         self.expandedWorkTurnIDs = expandedWorkTurnIDs
         self.expandedRowIDs = expandedRowIDs
+        self.selectedDiffFileIndexByRowID = selectedDiffFileIndexByRowID
         self.firstPresentedAtByTurnID = firstPresentedAtByTurnID
         self.lastSeenAttentionRevision = lastSeenAttentionRevision
     }
@@ -283,6 +286,14 @@ public final class CodexPresentationStore {
         } else {
             local.expandedRowIDs.remove(rowID)
         }
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    public func selectDiffFile(index: Int, rowID: String, threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        local.selectedDiffFileIndexByRowID[rowID] = max(0, index)
         localStateByThreadID[threadID] = local
         if selectedThreadID == threadID { refreshActiveLocalState() }
         touch(threadID)
@@ -595,6 +606,7 @@ private extension CodexPresentationStore {
         presentation.isPinnedToBottom = local.isPinnedToBottom
         presentation.expandedWorkTurnIDs = local.expandedWorkTurnIDs
         presentation.expandedRowIDs = local.expandedRowIDs
+        presentation.selectedDiffFileIndexByRowID = local.selectedDiffFileIndexByRowID
         presentation.presentedAtByTurnID = local.firstPresentedAtByTurnID
         activePresentation = presentation
         presentationRevision &+= 1
@@ -613,6 +625,7 @@ private extension CodexPresentationStore {
             isPinnedToBottom: localState.isPinnedToBottom,
             expandedWorkTurnIDs: localState.expandedWorkTurnIDs,
             expandedRowIDs: localState.expandedRowIDs,
+            selectedDiffFileIndexByRowID: localState.selectedDiffFileIndexByRowID,
             presentedAtByTurnID: localState.firstPresentedAtByTurnID,
             pendingApprovals: pendingApprovals
         )

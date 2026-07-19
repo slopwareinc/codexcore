@@ -11,6 +11,8 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
     public var isPinnedToBottom: Bool
     public var expandedWorkTurnIDs: Set<String>
     public var expandedRowIDs: Set<String>
+    public var selectedDiffFileIndexByRowID: [String: Int]
+    public var agentDisplayNameByThreadID: [String: String]
     public var presentedAtByTurnID: [String: Date]
     public var pendingApprovals: [CodexApprovalPrompt]
 
@@ -21,6 +23,8 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         isPinnedToBottom: Bool = true,
         expandedWorkTurnIDs: Set<String> = [],
         expandedRowIDs: Set<String> = [],
+        selectedDiffFileIndexByRowID: [String: Int] = [:],
+        agentDisplayNameByThreadID: [String: String] = [:],
         presentedAtByTurnID: [String: Date] = [:],
         pendingApprovals: [CodexApprovalPrompt] = []
     ) {
@@ -30,6 +34,8 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         self.isPinnedToBottom = isPinnedToBottom
         self.expandedWorkTurnIDs = expandedWorkTurnIDs
         self.expandedRowIDs = expandedRowIDs
+        self.selectedDiffFileIndexByRowID = selectedDiffFileIndexByRowID
+        self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.presentedAtByTurnID = presentedAtByTurnID
         self.pendingApprovals = pendingApprovals
     }
