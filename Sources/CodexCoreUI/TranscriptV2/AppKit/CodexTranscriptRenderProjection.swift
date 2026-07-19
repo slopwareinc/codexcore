@@ -17,6 +17,7 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let footerHeight: CGFloat = 22
     static let actionCardHeight: CGFloat = 32
     static let actionCardRadius: CGFloat = 10
+    static let interactiveBottomSpacing: CGFloat = 8
     static let scrollableOutputMaxHeight: CGFloat = 220
     static let diffPanelHeight: CGFloat = 240
     static let topContentInset: CGFloat = 0
@@ -169,6 +170,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var intrinsicContentWidth: CGFloat?
     var viewportWidth: CGFloat
     var measuredHeight: CGFloat
+    var bottomSpacing: CGFloat
     var isScrollableOutput: Bool
 }
 
@@ -380,6 +382,7 @@ actor CodexTranscriptRenderProjector {
                     intrinsicContentWidth: draft.intrinsicContentWidth,
                     viewportWidth: availableWidth,
                     measuredHeight: measuredHeight,
+                    bottomSpacing: draft.bottomSpacing,
                     isScrollableOutput: draft.isScrollableOutput
                 )
                 sectionItems.append(id)
@@ -504,7 +507,8 @@ actor CodexTranscriptRenderProjector {
                                 agentChips: agentChips,
                                 accessibilityLabel: Self.agentClusterAccessibilityLabel(agentChips),
                                 indentation: 0,
-                                maxWidthKind: .card
+                                maxWidthKind: .card,
+                                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                             ))
                         }
                         for row in rows {
@@ -537,7 +541,8 @@ actor CodexTranscriptRenderProjector {
                                 accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
                                 indentation: 12,
                                 maxWidthKind: .card,
-                                fixedHeight: 30
+                                fixedHeight: 30,
+                                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                             ))
                             if presentation.expandedRowIDs.contains(rowID),
                                let diffFiles,
@@ -565,6 +570,7 @@ actor CodexTranscriptRenderProjector {
                                     indentation: 12,
                                     maxWidthKind: .card,
                                     fixedHeight: CodexTranscriptColumnMetrics.diffPanelHeight,
+                                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
                                     isScrollableOutput: true
                                 ))
                             } else if presentation.expandedRowIDs.contains(rowID), let detail {
@@ -578,6 +584,7 @@ actor CodexTranscriptRenderProjector {
                                     accessibilityLabel: "Expanded output: \(bounded)",
                                     indentation: 12,
                                     maxWidthKind: .card,
+                                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
                                     isScrollableOutput: true
                                 ))
                             }
@@ -724,6 +731,7 @@ private extension CodexTranscriptRenderProjector {
         var maxWidthKind: MaxWidthKind
         var fixedHeight: CGFloat?
         var intrinsicContentWidth: CGFloat?
+        var bottomSpacing: CGFloat
         var isScrollableOutput: Bool
 
         init(
@@ -748,6 +756,7 @@ private extension CodexTranscriptRenderProjector {
             maxWidthKind: MaxWidthKind = .full,
             fixedHeight: CGFloat? = nil,
             intrinsicContentWidth: CGFloat? = nil,
+            bottomSpacing: CGFloat = 0,
             isScrollableOutput: Bool = false
         ) {
             self.id = id
@@ -771,6 +780,7 @@ private extension CodexTranscriptRenderProjector {
             self.maxWidthKind = maxWidthKind
             self.fixedHeight = fixedHeight
             self.intrinsicContentWidth = intrinsicContentWidth
+            self.bottomSpacing = bottomSpacing
             self.isScrollableOutput = isScrollableOutput
         }
 
@@ -1144,13 +1154,13 @@ private extension CodexTranscriptRenderProjector {
         width: CGFloat,
         theme: CodexTranscriptAppKitTheme
     ) -> CGFloat {
-        if let fixedHeight = draft.fixedHeight { return fixedHeight }
+        if let fixedHeight = draft.fixedHeight { return fixedHeight + draft.bottomSpacing }
         if !draft.agentChips.isEmpty {
             return agentChipClusterHeight(
                 draft.agentChips,
                 width: max(80, width - draft.indentation),
                 font: theme.captionFont
-            )
+            ) + draft.bottomSpacing
         }
         if let code = draft.code {
             let text = draft.preparedText?.attributedString
@@ -1160,9 +1170,10 @@ private extension CodexTranscriptRenderProjector {
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
             let height = max(76, ceil(bounds.height) + 52)
-            return draft.isScrollableOutput
+            let measured = draft.isScrollableOutput
                 ? min(CodexTranscriptColumnMetrics.scrollableOutputMaxHeight, height)
                 : height
+            return measured + draft.bottomSpacing
         }
         let horizontalPadding: CGFloat = draft.textRole == .user
             ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
@@ -1182,11 +1193,12 @@ private extension CodexTranscriptRenderProjector {
                         ? 16
                         : CodexTranscriptColumnMetrics.itemGap + 2))
             let height = max(18, ceil(bounds.height) + verticalPadding)
-            return draft.isScrollableOutput
+            let measured = draft.isScrollableOutput
                 ? min(CodexTranscriptColumnMetrics.scrollableOutputMaxHeight, height)
                 : height
+            return measured + draft.bottomSpacing
         }
-        return 36
+        return 36 + draft.bottomSpacing
     }
 
     static func agentChipClusterHeight(

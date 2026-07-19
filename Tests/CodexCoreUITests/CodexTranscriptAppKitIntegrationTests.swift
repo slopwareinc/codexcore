@@ -107,6 +107,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.workRowStatusForTesting == "running")
         #expect(!cell.workRowBackgroundIsVisibleForTesting)
         #expect(!cell.chipIsActionableForTesting)
+        #expect(row.bottomSpacing == 8)
     }
 
     @Test func singleLineAssistantRepliesFitTheirNativeTextLayout() async throws {
@@ -216,6 +217,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let cluster = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
         #expect(cluster.agentChips.count == 5)
         #expect(cluster.indentation == 0)
+        #expect(cluster.bottomSpacing == 8)
         #expect(!snapshot.itemsByID.values.contains { $0.workRow?.kind == .agent })
 
         let cell = CodexTranscriptCollectionItem()

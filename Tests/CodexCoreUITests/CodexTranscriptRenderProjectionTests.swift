@@ -16,6 +16,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexTranscriptColumnMetrics.footerHeight == 22)
         #expect(CodexTranscriptColumnMetrics.actionCardHeight == 32)
         #expect(CodexTranscriptColumnMetrics.actionCardRadius == 10)
+        #expect(CodexTranscriptColumnMetrics.interactiveBottomSpacing == 8)
         #expect(CodexTranscriptColumnMetrics.topContentInset == 0)
 
         let theme = CodexTranscriptAppKitTheme(.officialDark)
@@ -138,7 +139,8 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(panel.diffPanel?.selectedFile?.path == "B.swift")
         #expect(panel.copyText?.contains("B.swift") == true)
         #expect(panel.isScrollableOutput)
-        #expect(panel.measuredHeight == CodexTranscriptColumnMetrics.diffPanelHeight)
+        #expect(panel.measuredHeight == CodexTranscriptColumnMetrics.diffPanelHeight + 8)
+        #expect(panel.bottomSpacing == 8)
     }
 
 

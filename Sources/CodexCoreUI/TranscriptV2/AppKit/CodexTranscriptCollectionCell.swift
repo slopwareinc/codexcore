@@ -594,7 +594,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         let contentX = item.isTrailingAligned
             ? outerMinX + outerWidth - contentWidth
             : outerMinX + item.indentation
-        let contentFrame = NSRect(x: contentX, y: 0, width: contentWidth, height: view.bounds.height)
+        let contentFrame = NSRect(
+            x: contentX,
+            y: item.bottomSpacing,
+            width: contentWidth,
+            height: max(0, view.bounds.height - item.bottomSpacing)
+        )
 
         backgroundView.frame = contentFrame
         backgroundView.layer?.cornerRadius = item.textRole == .user ? theme.bubbleRadius : theme.cardRadius
