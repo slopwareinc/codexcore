@@ -44,12 +44,12 @@ rerun: run
 run-fast: kill
     swift run codex-core-app
 
-# Profile the running app's real transcript. Override with TRACE_DURATION=60s if needed.
+# Profile the running app's real transcript. Override with TRACE_DURATION=30s if needed.
 trace:
     #!/usr/bin/env bash
     set -euo pipefail
     root="{{root}}"
-    duration="${TRACE_DURATION:-45s}"
+    duration="${TRACE_DURATION:-15s}"
     profile_dir="${HOME}/.codexcore/profiles"
     trace_path="${profile_dir}/scroll-$(date +%Y%m%d-%H%M%S).trace"
 
@@ -63,6 +63,24 @@ trace:
     fi
 
     mkdir -p "${profile_dir}"
+    available_kb="$(df -Pk "${profile_dir}" | awk 'NR == 2 { print $4 }')"
+    required_kb="$((10 * 1024 * 1024))"
+    if (( available_kb < required_kb )); then
+        available_gb="$((available_kb / 1024 / 1024))"
+        echo "Not enough free disk space to record safely (${available_gb} GiB available; 10 GiB required)." >&2
+        exit 1
+    fi
+
+    cleanup_failed_trace() {
+        status=$?
+        if (( status != 0 )); then
+            rm -rf "${trace_path}"
+            echo "Recording failed; removed partial trace bundle: ${trace_path}" >&2
+        fi
+        exit "${status}"
+    }
+    trap cleanup_failed_trace EXIT
+
     echo "Recording CodexCore PID ${pid} for ${duration}."
     echo "Scroll the current transcript now; avoid switching tasks or resizing the window."
     xcrun xctrace record \
@@ -71,4 +89,5 @@ trace:
         --attach "${pid}" \
         --time-limit "${duration}" \
         --output "${trace_path}"
+    trap - EXIT
     echo "Saved trace: ${trace_path}"
