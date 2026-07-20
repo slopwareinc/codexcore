@@ -7,6 +7,25 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func transcriptHostUsesCompleteViewportProposalWithoutIntrinsicMeasurement() {
+        #expect(
+            CodexTranscriptListHost.resolvedViewportSize(
+                for: ProposedViewSize(width: 860, height: 700)
+            ) == CGSize(width: 860, height: 700)
+        )
+        #expect(
+            CodexTranscriptListHost.resolvedViewportSize(
+                for: ProposedViewSize(width: 860, height: nil)
+            ) == nil
+        )
+        #expect(
+            CodexTranscriptListHost.resolvedViewportSize(
+                for: ProposedViewSize(width: nil, height: 700)
+            ) == nil
+        )
+        #expect(CodexTranscriptListHost.resolvedViewportSize(for: .unspecified) == nil)
+    }
+
     @Test func pendingApprovalRendersInlineAndRoutesBothDecisions() async throws {
         let requestKey = CodexServerRequestKey(
             connectionEpoch: 2,

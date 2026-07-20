@@ -62,6 +62,21 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         )
     }
 
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: CodexTranscriptCollectionContainerView,
+        context: Context
+    ) -> CGSize? {
+        Self.resolvedViewportSize(for: proposal)
+    }
+
+    static func resolvedViewportSize(for proposal: ProposedViewSize) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else {
+            return nil
+        }
+        return CGSize(width: width, height: height)
+    }
+
     static func dismantleNSView(
         _ nsView: CodexTranscriptCollectionContainerView,
         coordinator: Coordinator
