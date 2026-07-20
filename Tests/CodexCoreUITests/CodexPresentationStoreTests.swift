@@ -5,6 +5,71 @@ import Testing
 
 @MainActor
 struct CodexPresentationStoreTests {
+    @Test func incompleteResumeShellDoesNotReplaceWarmCachedTranscript() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Cached", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.finalAnswer?.text == "Cached"
+        }
+
+        await source.install(
+            emptyThreadState(revision: 2, coverage: .notLoaded),
+            change: change(revision: 2, fields: [.thread, .turn, .item])
+        )
+        try await eventually { store.observedRevision == StateRevision(2) }
+
+        #expect(store.isSelectionHydrated)
+        #expect(store.activeCanonicalPresentation?.sourceRevision == StateRevision(1))
+        #expect(store.activePresentation?.transcript.turns.first?.finalAnswer?.text == "Cached")
+        #expect(store.diagnostics.deferredIncompleteHistoryCount == 1)
+
+        await source.install(
+            emptyThreadState(revision: 3, coverage: .full),
+            change: change(revision: 3, fields: [.thread, .turn, .item])
+        )
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(3)
+        }
+
+        #expect(store.isSelectionHydrated)
+        #expect(store.activePresentation?.transcript.turns.isEmpty == true)
+    }
+
+    @Test func coldSelectionWaitsThroughIncompleteThreadShellUntilEmptyHistoryIsAuthoritative() async throws {
+        let source = PresentationStateFixture(
+            initial: emptyThreadState(revision: 1, coverage: .notLoaded)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+
+        store.select(threadID: "thread")
+        try await eventually { store.observedRevision == StateRevision(1) }
+
+        #expect(store.isSelectionHydrated == false)
+        #expect(store.activeCanonicalPresentation == nil)
+        #expect(store.diagnostics.deferredIncompleteHistoryCount == 1)
+
+        await source.install(
+            emptyThreadState(revision: 2, coverage: .full),
+            change: change(revision: 2, fields: [.thread])
+        )
+        try await eventually {
+            store.isSelectionHydrated
+                && store.activeCanonicalPresentation?.sourceRevision == StateRevision(2)
+        }
+
+        #expect(store.activePresentation?.transcript.turns.isEmpty == true)
+    }
+
     @Test func coldSelectionWaitsForThreadStateInsteadOfPublishingAnEmptyChat() async throws {
         let source = PresentationStateFixture(initial: sessionState(revision: 0))
         let store = CodexPresentationStore(
@@ -310,6 +375,32 @@ private extension CodexPresentationStoreTests {
             stateRevision: stateRevision,
             canonical: canonical,
             serverRequests: .init(revision: stateRevision, requests: requests),
+            lifecycle: .ready(connectionEpoch: 1)
+        )
+    }
+
+    func emptyThreadState(
+        revision: UInt64,
+        coverage: StateCoverage
+    ) -> CodexSessionStateSnapshot {
+        let stateRevision = StateRevision(revision)
+        let threadID: ThreadID = "thread"
+        let thread = CanonicalThread(
+            id: threadID,
+            status: .idle,
+            history: .init(turnsCoverage: coverage),
+            isLoaded: true,
+            consistency: coverage == .full ? .authoritative : .partial,
+            lastChangedRevision: stateRevision
+        )
+        return .init(
+            stateRevision: stateRevision,
+            canonical: .init(
+                revision: stateRevision,
+                threadOrder: [threadID],
+                threads: [threadID: thread]
+            ),
+            serverRequests: .init(revision: stateRevision, requests: []),
             lifecycle: .ready(connectionEpoch: 1)
         )
     }

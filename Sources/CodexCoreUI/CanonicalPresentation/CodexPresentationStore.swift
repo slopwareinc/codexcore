@@ -110,6 +110,7 @@ public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
     public fileprivate(set) var uiStateEvictionCount = 0
     public fileprivate(set) var presentationCacheHitCount = 0
     public fileprivate(set) var presentationCacheMissCount = 0
+    public fileprivate(set) var deferredIncompleteHistoryCount = 0
 
     public init() {}
 }
@@ -454,6 +455,12 @@ private extension CodexPresentationStore {
             clearPendingProjection()
             return
         }
+        guard Self.hasDisplayableHistory(snapshot, threadID: threadID) else {
+            diagnostics.deferredIncompleteHistoryCount &+= 1
+            print("[DEBUG-TAB-SWITCH] event=store-seed-deferred target=\(threadID.rawValue) revision=\(sessionSnapshot.stateRevision.rawValue) reason=history-incomplete cached=\(presentationCacheByThreadID[threadID] != nil)")
+            clearPendingProjection()
+            return
+        }
         pendingSnapshot = snapshot
         pendingRequestBatch = requestBatch
 
@@ -475,6 +482,27 @@ private extension CodexPresentationStore {
             launchProjection(afterCoalescingDelay: true)
         } else {
             diagnostics.coalescedProjectionCount &+= 1
+        }
+    }
+
+    /// A resume may first install a metadata-only thread shell whose history is
+    /// explicitly not loaded. That shell is not an empty transcript: publishing
+    /// it would erase a warm cached presentation until the first history page
+    /// arrives. Full coverage is authoritative even when it contains zero turns.
+    static func hasDisplayableHistory(
+        _ snapshot: CanonicalStateSnapshot,
+        threadID: ThreadID
+    ) -> Bool {
+        if snapshot.threads[threadID]?.history.turnsCoverage == .full {
+            return true
+        }
+        if snapshot.turns.keys.contains(where: { $0.threadID == threadID }) {
+            return true
+        }
+        return snapshot.submissionIntents.values.contains { intent in
+            guard intent.threadID == threadID else { return false }
+            if case .reconciled = intent.state { return false }
+            return true
         }
     }
 }
