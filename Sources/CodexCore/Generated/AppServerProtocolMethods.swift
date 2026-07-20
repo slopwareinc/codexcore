@@ -29,6 +29,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadRollback = "thread/rollback"
     case threadList = "thread/list"
     case threadSearch = "thread/search"
+    case threadSearchOccurrences = "thread/searchOccurrences"
     case threadLoadedList = "thread/loaded/list"
     case threadRead = "thread/read"
     case threadTurnsList = "thread/turns/list"
@@ -51,6 +52,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case pluginShareDelete = "plugin/share/delete"
     case appRead = "app/read"
     case appList = "app/list"
+    case appInstalled = "app/installed"
     case fsReadFile = "fs/readFile"
     case fsWriteFile = "fs/writeFile"
     case fsCreateDirectory = "fs/createDirectory"
@@ -213,7 +215,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 124
+    public static let clientMethodCount = 126
     public static let notificationMethodCount = 70
     public static let serverRequestMethodCount = 11
 }

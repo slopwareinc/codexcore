@@ -64,7 +64,7 @@ final class ServerRequestProtocolTests: XCTestCase {
         XCTAssertEqual(sdkConfiguration.capabilities.experimentalAPI, true)
     }
 
-    func testTypedKindsExactlyCoverAlpha20GeneratedInventory() {
+    func testTypedKindsExactlyCoverAlpha24GeneratedInventory() {
         XCTAssertEqual(
             CodexServerRequestKind.knownMethods,
             Set(CodexAppServerServerRequestMethod.allCases.map(\.rawValue))
@@ -73,7 +73,7 @@ final class ServerRequestProtocolTests: XCTestCase {
         XCTAssertEqual(CodexAppServerProtocolInventory.serverRequestMethodCount, 11)
     }
 
-    func testEveryAlpha20RequestArmParsesAndValidatesItsResult() throws {
+    func testEveryAlpha24RequestArmParsesAndValidatesItsResult() throws {
         let fixtures: [(method: CodexAppServerServerRequestMethod, params: [String: CodexJSONValue], result: CodexJSONValue)] = [
             (
                 .itemCommandExecutionRequestApproval,

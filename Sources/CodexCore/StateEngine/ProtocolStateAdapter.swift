@@ -667,6 +667,7 @@ private extension ProtocolStateAdapter {
         var metadata = CanonicalThreadMetadata()
         metadata.agentNickname = value.agentNickname
         metadata.agentRole = value.agentRole
+        metadata.canAcceptDirectInput = value.canAcceptDirectInput
         metadata.cliVersion = value.cliVersion
         metadata.createdAt = ProtocolSeconds(Int64(value.createdAt))
         metadata.cwd = value.cwd.rawValue
@@ -945,7 +946,7 @@ private extension ProtocolStateAdapter {
     }
 
     static let threadWireFields: Set<String> = [
-        "agentNickname", "agentRole", "cliVersion", "createdAt", "cwd", "ephemeral",
+        "agentNickname", "agentRole", "canAcceptDirectInput", "cliVersion", "createdAt", "cwd", "ephemeral",
         "extra", "forkedFromId", "gitInfo", "historyMode", "id", "modelProvider",
         "name", "parentThreadId", "path", "preview", "recencyAt", "sessionId",
         "source", "status", "threadSource", "turns", "updatedAt",

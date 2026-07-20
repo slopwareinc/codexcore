@@ -214,6 +214,7 @@ public struct CanonicalHistoryState: Sendable, Equatable {
 public struct CanonicalThreadMetadata: Sendable, Equatable {
     public var agentNickname: String?
     public var agentRole: String?
+    public var canAcceptDirectInput: Bool?
     public var cliVersion: String?
     public var createdAt: ProtocolSeconds?
     public var cwd: CodexJSONValue?
@@ -236,6 +237,7 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
     public init(
         agentNickname: String? = nil,
         agentRole: String? = nil,
+        canAcceptDirectInput: Bool? = nil,
         cliVersion: String? = nil,
         createdAt: ProtocolSeconds? = nil,
         cwd: CodexJSONValue? = nil,
@@ -257,6 +259,7 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
     ) {
         self.agentNickname = agentNickname
         self.agentRole = agentRole
+        self.canAcceptDirectInput = canAcceptDirectInput
         self.cliVersion = cliVersion
         self.createdAt = createdAt
         self.cwd = cwd
