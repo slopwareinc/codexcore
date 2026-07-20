@@ -70,6 +70,28 @@ public enum CodexSidebarAccessibility {
     public static func chatArchiveLabel(title: String) -> String {
         "Archive chat \(title)"
     }
+
+    public static func chatStatusValue(
+        status: CodexThreadLiveStatus,
+        hasUnreadUpdates: Bool,
+        recencyLabel: String
+    ) -> String {
+        var values: [String] = []
+        if hasUnreadUpdates {
+            values.append("Unread updates")
+        }
+        switch status {
+        case .running:
+            values.append("Running")
+        case .failed:
+            values.append("Failed")
+        case .idle:
+            if !recencyLabel.isEmpty {
+                values.append(recencyLabel)
+            }
+        }
+        return values.joined(separator: ", ")
+    }
 }
 
 public enum CodexButtonAccessibility {

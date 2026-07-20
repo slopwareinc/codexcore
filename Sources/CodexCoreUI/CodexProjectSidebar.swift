@@ -709,6 +709,13 @@ private struct SidebarChatRowContent: View {
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(row.summary.title)
+        .accessibilityValue(
+            CodexSidebarAccessibility.chatStatusValue(
+                status: row.liveStatus,
+                hasUnreadUpdates: row.hasUnreadWhileInactive,
+                recencyLabel: recencyLabel
+            )
+        )
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(.default, onSelect)
         .accessibilityActions {
