@@ -513,6 +513,42 @@ struct CodexTranscriptAppKitIntegrationTests {
         coordinator.detach()
     }
 
+    @Test func repeatedCoordinatorUpdateDoesNotForceLayoutWhenGeometryIsUnchanged() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 700)
+        )
+        let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = container
+        coordinator.attach(to: container)
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "answer", text: "Answer", isStreaming: false),
+                status: .done(durationMs: 1)
+            )])
+        )
+
+        for _ in 0..<2 {
+            coordinator.update(
+                presentation: presentation,
+                presentationStore: nil,
+                bottomContentInset: 170,
+                contentHorizontalOffset: 0,
+                swiftUITheme: .officialDark,
+                clipboardService: CodexNoopClipboardService(),
+                productToolRenderer: nil,
+                onOpenSubagent: { _ in },
+                onEditUserMessage: { _ in },
+                onForkChat: nil
+            )
+        }
+
+        #expect(coordinator.diagnostics.eagerLayoutPassCount == 1)
+        coordinator.detach()
+    }
+
     @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async throws {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))

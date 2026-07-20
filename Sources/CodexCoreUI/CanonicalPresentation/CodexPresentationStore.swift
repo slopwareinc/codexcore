@@ -300,7 +300,10 @@ public final class CodexPresentationStore {
         local.rawScrollOffset = rawOffset
         local.isPinnedToBottom = isPinnedToBottom
         localStateByThreadID[threadID] = local
-        if selectedThreadID == threadID { refreshActiveLocalState() }
+        // Scrolling is owned live by the AppKit transcript coordinator and can
+        // update every frame. Persist it for restoration without republishing
+        // the observable presentation and feeding the scroll event back through
+        // SwiftUI's NSViewRepresentable update/layout path.
         touch(threadID)
     }
 

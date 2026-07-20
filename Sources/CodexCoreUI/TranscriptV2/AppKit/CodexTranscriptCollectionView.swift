@@ -3,6 +3,7 @@ import CodexCore
 import SwiftUI
 
 struct CodexTranscriptCollectionDiagnostics: Sendable, Equatable {
+    var eagerLayoutPassCount = 0
     var snapshotApplyCount = 0
     var insertedItemCount = 0
     var deletedItemCount = 0
@@ -101,6 +102,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var pendingScrollAnchor: (id: CodexTranscriptRenderItemID, offset: CGFloat)?
         private var hasUnseenOutput = false
         private var shortTranscriptTopInset: CGFloat = 0
+        private var lastEagerLayoutSize: NSSize?
+        private var lastEagerLayoutBottomInset: CGFloat?
         private(set) var diagnostics = CodexTranscriptCollectionDiagnostics()
 
         private struct CanonicalProjectionIdentity: Equatable {
@@ -182,8 +185,16 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             let shouldRetry = retryRevision != self.retryRevision
             self.retryRevision = retryRevision
             self.contentHorizontalOffset = contentHorizontalOffset
-            container.bottomContentInset = max(0, bottomContentInset)
-            container.layoutSubtreeIfNeeded()
+            let normalizedBottomInset = max(0, bottomContentInset)
+            container.bottomContentInset = normalizedBottomInset
+            let layoutSize = container.bounds.size
+            if lastEagerLayoutSize != layoutSize
+                || lastEagerLayoutBottomInset != normalizedBottomInset {
+                lastEagerLayoutSize = layoutSize
+                lastEagerLayoutBottomInset = normalizedBottomInset
+                diagnostics.eagerLayoutPassCount &+= 1
+                container.layoutSubtreeIfNeeded()
+            }
             updateShortTranscriptTopInset()
             if shouldRetry { forceReconfigureAll = true }
             let identity = renderUpdate.map {

@@ -245,6 +245,27 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.expandedRowIDs.isEmpty == true)
         #expect(store.activePresentation?.selectedDiffFileIndexByRowID.isEmpty == true)
     }
+
+    @Test func scrollPersistenceDoesNotRepublishActivePresentation() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Answer", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually { store.activePresentation?.transcript.turns.count == 1 }
+        let presentationRevision = store.presentationRevision
+
+        store.updateScrollState(threadID: "thread", rawOffset: 417, isPinnedToBottom: false)
+
+        #expect(store.localState(for: "thread")?.rawScrollOffset == 417)
+        #expect(store.localState(for: "thread")?.isPinnedToBottom == false)
+        #expect(store.presentationRevision == presentationRevision)
+        #expect(store.activePresentation?.rawScrollOffset == 0)
+        #expect(store.activePresentation?.isPinnedToBottom == true)
+    }
 }
 
 private actor PresentationStateFixture: CodexSessionStateObserving {
