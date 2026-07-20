@@ -243,6 +243,13 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func threadSearchOccurrences(
+        _ params: CodexSchemaThreadSearchOccurrencesParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadSearchOccurrencesResponse> {
+        .required(method: .threadSearchOccurrences, params: params)
+    }
+}
+extension CodexRequest {
     public static func threadLoadedList(
         _ params: CodexSchemaThreadLoadedListParams
     ) -> CodexAppServerRequest<CodexSchemaThreadLoadedListResponse> {
@@ -394,6 +401,13 @@ extension CodexRequest {
         _ params: CodexSchemaAppsListParams
     ) -> CodexAppServerRequest<CodexSchemaAppsListResponse> {
         .required(method: .appList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func appInstalled(
+        _ params: CodexSchemaAppsInstalledParams
+    ) -> CodexAppServerRequest<CodexSchemaAppsInstalledResponse> {
+        .required(method: .appInstalled, params: params)
     }
 }
 extension CodexRequest {
@@ -908,7 +922,7 @@ extension CodexRequest {
     }
 }
 public extension CodexRequest {
-    static let generatedMethodCount = 123
+    static let generatedMethodCount = 125
     static let supportedMethods: Set<CodexAppServerClientMethod> = [
         .threadStart,
         .threadResume,
@@ -936,6 +950,7 @@ public extension CodexRequest {
         .threadRollback,
         .threadList,
         .threadSearch,
+        .threadSearchOccurrences,
         .threadLoadedList,
         .threadRead,
         .threadTurnsList,
@@ -958,6 +973,7 @@ public extension CodexRequest {
         .pluginShareDelete,
         .appRead,
         .appList,
+        .appInstalled,
         .fsReadFile,
         .fsWriteFile,
         .fsCreateDirectory,

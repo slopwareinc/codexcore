@@ -5,7 +5,7 @@ final class CodexSessionCommandsTests: XCTestCase {
     func testGeneratedSurfaceExhaustivelyCoversPostHandshakeMethods() {
         let expected = Set(CodexAppServerClientMethod.allCases).subtracting([.initialize])
 
-        XCTAssertEqual(CodexRequest.generatedMethodCount, 123)
+        XCTAssertEqual(CodexRequest.generatedMethodCount, 125)
         XCTAssertEqual(CodexRequest.supportedMethods, expected)
         XCTAssertEqual(CodexRequest.omittedParameterMethods.count, 10)
         XCTAssertEqual(
@@ -13,6 +13,36 @@ final class CodexSessionCommandsTests: XCTestCase {
             [.remoteControlEnable, .remoteControlDisable]
         )
         XCTAssertEqual(CodexRequest.specializedMethods.count, 9)
+    }
+
+    func testAlpha24RequestFactoriesEncodeNewAppAndThreadSearchMethods() throws {
+        let occurrenceSearch = CodexRequest.threadSearchOccurrences(.init(
+            limit: 50,
+            searchTerm: "needle",
+            threadID: "thread-1"
+        ))
+        XCTAssertEqual(occurrenceSearch.method, .threadSearchOccurrences)
+        XCTAssertEqual(
+            try occurrenceSearch.encodeParameters(),
+            .dictionary([
+                "limit": .int(50),
+                "searchTerm": .string("needle"),
+                "threadId": .string("thread-1"),
+            ])
+        )
+
+        let installedApps = CodexRequest.appInstalled(.init(
+            forceRefresh: true,
+            threadID: "thread-1"
+        ))
+        XCTAssertEqual(installedApps.method, .appInstalled)
+        XCTAssertEqual(
+            try installedApps.encodeParameters(),
+            .dictionary([
+                "forceRefresh": .bool(true),
+                "threadId": .string("thread-1"),
+            ])
+        )
     }
 
     func testRequestFactoryPreservesMethodAndGeneratedParameters() throws {

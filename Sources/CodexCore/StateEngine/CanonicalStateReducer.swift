@@ -1054,6 +1054,7 @@ private extension CanonicalStateReducer {
     ) {
         if let value = incoming.agentNickname { current.agentNickname = value }
         if let value = incoming.agentRole { current.agentRole = value }
+        if let value = incoming.canAcceptDirectInput { current.canAcceptDirectInput = value }
         if let value = incoming.cliVersion { current.cliVersion = value }
         if let value = incoming.createdAt { current.createdAt = value }
         if let value = incoming.cwd { current.cwd = value }

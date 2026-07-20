@@ -4,7 +4,7 @@ import XCTest
 final class ProtocolStateAdapterTests: XCTestCase {
     private let adapter = ProtocolStateAdapter()
 
-    func testAlpha20NotificationDispositionInventoryIsExhaustive() throws {
+    func testAlpha24NotificationDispositionInventoryIsExhaustive() throws {
         XCTAssertEqual(
             CodexAppServerNotificationMethod.allCases.count,
             CodexAppServerProtocolInventory.notificationMethodCount
@@ -32,7 +32,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }
     }
 
-    func testEveryAlpha20StateNotificationHasAValidFixtureAndProducesAMutation() throws {
+    func testEveryAlpha24StateNotificationHasAValidFixtureAndProducesAMutation() throws {
         let fixtures = try stateNotificationFixtures()
         let stateMethods = Set(CodexAppServerNotificationMethod.allCases.filter {
             expectedDisposition(for: $0) == .state
@@ -46,7 +46,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         )
 
         for method in CodexAppServerNotificationMethod.allCases where stateMethods.contains(method) {
-            let params = try XCTUnwrap(fixtures[method], "Missing alpha.20 fixture for \(method.rawValue)")
+            let params = try XCTUnwrap(fixtures[method], "Missing alpha.24 fixture for \(method.rawValue)")
             let adaptation = try adapter.adaptNotification(method: method, params: params)
 
             XCTAssertEqual(adaptation.disposition, .state, method.rawValue)
@@ -63,6 +63,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
             {
               "thread": {
                 "cliVersion": "0.145.0-alpha.20",
+                "canAcceptDirectInput": false,
                 "createdAt": 1700000000,
                 "cwd": "/tmp/project",
                 "ephemeral": false,
@@ -111,6 +112,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }
         XCTAssertEqual(thread.id, "thread-1")
         XCTAssertEqual(thread.metadata.name, "Fixture thread")
+        XCTAssertEqual(thread.metadata.canAcceptDirectInput, false)
         XCTAssertEqual(thread.metadata.cwd, .string("/tmp/project"))
         XCTAssertEqual(thread.history.mode, .paginated)
         XCTAssertEqual(thread.isLoaded, true)
@@ -119,6 +121,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
             thread.metadata.extensions["futureThreadField"],
             .dictionary(["version": .int(2)])
         )
+        XCTAssertNil(thread.metadata.extensions["canAcceptDirectInput"])
         guard case .active(let flags) = thread.status else {
             return XCTFail("Expected active thread status")
         }
@@ -734,7 +737,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         return object
     }
 
-    /// Minimal valid payloads from the pinned 0.145.0-alpha.20 notification schemas.
+    /// Minimal valid payloads for the current notification inventory, including older histories.
     /// Keeping one fixture per state-bearing method makes protocol inventory drift
     /// fail here instead of being hidden behind the empty-payload disposition probe.
     private func stateNotificationFixtures() throws -> [

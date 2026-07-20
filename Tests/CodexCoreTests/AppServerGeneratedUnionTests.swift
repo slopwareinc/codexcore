@@ -168,7 +168,7 @@ final class AppServerGeneratedUnionTests: XCTestCase {
         )
     }
 
-    func testAlpha20ResumeCursorsAreTyped() throws {
+    func testAlpha24ResumeCursorsAreTyped() throws {
         let json = #"""
         {
             "approvalPolicy":"never",

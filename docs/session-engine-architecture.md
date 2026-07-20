@@ -3,17 +3,17 @@
 ## Status
 
 This document defines the server-informed target runtime for the protocol pinned to
-`codex-cli 0.145.0-alpha.20`. The protocol is alpha, so protocol evolution is handled by
+`codex-cli 0.145.0-alpha.24`. The protocol is alpha, so protocol evolution is handled by
 regenerating the wire layer and updating its drift tests, not by preserving a second
 compatibility runtime.
 
 The implementation is currently transitioning toward this shape. Separate history and
 lease coordinators remain migration artifacts rather than target module boundaries.
 
-Alpha.20 exposes both `legacy` and `paginated` thread-history modes, and they are active
+Alpha.24 exposes both `legacy` and `paginated` thread-history modes, and they are active
 protocol contracts rather than a source-compatibility concern. CodexCore cannot yet make
 `paginated` the universal product default while preserving the pinned server's features:
-alpha.20 rejects `thread/fork`, `thread/rollback`, and `thread/read(includeTurns: true)`
+alpha.24 rejects `thread/fork`, `thread/rollback`, and `thread/read(includeTurns: true)`
 for paginated threads. Until those server gaps close, CodexCore creates legacy threads by
 default and treats paginated history as an explicit per-thread experiment. The session
 selects behavior from the thread's declared history mode. It must never send a paginated
@@ -26,6 +26,20 @@ source of truth for resume and operation policy.
 CodexCore launches a pinned app-server over stdio and uses an isolated `CODEX_HOME` at
 `~/.codexcore` by default. The normal Codex app's `~/.codex` state is not selected
 implicitly.
+
+### Alpha.24 protocol additions
+
+Compared with alpha.20, the pinned schema adds `thread/searchOccurrences` for paginated
+message search and `app/installed` for the committed connector runtime snapshot. Thread
+payloads now advertise `canAcceptDirectInput`; CodexCore retains this capability in
+canonical metadata instead of inferring it from thread ancestry. The server reports
+`false` for multi-agent-v2 thread-spawned subagents and rejects direct turns to them.
+
+Alpha.24 also adds audio input vocabulary, session-end hooks, listed plugin
+discoverability, plugin installation-interstitial metadata, and realtime-v3 initial
+items plus typed response-handoff modes. These remain generated wire capabilities until
+a product surface explicitly adopts them. The existing paginated-history restrictions
+on fork, rollback, full thread reads, and full items in `thread/turns/list` remain.
 
 ## What the server actually guarantees
 
