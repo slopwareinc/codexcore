@@ -1738,13 +1738,29 @@ private struct CodexTranscriptAgentPill: View {
         let imageAttachment = chip.attachmentKind == .image
         let isAttachment = chip.threadID == nil && chip.taskSummary != nil
         HStack(spacing: 5) {
-            if imageAttachment, let path = chip.taskSummary,
-               let image = CodexTranscriptAttachmentImageCache.image(at: path) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: imageAttachment ? 64 : 18, height: imageAttachment ? 64 : 18)
-                    .clipShape(RoundedRectangle(cornerRadius: imageAttachment ? 8 : 3, style: .continuous))
+            if imageAttachment {
+                if let path = chip.taskSummary,
+                   let image = CodexTranscriptAttachmentImageCache.image(at: path) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                } else {
+                    VStack(spacing: 3) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(theme.colors.textSecondary)
+                        Text(chip.label)
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(5)
+                    .frame(width: 64, height: 64)
+                    .background(theme.colors.surface.opacity(0.7))
+                }
             } else if chip.threadID == nil {
                 Image(systemName: "doc")
                     .font(.system(size: 12, weight: .medium))
@@ -1764,7 +1780,7 @@ private struct CodexTranscriptAgentPill: View {
             }
         }
         .font(theme.fonts.caption)
-        .lineLimit(1)
+        .lineLimit(imageAttachment ? 2 : 1)
         .padding(.horizontal, imageAttachment ? 0 : 8)
         .frame(height: imageAttachment ? 64 : 26)
         .contentShape(Capsule())
