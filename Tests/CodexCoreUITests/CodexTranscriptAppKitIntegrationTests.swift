@@ -7,6 +7,36 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func unconfiguredCollectionItemDoesNotBuildEverySpecializedControlTree() {
+        let cell = CodexTranscriptCollectionItem()
+
+        _ = cell.view
+
+        #expect(cell.view.subviews.count == 1)
+    }
+
+    @Test func emptyAndPopulatedTranscriptReuseTheSameAppKitHost() throws {
+        let model = TranscriptHostIdentityModel()
+        let hosting = NSHostingView(rootView: TranscriptHostIdentityHarness(model: model))
+        hosting.frame = NSRect(x: 0, y: 0, width: 860, height: 700)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        let emptyHost = try #require(firstDescendant(of: CodexTranscriptCollectionContainerView.self, in: hosting))
+        model.transcript = .init(turns: [.init(
+            id: "turn",
+            finalAnswer: .init(id: "answer", text: "Hello", isStreaming: false),
+            status: .done(durationMs: 1)
+        )])
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        let populatedHost = try #require(firstDescendant(of: CodexTranscriptCollectionContainerView.self, in: hosting))
+        #expect(emptyHost === populatedHost)
+    }
+
     @Test func transcriptHostUsesCompleteViewportProposalWithoutIntrinsicMeasurement() {
         #expect(
             CodexTranscriptListHost.resolvedViewportSize(
@@ -1142,6 +1172,33 @@ struct CodexTranscriptAppKitIntegrationTests {
             presentedAtByTurnID: [completedTurn.id: date, turn.id: date]
         )
     }
+}
+
+@MainActor
+private final class TranscriptHostIdentityModel: ObservableObject {
+    @Published var transcript = CodexTranscriptV2()
+}
+
+private struct TranscriptHostIdentityHarness: View {
+    @ObservedObject var model: TranscriptHostIdentityModel
+
+    var body: some View {
+        CodexTranscriptViewV2(transcript: model.transcript) {
+            Text("Empty")
+        }
+    }
+}
+
+@MainActor
+private func firstDescendant<ViewType: NSView>(
+    of type: ViewType.Type,
+    in root: NSView
+) -> ViewType? {
+    if let match = root as? ViewType { return match }
+    for child in root.subviews {
+        if let match = firstDescendant(of: type, in: child) { return match }
+    }
+    return nil
 }
 
 private final class RecordingClipboard: CodexClipboardService, @unchecked Sendable {

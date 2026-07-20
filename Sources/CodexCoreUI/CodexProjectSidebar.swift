@@ -612,10 +612,83 @@ private struct ProjectSidebarGroupView: View {
 
 private struct SidebarChatRow: View {
     @Environment(\.codexAgentTheme) private var theme
-    @State private var isHovered = false
 
     let row: CodexSidebarThreadRow
     var indentation: CGFloat = 0
+    let onSelect: () -> Void
+    let onTogglePin: () -> Void
+    let onArchive: () -> Void
+
+    var body: some View {
+        SidebarChatRowHost(
+            row: row,
+            indentation: indentation,
+            theme: theme,
+            onSelect: onSelect,
+            onTogglePin: onTogglePin,
+            onArchive: onArchive
+        )
+        .frame(height: theme.fonts.sidebar.chatRowHeight)
+        .help(row.summary.title)
+    }
+}
+
+private struct SidebarChatRowHost: NSViewRepresentable {
+    let row: CodexSidebarThreadRow
+    let indentation: CGFloat
+    let theme: CodexAgentTheme
+    let onSelect: () -> Void
+    let onTogglePin: () -> Void
+    let onArchive: () -> Void
+
+    func makeNSView(context: Context) -> SidebarChatRowContainerView {
+        let container = SidebarChatRowContainerView()
+        update(container)
+        return container
+    }
+
+    func updateNSView(_ container: SidebarChatRowContainerView, context: Context) {
+        update(container)
+    }
+
+    private func update(_ container: SidebarChatRowContainerView) {
+        let base = NSColor(theme.colors.canvas)
+        let elevated = NSColor(theme.colors.surfaceElevated)
+        let selected = base.blended(withFraction: 0.50, of: elevated) ?? elevated
+        let hovered = base.blended(withFraction: 0.22, of: elevated) ?? elevated
+        container.configure(
+            content: AnyView(
+                SidebarChatRowContent(
+                    row: row,
+                    indentation: indentation,
+                    onSelect: onSelect,
+                    onTogglePin: onTogglePin,
+                    onArchive: onArchive
+                )
+                .codexAgentTheme(theme)
+            ),
+            actions: AnyView(
+                SidebarChatRowActions(
+                    row: row,
+                    onTogglePin: onTogglePin,
+                    onArchive: onArchive
+                )
+                .codexAgentTheme(theme)
+                .accessibilityHidden(true)
+            ),
+            isSelected: row.isSelected,
+            baseColor: base,
+            selectedColor: selected,
+            hoverColor: hovered
+        )
+    }
+}
+
+private struct SidebarChatRowContent: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let row: CodexSidebarThreadRow
+    let indentation: CGFloat
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
@@ -627,71 +700,110 @@ private struct SidebarChatRow: View {
                 .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            trailingStatusOrActions
+            trailingStatus
         }
         .padding(.leading, 6 + indentation)
         .padding(.trailing, 8)
         .frame(height: theme.fonts.sidebar.chatRowHeight)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onSelect)
-        .background(
-            rowFill,
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-        )
-        .onHover { isHovered = $0 }
-        .help(row.summary.title)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(row.summary.title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, onSelect)
+        .accessibilityActions {
+            if row.canPin {
+                Button(
+                    CodexSidebarAccessibility.chatPinLabel(
+                        isPinned: row.isPinned,
+                        title: row.summary.title
+                    ),
+                    action: onTogglePin
+                )
+            }
+            if row.canArchive {
+                Button(
+                    CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title),
+                    action: onArchive
+                )
+            }
+        }
     }
 
-    private var trailingStatusOrActions: some View {
-        ZStack(alignment: .trailing) {
-            HStack(spacing: 5) {
-                if row.hasUnreadWhileInactive {
-                    Circle()
-                        .fill(theme.colors.accent)
-                        .frame(width: 6, height: 6)
-                        .accessibilityLabel("Unread updates")
-                }
-                switch row.liveStatus {
-                case .running:
-                    Circle()
-                        .stroke(theme.colors.running, lineWidth: 1.5)
-                        .frame(width: 9, height: 9)
-                        .accessibilityLabel("Running")
-                case .failed:
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(theme.fonts.sidebar.chatRecency.font)
-                        .foregroundStyle(theme.colors.danger)
-                        .accessibilityLabel("Failed")
-                case .idle:
-                    Text(recencyLabel)
-                        .font(theme.fonts.sidebar.chatRecency.font)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
-                }
+    private var trailingStatus: some View {
+        HStack(spacing: 5) {
+            if row.hasUnreadWhileInactive {
+                Circle()
+                    .fill(theme.colors.accent)
+                    .frame(width: 6, height: 6)
+                    .accessibilityLabel("Unread updates")
             }
-            .opacity(chatActionsAreVisible ? 0 : 1)
+            switch row.liveStatus {
+            case .running:
+                Circle()
+                    .stroke(theme.colors.running, lineWidth: 1.5)
+                    .frame(width: 9, height: 9)
+                    .accessibilityLabel("Running")
+            case .failed:
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(theme.fonts.sidebar.chatRecency.font)
+                    .foregroundStyle(theme.colors.danger)
+                    .accessibilityLabel("Failed")
+            case .idle:
+                Text(recencyLabel)
+                    .font(theme.fonts.sidebar.chatRecency.font)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: 52, alignment: .trailing)
+    }
 
-            HStack(spacing: 4) {
-                if row.canPin {
-                    sidebarActionButton(
-                        systemImage: row.isPinned ? "pin.fill" : "pin",
-                        isAccented: row.isPinned,
-                        accessibilityLabel: CodexSidebarAccessibility.chatPinLabel(isPinned: row.isPinned, title: row.summary.title),
-                        help: row.isPinned ? "Unpin chat" : "Pin chat",
-                        action: onTogglePin
-                    )
-                }
-                if row.canArchive {
-                    sidebarActionButton(
-                        systemImage: "archivebox",
-                        accessibilityLabel: CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title),
-                        help: "Archive chat",
-                        action: onArchive
-                    )
-                }
+    private var recencyLabel: String {
+        guard let timestamp = row.summary.recencyAt ?? row.summary.updatedAt ?? row.summary.createdAt else {
+            return ""
+        }
+
+        let elapsed = max(0, Date().timeIntervalSince1970 - timestamp)
+        switch elapsed {
+        case ..<60: return "now"
+        case ..<3_600: return "\(Int(elapsed / 60))m"
+        case ..<86_400: return "\(Int(elapsed / 3_600))h"
+        case ..<604_800: return "\(Int(elapsed / 86_400))d"
+        default: return "\(Int(elapsed / 604_800))w"
+        }
+    }
+}
+
+private struct SidebarChatRowActions: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let row: CodexSidebarThreadRow
+    let onTogglePin: () -> Void
+    let onArchive: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if row.canPin {
+                sidebarActionButton(
+                    systemImage: row.isPinned ? "pin.fill" : "pin",
+                    isAccented: row.isPinned,
+                    accessibilityLabel: CodexSidebarAccessibility.chatPinLabel(
+                        isPinned: row.isPinned,
+                        title: row.summary.title
+                    ),
+                    help: row.isPinned ? "Unpin chat" : "Pin chat",
+                    action: onTogglePin
+                )
             }
-            .opacity(chatActionsAreVisible ? 1 : 0)
-            .allowsHitTesting(chatActionsAreVisible)
+            if row.canArchive {
+                sidebarActionButton(
+                    systemImage: "archivebox",
+                    accessibilityLabel: CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title),
+                    help: "Archive chat",
+                    action: onArchive
+                )
+            }
         }
         .frame(width: 52, alignment: .trailing)
     }
@@ -718,39 +830,111 @@ private struct SidebarChatRow: View {
         .accessibilityLabel(accessibilityLabel)
         .help(help)
     }
+}
 
-    private var rowFill: Color {
-        if row.isSelected {
-            return theme.colors.surfaceElevated.opacity(0.50)
-        }
-        if isHovered {
-            return theme.colors.surfaceElevated.opacity(0.22)
-        }
-        return .clear
+@MainActor
+final class SidebarChatRowContainerView: NSView {
+    private let contentHost = NSHostingView(rootView: AnyView(EmptyView()))
+    private let actionBackdrop = NSView()
+    private let actionsHost = NSHostingView(rootView: AnyView(EmptyView()))
+    private var trackingAreaReference: NSTrackingArea?
+    private var isHovered = false
+    private var isSelected = false
+    private var baseColor = NSColor.clear
+    private var selectedColor = NSColor.clear
+    private var hoverColor = NSColor.clear
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.masksToBounds = true
+        contentHost.setAccessibilityElement(false)
+        actionBackdrop.wantsLayer = true
+        actionBackdrop.isHidden = true
+        actionsHost.isHidden = true
+        addSubview(contentHost)
+        addSubview(actionBackdrop)
+        addSubview(actionsHost)
     }
 
-    private var chatActionsAreVisible: Bool {
-        isHovered || row.isSelected
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var recencyLabel: String {
-        guard let timestamp = row.summary.recencyAt ?? row.summary.updatedAt ?? row.summary.createdAt else {
-            return ""
-        }
+    func configure(
+        content: AnyView,
+        actions: AnyView,
+        isSelected: Bool,
+        baseColor: NSColor,
+        selectedColor: NSColor,
+        hoverColor: NSColor
+    ) {
+        contentHost.rootView = content
+        actionsHost.rootView = actions
+        self.isSelected = isSelected
+        self.baseColor = baseColor
+        self.selectedColor = selectedColor
+        self.hoverColor = hoverColor
+        updateChrome()
+        needsLayout = true
+    }
 
-        let elapsed = max(0, Date().timeIntervalSince1970 - timestamp)
-        switch elapsed {
-        case ..<60:
-            return "now"
-        case ..<3_600:
-            return "\(Int(elapsed / 60))m"
-        case ..<86_400:
-            return "\(Int(elapsed / 3_600))h"
-        case ..<604_800:
-            return "\(Int(elapsed / 86_400))d"
-        default:
-            return "\(Int(elapsed / 604_800))w"
-        }
+    override func layout() {
+        super.layout()
+        contentHost.frame = bounds
+        let actionsWidth = min(60, bounds.width)
+        let actionsFrame = NSRect(
+            x: bounds.maxX - actionsWidth,
+            y: bounds.minY,
+            width: actionsWidth,
+            height: bounds.height
+        )
+        actionBackdrop.frame = actionsFrame
+        actionsHost.frame = actionsFrame
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaReference { removeTrackingArea(trackingAreaReference) }
+        let tracking = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(tracking)
+        trackingAreaReference = tracking
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updateChrome()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateChrome()
+    }
+
+    var contentHostIdentityForTesting: ObjectIdentifier { ObjectIdentifier(contentHost) }
+    var actionControlsAreVisibleForTesting: Bool { !actionsHost.isHidden }
+
+    func setHoveredForTesting(_ hovered: Bool) {
+        isHovered = hovered
+        updateChrome()
+    }
+
+    private func updateChrome() {
+        let showsActions = isSelected || isHovered
+        let background = isSelected ? selectedColor : (isHovered ? hoverColor : NSColor.clear)
+        layer?.backgroundColor = background.cgColor
+        actionBackdrop.layer?.backgroundColor = (
+            isSelected ? selectedColor : (isHovered ? hoverColor : baseColor)
+        ).cgColor
+        actionBackdrop.isHidden = !showsActions
+        actionsHost.isHidden = !showsActions
     }
 }
 

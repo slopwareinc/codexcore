@@ -138,7 +138,7 @@ final class CodexSelectableTranscriptTextView: NSTextView {
 final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDelegate {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("CodexTranscriptCollectionItem")
 
-    private let selectableTextView: CodexSelectableTranscriptTextView = {
+    private lazy var selectableTextView: CodexSelectableTranscriptTextView = {
         let storage = NSTextStorage()
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
@@ -146,34 +146,43 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         layoutManager.addTextContainer(textContainer)
         return CodexSelectableTranscriptTextView(frame: .zero, textContainer: textContainer)
     }()
-    private let textScrollView = NSScrollView()
-    private let actionButton = NSButton()
-    private let copyButton = NSButton()
-    private let codeHeaderView = NSView()
-    private let codeLanguageLabel = NSTextField(labelWithString: "")
-    private let chipBackground = NSView()
-    private let chipIconView = NSImageView()
-    private let chipLabel = CodexShimmerTextField(frame: .zero)
-    private let chipDurationLabel = NSTextField(labelWithString: "")
-    private let chipStatusLabel = NSTextField(labelWithString: "")
-    private let chipDisclosureView = NSImageView()
-    private let agentChipContainer = NSView()
+    private lazy var textScrollView = NSScrollView()
+    private lazy var actionButton = NSButton()
+    private lazy var copyButton = NSButton()
+    private lazy var codeHeaderView = NSView()
+    private lazy var codeLanguageLabel = NSTextField(labelWithString: "")
+    private lazy var chipBackground = NSView()
+    private lazy var chipIconView = NSImageView()
+    private lazy var chipLabel = CodexShimmerTextField(frame: .zero)
+    private lazy var chipDurationLabel = NSTextField(labelWithString: "")
+    private lazy var chipStatusLabel = NSTextField(labelWithString: "")
+    private lazy var chipDisclosureView = NSImageView()
+    private lazy var agentChipContainer = NSView()
     private var agentChipHosts: [NSHostingView<AnyView>] = []
     private var configuredAgentChips: [CodexTranscriptAgentChipRender] = []
     private var agentPreviewPopover: NSPopover?
     private var agentPreviewCloseTask: DispatchWorkItem?
     private var pointerIsInsideAgentPreview = false
-    private let diffTabContainer = NSView()
+    private lazy var diffTabContainer = NSView()
     private var diffTabButtons: [NSButton] = []
-    private let diffSelectedUnderline = NSView()
+    private lazy var diffSelectedUnderline = NSView()
     private var glassBackgroundView: NSHostingView<AnyView>?
-    private let approvalAllowButton = NSButton(title: "Allow", target: nil, action: nil)
-    private let approvalDenyButton = NSButton(title: "Deny", target: nil, action: nil)
-    private let footerTimestampLabel = NSTextField(labelWithString: "")
-    private let footerCopyItemButton = NSButton()
-    private let footerCopyTurnButton = NSButton()
-    private let footerContextButton = NSButton()
+    private lazy var approvalAllowButton = NSButton(title: "Allow", target: nil, action: nil)
+    private lazy var approvalDenyButton = NSButton(title: "Deny", target: nil, action: nil)
+    private lazy var footerTimestampLabel = NSTextField(labelWithString: "")
+    private lazy var footerCopyItemButton = NSButton()
+    private lazy var footerCopyTurnButton = NSButton()
+    private lazy var footerContextButton = NSButton()
     private let backgroundView = NSView()
+    private var textControlsInstalled = false
+    private var actionControlInstalled = false
+    private var copyControlInstalled = false
+    private var codeHeaderControlsInstalled = false
+    private var chipControlsInstalled = false
+    private var agentControlsInstalled = false
+    private var diffControlsInstalled = false
+    private var approvalControlsInstalled = false
+    private var footerControlsInstalled = false
     private var hostedView: NSView?
     private var item: CodexTranscriptRenderItem?
     private var appKitTheme: CodexTranscriptAppKitTheme?
@@ -189,49 +198,63 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var isHovered = false
     private var copyConfirmationTokens: [ObjectIdentifier: UUID] = [:]
 
-    var selectableTextViewForTesting: NSTextView { selectableTextView }
-    var hasHostedViewForTesting: Bool { hostedView != nil }
-    var footerCopyTurnIsVisibleForTesting: Bool { !footerCopyTurnButton.isHidden }
-    var footerCopyItemTitleForTesting: String { footerCopyItemButton.title }
-    var footerCopyItemToolTipForTesting: String? { footerCopyItemButton.toolTip }
-    var contentFrameForTesting: NSRect { backgroundView.frame }
-    var codeHeaderIsVisibleForTesting: Bool { !codeHeaderView.isHidden }
-    var codeLanguageForTesting: String { codeLanguageLabel.stringValue }
-    var copyButtonAccessibilityDescriptionForTesting: String? { copyButton.image?.accessibilityDescription }
-    var footerCopyTurnAccessibilityDescriptionForTesting: String? {
-        footerCopyTurnButton.image?.accessibilityDescription
+    var selectableTextViewForTesting: NSTextView {
+        ensureTextControls()
+        return selectableTextView
     }
-    var chipLabelForTesting: String { chipLabel.stringValue }
-    var chipIconDescriptionForTesting: String? { chipIconView.image?.accessibilityDescription }
-    var chipIsActionableForTesting: Bool { !actionButton.isHidden && actionButton.isEnabled }
-    var approvalButtonsVisibleForTesting: Bool { !approvalAllowButton.isHidden && !approvalDenyButton.isHidden }
-    var textViewportHeightForTesting: CGFloat { textScrollView.contentSize.height }
-    var textDocumentHeightForTesting: CGFloat { selectableTextView.frame.height }
-    var textViewportWidthForTesting: CGFloat { textScrollView.contentSize.width }
-    var textDocumentWidthForTesting: CGFloat { selectableTextView.frame.width }
-    var hasVerticalScrollerForTesting: Bool { textScrollView.hasVerticalScroller }
-    var hasHorizontalScrollerForTesting: Bool { textScrollView.hasHorizontalScroller }
-    var copyButtonIsVisibleForTesting: Bool { !copyButton.isHidden }
+    var hasHostedViewForTesting: Bool { hostedView != nil }
+    var footerCopyTurnIsVisibleForTesting: Bool { footerControlsInstalled && !footerCopyTurnButton.isHidden }
+    var footerCopyItemTitleForTesting: String { footerControlsInstalled ? footerCopyItemButton.title : "" }
+    var footerCopyItemToolTipForTesting: String? { footerControlsInstalled ? footerCopyItemButton.toolTip : nil }
+    var contentFrameForTesting: NSRect { backgroundView.frame }
+    var codeHeaderIsVisibleForTesting: Bool { codeHeaderControlsInstalled && !codeHeaderView.isHidden }
+    var codeLanguageForTesting: String { codeHeaderControlsInstalled ? codeLanguageLabel.stringValue : "" }
+    var copyButtonAccessibilityDescriptionForTesting: String? {
+        copyControlInstalled ? copyButton.image?.accessibilityDescription : nil
+    }
+    var footerCopyTurnAccessibilityDescriptionForTesting: String? {
+        footerControlsInstalled ? footerCopyTurnButton.image?.accessibilityDescription : nil
+    }
+    var chipLabelForTesting: String { chipControlsInstalled ? chipLabel.stringValue : "" }
+    var chipIconDescriptionForTesting: String? {
+        chipControlsInstalled ? chipIconView.image?.accessibilityDescription : nil
+    }
+    var chipIsActionableForTesting: Bool {
+        actionControlInstalled && !actionButton.isHidden && actionButton.isEnabled
+    }
+    var approvalButtonsVisibleForTesting: Bool {
+        approvalControlsInstalled && !approvalAllowButton.isHidden && !approvalDenyButton.isHidden
+    }
+    var textViewportHeightForTesting: CGFloat { textControlsInstalled ? textScrollView.contentSize.height : 0 }
+    var textDocumentHeightForTesting: CGFloat { textControlsInstalled ? selectableTextView.frame.height : 0 }
+    var textViewportWidthForTesting: CGFloat { textControlsInstalled ? textScrollView.contentSize.width : 0 }
+    var textDocumentWidthForTesting: CGFloat { textControlsInstalled ? selectableTextView.frame.width : 0 }
+    var hasVerticalScrollerForTesting: Bool { textControlsInstalled && textScrollView.hasVerticalScroller }
+    var hasHorizontalScrollerForTesting: Bool { textControlsInstalled && textScrollView.hasHorizontalScroller }
+    var copyButtonIsVisibleForTesting: Bool { copyControlInstalled && !copyButton.isHidden }
     var agentChipCountForTesting: Int { agentChipHosts.count }
     var agentChipTitlesForTesting: [String] {
         configuredAgentChips.map { "\($0.label) · \(Self.agentStatusTitle($0.status).lowercased())" }
     }
     var agentPillsUseGlassForTesting: Bool { !agentChipHosts.isEmpty }
-    var workRowStatusForTesting: String { chipStatusLabel.stringValue }
+    var workRowStatusForTesting: String { chipControlsInstalled ? chipStatusLabel.stringValue : "" }
     var workRowBackgroundIsVisibleForTesting: Bool {
+        guard chipControlsInstalled else { return false }
         guard let color = chipBackground.layer?.backgroundColor else { return false }
         return NSColor(cgColor: color)?.alphaComponent ?? 0 > 0.01
     }
     var glassPanelIsVisibleForTesting: Bool { glassBackgroundView != nil }
     var diffTabCountForTesting: Int { diffTabButtons.count }
     var workHeaderHasAlignedDisclosureForTesting: Bool {
-        guard actionButton.image != nil,
+        guard actionControlInstalled,
+              actionButton.image != nil,
               let imageRect = (actionButton.cell as? NSButtonCell)?.imageRect(forBounds: actionButton.bounds)
         else { return false }
         return abs(imageRect.midY - actionButton.bounds.midY) <= 1
     }
     var workHeaderTitleAndDisclosureGapForTesting: CGFloat? {
-        guard actionButton.image != nil,
+        guard actionControlInstalled,
+              actionButton.image != nil,
               let cell = actionButton.cell as? NSButtonCell
         else { return nil }
         let titleRect = cell.titleRect(forBounds: actionButton.bounds)
@@ -239,14 +262,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         return imageRect.minX - titleRect.maxX
     }
     var textUsedHeightForTesting: CGFloat {
-        guard let layoutManager = selectableTextView.layoutManager,
+        guard textControlsInstalled,
+              let layoutManager = selectableTextView.layoutManager,
               let textContainer = selectableTextView.textContainer else { return 0 }
         layoutManager.ensureLayout(for: textContainer)
         return layoutManager.usedRect(for: textContainer).height
     }
 
-    func copyItemForTesting() { copyItem(copyButton) }
-    func copyTurnForTesting() { copyTurn(footerCopyTurnButton) }
+    func copyItemForTesting() { copyItem(copyControlInstalled ? copyButton : nil) }
+    func copyTurnForTesting() { copyTurn(footerControlsInstalled ? footerCopyTurnButton : nil) }
     func invokePrimaryActionForTesting() { invokePrimaryAction() }
     func editUserForTesting() { editUser() }
     func forkChatForTesting() { invokeForkChat() }
@@ -273,34 +297,98 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         view.wantsLayer = true
         backgroundView.wantsLayer = true
         view.addSubview(backgroundView)
+    }
 
+    private func ensureTextControls() {
+        guard !textControlsInstalled else { return }
+        textControlsInstalled = true
+        selectableTextView.delegate = self
+        selectableTextView.onSelectionStateChange = { [weak self] (selecting: Bool) in
+            guard let self, let id = self.item?.id else { return }
+            self.selectionChanged?(id, selecting)
+        }
+        textScrollView.documentView = selectableTextView
+        textScrollView.drawsBackground = false
+        textScrollView.borderType = .noBorder
+        textScrollView.hasVerticalScroller = false
+        textScrollView.autohidesScrollers = true
+        textScrollView.isHidden = true
+        view.addSubview(textScrollView)
+    }
+
+    private func ensureActionControl() {
+        guard !actionControlInstalled else { return }
+        actionControlInstalled = true
+        actionButton.isBordered = false
+        actionButton.bezelStyle = .inline
+        actionButton.alignment = .left
+        actionButton.lineBreakMode = .byTruncatingMiddle
+        actionButton.target = self
+        actionButton.action = #selector(invokePrimaryAction)
+        actionButton.isHidden = true
+        view.addSubview(actionButton)
+    }
+
+    private func ensureCopyControl() {
+        guard !copyControlInstalled else { return }
+        copyControlInstalled = true
+        copyButton.isBordered = false
+        copyButton.bezelStyle = .inline
+        copyButton.image = Self.symbolImage("doc.on.doc", accessibilityDescription: "Copy")
+        copyButton.imagePosition = .imageOnly
+        copyButton.target = self
+        copyButton.action = #selector(copyItem(_:))
+        copyButton.toolTip = "Copy"
+        copyButton.setAccessibilityLabel("Copy")
+        copyButton.isHidden = true
+        view.addSubview(copyButton)
+    }
+
+    private func ensureCodeHeaderControls() {
+        guard !codeHeaderControlsInstalled else { return }
+        codeHeaderControlsInstalled = true
         codeHeaderView.wantsLayer = true
         codeHeaderView.isHidden = true
-        view.addSubview(codeHeaderView)
-
         codeLanguageLabel.isSelectable = false
         codeLanguageLabel.drawsBackground = false
         codeLanguageLabel.isBordered = false
         codeHeaderView.addSubview(codeLanguageLabel)
+        view.addSubview(codeHeaderView)
+    }
 
+    private func ensureChipControls() {
+        guard !chipControlsInstalled else { return }
+        chipControlsInstalled = true
         chipBackground.wantsLayer = true
         chipBackground.isHidden = true
-        view.addSubview(chipBackground)
         chipBackground.addSubview(chipIconView)
         chipBackground.addSubview(chipLabel)
         chipBackground.addSubview(chipDurationLabel)
         chipBackground.addSubview(chipStatusLabel)
         chipBackground.addSubview(chipDisclosureView)
+        view.addSubview(chipBackground)
+    }
 
+    private func ensureAgentControls() {
+        guard !agentControlsInstalled else { return }
+        agentControlsInstalled = true
         agentChipContainer.isHidden = true
         view.addSubview(agentChipContainer)
+    }
 
+    private func ensureDiffControls() {
+        guard !diffControlsInstalled else { return }
+        diffControlsInstalled = true
         diffTabContainer.wantsLayer = true
         diffTabContainer.isHidden = true
         diffSelectedUnderline.wantsLayer = true
         diffTabContainer.addSubview(diffSelectedUnderline)
         view.addSubview(diffTabContainer)
+    }
 
+    private func ensureApprovalControls() {
+        guard !approvalControlsInstalled else { return }
+        approvalControlsInstalled = true
         approvalAllowButton.target = self
         approvalAllowButton.action = #selector(allowApproval)
         approvalAllowButton.bezelStyle = .rounded
@@ -312,42 +400,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         approvalDenyButton.bezelStyle = .rounded
         approvalDenyButton.isHidden = true
         view.addSubview(approvalDenyButton)
+    }
 
-        selectableTextView.delegate = self
-        selectableTextView.onSelectionStateChange = { [weak self] (selecting: Bool) in
-            guard let self, let id = self.item?.id else { return }
-            self.selectionChanged?(id, selecting)
-        }
-        textScrollView.documentView = selectableTextView
-        textScrollView.drawsBackground = false
-        textScrollView.borderType = .noBorder
-        textScrollView.hasVerticalScroller = false
-        textScrollView.autohidesScrollers = true
-        view.addSubview(textScrollView)
-
-        actionButton.isBordered = false
-        actionButton.bezelStyle = .inline
-        actionButton.alignment = .left
-        actionButton.lineBreakMode = .byTruncatingMiddle
-        actionButton.target = self
-        actionButton.action = #selector(invokePrimaryAction)
-        view.addSubview(actionButton)
-
-        copyButton.isBordered = false
-        copyButton.bezelStyle = .inline
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
-        copyButton.imagePosition = .imageOnly
-        copyButton.target = self
-        copyButton.action = #selector(copyItem(_:))
-        copyButton.toolTip = "Copy"
-        copyButton.setAccessibilityLabel("Copy")
-        view.addSubview(copyButton)
-
+    private func ensureFooterControls() {
+        guard !footerControlsInstalled else { return }
+        footerControlsInstalled = true
         footerTimestampLabel.isSelectable = false
         footerTimestampLabel.drawsBackground = false
         footerTimestampLabel.isBordered = false
+        footerTimestampLabel.isHidden = true
         view.addSubview(footerTimestampLabel)
-
         configureFooterButton(
             footerCopyItemButton,
             systemImage: "doc.on.doc",
@@ -366,6 +428,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             toolTip: "Edit prompt",
             action: #selector(editUser)
         )
+        footerCopyItemButton.isHidden = true
+        footerCopyTurnButton.isHidden = true
+        footerContextButton.isHidden = true
     }
 
     override func prepareForReuse() {
@@ -378,34 +443,48 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         clearGlassBackground()
         clearDiffTabs()
         closeAgentPreview()
-        selectableTextView.string = ""
-        selectableTextView.isSelectable = false
-        textScrollView.isHidden = true
-        actionButton.isHidden = true
-        actionButton.image = nil
-        copyButton.isHidden = true
-        codeHeaderView.isHidden = true
-        chipBackground.isHidden = true
+        if textControlsInstalled {
+            selectableTextView.string = ""
+            selectableTextView.isSelectable = false
+            textScrollView.isHidden = true
+        }
+        if actionControlInstalled {
+            actionButton.isHidden = true
+            actionButton.image = nil
+        }
+        if copyControlInstalled { copyButton.isHidden = true }
+        if codeHeaderControlsInstalled { codeHeaderView.isHidden = true }
+        if chipControlsInstalled {
+            chipBackground.isHidden = true
+            chipBackground.layer?.borderWidth = 0
+            chipLabel.stopShimmer()
+            chipDurationLabel.stringValue = ""
+            chipStatusLabel.stringValue = ""
+            chipDisclosureView.image = nil
+        }
         clearAgentChips()
-        chipBackground.layer?.borderWidth = 0
-        chipLabel.stopShimmer()
-        chipDurationLabel.stringValue = ""
-        chipStatusLabel.stringValue = ""
-        chipDisclosureView.image = nil
-        approvalAllowButton.isHidden = true
-        approvalDenyButton.isHidden = true
-        footerTimestampLabel.isHidden = true
-        footerCopyItemButton.isHidden = true
-        footerCopyTurnButton.isHidden = true
-        footerContextButton.isHidden = true
+        if approvalControlsInstalled {
+            approvalAllowButton.isHidden = true
+            approvalDenyButton.isHidden = true
+        }
+        if footerControlsInstalled {
+            footerTimestampLabel.isHidden = true
+            footerCopyItemButton.isHidden = true
+            footerCopyTurnButton.isHidden = true
+            footerContextButton.isHidden = true
+        }
         backgroundView.isHidden = true
-        resetCopyConfirmation(copyButton, imageName: "doc.on.doc", accessibilityDescription: "Copy")
-        resetCopyConfirmation(footerCopyItemButton, imageName: "doc.on.doc", accessibilityDescription: "Copy answer")
-        resetCopyConfirmation(footerCopyTurnButton, imageName: "doc.on.doc.fill", accessibilityDescription: "Copy turn")
+        if copyControlInstalled {
+            resetCopyConfirmation(copyButton, imageName: "doc.on.doc", accessibilityDescription: "Copy")
+        }
+        if footerControlsInstalled {
+            resetCopyConfirmation(footerCopyItemButton, imageName: "doc.on.doc", accessibilityDescription: "Copy answer")
+            resetCopyConfirmation(footerCopyTurnButton, imageName: "doc.on.doc.fill", accessibilityDescription: "Copy turn")
+        }
         isHovered = false
         (view as? CodexTranscriptHoverView)?.usesPointingHand = false
         view.menu = nil
-        selectableTextView.menu = nil
+        if textControlsInstalled { selectableTextView.menu = nil }
     }
 
     func configure(
@@ -422,7 +501,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         preferredHeightChanged: @escaping (CodexTranscriptRenderItemID, Int, CGFloat) -> Void = { _, _, _ in }
     ) {
         let preservesIdentity = self.item?.id == item.id
-        let selectionToRestore = preservesIdentity && item.allowsTextSelection
+        let selectionToRestore = preservesIdentity && item.allowsTextSelection && textControlsInstalled
             ? selectableTextView.selectedRange()
             : NSRange(location: 0, length: 0)
         if !preservesIdentity { lastReportedPreferredHeight = nil }
@@ -442,37 +521,56 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         clearDiffTabs()
         closeAgentPreview()
         backgroundView.isHidden = true
-        textScrollView.isHidden = true
-        actionButton.isHidden = true
-        actionButton.image = nil
-        copyButton.isHidden = true
-        codeHeaderView.isHidden = true
-        chipBackground.isHidden = true
+        if textControlsInstalled { textScrollView.isHidden = true }
+        if actionControlInstalled {
+            actionButton.isHidden = true
+            actionButton.image = nil
+        }
+        if copyControlInstalled { copyButton.isHidden = true }
+        if codeHeaderControlsInstalled { codeHeaderView.isHidden = true }
+        if chipControlsInstalled {
+            chipBackground.isHidden = true
+            chipBackground.layer?.borderWidth = 0
+            chipLabel.stopShimmer()
+            chipDurationLabel.stringValue = ""
+            chipStatusLabel.stringValue = ""
+            chipDisclosureView.image = nil
+        }
         clearAgentChips()
-        chipBackground.layer?.borderWidth = 0
-        chipLabel.stopShimmer()
-        chipDurationLabel.stringValue = ""
-        chipStatusLabel.stringValue = ""
-        chipDisclosureView.image = nil
-        approvalAllowButton.isHidden = true
-        approvalDenyButton.isHidden = true
+        if approvalControlsInstalled {
+            approvalAllowButton.isHidden = true
+            approvalDenyButton.isHidden = true
+        }
         (view as? CodexTranscriptHoverView)?.usesPointingHand = false
-        footerTimestampLabel.isHidden = true
-        footerCopyItemButton.isHidden = true
-        footerCopyTurnButton.isHidden = true
-        footerContextButton.isHidden = true
-        if !item.allowsTextSelection, selectableTextView.selectedRange().length > 0 {
+        if footerControlsInstalled {
+            footerTimestampLabel.isHidden = true
+            footerCopyItemButton.isHidden = true
+            footerCopyTurnButton.isHidden = true
+            footerContextButton.isHidden = true
+        }
+        if textControlsInstalled,
+           !item.allowsTextSelection,
+           selectableTextView.selectedRange().length > 0 {
             selectionChanged(item.id, false)
         }
-        selectableTextView.isSelectable = item.allowsTextSelection
+        if textControlsInstalled { selectableTextView.isSelectable = item.allowsTextSelection }
 
         if let footer = item.footer {
+            ensureFooterControls()
             configureFooter(footer, item: item, theme: appKitTheme)
         } else if let approval = item.approval {
+            ensureChipControls()
+            ensureApprovalControls()
             configureApproval(approval, item: item, theme: appKitTheme)
         } else if let directive = item.directive {
+            ensureChipControls()
+            if item.action != nil { ensureActionControl() }
+            if case .codeComment = directive.kind, item.preparedText != nil { ensureTextControls() }
             configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
         } else if let diffPanel = item.diffPanel {
+            ensureTextControls()
+            ensureCopyControl()
+            ensureDiffControls()
             configureDiffPanel(
                 diffPanel,
                 item: item,
@@ -481,6 +579,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 preserving: selectionToRestore
             )
         } else if let code = item.code {
+            ensureTextControls()
+            ensureCodeHeaderControls()
+            ensureCopyControl()
             textScrollView.isHidden = false
             textScrollView.hasHorizontalScroller = true
             selectableTextView.isHorizontallyResizable = true
@@ -510,6 +611,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 installGlassBackground(theme: swiftUITheme)
             }
         } else if let preparedText = item.preparedText {
+            ensureTextControls()
             textScrollView.isHidden = false
             let isExpandedOutput = item.textRole == .expandedOutput
             textScrollView.hasHorizontalScroller = isExpandedOutput
@@ -527,16 +629,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             if item.textRole == .user || item.textRole == .expandedOutput {
                 backgroundView.isHidden = false
             }
-            // Expanded tool output is owned by the work row immediately above it;
-            // keep the copy action in that header instead of floating over text.
-            copyButton.isHidden = true
             if item.isScrollableOutput {
                 backgroundView.isHidden = true
                 installGlassBackground(theme: swiftUITheme)
             }
         } else if !item.agentChips.isEmpty {
+            ensureAgentControls()
             configureAgentChips(item.agentChips, theme: appKitTheme, swiftUITheme: swiftUITheme)
         } else if let header = item.workHeader {
+            ensureActionControl()
             actionButton.isHidden = false
             actionButton.font = appKitTheme.captionFont
             actionButton.contentTintColor = appKitTheme.textTertiary
@@ -548,12 +649,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             actionButton.isEnabled = item.action != nil
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
         } else if let row = item.workRow {
+            ensureChipControls()
             chipBackground.isHidden = false
             chipBackground.layer?.cornerRadius = 0
             chipBackground.layer?.backgroundColor = NSColor.clear.cgColor
             chipBackground.layer?.borderWidth = 0
-            chipIconView.image = NSImage(
-                systemSymbolName: Self.chipIconName(row),
+            chipIconView.image = Self.symbolImage(
+                Self.chipIconName(row),
                 accessibilityDescription: Self.chipIconAccessibilityDescription(row)
             )
             chipIconView.contentTintColor = Self.statusColor(row.status, theme: appKitTheme)
@@ -569,15 +671,19 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
-            copyButton.isHidden = !(row.isExpanded && item.copyText != nil)
-            if !copyButton.isHidden {
+            if row.isExpanded && item.copyText != nil {
+                ensureCopyControl()
+                copyButton.isHidden = false
                 copyButton.toolTip = "Copy output"
                 copyButton.setAccessibilityLabel("Copy output")
             }
-            actionButton.isHidden = !row.isActionable
-            actionButton.isEnabled = row.isActionable
-            actionButton.title = ""
-            actionButton.setAccessibilityLabel(item.accessibilityLabel)
+            if row.isActionable {
+                ensureActionControl()
+                actionButton.isHidden = false
+                actionButton.isEnabled = true
+                actionButton.title = ""
+                actionButton.setAccessibilityLabel(item.accessibilityLabel)
+            }
             (view as? CodexTranscriptHoverView)?.usesPointingHand = row.isActionable
         } else if let productTool = item.productTool {
             if let rendered = productToolRenderer?.render(productTool) {
@@ -586,6 +692,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 hostedView = hosting
                 view.addSubview(hosting)
             } else {
+                ensureActionControl()
                 actionButton.isHidden = false
                 actionButton.isEnabled = false
                 actionButton.font = appKitTheme.captionFont
@@ -700,7 +807,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let statusWidth = chipStatusLabel.frame.width
             chipDurationLabel.sizeToFit()
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
-            let copyReserve: CGFloat = copyButton.isHidden ? 0 : 34
+            let copyReserve: CGFloat = copyControlInstalled && !copyButton.isHidden ? 34 : 0
             let labelX = iconX + iconSize + 8
             let trailingWidth = statusWidth + (durationWidth > 0 ? durationWidth + 10 : 0) + copyReserve
             let naturalLabelWidth = ceil((chipLabel.stringValue as NSString).size(
@@ -723,7 +830,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 width: statusWidth,
                 height: 20
             )
-            if !copyButton.isHidden {
+            if copyControlInstalled, !copyButton.isHidden {
                 copyButton.frame = NSRect(
                     x: contentFrame.maxX - 28,
                     y: contentFrame.midY - 12,
@@ -731,13 +838,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                     height: 24
                 )
             }
-            actionButton.frame = NSRect(
-                x: contentFrame.minX,
-                y: contentFrame.minY,
-                width: max(0, contentFrame.width - copyReserve),
-                height: contentFrame.height
-            )
-        } else {
+            if actionControlInstalled {
+                actionButton.frame = NSRect(
+                    x: contentFrame.minX,
+                    y: contentFrame.minY,
+                    width: max(0, contentFrame.width - copyReserve),
+                    height: contentFrame.height
+                )
+            }
+        } else if actionControlInstalled {
             actionButton.frame = contentFrame
         }
         if let hostedView {
@@ -766,7 +875,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         button.bezelStyle = .inline
         button.focusRingType = .none
         button.title = ""
-        button.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: toolTip)
+        button.image = Self.symbolImage(systemImage, accessibilityDescription: toolTip)
         button.imagePosition = .imageOnly
         button.target = self
         button.action = action
@@ -785,7 +894,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipBackground.layer?.backgroundColor = theme.warning.withAlphaComponent(0.10).cgColor
         chipBackground.layer?.borderColor = theme.warning.withAlphaComponent(0.35).cgColor
         chipBackground.layer?.borderWidth = 1
-        chipIconView.image = NSImage(systemSymbolName: "hand.raised", accessibilityDescription: "Approval needed")
+        chipIconView.image = Self.symbolImage("hand.raised", accessibilityDescription: "Approval needed")
         chipIconView.contentTintColor = theme.warning
         chipLabel.stringValue = "Approval needed — \(approval.summary)"
         chipLabel.font = theme.captionFont
@@ -815,8 +924,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipBackground.isHidden = false
         chipBackground.layer?.cornerRadius = CodexTranscriptColumnMetrics.actionCardRadius
         chipBackground.layer?.backgroundColor = theme.surfaceSunken.withAlphaComponent(0.65).cgColor
-        chipIconView.image = NSImage(
-            systemSymbolName: Self.directiveIconName(directive.kind),
+        chipIconView.image = Self.symbolImage(
+            Self.directiveIconName(directive.kind),
             accessibilityDescription: item.accessibilityLabel
         )
         chipIconView.contentTintColor = Self.directiveTint(directive.kind, theme: theme)
@@ -826,19 +935,21 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         chipDurationLabel.font = theme.microFont
         chipDurationLabel.textColor = theme.textTertiary
         chipDisclosureView.contentTintColor = theme.textTertiary
-        chipDisclosureView.image = item.action == nil ? nil : NSImage(
-            systemSymbolName: "arrow.up.right", accessibilityDescription: "Open"
+        chipDisclosureView.image = item.action == nil ? nil : Self.symbolImage(
+            "arrow.up.right", accessibilityDescription: "Open"
         )
-        actionButton.isHidden = item.action == nil
-        actionButton.isEnabled = item.action != nil
-        actionButton.title = ""
-        actionButton.setAccessibilityLabel(item.accessibilityLabel)
-        actionButton.toolTip = Self.directiveToolTip(directive.kind, raw: directive.raw)
+        if actionControlInstalled {
+            actionButton.isHidden = item.action == nil
+            actionButton.isEnabled = item.action != nil
+            actionButton.title = ""
+            actionButton.setAccessibilityLabel(item.accessibilityLabel)
+            actionButton.toolTip = Self.directiveToolTip(directive.kind, raw: directive.raw)
+        }
         (view as? CodexTranscriptHoverView)?.usesPointingHand = item.action != nil
 
         if case .codeComment(_, _, let file, let start, _, let priority) = directive.kind {
             chipDurationLabel.stringValue = priority.map { "P\($0)" } ?? ""
-            chipDisclosureView.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Open file")
+            chipDisclosureView.image = Self.symbolImage("doc.on.doc", accessibilityDescription: "Open file")
             if let prepared = item.preparedText?.attributedString {
                 textScrollView.isHidden = false
                 textScrollView.hasHorizontalScroller = false
@@ -847,7 +958,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 selectableTextView.configureLinkAppearance(theme: theme, automaticDetection: false)
                 selectableTextView.bind(prepared, accessibilityLabel: item.accessibilityLabel, preserving: selection)
             }
-            actionButton.toolTip = file + (start.map { ":\($0)" } ?? "")
+            if actionControlInstalled {
+                actionButton.toolTip = file + (start.map { ":\($0)" } ?? "")
+            }
         }
     }
 
@@ -873,7 +986,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             x: 32, y: contentFrame.midY - 10,
             width: max(20, chipDurationLabel.frame.minX - 40), height: 20
         )
-        actionButton.frame = contentFrame
+        if actionControlInstalled { actionButton.frame = contentFrame }
 
         if case .codeComment(_, _, let file, let start, _, _) = directive.kind {
             chipIconView.frame.origin.y = contentFrame.height - 26
@@ -884,12 +997,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 allowsHorizontalScrolling: false
             )
             chipDisclosureView.frame = NSRect(x: 10, y: 5, width: 16, height: 16)
-            chipDisclosureView.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: "Open file")
-            actionButton.title = file + (start.map { ":\($0)" } ?? "")
-            actionButton.font = appKitTheme?.microFont
-            actionButton.contentTintColor = appKitTheme?.textTertiary
-            actionButton.alignment = .left
-            actionButton.frame = NSRect(x: contentFrame.minX + 30, y: 2, width: contentFrame.width - 40, height: 22)
+            chipDisclosureView.image = Self.symbolImage("doc.text", accessibilityDescription: "Open file")
+            if actionControlInstalled {
+                actionButton.title = file + (start.map { ":\($0)" } ?? "")
+                actionButton.font = appKitTheme?.microFont
+                actionButton.contentTintColor = appKitTheme?.textTertiary
+                actionButton.alignment = .left
+                actionButton.frame = NSRect(x: contentFrame.minX + 30, y: 2, width: contentFrame.width - 40, height: 22)
+            }
         }
     }
 
@@ -965,16 +1080,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
         switch footer.kind {
         case .user:
-            footerContextButton.image = NSImage(
-                systemSymbolName: "square.and.pencil",
+            footerContextButton.image = Self.symbolImage(
+                "square.and.pencil",
                 accessibilityDescription: "Edit prompt"
             )
             footerContextButton.action = #selector(editUser)
             footerContextButton.toolTip = "Edit prompt"
             footerContextButton.setAccessibilityLabel("Edit prompt")
         case .finalAnswer:
-            footerContextButton.image = NSImage(
-                systemSymbolName: "arrow.triangle.branch",
+            footerContextButton.image = Self.symbolImage(
+                "arrow.triangle.branch",
                 accessibilityDescription: "Fork chat"
             )
             footerContextButton.action = #selector(invokeForkChat)
@@ -992,12 +1107,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func updateChipAppearance() {
-        guard item?.workRow != nil else { return }
+        guard chipControlsInstalled, item?.workRow != nil else { return }
         chipBackground.layer?.backgroundColor = NSColor.clear.cgColor
         chipBackground.layer?.borderWidth = 0
     }
 
     private func updateFooterChromeVisibility() {
+        guard footerControlsInstalled else { return }
         guard let footer = item?.footer else {
             footerCopyItemButton.isHidden = true
             footerCopyTurnButton.isHidden = true
@@ -1154,6 +1270,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func clearDiffTabs() {
+        guard diffControlsInstalled else { return }
         diffTabButtons.forEach { $0.removeFromSuperview() }
         diffTabButtons.removeAll(keepingCapacity: true)
         diffSelectedUnderline.removeFromSuperview()
@@ -1242,14 +1359,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         theme: CodexTranscriptAppKitTheme
     ) {
         agentChipContainer.frame = contentFrame
-        let height: CGFloat = chips.contains(where: { $0.threadID == nil && $0.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil }) ? 64 : 26
+        let height: CGFloat = chips.contains(where: { $0.attachmentKind == .image }) ? 64 : 26
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var y = contentFrame.height - height
         for (chip, host) in zip(chips, agentChipHosts) {
             let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(Self.agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: theme.captionFont]).width)
-            let isImage = chip.threadID == nil && chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+            let isImage = chip.attachmentKind == .image
             let width = isImage ? 64 : min(contentFrame.width, max(74, labelWidth + 28))
             if x > 0, x + width > contentFrame.width {
                 x = 0
@@ -1261,6 +1378,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func clearAgentChips() {
+        guard agentControlsInstalled else { return }
         agentChipHosts.forEach { $0.removeFromSuperview() }
         agentChipHosts.removeAll(keepingCapacity: true)
         configuredAgentChips.removeAll(keepingCapacity: true)
@@ -1336,7 +1454,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     func updateWorkingHeader(at date: Date) {
-        guard let header = item?.workHeader else { return }
+        guard actionControlInstalled, let header = item?.workHeader else { return }
         actionButton.title = Self.workHeaderTitle(header, at: date)
     }
 
@@ -1367,7 +1485,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     @objc private func copySelectionOrItem() {
-        if selectableTextView.selectedRange().length > 0 {
+        if textControlsInstalled, selectableTextView.selectedRange().length > 0 {
             selectableTextView.copy(nil)
         } else {
             copyItem(nil)
@@ -1415,7 +1533,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
         for menuItem in menu.items { menuItem.target = self }
         view.menu = menu
-        selectableTextView.menu = menu
+        if textControlsInstalled { selectableTextView.menu = menu }
     }
 
     private func flashCopyConfirmation(_ button: NSButton) {
@@ -1424,7 +1542,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         let originalImage = button.image
         let originalTint = button.contentTintColor
         copyConfirmationTokens[key] = token
-        button.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
+        button.image = Self.symbolImage("checkmark", accessibilityDescription: "Copied")
         button.contentTintColor = appKitTheme?.success
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self, weak button] in
             guard let self, let button, self.copyConfirmationTokens[key] == token else { return }
@@ -1440,11 +1558,28 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         accessibilityDescription: String
     ) {
         copyConfirmationTokens.removeValue(forKey: ObjectIdentifier(button))
-        button.image = NSImage(
-            systemSymbolName: imageName,
-            accessibilityDescription: accessibilityDescription
-        )
+        button.image = Self.symbolImage(imageName, accessibilityDescription: accessibilityDescription)
         button.contentTintColor = appKitTheme?.textTertiary
+    }
+
+    private static let symbolImageCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    private static func symbolImage(
+        _ name: String,
+        accessibilityDescription: String
+    ) -> NSImage? {
+        let key = "\(name)\u{0}\(accessibilityDescription)" as NSString
+        if let cached = symbolImageCache.object(forKey: key) { return cached }
+        guard let image = NSImage(
+            systemSymbolName: name,
+            accessibilityDescription: accessibilityDescription
+        ) else { return nil }
+        symbolImageCache.setObject(image, forKey: key)
+        return image
     }
 
     private static func workHeaderTitle(_ header: CodexTranscriptWorkHeaderRender, at date: Date) -> String {
@@ -1461,8 +1596,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
     private static func workHeaderDisclosureImage(_ header: CodexTranscriptWorkHeaderRender) -> NSImage? {
         guard case .done(_, let isExpanded) = header.state else { return nil }
-        return NSImage(
-            systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+        return symbolImage(
+            isExpanded ? "chevron.down" : "chevron.right",
             accessibilityDescription: isExpanded ? "Collapse work" : "Expand work"
         )
     }
@@ -1508,7 +1643,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private static func chipDisclosureImage(_ row: CodexTranscriptWorkRowRender) -> NSImage? {
         guard row.isActionable else { return nil }
         let name = row.isSubagentLink ? "arrow.up.right" : (row.isExpanded ? "chevron.down" : "chevron.right")
-        return NSImage(systemSymbolName: name, accessibilityDescription: row.isSubagentLink ? "Open agent" : "Show details")
+        return symbolImage(
+            name,
+            accessibilityDescription: row.isSubagentLink ? "Open agent" : "Show details"
+        )
     }
 
     private static func statusColor(
@@ -1597,11 +1735,11 @@ private struct CodexTranscriptAgentPill: View {
     let onOpen: () -> Void
 
     var body: some View {
-        let imageAttachment = chip.threadID == nil && chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+        let imageAttachment = chip.attachmentKind == .image
         let isAttachment = chip.threadID == nil && chip.taskSummary != nil
         HStack(spacing: 5) {
-            if let path = chip.taskSummary, chip.threadID == nil,
-               let image = NSImage(contentsOfFile: path) {
+            if imageAttachment, let path = chip.taskSummary,
+               let image = CodexTranscriptAttachmentImageCache.image(at: path) {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
@@ -1658,6 +1796,25 @@ private struct CodexTranscriptAgentPill: View {
         case .failed: theme.colors.danger
         case .closed: theme.colors.textTertiary
         }
+    }
+}
+
+@MainActor
+private enum CodexTranscriptAttachmentImageCache {
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 24
+        return cache
+    }()
+
+    static func image(at path: String) -> NSImage? {
+        let key = path as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
     }
 }
 

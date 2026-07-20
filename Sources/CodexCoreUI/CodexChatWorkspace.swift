@@ -333,9 +333,6 @@ public struct CodexChatWorkspaceView: View {
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
-                        .onAppear {
-                            print("[DEBUG-TAB-SWITCH] event=view-branch branch=loading storeSelected=\(presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(presentationStore.isSelectionHydrated) turns=\(presentationStore.activePresentation?.transcript.turns.count ?? -1)")
-                        }
                 } else {
                     CodexEmptyTranscriptView { prompt in
                         if let onPromptSelected {
@@ -343,9 +340,6 @@ public struct CodexChatWorkspaceView: View {
                         } else {
                             draft = prompt
                         }
-                    }
-                    .onAppear {
-                        print("[DEBUG-TAB-SWITCH] event=view-branch branch=empty storeSelected=\(presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(presentationStore.isSelectionHydrated) turns=\(presentationStore.activePresentation?.transcript.turns.count ?? -1)")
                     }
                 }
             }

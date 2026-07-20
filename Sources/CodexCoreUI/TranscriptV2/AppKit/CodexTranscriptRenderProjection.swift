@@ -102,6 +102,7 @@ struct CodexTranscriptAgentChipRender: Sendable, Equatable {
     var threadID: String?
     var taskSummary: String?
     var latestUpdate: String?
+    var attachmentKind: CodexReferencedFile.Kind? = nil
 }
 
 struct CodexTranscriptDiffPanelRender: Sendable, Equatable {
@@ -432,13 +433,14 @@ actor CodexTranscriptRenderProjector {
                             status: .done,
                             threadID: nil,
                             taskSummary: $0.path,
-                            latestUpdate: nil
+                            latestUpdate: nil,
+                            attachmentKind: $0.kind
                         )
                     }
                     let attachmentWidth = min(
                         userMaxWidth,
                         attachmentChips.reduce(CGFloat.zero) { total, chip in
-                            let isImage = chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+                            let isImage = chip.attachmentKind == .image
                             let width = isImage
                                 ? 64
                                 : ceil((chip.label as NSString).size(withAttributes: [.font: theme.captionFont]).width) + 34
@@ -1252,12 +1254,12 @@ private extension CodexTranscriptRenderProjector {
         width: CGFloat,
         font: NSFont
     ) -> CGFloat {
-        let height: CGFloat = chips.contains(where: { $0.threadID == nil && $0.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil }) ? 64 : 26
+        let height: CGFloat = chips.contains(where: { $0.attachmentKind == .image }) ? 64 : 26
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var rows: CGFloat = 1
         for chip in chips {
-            let isAttachmentImage = chip.threadID == nil && chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+            let isAttachmentImage = chip.attachmentKind == .image
             let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
             let chipWidth = isAttachmentImage ? 64 : min(width, max(74, labelWidth + 28))

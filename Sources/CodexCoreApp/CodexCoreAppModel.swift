@@ -1036,7 +1036,6 @@ final class CodexCoreAppModel {
     }
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
-        print("[DEBUG-TAB-SWITCH] event=sidebar-intent target=\(chat.id) modelSelected=\(selectedThreadID ?? "nil") storeSelected=\(runtimeSession.presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(runtimeSession.presentationStore.isSelectionHydrated)")
         sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
         saveExpandedSidebarProjects()
         if let path = chat.workspacePath,
@@ -1083,9 +1082,7 @@ final class CodexCoreAppModel {
 
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
-        print("[DEBUG-TAB-SWITCH] event=resume-select target=\(threadID) cached=\(runtimeSession.presentationStore.containsCachedPresentation(for: ThreadID(threadID)))")
         runtimeSession.selectThread(threadID)
-        print("[DEBUG-TAB-SWITCH] event=resume-selected target=\(threadID) storeSelected=\(runtimeSession.presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(runtimeSession.presentationStore.isSelectionHydrated) turns=\(runtimeSession.presentationStore.activePresentation?.transcript.turns.count ?? -1)")
         guard selectedThreadID != threadID || currentThreadLease?.isClosed != false else { return }
         applyPreferredModel(for: threadID)
         chatSelectionGeneration += 1
