@@ -1,4 +1,5 @@
 import AppKit
+import QuickLookUI
 import SwiftUI
 
 private final class CodexTranscriptHoverView: NSView {
@@ -1186,18 +1187,26 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         configuredAgentChips = chips
         agentChipContainer.isHidden = false
         for (index, chip) in chips.enumerated() {
+            let isAttachment = chip.threadID == nil && chip.taskSummary != nil
             let pill = CodexTranscriptAgentPill(
                 chip: chip,
                 onHover: { [weak self] hovered in
+                    guard !isAttachment else {
+                        if hovered { self?.closeAgentPreview() }
+                        return
+                    }
                     self?.setAgentPreviewHover(hovered, index: index)
                 },
                 onOpen: { [weak self] in
-                    guard let threadID = chip.threadID else { return }
-                    self?.performAction?(.openSubagent(threadID: threadID))
+                    if let path = chip.taskSummary, isAttachment {
+                        CodexTranscriptQuickLookController.shared.present(URL(fileURLWithPath: path))
+                    } else if let threadID = chip.threadID {
+                        self?.performAction?(.openSubagent(threadID: threadID))
+                    }
                 }
             )
             let host = NSHostingView(rootView: AnyView(pill.codexAgentTheme(swiftUITheme)))
-            host.setAccessibilityLabel("\(chip.label), \(Self.agentStatusTitle(chip.status))")
+            host.setAccessibilityLabel(isAttachment ? chip.label : "\(chip.label), \(Self.agentStatusTitle(chip.status))")
             agentChipContainer.addSubview(host)
             agentChipHosts.append(host)
         }
@@ -1209,14 +1218,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         theme: CodexTranscriptAppKitTheme
     ) {
         agentChipContainer.frame = contentFrame
-        let height: CGFloat = 26
+        let height: CGFloat = chips.contains(where: { $0.threadID == nil && $0.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil }) ? 64 : 26
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var y = contentFrame.height - height
         for (chip, host) in zip(chips, agentChipHosts) {
-            let title = "\(chip.label) · \(Self.agentStatusTitle(chip.status).lowercased())"
+            let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(Self.agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: theme.captionFont]).width)
-            let width = min(contentFrame.width, max(74, labelWidth + 28))
+            let isImage = chip.threadID == nil && chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+            let width = isImage ? 64 : min(contentFrame.width, max(74, labelWidth + 28))
             if x > 0, x + width > contentFrame.width {
                 x = 0
                 y -= height + gap
@@ -1349,7 +1359,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     @objc private func editUser() {
         guard let item,
               item.textRole == .user || item.footer?.kind == .user,
-              let text = item.copyText else { return }
+              let text = item.editUserText ?? item.copyText else { return }
         editUserMessage?(text)
     }
 
@@ -1530,6 +1540,31 @@ private struct CodexTranscriptGlassSurface: View {
     }
 }
 
+@MainActor
+private final class CodexTranscriptQuickLookController: NSObject, @preconcurrency QLPreviewPanelDataSource {
+    static let shared = CodexTranscriptQuickLookController()
+
+    private var previewURL: URL?
+
+    func present(_ url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let panel = QLPreviewPanel.shared()
+        else { return }
+        previewURL = url
+        panel.dataSource = self
+        panel.reloadData()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        previewURL == nil ? 0 : 1
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> any QLPreviewItem {
+        (previewURL ?? URL(fileURLWithPath: "/")) as NSURL
+    }
+}
+
 private struct CodexTranscriptAgentPill: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -1538,30 +1573,47 @@ private struct CodexTranscriptAgentPill: View {
     let onOpen: () -> Void
 
     var body: some View {
+        let imageAttachment = chip.threadID == nil && chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+        let isAttachment = chip.threadID == nil && chip.taskSummary != nil
         HStack(spacing: 5) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 6, height: 6)
-            Text(chip.label)
-                .foregroundStyle(theme.colors.textPrimary)
-            Text("· \(statusTitle.lowercased())")
-                .foregroundStyle(theme.colors.textSecondary)
+            if let path = chip.taskSummary, chip.threadID == nil,
+               let image = NSImage(contentsOfFile: path) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: imageAttachment ? 64 : 18, height: imageAttachment ? 64 : 18)
+                    .clipShape(RoundedRectangle(cornerRadius: imageAttachment ? 8 : 3, style: .continuous))
+            } else if chip.threadID == nil {
+                Image(systemName: "doc")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.colors.textSecondary)
+            } else {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+            }
+            if !imageAttachment {
+                Text(chip.label)
+                    .foregroundStyle(theme.colors.textPrimary)
+            }
+            if chip.threadID != nil {
+                Text("· \(statusTitle.lowercased())")
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
         }
         .font(theme.fonts.caption)
         .lineLimit(1)
-        .padding(.horizontal, 8)
-        .frame(height: 26)
+        .padding(.horizontal, imageAttachment ? 0 : 8)
+        .frame(height: imageAttachment ? 64 : 26)
         .contentShape(Capsule())
-        .codexGlass(Capsule(), tint: statusColor.opacity(0.055), interactive: chip.threadID != nil)
-        .overlay {
-            Capsule().stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1)
-        }
+        .codexGlass(imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule()), tint: chip.threadID == nil ? theme.colors.surfaceElevated.opacity(0.45) : statusColor.opacity(0.055), interactive: chip.threadID != nil || isAttachment)
+        .overlay { (imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule())).stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1) }
         .onTapGesture(perform: onOpen)
         .onHover(perform: onHover)
-        .help("\(chip.label) — \(statusTitle)")
+        .help(chip.threadID == nil ? chip.label : "\(chip.label) — \(statusTitle)")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(chip.label), \(statusTitle)")
-        .accessibilityAddTraits(chip.threadID == nil ? [] : .isButton)
+        .accessibilityAddTraits(chip.threadID == nil && !isAttachment ? [] : .isButton)
     }
 
     private var statusTitle: String {

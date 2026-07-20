@@ -460,6 +460,42 @@ struct CodexTranscriptAppKitIntegrationTests {
         coordinator.detach()
     }
 
+    @Test func shortTranscriptIsBottomAlignedAboveComposerInset() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 700)
+        )
+        let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = container
+        coordinator.attach(to: container)
+        coordinator.update(
+            presentation: .init(
+                threadID: "short-thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    userMessage: .init(id: "user", text: "One short prompt"),
+                    finalAnswer: .init(id: "answer", text: "One short answer", isStreaming: false),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            presentationStore: nil,
+            bottomContentInset: 170,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        container.layoutSubtreeIfNeeded()
+        container.collectionView.layoutSubtreeIfNeeded()
+
+        #expect(coordinator.shortTranscriptTopInsetForTesting > 200)
+        coordinator.detach()
+    }
+
     @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async throws {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))

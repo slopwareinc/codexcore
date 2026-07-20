@@ -90,15 +90,29 @@ public struct CodexChatRuntimeState: Sendable {
     }
 
     public mutating func prepareFollowUp(
-        prompt: String,
+        submission: CodexComposerSubmission,
         composerSession: inout CodexComposerStateSession,
         followUpBehavior: CodexFollowUpBehavior,
         canSteer: Bool
     ) -> CodexFollowUpSubmissionRoute {
         CodexTurnSubmissionSession.prepareFollowUp(
-            prompt: prompt,
+            submission: submission,
             composerSession: &composerSession,
             mainChatSession: &mainChatSession,
+            followUpBehavior: followUpBehavior,
+            canSteer: canSteer
+        )
+    }
+
+    public mutating func prepareFollowUp(
+        prompt: String,
+        composerSession: inout CodexComposerStateSession,
+        followUpBehavior: CodexFollowUpBehavior,
+        canSteer: Bool
+    ) -> CodexFollowUpSubmissionRoute {
+        prepareFollowUp(
+            submission: CodexComposerSubmission(prompt: prompt),
+            composerSession: &composerSession,
             followUpBehavior: followUpBehavior,
             canSteer: canSteer
         )

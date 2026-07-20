@@ -62,7 +62,7 @@ public struct CodexGoalStateSession: Equatable, Sendable {
         if enabled {
             return CodexGoalPursuitModeChange(activity: CodexGoalStateActivity(
                 title: "Goal mode enabled",
-                detail: activeGoal?.objective ?? "Next message becomes a goal"
+                detail: activeGoal.map { displayObjective($0.objective) } ?? "Next message becomes a goal"
             ))
         }
 
@@ -133,7 +133,7 @@ public struct CodexGoalStateSession: Equatable, Sendable {
     }
 
     public func summary(for goal: ThreadGoal) -> String {
-        var parts = [goal.objective]
+        var parts = [displayObjective(goal.objective)]
         if let budget = goal.tokenBudget, budget > 0 {
             parts.append("\(goal.tokensUsed)/\(budget) tokens")
         } else if goal.tokensUsed > 0 {
@@ -143,5 +143,9 @@ public struct CodexGoalStateSession: Equatable, Sendable {
             parts.append("\(goal.timeUsedSeconds)s elapsed")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private func displayObjective(_ objective: String) -> String {
+        CodexFileReferencePromptCodec.visibleRequest(from: objective)
     }
 }

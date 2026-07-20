@@ -5,6 +5,28 @@ import Testing
 
 @MainActor
 struct CodexPresentationStoreTests {
+    @Test func coldSelectionWaitsForThreadStateInsteadOfPublishingAnEmptyChat() async throws {
+        let source = PresentationStateFixture(initial: sessionState(revision: 0))
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+
+        store.select(threadID: "thread")
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(store.isSelectionHydrated == false)
+        #expect(store.activePresentation?.transcript.turns.isEmpty == true)
+
+        await source.install(
+            sessionState(revision: 1, text: "Hydrated", turnRevision: 1),
+            change: change(revision: 1, fields: [.thread, .turn, .item])
+        )
+        try await eventually {
+            store.isSelectionHydrated
+                && store.activePresentation?.transcript.turns.first?.finalAnswer?.text == "Hydrated"
+        }
+    }
+
     @Test func atomicSeedCannotMissAChangeBufferedDuringSubscription() async throws {
         let source = PresentationStateFixture(initial: sessionState(revision: 0))
         let changed = sessionState(revision: 1, text: "Buffered")
@@ -109,7 +131,7 @@ struct CodexPresentationStoreTests {
         #expect(store.activePendingRequests.isEmpty)
     }
 
-    @Test func localStateIsStableAndStrictlyBoundedToTwelveThreads() async throws {
+    @Test func localStateIsStableAndStrictlyBoundedToTwentyThreads() async throws {
         let source = PresentationStateFixture(
             initial: sessionState(revision: 1, text: "Answer", turnRevision: 1)
         )
@@ -127,8 +149,11 @@ struct CodexPresentationStoreTests {
         store.selectDiffFile(index: 2, rowID: "diff", threadID: "thread")
 
         store.select(threadID: "warm-neighbor")
+        #expect(store.isSelectionHydrated == false)
         store.select(threadID: "thread")
-        try await eventually { store.activePresentation?.transcript.turns.count == 1 }
+        #expect(store.isSelectionHydrated)
+        #expect(store.activePresentation?.transcript.turns.count == 1)
+        #expect(store.diagnostics.presentationCacheHitCount == 1)
         #expect(store.activePresentation?.rawScrollOffset == 417)
         #expect(store.activePresentation?.isPinnedToBottom == false)
         #expect(store.activePresentation?.presentedAtByTurnID["turn"] == firstPresentedAt)
@@ -136,13 +161,14 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.expandedRowIDs == ["answer"])
         #expect(store.activePresentation?.selectedDiffFileIndexByRowID == ["diff": 2])
 
-        for index in 0..<12 {
+        for index in 0..<20 {
             store.select(threadID: ThreadID("other-\(index)"))
         }
         #expect(!store.containsLocalState(for: "thread"))
         #expect(store.diagnostics.uiStateEvictionCount == 2)
 
         store.select(threadID: "thread")
+        #expect(store.isSelectionHydrated == false)
         try await eventually { store.activePresentation?.transcript.turns.count == 1 }
         #expect(store.activePresentation?.rawScrollOffset == 0)
         #expect(store.activePresentation?.isPinnedToBottom == true)

@@ -3,24 +3,26 @@ import CodexCore
 
 public enum CodexDraftSubmissionRoute: Equatable, Sendable {
     case none
-    case followUp(String)
+    case followUp(CodexComposerSubmission)
     case goal(CodexComposerSubmission)
     case turn(CodexComposerSubmission)
 }
 
 public enum CodexFollowUpSubmissionRoute: Equatable, Sendable {
-    case queued(prompt: String, activity: CodexActivity)
-    case steer(prompt: String, activity: CodexActivity)
+    case queued(submission: CodexComposerSubmission, activity: CodexActivity)
+    case steer(submission: CodexComposerSubmission, activity: CodexActivity)
 }
 
 public struct CodexQueuedFollowUpSubmission: Equatable, Sendable {
+    public var submission: CodexComposerSubmission
     public var prompt: String
     public var input: [CodexInput]
     public var activity: CodexActivity
 
-    public init(prompt: String, input: [CodexInput], activity: CodexActivity) {
-        self.prompt = prompt
-        self.input = input
+    public init(submission: CodexComposerSubmission, activity: CodexActivity) {
+        self.submission = submission
+        self.prompt = submission.prompt
+        self.input = submission.turnInput
         self.activity = activity
     }
 }
@@ -32,7 +34,7 @@ public enum CodexTurnSubmissionSession {
         isGoalPursuitEnabled: Bool
     ) -> CodexDraftSubmissionRoute {
         let prompt = composerSession.trimmedDraft
-        guard !prompt.isEmpty else { return .none }
+        guard !prompt.isEmpty || !composerSession.referencedFiles.isEmpty else { return .none }
 
         if canSendFollowUp {
             return composerSession.consumeDraftForFollowUp().map(CodexDraftSubmissionRoute.followUp) ?? .none
@@ -46,7 +48,7 @@ public enum CodexTurnSubmissionSession {
     }
 
     public static func prepareFollowUp(
-        prompt: String,
+        submission: CodexComposerSubmission,
         composerSession: inout CodexComposerStateSession,
         mainChatSession: inout CodexMainChatSession,
         followUpBehavior: CodexFollowUpBehavior,
@@ -54,24 +56,40 @@ public enum CodexTurnSubmissionSession {
     ) -> CodexFollowUpSubmissionRoute {
         if followUpBehavior == .steer, canSteer {
             return .steer(
-                prompt: prompt,
-                activity: mainChatSession.appendSteeredFollowUp(prompt)
+                submission: submission,
+                activity: mainChatSession.appendSteeredFollowUp(submission.prompt)
             )
         }
 
-        composerSession.enqueueFollowUp(prompt)
+        composerSession.enqueueFollowUp(submission)
         return .queued(
-            prompt: prompt,
-            activity: mainChatSession.appendQueuedFollowUp(prompt)
+            submission: submission,
+            activity: mainChatSession.appendQueuedFollowUp(submission.prompt)
+        )
+    }
+
+    public static func prepareFollowUp(
+        prompt: String,
+        composerSession: inout CodexComposerStateSession,
+        mainChatSession: inout CodexMainChatSession,
+        followUpBehavior: CodexFollowUpBehavior,
+        canSteer: Bool
+    ) -> CodexFollowUpSubmissionRoute {
+        prepareFollowUp(
+            submission: CodexComposerSubmission(prompt: prompt),
+            composerSession: &composerSession,
+            mainChatSession: &mainChatSession,
+            followUpBehavior: followUpBehavior,
+            canSteer: canSteer
         )
     }
 
     public static func failSteeredFollowUp(
-        prompt: String,
+        submission: CodexComposerSubmission,
         message: String,
         composerSession: inout CodexComposerStateSession
     ) -> CodexActivity {
-        composerSession.enqueueFollowUp(prompt)
+        composerSession.enqueueFollowUp(submission)
         return CodexActivity(kind: .turn, title: "Steer failed — queued instead", detail: message)
     }
 
@@ -80,11 +98,10 @@ public enum CodexTurnSubmissionSession {
         mainChatSession: inout CodexMainChatSession,
         isSending: Bool
     ) -> CodexQueuedFollowUpSubmission? {
-        guard let prompt = composerSession.dequeueQueuedFollowUp(isSending: isSending) else { return nil }
+        guard let submission = composerSession.dequeueQueuedFollowUpSubmission(isSending: isSending) else { return nil }
         return CodexQueuedFollowUpSubmission(
-            prompt: prompt,
-            input: CodexComposerSubmission(prompt: prompt).turnInput,
-            activity: mainChatSession.beginQueuedFollowUp(prompt)
+            submission: submission,
+            activity: mainChatSession.beginQueuedFollowUp(submission.prompt)
         )
     }
 
@@ -94,7 +111,7 @@ public enum CodexTurnSubmissionSession {
         composerSession: inout CodexComposerStateSession,
         mainChatSession: inout CodexMainChatSession
     ) -> CodexActivity {
-        composerSession.requeueFollowUp(submission.prompt)
+        composerSession.requeueFollowUp(submission.submission)
         return mainChatSession.failQueuedFollowUp(message: message)
     }
 }

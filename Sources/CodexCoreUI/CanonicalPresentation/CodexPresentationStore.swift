@@ -108,6 +108,8 @@ public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
     public fileprivate(set) var terminalFlushCount = 0
     public fileprivate(set) var discardedProjectionCount = 0
     public fileprivate(set) var uiStateEvictionCount = 0
+    public fileprivate(set) var presentationCacheHitCount = 0
+    public fileprivate(set) var presentationCacheMissCount = 0
 
     public init() {}
 }
@@ -115,12 +117,12 @@ public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
 /// Main-actor presentation state derived from `CodexSession`'s canonical graph.
 ///
 /// Canonical snapshots and projected transcripts are disposable caches. The
-/// bounded per-thread dictionary below contains UI state only; no wire event is
-/// reduced here and no second protocol truth exists in this type.
+/// bounded per-thread dictionaries retain UI state and recent projections; no
+/// wire event is reduced here and no second protocol truth exists in this type.
 @MainActor
 @Observable
 public final class CodexPresentationStore {
-    public static let uiStateCapacity = 12
+    public static let uiStateCapacity = 20
 
     public private(set) var selectedThreadID: ThreadID?
     public private(set) var activePresentation: CodexThreadUIPresentation?
@@ -129,6 +131,7 @@ public final class CodexPresentationStore {
     public private(set) var activePendingRequests: [CodexTranscriptRequestPresentation] = []
     public private(set) var observedRevision: StateRevision = .zero
     public private(set) var presentationRevision = 0
+    public private(set) var isSelectionHydrated = true
     public private(set) var diagnostics = CodexPresentationStoreDiagnostics()
 
     @ObservationIgnored private let coalescingInterval: Duration
@@ -136,6 +139,7 @@ public final class CodexPresentationStore {
     @ObservationIgnored private let projector = CodexCanonicalTranscriptProjector()
     @ObservationIgnored private var adapter: CodexPresentationStateAdapter?
     @ObservationIgnored private var localStateByThreadID: [ThreadID: CodexThreadPresentationLocalState] = [:]
+    @ObservationIgnored private var presentationCacheByThreadID: [ThreadID: CachedThreadPresentation] = [:]
     @ObservationIgnored private var leastToMostRecentThreadIDs: [ThreadID] = []
     @ObservationIgnored private var latestSnapshot: CanonicalStateSnapshot?
     @ObservationIgnored private var latestRequestBatch = CodexPendingInteractionSnapshotBatch(
@@ -151,6 +155,13 @@ public final class CodexPresentationStore {
     @ObservationIgnored private var projectionTask: Task<Void, Never>?
     @ObservationIgnored private var observationGeneration: UInt64 = 0
     @ObservationIgnored private var projectionGeneration: UInt64 = 0
+
+    private struct CachedThreadPresentation {
+        var canonical: CodexCanonicalTranscriptPresentation
+        var renderUpdate: CodexCanonicalTranscriptRenderUpdate
+        var pendingRequests: [CodexTranscriptRequestPresentation]
+        var approvals: [CodexApprovalPrompt]
+    }
 
     public init(
         adapter: CodexPresentationStateAdapter? = nil,
@@ -181,21 +192,25 @@ public final class CodexPresentationStore {
         projectionTask?.cancel()
         projectionTask = nil
         adapter = nil
+        presentationCacheByThreadID.removeAll(keepingCapacity: true)
         clearPendingProjection()
     }
 
     public func select(threadID: ThreadID?) {
         guard selectedThreadID != threadID else {
+            print("[DEBUG-TAB-SWITCH] event=store-select-noop target=\(threadID?.rawValue ?? "nil") hydrated=\(isSelectionHydrated) turns=\(activePresentation?.transcript.turns.count ?? -1)")
             if let threadID { touch(threadID) }
             return
         }
 
+        let previousThreadID = selectedThreadID
         selectedThreadID = threadID
         latestSnapshot = nil
         latestRequestBatch = .init(revision: .zero, requests: [])
         activeCanonicalPresentation = nil
         activeRenderUpdate = nil
         activePendingRequests = []
+        isSelectionHydrated = threadID == nil
         cancelProjection()
 
         guard let threadID else {
@@ -210,12 +225,29 @@ public final class CodexPresentationStore {
         var local = localStateByThreadID[threadID] ?? .init()
         local.lastSeenAttentionRevision = observedRevision
         localStateByThreadID[threadID] = local
-        activePresentation = Self.presentation(
-            threadID: threadID,
-            transcript: .init(),
-            localState: local,
-            pendingApprovals: []
-        )
+        if let cached = presentationCacheByThreadID[threadID] {
+            activeCanonicalPresentation = cached.canonical
+            activeRenderUpdate = cached.renderUpdate
+            activePendingRequests = cached.pendingRequests
+            activePresentation = Self.presentation(
+                threadID: threadID,
+                transcript: cached.canonical.transcript,
+                localState: local,
+                pendingApprovals: cached.approvals
+            )
+            isSelectionHydrated = true
+            diagnostics.presentationCacheHitCount &+= 1
+            print("[DEBUG-TAB-SWITCH] event=store-select previous=\(previousThreadID?.rawValue ?? "nil") target=\(threadID.rawValue) cache=hit hydrated=true turns=\(cached.canonical.transcript.turns.count)")
+        } else {
+            activePresentation = Self.presentation(
+                threadID: threadID,
+                transcript: .init(),
+                localState: local,
+                pendingApprovals: []
+            )
+            diagnostics.presentationCacheMissCount &+= 1
+            print("[DEBUG-TAB-SWITCH] event=store-select previous=\(previousThreadID?.rawValue ?? "nil") target=\(threadID.rawValue) cache=miss hydrated=false turns=0")
+        }
         presentationRevision &+= 1
         restartObservation()
     }
@@ -226,6 +258,10 @@ public final class CodexPresentationStore {
 
     public func containsLocalState(for threadID: ThreadID) -> Bool {
         localStateByThreadID[threadID] != nil
+    }
+
+    public func containsCachedPresentation(for threadID: ThreadID) -> Bool {
+        presentationCacheByThreadID[threadID] != nil
     }
 
     public func hasUnreadAttention(for threadID: ThreadID) -> Bool {
@@ -308,6 +344,7 @@ public final class CodexPresentationStore {
 
     public func removeLocalState(for threadID: ThreadID) {
         localStateByThreadID.removeValue(forKey: threadID)
+        presentationCacheByThreadID.removeValue(forKey: threadID)
         leastToMostRecentThreadIDs.removeAll { $0 == threadID }
         if selectedThreadID == threadID { select(threadID: nil) }
     }
@@ -315,6 +352,7 @@ public final class CodexPresentationStore {
     public func resetLocalState() {
         select(threadID: nil)
         localStateByThreadID.removeAll(keepingCapacity: false)
+        presentationCacheByThreadID.removeAll(keepingCapacity: false)
         leastToMostRecentThreadIDs.removeAll(keepingCapacity: false)
         diagnostics = .init()
     }
@@ -409,6 +447,13 @@ private extension CodexPresentationStore {
         observedRevision = sessionSnapshot.stateRevision
         latestSnapshot = snapshot
         latestRequestBatch = requestBatch
+        let containsSelectedThread = snapshot.threads[threadID] != nil
+            || snapshot.turns.keys.contains(where: { $0.threadID == threadID })
+        guard containsSelectedThread else {
+            print("[DEBUG-TAB-SWITCH] event=store-seed-ignored target=\(threadID.rawValue) revision=\(sessionSnapshot.stateRevision.rawValue) reason=thread-absent cached=\(presentationCacheByThreadID[threadID] != nil)")
+            clearPendingProjection()
+            return
+        }
         pendingSnapshot = snapshot
         pendingRequestBatch = requestBatch
 
@@ -554,6 +599,14 @@ private extension CodexPresentationStore {
             localState: local,
             pendingApprovals: approvals
         )
+        presentationCacheByThreadID[threadID] = CachedThreadPresentation(
+            canonical: result.presentation,
+            renderUpdate: result.update,
+            pendingRequests: result.presentation.pendingRequests,
+            approvals: approvals
+        )
+        isSelectionHydrated = true
+        print("[DEBUG-TAB-SWITCH] event=store-publish target=\(threadID.rawValue) revision=\(result.presentation.sourceRevision.rawValue) turns=\(result.presentation.transcript.turns.count) hydrated=true")
         diagnostics.projectionPublishCount &+= 1
         presentationRevision &+= 1
     }
@@ -592,6 +645,7 @@ private extension CodexPresentationStore {
                 $0 != selectedThreadID
             }) else { return }
             localStateByThreadID.removeValue(forKey: candidate)
+            presentationCacheByThreadID.removeValue(forKey: candidate)
             leastToMostRecentThreadIDs.removeAll { $0 == candidate }
             diagnostics.uiStateEvictionCount &+= 1
         }

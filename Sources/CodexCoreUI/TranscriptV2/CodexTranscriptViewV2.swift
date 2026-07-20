@@ -115,6 +115,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                     retryRevision: projectionRetryRevision,
                     onProjectionError: { projectionError = $0 }
                 )
+                .onAppear {
+                    print("[DEBUG-TAB-SWITCH] event=view-branch branch=transcript thread=\(effectivePresentation.threadID) turns=\(effectivePresentation.transcript.turns.count) hydrated=\(presentationStore?.isSelectionHydrated ?? true)")
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -76,6 +76,7 @@ public struct CodexChatWorkspaceView: View {
     @Binding private var modelSelection: CodexModelSelection
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var draft: String
+    @Binding private var referencedFiles: [CodexReferencedFile]
     @Binding private var sideChatDraft: String
     private let isSending: Bool
     private let isSideChatSending: Bool
@@ -93,6 +94,7 @@ public struct CodexChatWorkspaceView: View {
     private let onInterruptSideChatMessage: () -> Void
     private let onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
+    private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
     private let onCloseTranscriptMessage: ((UUID) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
@@ -140,6 +142,7 @@ public struct CodexChatWorkspaceView: View {
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         draft: Binding<String>,
+        referencedFiles: Binding<[CodexReferencedFile]> = .constant([]),
         sideChatDraft: Binding<String> = .constant(""),
         isSending: Bool,
         isSideChatSending: Bool = false,
@@ -157,6 +160,7 @@ public struct CodexChatWorkspaceView: View {
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
+        onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
         onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
         onOpenMCPDetails: (() -> Void)? = nil,
@@ -197,6 +201,7 @@ public struct CodexChatWorkspaceView: View {
         self._modelSelection = modelSelection
         self._reasoningSelection = reasoningSelection
         self._draft = draft
+        self._referencedFiles = referencedFiles
         self._sideChatDraft = sideChatDraft
         self.isSending = isSending
         self.isSideChatSending = isSideChatSending
@@ -214,6 +219,7 @@ public struct CodexChatWorkspaceView: View {
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onComposerAddMenuRoute = onComposerAddMenuRoute
         self.onComposerChipClear = onComposerChipClear
+        self.onFilesDropped = onFilesDropped
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onCloseTranscriptMessage = onCloseTranscriptMessage
         self.onOpenMCPDetails = onOpenMCPDetails
@@ -309,7 +315,15 @@ public struct CodexChatWorkspaceView: View {
                 contentHorizontalOffset: -contentShift,
                 bottomContentInset: composerOverlayHeight + 20,
                 onOpenSubagent: openPanelTab,
-                onEditUserMessage: { draft = $0 },
+                onEditUserMessage: { rawText in
+                    if let decoded = CodexFileReferencePromptCodec.decode(rawText) {
+                        draft = decoded.request
+                        referencedFiles = decoded.files
+                    } else {
+                        draft = rawText
+                        referencedFiles = []
+                    }
+                },
                 onForkChat: chatActions.forkChat,
                 agentDisplayNameByThreadID: Dictionary(
                     uniqueKeysWithValues: subagents.map { ($0.id, $0.name) }
@@ -319,6 +333,9 @@ public struct CodexChatWorkspaceView: View {
             ) {
                 if isThreadLoading {
                     CodexThreadLoadingView()
+                        .onAppear {
+                            print("[DEBUG-TAB-SWITCH] event=view-branch branch=loading storeSelected=\(presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(presentationStore.isSelectionHydrated) turns=\(presentationStore.activePresentation?.transcript.turns.count ?? -1)")
+                        }
                 } else {
                     CodexEmptyTranscriptView { prompt in
                         if let onPromptSelected {
@@ -326,6 +343,9 @@ public struct CodexChatWorkspaceView: View {
                         } else {
                             draft = prompt
                         }
+                    }
+                    .onAppear {
+                        print("[DEBUG-TAB-SWITCH] event=view-branch branch=empty storeSelected=\(presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(presentationStore.isSelectionHydrated) turns=\(presentationStore.activePresentation?.transcript.turns.count ?? -1)")
                     }
                 }
             }
@@ -368,6 +388,7 @@ public struct CodexChatWorkspaceView: View {
                     }
                     CodexComposerBar(
                         draft: $draft,
+                        referencedFiles: $referencedFiles,
                         approvalSelection: $approvalSelection,
                         isPlanModeEnabled: $isPlanModeEnabled,
                         isGoalPursuitEnabled: isGoalPursuitEnabled,
@@ -393,7 +414,8 @@ public struct CodexChatWorkspaceView: View {
                         onOpenMCPDetails: onOpenMCPDetails,
                         onRefreshMCPServers: onRefreshMCPServers,
                         onAddMenuRoute: onComposerAddMenuRoute,
-                        onComposerChipClear: onComposerChipClear
+                        onComposerChipClear: onComposerChipClear,
+                        onFilesDropped: onFilesDropped
                     )
                     .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
                     .padding(.horizontal, 14)

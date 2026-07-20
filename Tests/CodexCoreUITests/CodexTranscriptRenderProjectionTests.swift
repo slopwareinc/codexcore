@@ -49,6 +49,56 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func attachmentUserBubbleKeepsFilesSeparateAndEditsWithRawContext() async throws {
+        let file = CodexReferencedFile(path: "/tmp/reference.swift", kind: .file)
+        let rawText = CodexFileReferencePromptCodec.encode(files: [file], request: "Review this")
+        let message = CodexUserMessageV2(
+            id: "user",
+            text: "Review this",
+            rawText: rawText,
+            referencedFiles: [file]
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: message,
+                status: .done(durationMs: nil)
+            )])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
+        let attachments = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
+        #expect(user.preparedText?.attributedString.string == "Review this")
+        #expect(attachments.agentChips.map(\.label) == ["reference.swift"])
+        #expect(attachments.isTrailingAligned)
+        #expect(user.copyText == "Review this")
+        #expect(user.editUserText == rawText)
+    }
+
+    @Test func fileOnlyUserBubbleCopiesVisibleAttachmentInsteadOfHiddenPromptEnvelope() async throws {
+        let file = CodexReferencedFile(path: "/tmp/reference.png", kind: .image)
+        let rawText = CodexFileReferencePromptCodec.encode(files: [file], request: "")
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: .init(
+                    id: "user",
+                    text: "",
+                    rawText: rawText,
+                    referencedFiles: [file]
+                ),
+                status: .done(durationMs: nil)
+            )])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+
+        let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
+        #expect(user.copyText == "📎 reference.png")
+        #expect(user.editUserText == rawText)
+    }
+
     @Test func expandedWorkProseUsesTheFinalAnswerForeground() async throws {
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let turn = CodexTurnV2(

@@ -3,20 +3,26 @@ import CodexCore
 
 public struct CodexComposerSubmission: Equatable, Sendable {
     public var prompt: String
+    public var referencedFiles: [CodexReferencedFile]
     public var skills: [CodexSlashCommand]
     public var mentions: [CodexInput]
     public var clientID: String
+    public var threadID: String?
 
     public init(
         prompt: String,
+        referencedFiles: [CodexReferencedFile] = [],
         skills: [CodexSlashCommand] = [],
         mentions: [CodexInput] = [],
-        clientID: String = UUID().uuidString
+        clientID: String = UUID().uuidString,
+        threadID: String? = nil
     ) {
         self.prompt = prompt
+        self.referencedFiles = referencedFiles
         self.skills = skills
         self.mentions = mentions
         self.clientID = clientID
+        self.threadID = threadID
     }
 
     public var skillDetail: String? {
@@ -31,11 +37,15 @@ public struct CodexComposerSubmission: Equatable, Sendable {
         skills.compactMap { command -> CodexInput? in
             guard let name = command.skillName, let path = command.skillPath else { return nil }
             return .skill(name: name, path: path)
-        } + mentions + [.text(prompt)]
+        } + mentions + [.text(CodexFileReferencePromptCodec.encode(files: referencedFiles, request: prompt))]
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.prompt == rhs.prompt && lhs.skills == rhs.skills && lhs.mentions == rhs.mentions
+        lhs.prompt == rhs.prompt
+            && lhs.referencedFiles == rhs.referencedFiles
+            && lhs.skills == rhs.skills
+            && lhs.mentions == rhs.mentions
+            && lhs.threadID == rhs.threadID
     }
 }
 
@@ -70,18 +80,27 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
     private var activeThreadID: String?
     private var draftByThreadID: [String: String]
+    private var referencedFilesByThreadID: [String: [CodexReferencedFile]]
 
     public var draft: String {
         get { draft(for: activeThreadID) }
         set { setDraft(newValue, for: activeThreadID) }
     }
 
+    public var referencedFiles: [CodexReferencedFile] {
+        get { referencedFiles(for: activeThreadID) }
+        set { setReferencedFiles(newValue, for: activeThreadID) }
+    }
+
     public var sideChatDraft: String
     public var followUpBehavior: CodexFollowUpBehavior
-    public private(set) var queuedFollowUps: [String]
+    public var queuedFollowUps: [String] {
+        queuedFollowUpSubmissions(for: activeThreadID).map(\.prompt)
+    }
     public private(set) var mentionResults: [FuzzyFileSearchResult]
     public private(set) var attachedSkills: [CodexSlashCommand]
     private var selectedMentionsByName: [String: FuzzyFileSearchResult]
+    private var queuedFollowUpSubmissionsByThreadID: [String: [CodexComposerSubmission]]
 
     public init(
         draft: String = "",
@@ -92,7 +111,8 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         attachedSkills: [CodexSlashCommand] = [],
         selectedMentionsByName: [String: FuzzyFileSearchResult] = [:],
         activeThreadID: String? = nil,
-        draftByThreadID: [String: String] = [:]
+        draftByThreadID: [String: String] = [:],
+        referencedFilesByThreadID: [String: [CodexReferencedFile]] = [:]
     ) {
         self.activeThreadID = Self.normalizedThreadID(activeThreadID)
         var drafts = draftByThreadID
@@ -101,12 +121,18 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             drafts[initialKey] = draft
         }
         self.draftByThreadID = drafts
+        self.referencedFilesByThreadID = referencedFilesByThreadID
         self.sideChatDraft = sideChatDraft
         self.followUpBehavior = followUpBehavior
-        self.queuedFollowUps = queuedFollowUps
         self.mentionResults = mentionResults
         self.attachedSkills = attachedSkills
         self.selectedMentionsByName = selectedMentionsByName
+        self.queuedFollowUpSubmissionsByThreadID = [:]
+        if !queuedFollowUps.isEmpty {
+            self.queuedFollowUpSubmissionsByThreadID[Self.draftKey(for: self.activeThreadID)] = queuedFollowUps.map {
+                CodexComposerSubmission(prompt: $0, threadID: self.activeThreadID)
+            }
+        }
     }
 
     public var trimmedDraft: String {
@@ -119,6 +145,37 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
     public func trimmedDraft(for threadID: String?) -> String {
         draft(for: threadID).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public func referencedFiles(for threadID: String?) -> [CodexReferencedFile] {
+        referencedFilesByThreadID[Self.draftKey(for: threadID)] ?? []
+    }
+
+    public mutating func setReferencedFiles(_ files: [CodexReferencedFile], for threadID: String?) {
+        let key = Self.draftKey(for: threadID)
+        print("[DEBUG-FILE-DROP] state set key=\(key) incoming=\(files.map(\.path))")
+        let deduplicated = files.reduce(into: [CodexReferencedFile]()) { result, file in
+            guard !result.contains(where: { $0.path == file.path }) else { return }
+            result.append(file)
+        }
+        if deduplicated.isEmpty {
+            referencedFilesByThreadID.removeValue(forKey: key)
+        } else {
+            referencedFilesByThreadID[key] = deduplicated
+        }
+        print("[DEBUG-FILE-DROP] state stored key=\(key) files=\(referencedFilesByThreadID[key]?.map(\.path) ?? [])")
+    }
+
+    @discardableResult
+    public mutating func addReferencedFiles(_ files: [CodexReferencedFile], for threadID: String?) -> [CodexReferencedFile] {
+        let existing = referencedFiles(for: threadID)
+        let merged = existing + files
+        setReferencedFiles(merged, for: threadID)
+        return referencedFiles(for: threadID)
+    }
+
+    public mutating func removeReferencedFile(id: String, for threadID: String?) {
+        setReferencedFiles(referencedFiles(for: threadID).filter { $0.id != id }, for: threadID)
     }
 
     public mutating func setDraft(_ draft: String, for threadID: String?) {
@@ -159,22 +216,29 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         sideChatDraft = ""
     }
 
-    public mutating func consumeDraftForFollowUp() -> String? {
+    public mutating func consumeDraftForFollowUp() -> CodexComposerSubmission? {
         let prompt = trimmedDraft
-        guard !prompt.isEmpty else { return nil }
+        let files = referencedFiles
+        guard !prompt.isEmpty || !files.isEmpty else { return nil }
+        let submission = CodexComposerSubmission(prompt: prompt, referencedFiles: files, threadID: activeThreadID)
         draft = ""
-        return prompt
+        referencedFiles = []
+        return submission
     }
 
     public mutating func consumeDraftForTurn() -> CodexComposerSubmission? {
         let prompt = trimmedDraft
-        guard !prompt.isEmpty else { return nil }
+        let files = referencedFiles
+        guard !prompt.isEmpty || !files.isEmpty else { return nil }
         let submission = CodexComposerSubmission(
             prompt: prompt,
+            referencedFiles: files,
             skills: attachedSkills,
-            mentions: mentionInputs(for: prompt)
+            mentions: mentionInputs(for: prompt),
+            threadID: activeThreadID
         )
         draft = ""
+        referencedFiles = []
         attachedSkills = []
         selectedMentionsByName = [:]
         mentionResults = []
@@ -183,29 +247,81 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
     public mutating func consumeDraftForGoal() -> CodexComposerSubmission? {
         let prompt = trimmedDraft
-        guard !prompt.isEmpty else { return nil }
-        let submission = CodexComposerSubmission(prompt: prompt, skills: attachedSkills)
+        let files = referencedFiles
+        guard !prompt.isEmpty || !files.isEmpty else { return nil }
+        let submission = CodexComposerSubmission(
+            prompt: prompt,
+            referencedFiles: files,
+            skills: attachedSkills,
+            threadID: activeThreadID
+        )
         draft = ""
+        referencedFiles = []
         attachedSkills = []
         return submission
     }
 
     public mutating func restore(_ submission: CodexComposerSubmission) {
-        draft = submission.prompt
+        let targetThreadID = submission.threadID
+        let existingDraft = draft(for: targetThreadID)
+        let restoredDraft = if existingDraft.isEmpty || existingDraft == submission.prompt {
+            submission.prompt
+        } else if submission.prompt.isEmpty {
+            existingDraft
+        } else {
+            submission.prompt + "\n\n" + existingDraft
+        }
+        setDraft(restoredDraft, for: targetThreadID)
+        setReferencedFiles(
+            submission.referencedFiles + referencedFiles(for: targetThreadID),
+            for: targetThreadID
+        )
         attachedSkills = submission.skills + attachedSkills
     }
 
     public mutating func enqueueFollowUp(_ prompt: String) {
-        queuedFollowUps.append(prompt)
+        enqueueFollowUp(CodexComposerSubmission(prompt: prompt, threadID: activeThreadID))
+    }
+
+    public mutating func enqueueFollowUp(_ submission: CodexComposerSubmission) {
+        let threadID = submission.threadID ?? activeThreadID
+        let key = Self.draftKey(for: threadID)
+        var queue = queuedFollowUpSubmissionsByThreadID[key] ?? []
+        var ownedSubmission = submission
+        ownedSubmission.threadID = threadID
+        queue.append(ownedSubmission)
+        queuedFollowUpSubmissionsByThreadID[key] = queue
     }
 
     public mutating func dequeueQueuedFollowUp(isSending: Bool) -> String? {
-        guard !queuedFollowUps.isEmpty, !isSending else { return nil }
-        return queuedFollowUps.removeFirst()
+        dequeueQueuedFollowUpSubmission(isSending: isSending)?.prompt
+    }
+
+    public mutating func dequeueQueuedFollowUpSubmission(isSending: Bool) -> CodexComposerSubmission? {
+        guard !isSending else { return nil }
+        let key = Self.draftKey(for: activeThreadID)
+        guard var queue = queuedFollowUpSubmissionsByThreadID[key], !queue.isEmpty else { return nil }
+        let submission = queue.removeFirst()
+        if queue.isEmpty {
+            queuedFollowUpSubmissionsByThreadID.removeValue(forKey: key)
+        } else {
+            queuedFollowUpSubmissionsByThreadID[key] = queue
+        }
+        return submission
     }
 
     public mutating func requeueFollowUp(_ prompt: String) {
-        queuedFollowUps.insert(prompt, at: 0)
+        requeueFollowUp(CodexComposerSubmission(prompt: prompt, threadID: activeThreadID))
+    }
+
+    public mutating func requeueFollowUp(_ submission: CodexComposerSubmission) {
+        let threadID = submission.threadID ?? activeThreadID
+        let key = Self.draftKey(for: threadID)
+        var queue = queuedFollowUpSubmissionsByThreadID[key] ?? []
+        var ownedSubmission = submission
+        ownedSubmission.threadID = threadID
+        queue.insert(ownedSubmission, at: 0)
+        queuedFollowUpSubmissionsByThreadID[key] = queue
     }
 
     public mutating func attachSkill(_ command: CodexSlashCommand) {
@@ -276,6 +392,17 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public mutating func clearThreadState() {
         sideChatDraft = ""
         attachedSkills = []
+    }
+
+    public mutating func discardThreadState(for threadID: String) {
+        let key = Self.draftKey(for: threadID)
+        draftByThreadID.removeValue(forKey: key)
+        referencedFilesByThreadID.removeValue(forKey: key)
+        queuedFollowUpSubmissionsByThreadID.removeValue(forKey: key)
+    }
+
+    public func queuedFollowUpSubmissions(for threadID: String?) -> [CodexComposerSubmission] {
+        queuedFollowUpSubmissionsByThreadID[Self.draftKey(for: threadID)] ?? []
     }
 
     private func mentionInputs(for prompt: String) -> [CodexInput] {
