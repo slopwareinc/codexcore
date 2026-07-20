@@ -43,3 +43,32 @@ rerun: run
 # Kill and launch without rebuilding (when you only changed runtime data).
 run-fast: kill
     swift run codex-core-app
+
+# Profile the running app's real transcript. Override with TRACE_DURATION=60s if needed.
+trace:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="{{root}}"
+    duration="${TRACE_DURATION:-45s}"
+    profile_dir="${HOME}/.codexcore/profiles"
+    trace_path="${profile_dir}/scroll-$(date +%Y%m%d-%H%M%S).trace"
+
+    pid="$(pgrep -x codex-core-app 2>/dev/null | tail -n 1 || true)"
+    if [[ -z "${pid}" ]]; then
+        pid="$(pgrep -f "${root}/.build/.*/codex-core-app" 2>/dev/null | tail -n 1 || true)"
+    fi
+    if [[ -z "${pid}" ]]; then
+        echo "No running CodexCore app found. Run 'just run' first." >&2
+        exit 1
+    fi
+
+    mkdir -p "${profile_dir}"
+    echo "Recording CodexCore PID ${pid} for ${duration}."
+    echo "Scroll the current transcript now; avoid switching tasks or resizing the window."
+    xcrun xctrace record \
+        --template "Animation Hitches" \
+        --instrument "Time Profiler" \
+        --attach "${pid}" \
+        --time-limit "${duration}" \
+        --output "${trace_path}"
+    echo "Saved trace: ${trace_path}"
