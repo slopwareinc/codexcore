@@ -206,7 +206,7 @@ struct CodexCoreAppShell: View {
                 gitReviewSession: model.gitReviewSession,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
-                isThreadLoading: model.isThreadLoading,
+                isThreadLoading: !model.runtimeSession.presentationStore.isSelectionHydrated,
                 chatActions: currentChatActionHandlers,
                 approvalOptions: model.approvalOptions,
                 modelOptions: model.modelOptions,
@@ -219,6 +219,7 @@ struct CodexCoreAppShell: View {
                 modelSelection: $model.modelSelection,
                 reasoningSelection: $model.reasoningSelection,
                 draft: $model.draft,
+                referencedFiles: $model.referencedFiles,
                 sideChatDraft: $model.sideChatDraft,
                 isSending: model.isSending,
                 isSideChatSending: model.isSideChatSending,
@@ -236,6 +237,9 @@ struct CodexCoreAppShell: View {
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },
                 onComposerChipClear: { model.clearComposerChip($0) },
+                onFilesDropped: { [threadID = model.currentThreadID] urls in
+                    model.addReferencedFileURLs(urls, to: threadID)
+                },
                 onEnvironmentHandoffCompletion: { model.handleWorktreeHandoffCompletion($0) },
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },

@@ -15,6 +15,14 @@ extension CodexCoreAppModel {
         }
     }
 
+    var referencedFiles: [CodexReferencedFile] {
+        get { composerSession.referencedFiles(for: currentThreadID) }
+        set {
+            composerSession.setActiveThreadID(currentThreadID)
+            composerSession.setReferencedFiles(newValue, for: currentThreadID)
+        }
+    }
+
     var sideChatDraft: String {
         get { composerSession.sideChatDraft }
         set { composerSession.sideChatDraft = newValue }
@@ -254,7 +262,7 @@ extension CodexCoreAppModel {
     var canSend: Bool {
         if case .connected = connectionState,
            isAuthenticated,
-           !composerSession.trimmedDraft(for: currentThreadID).isEmpty,
+           (!composerSession.trimmedDraft(for: currentThreadID).isEmpty || !referencedFiles.isEmpty),
            !isSending || canSendFollowUp {
             return true
         }

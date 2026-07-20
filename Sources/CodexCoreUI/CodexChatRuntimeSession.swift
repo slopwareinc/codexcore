@@ -112,6 +112,20 @@ public final class CodexChatRuntimeSession {
     }
 
     public func prepareFollowUp(
+        submission: CodexComposerSubmission,
+        composerSession: inout CodexComposerStateSession,
+        followUpBehavior: CodexFollowUpBehavior,
+        canSteer: Bool
+    ) -> CodexFollowUpSubmissionRoute {
+        state.prepareFollowUp(
+            submission: submission,
+            composerSession: &composerSession,
+            followUpBehavior: followUpBehavior,
+            canSteer: canSteer
+        )
+    }
+
+    public func prepareFollowUp(
         prompt: String,
         composerSession: inout CodexComposerStateSession,
         followUpBehavior: CodexFollowUpBehavior,

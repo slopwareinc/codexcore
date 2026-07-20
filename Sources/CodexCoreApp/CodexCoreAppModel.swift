@@ -93,7 +93,6 @@ final class CodexCoreAppModel {
     var lastManualModelID: String?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     private var chatSelectionGeneration = 0
-    var isThreadLoading = false
     var pluginLauncherTarget: CodexComposerPluginLauncher?
     var mobileRouteSession = CodexMobileRouteSession()
     private var terminalSession: CodexCommandExecSession?
@@ -327,8 +326,8 @@ final class CodexCoreAppModel {
         switch route {
         case .none:
             return
-        case .followUp(let prompt):
-            await sendFollowUp(prompt: prompt)
+        case .followUp(let submission):
+            await sendFollowUp(submission: submission)
         case .goal(let submission):
             await sendGoalDraft(submission)
         case .turn(let submission):
@@ -338,20 +337,19 @@ final class CodexCoreAppModel {
 
     /// Handles send while a turn is already running: steer it immediately or
     /// queue the message for the next turn, per `followUpBehavior`.
-    private func sendFollowUp(prompt: String) async {
+    private func sendFollowUp(submission: CodexComposerSubmission) async {
         if followUpBehavior == .steer, let activeTurnLease {
-            appendActivity(.turn, title: "Steering turn", detail: prompt)
+            appendActivity(.turn, title: "Steering turn", detail: submission.prompt)
             do {
                 _ = try await activeTurnLease.steer(.init(
-                    clientUserMessageID: UUID().uuidString,
+                    clientUserMessageID: submission.clientID,
                     expectedTurnID: activeTurnLease.key.turnID.rawValue,
-                    input: [CodexSchemaUserInput(CodexInput.text(prompt).jsonValue)],
+                    input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
                     threadID: activeTurnLease.key.threadID.rawValue
                 ))
             } catch {
-                composerSession.enqueueFollowUp(prompt)
                 appendActivity(CodexTurnSubmissionSession.failSteeredFollowUp(
-                    prompt: prompt,
+                    submission: submission,
                     message: friendlyError(error),
                     composerSession: &composerSession
                 ))
@@ -359,15 +357,14 @@ final class CodexCoreAppModel {
             return
         }
 
-        composerSession.enqueueFollowUp(prompt)
-        appendActivity(.turn, title: "Follow-up queued", detail: prompt)
+        composerSession.enqueueFollowUp(submission)
+        appendActivity(.turn, title: "Follow-up queued", detail: submission.prompt)
     }
 
     /// Sends the next queued follow-up as a fresh turn. Called after a turn
     /// finishes; messages were already rendered when they were queued.
     private func flushQueuedFollowUps() {
-        guard let prompt = composerSession.dequeueQueuedFollowUp(isSending: isSending) else { return }
-        let submission = CodexComposerSubmission(prompt: prompt)
+        guard let submission = composerSession.dequeueQueuedFollowUpSubmission(isSending: isSending) else { return }
 
         Task { [weak self] in
             guard let self else { return }
@@ -376,12 +373,16 @@ final class CodexCoreAppModel {
     }
 
     private func startMainTurn(
-        _ submission: CodexComposerSubmission,
+        _ incomingSubmission: CodexComposerSubmission,
         restoreDraftOnFailure: Bool
     ) async {
+        var submission = incomingSubmission
         appendActivity(runtimeSession.beginMainTurnSubmission(submission))
         do {
             let thread = try await ensureThread()
+            if submission.threadID == nil {
+                submission.threadID = thread.id.rawValue
+            }
             let lease = try await thread.startTurn(turnStartParameters(
                 threadID: thread.id,
                 input: submission.turnInput,
@@ -394,7 +395,7 @@ final class CodexCoreAppModel {
             if restoreDraftOnFailure {
                 composerSession.restore(submission)
             } else {
-                composerSession.requeueFollowUp(submission.prompt)
+                composerSession.requeueFollowUp(submission)
             }
             appendActivity(runtimeSession.failMainTurnSubmission(message: friendlyError(error)))
         }
@@ -431,13 +432,20 @@ final class CodexCoreAppModel {
         }
     }
 
-    private func sendGoalDraft(_ submission: CodexComposerSubmission) async {
+    private func sendGoalDraft(_ incomingSubmission: CodexComposerSubmission) async {
+        var submission = incomingSubmission
         appendActivity(.turn, title: "Starting goal", detail: submission.prompt)
         do {
             let thread = try await ensureThread()
+            if submission.threadID == nil {
+                submission.threadID = thread.id.rawValue
+            }
             guard let codex else { throw CodexSDKError.runtimeNotFound }
             _ = try await codex.perform(CodexRequest.threadGoalSet(.init(
-                objective: submission.prompt,
+                objective: CodexFileReferencePromptCodec.encode(
+                    files: submission.referencedFiles,
+                    request: submission.prompt
+                ),
                 status: .active,
                 threadID: thread.id.rawValue
             )))
@@ -488,7 +496,7 @@ final class CodexCoreAppModel {
     private func handleComposerAddMenuHostAction(_ action: CodexComposerAddMenuHostAction) {
         switch action {
         case .attachFilesAndFolders:
-            appendActivity(.notice, title: "Files unavailable", detail: "File and folder attachment is not wired in the native composer yet.")
+            presentFilePicker()
         case .enableGoalPursuit:
             setGoalPursuitEnabled(true)
         case .enablePlanMode:
@@ -502,6 +510,34 @@ final class CodexCoreAppModel {
             Task { await refreshPlugins() }
         case .openFilesAndChats:
             selectAppRoute(.search)
+        }
+    }
+
+    func addReferencedFileURLs(_ urls: [URL], to threadID: String?) {
+        print("[DEBUG-FILE-DROP] model add urls=\(urls.map(\.path)) destinationThread=\(threadID ?? "nil") currentThread=\(currentThreadID ?? "nil")")
+        let references = urls.compactMap(CodexReferencedFile.fromDroppedURL)
+        print("[DEBUG-FILE-DROP] model validated references=\(references.map { "\($0.displayName):\($0.kind.rawValue)" })")
+        guard !references.isEmpty else {
+            appendActivity(.notice, title: "Files unavailable", detail: "The selected items could not be referenced.")
+            return
+        }
+        composerSession.addReferencedFiles(references, for: threadID)
+        print("[DEBUG-FILE-DROP] model state referencesForDestination=\(composerSession.referencedFiles(for: threadID).map(\.path))")
+    }
+
+    private func presentFilePicker() {
+        let destinationThreadID = currentThreadID
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.resolvesAliases = true
+        panel.begin { [weak self] response in
+            guard response == .OK else { return }
+            let urls = panel.urls
+            Task { @MainActor [weak self] in
+                self?.addReferencedFileURLs(urls, to: destinationThreadID)
+            }
         }
     }
 
@@ -1000,7 +1036,7 @@ final class CodexCoreAppModel {
     }
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
-        runtimeSession.selectThread(chat.id)
+        print("[DEBUG-TAB-SWITCH] event=sidebar-intent target=\(chat.id) modelSelected=\(selectedThreadID ?? "nil") storeSelected=\(runtimeSession.presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(runtimeSession.presentationStore.isSelectionHydrated)")
         sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
         saveExpandedSidebarProjects()
         if let path = chat.workspacePath,
@@ -1047,19 +1083,17 @@ final class CodexCoreAppModel {
 
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
+        print("[DEBUG-TAB-SWITCH] event=resume-select target=\(threadID) cached=\(runtimeSession.presentationStore.containsCachedPresentation(for: ThreadID(threadID)))")
         runtimeSession.selectThread(threadID)
+        print("[DEBUG-TAB-SWITCH] event=resume-selected target=\(threadID) storeSelected=\(runtimeSession.presentationStore.selectedThreadID?.rawValue ?? "nil") hydrated=\(runtimeSession.presentationStore.isSelectionHydrated) turns=\(runtimeSession.presentationStore.activePresentation?.transcript.turns.count ?? -1)")
         guard selectedThreadID != threadID || currentThreadLease?.isClosed != false else { return }
         applyPreferredModel(for: threadID)
         chatSelectionGeneration += 1
         let selectionGeneration = chatSelectionGeneration
-        isThreadLoading = true
         let trace = CodexPerformanceTrace(label: "chatLoad")
         let totalSpan = trace.begin("chatLoad.total", metadata: ["threadID": threadID])
         var totalOutcome = "success"
         defer {
-            if chatSelectionGeneration == selectionGeneration {
-                isThreadLoading = false
-            }
             totalSpan.end(metadata: ["threadID": threadID, "outcome": totalOutcome])
         }
 
@@ -1104,6 +1138,7 @@ final class CodexCoreAppModel {
             sidebarNavigationSession.selectChat(lease.id.rawValue, workspacePath: workspacePath)
             sidebarSpan.end(metadata: ["threadID": lease.id.rawValue])
             appendActivity(.notice, title: "Resumed chat", detail: lease.id.rawValue)
+            flushQueuedFollowUps()
         } catch {
             totalOutcome = "failure"
             trace.event("chatLoad.error", metadata: ["threadID": threadID, "error": errorType(error)])
@@ -1214,6 +1249,7 @@ final class CodexCoreAppModel {
         do {
             _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: chat.id)))
             setThreadPinned(chat.id, pinned: false, announces: false)
+            composerSession.discardThreadState(for: chat.id)
             removeChatFromSidebar(chat.id)
             if shouldClearSelection, chatSelectionGeneration == archiveGeneration {
                 clearThreadState()
@@ -1356,6 +1392,7 @@ final class CodexCoreAppModel {
         do {
             _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: archivedID)))
             setThreadPinned(archivedID, pinned: false, announces: false)
+            composerSession.discardThreadState(for: archivedID)
             removeChatFromSidebar(archivedID)
             if chatSelectionGeneration == archiveGeneration {
                 clearThreadState()
@@ -1851,7 +1888,6 @@ final class CodexCoreAppModel {
 
     private func invalidatePendingChatSelection() {
         chatSelectionGeneration += 1
-        isThreadLoading = false
     }
 
     private func setThreadPinned(_ threadID: String, pinned: Bool, announces: Bool = true) {

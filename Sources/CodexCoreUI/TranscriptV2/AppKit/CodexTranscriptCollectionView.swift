@@ -100,6 +100,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var hostedPreferredHeightByID: [CodexTranscriptRenderItemID: (revision: Int, height: CGFloat)] = [:]
         private var pendingScrollAnchor: (id: CodexTranscriptRenderItemID, offset: CGFloat)?
         private var hasUnseenOutput = false
+        private var shortTranscriptTopInset: CGFloat = 0
         private(set) var diagnostics = CodexTranscriptCollectionDiagnostics()
 
         private struct CanonicalProjectionIdentity: Equatable {
@@ -183,6 +184,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.contentHorizontalOffset = contentHorizontalOffset
             container.bottomContentInset = max(0, bottomContentInset)
             container.layoutSubtreeIfNeeded()
+            updateShortTranscriptTopInset()
             if shouldRetry { forceReconfigureAll = true }
             let identity = renderUpdate.map {
                 CanonicalProjectionIdentity(
@@ -227,6 +229,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             currentSnapshot?.orderedItemIDs ?? []
         }
 
+        var shortTranscriptTopInsetForTesting: CGFloat { shortTranscriptTopInset }
+
         func renderedItemForTesting(_ id: CodexTranscriptRenderItemID) -> CodexTranscriptRenderItem? {
             currentSnapshot?.itemsByID[id]
         }
@@ -267,7 +271,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             insetForSectionAt section: Int
         ) -> NSEdgeInsets {
             NSEdgeInsets(
-                top: section == 0 ? 0 : CodexTranscriptColumnMetrics.turnGap,
+                top: section == 0 ? shortTranscriptTopInset : CodexTranscriptColumnMetrics.turnGap,
                 left: 0,
                 bottom: 0,
                 right: 0
@@ -459,9 +463,17 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             startedAt: ContinuousClock.Instant
         ) {
             guard let container else { return }
+            updateShortTranscriptTopInset()
             container.layoutSubtreeIfNeeded()
             container.collectionView.layoutSubtreeIfNeeded()
-            if switchedThread {
+            let contentHeight = container.collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
+            let viewportHeight = container.scrollView.contentView.bounds.height
+            if contentHeight <= viewportHeight {
+                // A short thread (including a single attachment-only turn) must
+                // remain docked to the composer. Restoring an old raw offset of
+                // zero would otherwise put its only content at the top.
+                scrollToBottom(markPinned: true)
+            } else if switchedThread {
                 restoreScroll(presentation)
             } else if shouldFollow {
                 scrollToBottom(markPinned: true)
@@ -485,6 +497,28 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 diagnostics.maximumSnapshotApplyDurationMilliseconds,
                 milliseconds
             )
+        }
+
+        private func updateShortTranscriptTopInset() {
+            guard let container, let snapshot = currentSnapshot else { return }
+            let itemHeight = snapshot.orderedItemIDs.reduce(CGFloat.zero) { partial, id in
+                partial + (snapshot.itemsByID[id]?.measuredHeight ?? 0)
+            }
+            let turnGaps = CGFloat(max(0, snapshot.sectionIDs.count - 1))
+                * CodexTranscriptColumnMetrics.turnGap
+            let visibleHeight = max(
+                0,
+                container.scrollView.contentView.bounds.height
+                    - container.scrollView.contentInsets.top
+                    - container.scrollView.contentInsets.bottom
+            )
+            let desired = max(0, visibleHeight - itemHeight - turnGaps)
+            guard abs(desired - shortTranscriptTopInset) > 0.5 else { return }
+            shortTranscriptTopInset = desired
+            let context = NSCollectionViewFlowLayoutInvalidationContext()
+            context.invalidateFlowLayoutDelegateMetrics = true
+            context.invalidateFlowLayoutAttributes = true
+            container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
         }
 
         private func perform(_ action: CodexTranscriptRenderAction) {

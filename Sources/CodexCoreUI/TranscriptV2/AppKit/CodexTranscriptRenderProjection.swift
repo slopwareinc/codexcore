@@ -161,6 +161,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
     var copyText: String?
+    var editUserText: String?
     var copyTurnText: String
     var allowsTextSelection: Bool
     var accessibilityLabel: String
@@ -373,6 +374,7 @@ actor CodexTranscriptRenderProjector {
                     approval: draft.approval,
                     action: draft.action,
                     copyText: draft.copyText,
+                    editUserText: draft.editUserText,
                     copyTurnText: copyTurnText,
                     allowsTextSelection: allowsTextSelection,
                     accessibilityLabel: draft.accessibilityLabel,
@@ -394,14 +396,15 @@ actor CodexTranscriptRenderProjector {
                 // Trailing whitespace/newlines would measure as phantom empty lines
                 // and inflate the bubble; display trimmed, keep the raw text for copy.
                 let displayText = user.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let visibleUserText = displayText.isEmpty && !user.referencedFiles.isEmpty ? "Attached files" : displayText
                 let prepared = cachedPreparedText(
-                    content: displayText,
+                    content: user.displayText,
                     style: "user-plain",
                     theme: theme,
                     cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses
                 ) {
-                    Self.preparePlain(displayText, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
+                    Self.prepareUserMessage(user, text: visibleUserText, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
                 }
                 let userMaxWidth = min(contentWidth * 0.77, theme.userBubbleMaxWidth)
                 let horizontalPadding = CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
@@ -409,24 +412,59 @@ actor CodexTranscriptRenderProjector {
                     with: NSSize(width: max(1, userMaxWidth - horizontalPadding), height: .greatestFiniteMagnitude),
                     options: [.usesLineFragmentOrigin, .usesFontLeading]
                 )
-                append(ItemDraft(
+                let userDraft = ItemDraft(
                     id: "\(sectionID):user:\(user.id)",
-                    fingerprint: "user:\(user.text):\(user.isOptimistic)",
+                    fingerprint: "user:\(user.rawText):\(user.isOptimistic)",
                     textRole: .user,
                     preparedText: prepared,
-                    copyText: user.text,
-                    accessibilityLabel: "You: \(displayText)",
+                    copyText: user.text.isEmpty ? user.displayText : user.text,
+                    editUserText: user.rawText,
+                    accessibilityLabel: "You: \(visibleUserText)",
                     isTrailingAligned: true,
                     maxWidthKind: .user,
                     intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
-                ))
+                )
+                if !user.referencedFiles.isEmpty {
+                    let attachmentChips = user.referencedFiles.map {
+                        CodexTranscriptAgentChipRender(
+                            id: "\(user.id):attachment:\($0.id)",
+                            label: $0.displayName,
+                            status: .done,
+                            threadID: nil,
+                            taskSummary: $0.path,
+                            latestUpdate: nil
+                        )
+                    }
+                    let attachmentWidth = min(
+                        userMaxWidth,
+                        attachmentChips.reduce(CGFloat.zero) { total, chip in
+                            let isImage = chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+                            let width = isImage
+                                ? 64
+                                : ceil((chip.label as NSString).size(withAttributes: [.font: theme.captionFont]).width) + 34
+                            return total + width
+                        } + CGFloat(max(0, attachmentChips.count - 1) * 6)
+                    )
+                    append(ItemDraft(
+                        id: "\(sectionID):user:\(user.id):attachments",
+                        fingerprint: "attachments:\(user.referencedFiles.map(\.path).joined(separator: "|"))",
+                        agentChips: attachmentChips,
+                        accessibilityLabel: "Attached files: \(user.referencedFiles.map(\.displayName).joined(separator: ", "))",
+                        indentation: user.isOptimistic ? 0 : 0,
+                        isTrailingAligned: true,
+                        maxWidthKind: .user,
+                        intrinsicContentWidth: attachmentWidth,
+                        bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                    ))
+                }
+                append(userDraft)
                 append(timestampDraft(
                     id: "\(sectionID):user-timestamp",
                     date: presentedAt,
                     trailing: true,
                     kind: .user,
                     isTurnStreaming: turnIsStreaming,
-                    copyText: user.text
+                    copyText: user.text.isEmpty ? user.displayText : user.text
                 ))
             }
 
@@ -727,6 +765,7 @@ private extension CodexTranscriptRenderProjector {
         var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
         var copyText: String?
+        var editUserText: String?
         var accessibilityLabel: String
         var indentation: CGFloat
         var isTrailingAligned: Bool
@@ -752,6 +791,7 @@ private extension CodexTranscriptRenderProjector {
             approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
             copyText: String? = nil,
+            editUserText: String? = nil,
             accessibilityLabel: String,
             indentation: CGFloat = 0,
             isTrailingAligned: Bool = false,
@@ -776,6 +816,7 @@ private extension CodexTranscriptRenderProjector {
             self.approval = approval
             self.action = action
             self.copyText = copyText
+            self.editUserText = editUserText
             self.accessibilityLabel = accessibilityLabel
             self.indentation = indentation
             self.isTrailingAligned = isTrailingAligned
@@ -1179,10 +1220,13 @@ private extension CodexTranscriptRenderProjector {
         }
         let horizontalPadding: CGFloat = draft.textRole == .user
             ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
-            : (draft.textRole == .expandedOutput ? 54 : 0)
+            : (draft.textRole == .expandedOutput ? 24 : 0)
         if let text = draft.preparedText?.attributedString {
+            let measurementWidth = draft.textRole == .expandedOutput
+                ? 1_000_000
+                : max(80, width - horizontalPadding - draft.indentation)
             let bounds = text.boundingRect(
-                with: NSSize(width: max(80, width - horizontalPadding - draft.indentation), height: .greatestFiniteMagnitude),
+                with: NSSize(width: measurementWidth, height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
             let isCodeComment: Bool
@@ -1208,14 +1252,15 @@ private extension CodexTranscriptRenderProjector {
         width: CGFloat,
         font: NSFont
     ) -> CGFloat {
-        let height: CGFloat = 26
+        let height: CGFloat = chips.contains(where: { $0.threadID == nil && $0.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil }) ? 64 : 26
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var rows: CGFloat = 1
         for chip in chips {
-            let title = "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
+            let isAttachmentImage = chip.threadID == nil && chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+            let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
-            let chipWidth = min(width, max(74, labelWidth + 28))
+            let chipWidth = isAttachmentImage ? 64 : min(width, max(74, labelWidth + 28))
             if x > 0, x + chipWidth > width {
                 rows += 1
                 x = 0
@@ -1385,6 +1430,17 @@ private extension CodexTranscriptRenderProjector {
             .foregroundColor: color,
             .paragraphStyle: style
         ]))
+    }
+
+    static func prepareUserMessage(
+        _ user: CodexUserMessageV2,
+        text: String,
+        font: NSFont,
+        color: NSColor,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        let result = NSMutableAttributedString(attributedString: preparePlain(text, font: font, color: color, theme: theme).attributedString)
+        return CodexPreparedTranscriptText(result)
     }
 
     static func prepareTable(
@@ -1663,7 +1719,7 @@ private extension CodexTranscriptRenderProjector {
 
     static func copyText(for turn: CodexTurnV2) -> String {
         var parts: [String] = []
-        if let user = turn.userMessage?.text.codexAppKitNilIfEmpty { parts.append("You\n" + user) }
+        if let user = turn.userMessage?.displayText.codexAppKitNilIfEmpty { parts.append("You\n" + user) }
         var work: [String] = []
         for entry in turn.narrative {
             switch entry {

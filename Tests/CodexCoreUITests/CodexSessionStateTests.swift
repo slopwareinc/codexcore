@@ -188,6 +188,181 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(session.draft(for: "thread-a"), "")
     }
 
+    func testFileReferencesEncodeAndDecodeWithoutReadingContent() {
+        let image = CodexReferencedFile(path: "/tmp/screenshot.png", kind: .image)
+        let folder = CodexReferencedFile(path: "/tmp/project", kind: .directory)
+
+        let encoded = CodexFileReferencePromptCodec.encode(
+            files: [image, folder],
+            request: "Please inspect these"
+        )
+        XCTAssertEqual(
+            encoded,
+            "\n# Files mentioned by the user:\n\n"
+                + "## screenshot.png: /tmp/screenshot.png\n\n"
+                + "## project: /tmp/project\n\n"
+                + "## My request for Codex:\nPlease inspect these\n"
+        )
+
+        let decoded = CodexFileReferencePromptCodec.decode(encoded)
+        XCTAssertEqual(decoded?.request, "Please inspect these")
+        XCTAssertEqual(decoded?.files.map(\.path), [image.path, folder.path])
+        XCTAssertEqual(decoded?.files.map(\.displayName), [image.displayName, folder.displayName])
+        XCTAssertEqual(CodexFileReferencePromptCodec.visibleRequest(from: encoded), "Please inspect these")
+        XCTAssertEqual(CodexFileReferencePromptCodec.visibleRequest(from: "ordinary text"), "ordinary text")
+    }
+
+    func testFileReferenceDecoderUsesEnvelopeDelimiterWhenRequestRepeatsHeader() throws {
+        let file = CodexReferencedFile(path: "/tmp/reference.swift", kind: .file)
+        let request = "Explain this heading:\n## My request for Codex:\nwithout treating it as metadata."
+
+        let decoded = try XCTUnwrap(CodexFileReferencePromptCodec.decode(
+            CodexFileReferencePromptCodec.encode(files: [file], request: request)
+        ))
+
+        XCTAssertEqual(decoded.request, request)
+        XCTAssertEqual(decoded.files, [file])
+    }
+
+    func testDroppedURLClassificationAndRootFolderRoundTrip() throws {
+        let temporaryFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-file-reference-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryFolder) }
+        let imageURL = temporaryFolder.appendingPathComponent("preview.png")
+        XCTAssertTrue(FileManager.default.createFile(atPath: imageURL.path, contents: Data()))
+
+        XCTAssertEqual(CodexReferencedFile.fromDroppedURL(temporaryFolder)?.kind, .directory)
+        XCTAssertEqual(CodexReferencedFile.fromDroppedURL(imageURL)?.kind, .image)
+        XCTAssertNil(CodexReferencedFile.fromDroppedURL(URL(string: "https://example.com/file")!))
+        XCTAssertNil(CodexReferencedFile.fromDroppedURL(temporaryFolder.appendingPathComponent("missing.txt")))
+
+        let root = CodexReferencedFile(path: "/", kind: .directory)
+        XCTAssertFalse(root.displayName.isEmpty)
+        let encoded = CodexFileReferencePromptCodec.encode(files: [root], request: "Inspect root")
+        XCTAssertEqual(CodexFileReferencePromptCodec.decode(encoded)?.files.first?.path, "/")
+    }
+
+    func testFileDropBatchPreservesProviderOrderAndSkipsFailures() async {
+        let first = URL(fileURLWithPath: "/tmp/first.txt")
+        let third = URL(fileURLWithPath: "/tmp/third.txt")
+        let received: [URL] = await withCheckedContinuation { continuation in
+            let batch = CodexFileDropBatch(count: 3) { urls in
+                continuation.resume(returning: urls)
+            }
+            batch.finish(index: 2, url: third)
+            batch.finish(index: 0, url: first)
+            batch.finish(index: 1, url: nil)
+        }
+
+        XCTAssertEqual(received, [first, third])
+    }
+
+    func testComposerFileReferencesAreScopedRemovableAndRetainedInSubmission() throws {
+        let image = CodexReferencedFile(path: "/tmp/preview.png", kind: .image)
+        let document = CodexReferencedFile(path: "/tmp/readme.md", kind: .file)
+        var session = CodexComposerStateSession(activeThreadID: "thread-a")
+
+        session.addReferencedFiles([image, document], for: "thread-a")
+        session.setActiveThreadID("thread-b")
+        XCTAssertTrue(session.referencedFiles.isEmpty)
+        session.setActiveThreadID("thread-a")
+        session.draft = "Summarize them"
+        session.removeReferencedFile(id: image.id, for: "thread-a")
+
+        let submission = try XCTUnwrap(session.consumeDraftForTurn())
+        XCTAssertEqual(submission.referencedFiles, [document])
+        XCTAssertEqual(submission.turnInput, [
+            .text(CodexFileReferencePromptCodec.encode(files: [document], request: "Summarize them"))
+        ])
+
+        session.restore(submission)
+        XCTAssertEqual(session.draft, "Summarize them")
+        XCTAssertEqual(session.referencedFiles, [document])
+    }
+
+    func testClearingTransientThreadStatePreservesUnsentFileReferencesLikeDraftText() {
+        let document = CodexReferencedFile(path: "/tmp/readme.md", kind: .file)
+        var session = CodexComposerStateSession(draft: "Unsent", activeThreadID: nil)
+        session.addReferencedFiles([document], for: nil)
+
+        session.clearThreadState()
+
+        XCTAssertEqual(session.draft, "Unsent")
+        XCTAssertEqual(session.referencedFiles, [document])
+    }
+
+    func testFileOnlyFollowUpRetainsReferencesThroughQueueAndRetry() throws {
+        let file = CodexReferencedFile(path: "/tmp/context.txt", kind: .file)
+        var composer = CodexComposerStateSession(activeThreadID: "thread-a")
+        composer.addReferencedFiles([file], for: "thread-a")
+
+        let route = CodexTurnSubmissionSession.consumeDraft(
+            composerSession: &composer,
+            canSendFollowUp: true,
+            isGoalPursuitEnabled: false
+        )
+        guard case .followUp(let submission) = route else {
+            return XCTFail("Expected a file-only follow-up")
+        }
+        XCTAssertEqual(submission.prompt, "")
+        XCTAssertEqual(submission.referencedFiles, [file])
+        XCTAssertTrue(composer.referencedFiles.isEmpty)
+
+        var mainChat = CodexMainChatSession()
+        let prepared = CodexTurnSubmissionSession.prepareFollowUp(
+            submission: submission,
+            composerSession: &composer,
+            mainChatSession: &mainChat,
+            followUpBehavior: .queue,
+            canSteer: true
+        )
+        guard case .queued(let queuedSubmission, _) = prepared else {
+            return XCTFail("Expected queued follow-up")
+        }
+        XCTAssertEqual(queuedSubmission, submission)
+
+        let dequeued = try XCTUnwrap(CodexTurnSubmissionSession.dequeueQueuedFollowUp(
+            composerSession: &composer,
+            mainChatSession: &mainChat,
+            isSending: false
+        ))
+        XCTAssertEqual(dequeued.submission, submission)
+        XCTAssertEqual(dequeued.input, submission.turnInput)
+
+        _ = CodexTurnSubmissionSession.failQueuedFollowUp(
+            dequeued,
+            message: "offline",
+            composerSession: &composer,
+            mainChatSession: &mainChat
+        )
+        XCTAssertEqual(composer.dequeueQueuedFollowUpSubmission(isSending: false), submission)
+    }
+
+    func testQueuedAndFailedAttachmentSubmissionsStayWithOriginThread() throws {
+        let file = CodexReferencedFile(path: "/tmp/thread-a.txt", kind: .file)
+        var composer = CodexComposerStateSession(activeThreadID: "thread-a")
+        composer.draft = "Use A"
+        composer.addReferencedFiles([file], for: "thread-a")
+        let submission = try XCTUnwrap(composer.consumeDraftForFollowUp())
+        composer.enqueueFollowUp(submission)
+
+        composer.setActiveThreadID("thread-b")
+        composer.draft = "Draft B"
+        XCTAssertTrue(composer.queuedFollowUps.isEmpty)
+        XCTAssertNil(composer.dequeueQueuedFollowUpSubmission(isSending: false))
+
+        composer.setActiveThreadID("thread-a")
+        XCTAssertEqual(composer.dequeueQueuedFollowUpSubmission(isSending: false), submission)
+
+        composer.setActiveThreadID("thread-b")
+        composer.restore(submission)
+        XCTAssertEqual(composer.draft(for: "thread-a"), "Use A")
+        XCTAssertEqual(composer.referencedFiles(for: "thread-a"), [file])
+        XCTAssertEqual(composer.draft(for: "thread-b"), "Draft B")
+        XCTAssertTrue(composer.referencedFiles(for: "thread-b").isEmpty)
+    }
+
     func testComposerStateSessionOwnsDraftSkillsMentionsAndFollowUps() throws {
         let skill = CodexSlashCommand(
             id: "skill:thermo",

@@ -24,9 +24,31 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var clientID: String?
     public var text: String
+    public var rawText: String
+    public var referencedFiles: [CodexReferencedFile]
     public var isOptimistic: Bool
-    public init(id: String, clientID: String? = nil, text: String, isOptimistic: Bool = false) {
-        self.id = id; self.clientID = clientID; self.text = text; self.isOptimistic = isOptimistic
+    public init(
+        id: String,
+        clientID: String? = nil,
+        text: String,
+        rawText: String? = nil,
+        referencedFiles: [CodexReferencedFile] = [],
+        isOptimistic: Bool = false
+    ) {
+        self.id = id
+        self.clientID = clientID
+        self.text = text
+        self.rawText = rawText ?? text
+        self.referencedFiles = referencedFiles
+        self.isOptimistic = isOptimistic
+    }
+
+    public var displayText: String {
+        let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attachments = referencedFiles.map { "📎 \($0.displayName)" }.joined(separator: "  ")
+        return [request, attachments]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
     }
 }
 

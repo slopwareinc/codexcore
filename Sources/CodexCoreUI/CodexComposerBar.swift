@@ -1,5 +1,6 @@
 import SwiftUI
 import CodexCore
+import UniformTypeIdentifiers
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -8,6 +9,7 @@ public struct CodexComposerBar: View {
     @Environment(\.codexAgentTheme) private var theme
 
     @Binding private var draft: String
+    @Binding private var referencedFiles: [CodexReferencedFile]
     @Binding private var approvalSelection: CodexApprovalSelection
     @Binding private var isPlanModeEnabled: Bool
     private let isGoalPursuitEnabled: Bool
@@ -34,6 +36,7 @@ public struct CodexComposerBar: View {
     private let onRefreshMCPServers: (() -> Void)?
     private let onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
+    private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let placeholder: String
     private let isCompact: Bool
     @FocusState private var focused: Bool
@@ -42,9 +45,11 @@ public struct CodexComposerBar: View {
     @State private var commandSelectorSelection = CodexComposerPaletteSelection()
     @State private var isSlashPaletteDismissed = false
     @State private var isMCPStatusPalettePresented = false
+    @State private var isFileDropTargeted = false
 
     public init(
         draft: Binding<String>,
+        referencedFiles: Binding<[CodexReferencedFile]> = .constant([]),
         placeholder: String = "Ask Codex anything about this workspace...",
         isCompact: Bool = false,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
@@ -72,9 +77,11 @@ public struct CodexComposerBar: View {
         onOpenMCPDetails: (() -> Void)? = nil,
         onRefreshMCPServers: (() -> Void)? = nil,
         onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
-        onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil
+        onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
+        onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil
     ) {
         self._draft = draft
+        self._referencedFiles = referencedFiles
         self.placeholder = placeholder
         self.isCompact = isCompact
         self._approvalSelection = approvalSelection
@@ -103,6 +110,7 @@ public struct CodexComposerBar: View {
         self.onRefreshMCPServers = onRefreshMCPServers
         self.onAddMenuRoute = onAddMenuRoute
         self.onComposerChipClear = onComposerChipClear
+        self.onFilesDropped = onFilesDropped
     }
 
     public var body: some View {
@@ -144,7 +152,15 @@ public struct CodexComposerBar: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            VStack(spacing: isCompact ? 4 : 8) {
+            VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
+                if !referencedFiles.isEmpty {
+                    CodexComposerFileReferenceStrip(
+                        files: referencedFiles,
+                        onRemove: removeReferencedFile
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.fonts.chat)
@@ -189,9 +205,18 @@ public struct CodexComposerBar: View {
             }
             .padding(isCompact ? 6 : 10)
             .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
+            .codexFileDropTarget(
+                isTargeted: $isFileDropTargeted,
+                isEnabled: onFilesDropped != nil,
+                onDrop: handleFileDrop
+            )
         }
         .onAppear {
+            print("[DEBUG-FILE-DROP] composer appear files=\(referencedFiles.map(\.path))")
             reconcilePaletteSelections()
+        }
+        .onChange(of: referencedFiles) { _, files in
+            print("[DEBUG-FILE-DROP] composer files changed count=\(files.count) paths=\(files.map(\.path))")
         }
         .onChange(of: draft) { _, _ in
             if activeCommandSelector != nil, !draft.isEmpty {
@@ -225,6 +250,14 @@ public struct CodexComposerBar: View {
             EmptyView()
             #endif
         }
+    }
+
+    private func handleFileDrop(_ urls: [URL]) {
+        onFilesDropped?(urls)
+    }
+
+    private func removeReferencedFile(_ file: CodexReferencedFile) {
+        referencedFiles.removeAll { $0.id == file.id }
     }
 
     private var slashQuery: String? {

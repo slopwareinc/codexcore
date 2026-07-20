@@ -280,6 +280,83 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(reconciled.turns.first?.userMessage?.clientID == intentID.rawValue)
     }
 
+    @Test func fileReferenceContextIsHiddenFromOptimisticAndCanonicalUserBubbles() throws {
+        let threadID: ThreadID = "thread"
+        let rawPrompt = CodexFileReferencePromptCodec.encode(
+            files: [CodexReferencedFile(path: "/tmp/reference.swift", kind: .file)],
+            request: "Review this file"
+        )
+        let intentID: SubmissionIntentID = "client-file"
+        let intent = SubmissionIntent(
+            id: intentID,
+            threadID: threadID,
+            input: [.dictionary(["type": .string("text"), "text": .string(rawPrompt)])],
+            localOrdinal: 1,
+            state: .pending,
+            lastChangedRevision: StateRevision(1)
+        )
+        let projector = CodexCanonicalTranscriptProjector()
+        let optimistic = projector.rebuild(
+            snapshot: .init(revision: StateRevision(1), submissionIntents: [intentID: intent]),
+            threadID: threadID
+        )
+        let optimisticUser = try #require(optimistic.presentation.transcript.turns.first?.userMessage)
+        #expect(optimisticUser.text == "Review this file")
+        #expect(optimisticUser.referencedFiles.map(\.path) == ["/tmp/reference.swift"])
+        #expect(optimisticUser.displayText == "Review this file\n\n📎 reference.swift")
+
+        let turnID: TurnID = "server-turn"
+        let user = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "server-user"),
+            kind: .userMessage,
+            payload: [
+                "content": .array([.dictionary(["type": .string("text"), "text": .string(rawPrompt)])])
+            ],
+            authority: .completed,
+            clientUserMessageID: intentID,
+            lastChangedRevision: StateRevision(2)
+        )
+        let canonical = projector.rebuild(
+            snapshot: state(
+                revision: 2,
+                threadID: threadID,
+                turns: [turn(turnID, threadID: threadID, itemIDs: ["server-user"], revision: 2)],
+                items: [user],
+                intents: [intentID: intent]
+            ),
+            threadID: threadID
+        )
+        let canonicalUser = try #require(canonical.presentation.transcript.turns.first?.userMessage)
+        #expect(canonicalUser.text == "Review this file")
+        #expect(canonicalUser.rawText == rawPrompt)
+        #expect(canonicalUser.referencedFiles.map(\.path) == ["/tmp/reference.swift"])
+    }
+
+    @Test func fileOnlySubmissionHasAVisibleAttachmentBubble() throws {
+        let threadID: ThreadID = "thread"
+        let rawPrompt = CodexFileReferencePromptCodec.encode(
+            files: [CodexReferencedFile(path: "/tmp/reference.png", kind: .image)],
+            request: ""
+        )
+        let intentID: SubmissionIntentID = "client-file-only"
+        let intent = SubmissionIntent(
+            id: intentID,
+            threadID: threadID,
+            input: [.dictionary(["type": .string("text"), "text": .string(rawPrompt)])],
+            localOrdinal: 1,
+            state: .pending,
+            lastChangedRevision: StateRevision(1)
+        )
+        let projected = CodexCanonicalTranscriptProjector().rebuild(
+            snapshot: .init(revision: StateRevision(1), submissionIntents: [intentID: intent]),
+            threadID: threadID
+        )
+        let user = try #require(projected.presentation.transcript.turns.first?.userMessage)
+        #expect(user.text.isEmpty)
+        #expect(user.displayText == "📎 reference.png")
+        #expect(user.rawText == rawPrompt)
+    }
+
     @Test func pendingTypedRequestsForThreadArePlacedAndDirtyTheirTurn() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

@@ -425,19 +425,27 @@ private extension CodexCanonicalTranscriptProjector {
 
     func userMessage(_ item: CanonicalItem) -> CodexUserMessageV2 {
         let clientID = item.clientUserMessageID?.rawValue ?? item.payload.string("clientId")
+        let rawText = item.payload.textContent
+        let decoded = CodexFileReferencePromptCodec.decode(rawText)
         return CodexUserMessageV2(
             id: item.key.itemID.rawValue,
             clientID: clientID,
-            text: item.payload.textContent,
+            text: decoded?.request ?? rawText,
+            rawText: rawText,
+            referencedFiles: decoded?.files ?? [],
             isOptimistic: false
         )
     }
 
     func optimisticUserMessage(_ intent: SubmissionIntent) -> CodexUserMessageV2 {
-        CodexUserMessageV2(
+        let rawText = inputText(intent.input)
+        let decoded = CodexFileReferencePromptCodec.decode(rawText)
+        return CodexUserMessageV2(
             id: "local-\(intent.id.rawValue)",
             clientID: intent.id.rawValue,
-            text: inputText(intent.input),
+            text: decoded?.request ?? rawText,
+            rawText: rawText,
+            referencedFiles: decoded?.files ?? [],
             isOptimistic: true
         )
     }

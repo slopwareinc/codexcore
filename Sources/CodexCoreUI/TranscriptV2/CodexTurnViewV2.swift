@@ -47,7 +47,7 @@ public struct CodexTurnViewV2: View {
 
     private func userBubble(_ message: CodexUserMessageV2) -> some View {
         VStack(alignment: .trailing, spacing: 5) {
-            Text(message.text)
+            Text(message.displayText)
                 .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textPrimary)
                 .textSelection(.enabled)
