@@ -1220,10 +1220,13 @@ private extension CodexTranscriptRenderProjector {
         }
         let horizontalPadding: CGFloat = draft.textRole == .user
             ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
-            : (draft.textRole == .expandedOutput ? 54 : 0)
+            : (draft.textRole == .expandedOutput ? 24 : 0)
         if let text = draft.preparedText?.attributedString {
+            let measurementWidth = draft.textRole == .expandedOutput
+                ? 1_000_000
+                : max(80, width - horizontalPadding - draft.indentation)
             let bounds = text.boundingRect(
-                with: NSSize(width: max(80, width - horizontalPadding - draft.indentation), height: .greatestFiniteMagnitude),
+                with: NSSize(width: measurementWidth, height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
             let isCodeComment: Bool

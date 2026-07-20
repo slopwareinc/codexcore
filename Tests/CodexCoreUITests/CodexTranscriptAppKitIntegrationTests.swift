@@ -151,7 +151,8 @@ struct CodexTranscriptAppKitIntegrationTests {
     }
 
     @Test func expandedCommandOutputUsesABoundedInternalScroller() async throws {
-        let output = (0..<300).map { "Sources/File\($0).swift" }.joined(separator: "\n")
+        let longPath = String(repeating: "deeply-nested-directory/", count: 20) + "File.swift"
+        let output = (0..<300).map { "Sources/File\($0).swift \(longPath)" }.joined(separator: "\n")
         let turn = CodexTurnV2(
             id: "turn",
             narrative: [.workGroup(.init(id: "group", rows: [.command(.init(
@@ -185,8 +186,24 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         cell.view.layoutSubtreeIfNeeded()
         #expect(cell.hasVerticalScrollerForTesting)
+        #expect(cell.hasHorizontalScrollerForTesting)
         #expect(cell.textDocumentHeightForTesting > cell.textViewportHeightForTesting)
+        #expect(cell.textDocumentWidthForTesting > cell.textViewportWidthForTesting)
+        #expect(cell.copyButtonIsVisibleForTesting == false)
         #expect(cell.glassPanelIsVisibleForTesting)
+
+        let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .command })
+        let rowCell = CodexTranscriptCollectionItem()
+        _ = rowCell.view
+        rowCell.view.frame = NSRect(x: 0, y: 0, width: 860, height: row.measuredHeight)
+        rowCell.configure(
+            item: row, appKitTheme: theme, swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        rowCell.view.layoutSubtreeIfNeeded()
+        #expect(rowCell.copyButtonIsVisibleForTesting)
     }
 
     @Test func collaborationRowsRenderAsOneInlineChipCluster() async throws {

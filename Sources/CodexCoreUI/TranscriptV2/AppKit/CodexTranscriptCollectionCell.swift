@@ -207,7 +207,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var approvalButtonsVisibleForTesting: Bool { !approvalAllowButton.isHidden && !approvalDenyButton.isHidden }
     var textViewportHeightForTesting: CGFloat { textScrollView.contentSize.height }
     var textDocumentHeightForTesting: CGFloat { selectableTextView.frame.height }
+    var textViewportWidthForTesting: CGFloat { textScrollView.contentSize.width }
+    var textDocumentWidthForTesting: CGFloat { selectableTextView.frame.width }
     var hasVerticalScrollerForTesting: Bool { textScrollView.hasVerticalScroller }
+    var hasHorizontalScrollerForTesting: Bool { textScrollView.hasHorizontalScroller }
+    var copyButtonIsVisibleForTesting: Bool { !copyButton.isHidden }
     var agentChipCountForTesting: Int { agentChipHosts.count }
     var agentChipTitlesForTesting: [String] {
         configuredAgentChips.map { "\($0.label) · \(Self.agentStatusTitle($0.status).lowercased())" }
@@ -507,12 +511,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             }
         } else if let preparedText = item.preparedText {
             textScrollView.isHidden = false
-            textScrollView.hasHorizontalScroller = false
-            selectableTextView.isHorizontallyResizable = false
-            selectableTextView.textContainer?.widthTracksTextView = true
+            let isExpandedOutput = item.textRole == .expandedOutput
+            textScrollView.hasHorizontalScroller = isExpandedOutput
+            selectableTextView.isHorizontallyResizable = isExpandedOutput
+            selectableTextView.textContainer?.widthTracksTextView = !isExpandedOutput
             selectableTextView.configureLinkAppearance(
                 theme: appKitTheme,
-                automaticDetection: item.textRole == .expandedOutput
+                automaticDetection: isExpandedOutput
             )
             selectableTextView.bind(
                 preparedText.attributedString,
@@ -522,7 +527,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             if item.textRole == .user || item.textRole == .expandedOutput {
                 backgroundView.isHidden = false
             }
-            copyButton.isHidden = item.textRole != .expandedOutput
+            // Expanded tool output is owned by the work row immediately above it;
+            // keep the copy action in that header instead of floating over text.
+            copyButton.isHidden = true
             if item.isScrollableOutput {
                 backgroundView.isHidden = true
                 installGlassBackground(theme: swiftUITheme)
@@ -562,6 +569,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
+            copyButton.isHidden = !(row.isExpanded && item.copyText != nil)
+            if !copyButton.isHidden {
+                copyButton.toolTip = "Copy output"
+                copyButton.setAccessibilityLabel("Copy output")
+            }
             actionButton.isHidden = !row.isActionable
             actionButton.isEnabled = row.isActionable
             actionButton.title = ""
@@ -651,14 +663,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let insetY: CGFloat = item.textRole == .user
                 ? CodexTranscriptColumnMetrics.userBubbleVerticalPadding
                 : (item.textRole == .expandedOutput ? 8 : CodexTranscriptColumnMetrics.itemGap / 2)
-            var textFrame = contentFrame.insetBy(dx: insetX, dy: insetY)
-            if item.textRole == .expandedOutput { textFrame.size.width = max(40, textFrame.width - 30) }
+            let textFrame = contentFrame.insetBy(dx: insetX, dy: insetY)
             layoutSelectableText(
                 in: textFrame,
-                allowsHorizontalScrolling: false,
+                allowsHorizontalScrolling: item.textRole == .expandedOutput,
                 allowsVerticalScrolling: item.isScrollableOutput
             )
-            copyButton.frame = NSRect(x: contentFrame.maxX - 30, y: contentFrame.maxY - 28, width: 26, height: 24)
         } else if !item.agentChips.isEmpty {
             layoutAgentChips(item.agentChips, in: contentFrame, theme: theme)
         } else if item.workHeader != nil {
@@ -690,8 +700,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let statusWidth = chipStatusLabel.frame.width
             chipDurationLabel.sizeToFit()
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
+            let copyReserve: CGFloat = copyButton.isHidden ? 0 : 34
             let labelX = iconX + iconSize + 8
-            let trailingWidth = statusWidth + (durationWidth > 0 ? durationWidth + 10 : 0)
+            let trailingWidth = statusWidth + (durationWidth > 0 ? durationWidth + 10 : 0) + copyReserve
             let naturalLabelWidth = ceil((chipLabel.stringValue as NSString).size(
                 withAttributes: [.font: chipLabel.font ?? theme.captionFont]
             ).width)
@@ -712,7 +723,20 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 width: statusWidth,
                 height: 20
             )
-            actionButton.frame = contentFrame
+            if !copyButton.isHidden {
+                copyButton.frame = NSRect(
+                    x: contentFrame.maxX - 28,
+                    y: contentFrame.midY - 12,
+                    width: 26,
+                    height: 24
+                )
+            }
+            actionButton.frame = NSRect(
+                x: contentFrame.minX,
+                y: contentFrame.minY,
+                width: max(0, contentFrame.width - copyReserve),
+                height: contentFrame.height
+            )
         } else {
             actionButton.frame = contentFrame
         }
