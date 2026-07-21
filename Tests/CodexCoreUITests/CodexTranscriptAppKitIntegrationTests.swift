@@ -11,8 +11,11 @@ struct CodexTranscriptAppKitIntegrationTests {
         let cell = CodexTranscriptCollectionItem()
 
         _ = cell.view
+        cell.view.updateTrackingAreas()
+        cell.view.updateTrackingAreas()
 
         #expect(cell.view.subviews.count == 1)
+        #expect(cell.hoverTrackingAreaCountForTesting == 1)
     }
 
     @Test func emptyAndPopulatedTranscriptReuseTheSameAppKitHost() throws {
@@ -298,11 +301,42 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         cell.view.layoutSubtreeIfNeeded()
         #expect(cell.agentChipCountForTesting == 5)
+        #expect(cell.agentChipHostCreationCountForTesting == 5)
         #expect(cell.agentChipTitlesForTesting[1] == "Ramanujan · working")
         #expect(cell.agentPillsUseGlassForTesting)
         let preview = try #require(cell.agentPreviewForTesting(at: 1))
         #expect(preview.taskSummary == "Inspect transcript rendering")
         #expect(preview.latestUpdate == "Updated the AppKit cell")
+
+        cell.configure(
+            item: cluster, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        #expect(cell.agentChipHostCreationCountForTesting == 5)
+    }
+
+    @Test func attachmentThumbnailsDownsampleOffMainActor() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-thumbnail-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = NSImage(size: NSSize(width: 1_024, height: 768))
+        source.lockFocus()
+        NSColor.systemIndigo.setFill()
+        NSRect(x: 0, y: 0, width: 1_024, height: 768).fill()
+        source.unlockFocus()
+        let tiff = try #require(source.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: url)
+
+        let thumbnail = try #require(
+            await CodexTranscriptAttachmentThumbnailLoader().thumbnail(at: url.path)
+        )
+
+        #expect(!thumbnail.decodedOnMainThread)
+        #expect(max(thumbnail.image.width, thumbnail.image.height) <= 128)
     }
 
     @Test func expandedDiffUsesOneGlassPanelAndRoutesTabSelection() async throws {
@@ -559,6 +593,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         container.collectionView.layoutSubtreeIfNeeded()
 
         #expect(coordinator.shortTranscriptTopInsetForTesting > 200)
+        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 1)
         coordinator.detach()
     }
 
@@ -595,6 +630,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         }
 
         #expect(coordinator.diagnostics.eagerLayoutPassCount == 1)
+        #expect(container.collectionView.layoutSubtreeSettlementCount == 0)
         coordinator.detach()
     }
 
@@ -624,6 +660,7 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(coordinator.renderedItemIDsForTesting.count == 1_085)
         #expect(coordinator.diagnostics.snapshotApplyCount == 1)
+        #expect(coordinator.diagnostics.threadSwitchDataSourceResetCount == 1)
         #expect(coordinator.diagnostics.broadReloadCount == 0)
         #expect(coordinator.diagnostics.insertedItemCount == coordinator.renderedItemIDsForTesting.count)
         #expect(container.scrollView.contentInsets.bottom == 190)
@@ -650,6 +687,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(coordinator.diagnostics.targetedReconfigurePassCount == 1)
         #expect(coordinator.diagnostics.reconfiguredItemCount == 1)
         #expect(coordinator.diagnostics.broadReloadCount == 0)
+        #expect(container.collectionView.layoutSubtreeSettlementCount == 1)
+        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 0)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
         let applyLabel = String(format: "%.3f", coordinator.diagnostics.lastSnapshotApplyDurationMilliseconds)
         let maximumApplyLabel = String(format: "%.3f", coordinator.diagnostics.maximumSnapshotApplyDurationMilliseconds)
@@ -830,7 +869,9 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
 
         #expect(!cell.footerCopyTurnIsVisibleForTesting)
+        #expect(!cell.footerActionControlsInstalledForTesting)
         cell.setHoveredForTesting(true)
+        #expect(cell.footerActionControlsInstalledForTesting)
         #expect(cell.footerCopyTurnIsVisibleForTesting)
         #expect(cell.footerCopyItemTitleForTesting.isEmpty)
         #expect(cell.footerCopyItemToolTipForTesting == "Copy answer")
@@ -1110,6 +1151,8 @@ struct CodexTranscriptAppKitIntegrationTests {
             try await Task.sleep(for: .milliseconds(20))
             #expect(abs(container.scrollView.contentView.bounds.origin.y - presentation.rawScrollOffset) < 1)
         }
+        #expect(coordinator.diagnostics.threadSwitchDataSourceResetCount == 3)
+        #expect(container.collectionView.layoutSubtreeSettlementCount == 3)
         coordinator.detach()
     }
 

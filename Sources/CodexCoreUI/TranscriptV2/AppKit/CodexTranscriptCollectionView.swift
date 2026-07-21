@@ -5,6 +5,8 @@ import SwiftUI
 struct CodexTranscriptCollectionDiagnostics: Sendable, Equatable {
     var eagerLayoutPassCount = 0
     var snapshotApplyCount = 0
+    var threadSwitchDataSourceResetCount = 0
+    var broadLayoutMetricInvalidationCount = 0
     var insertedItemCount = 0
     var deletedItemCount = 0
     var reconfiguredItemCount = 0
@@ -142,6 +144,18 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 CodexTranscriptCollectionItem.self,
                 forItemWithIdentifier: CodexTranscriptCollectionItem.reuseIdentifier
             )
+            installDataSource(on: collectionView)
+            container.onJumpToLatest = { [weak self] in self?.jumpToLatest() }
+            container.onWidthChange = { [weak self] width in self?.widthDidChange(width) }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(clipViewBoundsChanged),
+                name: NSView.boundsDidChangeNotification,
+                object: container.scrollView.contentView
+            )
+        }
+
+        private func installDataSource(on collectionView: NSCollectionView) {
             dataSource = NSCollectionViewDiffableDataSource<String, CodexTranscriptRenderItemID>(
                 collectionView: collectionView
             ) { [weak self] collectionView, indexPath, itemID in
@@ -154,14 +168,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 self.configure(collectionItem, with: item)
                 return collectionItem
             }
-            container.onJumpToLatest = { [weak self] in self?.jumpToLatest() }
-            container.onWidthChange = { [weak self] width in self?.widthDidChange(width) }
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(clipViewBoundsChanged),
-                name: NSView.boundsDidChangeNotification,
-                object: container.scrollView.contentView
-            )
         }
 
         func update(
@@ -358,7 +364,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         ) {
             var projected = projected
             guard currentPresentation?.threadID == projected.threadID,
-                  let dataSource else { return }
+                  let dataSource,
+                  let container else { return }
             for (id, preferred) in hostedPreferredHeightByID
                 where projected.itemsByID[id]?.revision == preferred.revision {
                 projected.itemsByID[id]?.measuredHeight = preferred.height
@@ -424,16 +431,29 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             }
             if !changedIDs.isEmpty { diffable.reloadItems(Array(changedIDs)) }
             diagnostics.snapshotApplyCount += 1
-            dataSource.apply(
-                diffable,
-                animatingDifferences: !switchedThread && !presentation.isPinnedToBottom
-            ) { [weak self] in
-                self?.finishApply(
+            let completion: () -> Void = { [weak self] in
+                guard let self else { return }
+                self.finishApply(
                     projected,
                     presentation: presentation,
                     switchedThread: switchedThread,
                     shouldFollow: shouldFollow,
                     startedAt: applyStartedAt
+                )
+            }
+            if switchedThread {
+                diagnostics.threadSwitchDataSourceResetCount += 1
+                installDataSource(on: container.collectionView)
+                self.dataSource?.apply(
+                    diffable,
+                    animatingDifferences: false,
+                    completion: completion
+                )
+            } else {
+                dataSource.apply(
+                    diffable,
+                    animatingDifferences: !presentation.isPinnedToBottom,
+                    completion: completion
                 )
             }
         }
@@ -464,9 +484,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             currentSnapshot?.itemsByID[id] = item
             guard let indexPath = dataSource?.indexPath(for: id), let container else { return }
             invalidateLayoutMetrics(at: [indexPath], in: container)
-            container.collectionView.layoutSubtreeIfNeeded()
+            updateShortTranscriptTopInset()
             if currentPresentation?.isPinnedToBottom == true, selectedItemIDs.isEmpty {
-                scrollToBottom(markPinned: true)
+                scrollToBottom(markPinned: true, contentHeight: projectedContentHeight())
             }
         }
 
@@ -475,7 +495,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             in container: CodexTranscriptCollectionContainerView
         ) {
             let context = NSCollectionViewFlowLayoutInvalidationContext()
-            context.invalidateFlowLayoutDelegateMetrics = true
             context.invalidateFlowLayoutAttributes = true
             context.invalidateItems(at: indexPaths)
             container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
@@ -488,27 +507,25 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             shouldFollow: Bool,
             startedAt: ContinuousClock.Instant
         ) {
-            guard let container else { return }
+            guard currentSnapshot?.threadID == projected.threadID,
+                  let container else { return }
             updateShortTranscriptTopInset()
-            container.layoutSubtreeIfNeeded()
-            container.collectionView.layoutSubtreeIfNeeded()
-            let contentHeight = container.collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
+            let contentHeight = projectedContentHeight(projected)
             let viewportHeight = container.scrollView.contentView.bounds.height
             if contentHeight <= viewportHeight {
                 // A short thread (including a single attachment-only turn) must
                 // remain docked to the composer. Restoring an old raw offset of
                 // zero would otherwise put its only content at the top.
-                scrollToBottom(markPinned: true)
+                scrollToBottom(markPinned: true, contentHeight: contentHeight)
             } else if switchedThread {
-                restoreScroll(presentation)
+                restoreScroll(presentation, contentHeight: contentHeight)
             } else if shouldFollow {
-                scrollToBottom(markPinned: true)
+                scrollToBottom(markPinned: true, contentHeight: contentHeight)
             } else if let anchor = pendingScrollAnchor,
-                      let indexPath = dataSource?.indexPath(for: anchor.id),
-                      let attributes = container.collectionView.layoutAttributesForItem(at: indexPath) {
+                      let minY = projectedMinY(for: anchor.id, in: projected) {
                 container.scrollView.contentView.setBoundsOrigin(NSPoint(
                     x: 0,
-                    y: attributes.frame.minY - anchor.offset
+                    y: minY - anchor.offset
                 ))
                 container.scrollView.reflectScrolledClipView(container.scrollView.contentView)
             }
@@ -544,7 +561,35 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             let context = NSCollectionViewFlowLayoutInvalidationContext()
             context.invalidateFlowLayoutDelegateMetrics = true
             context.invalidateFlowLayoutAttributes = true
+            diagnostics.broadLayoutMetricInvalidationCount += 1
             container.collectionView.collectionViewLayout?.invalidateLayout(with: context)
+        }
+
+        private func projectedContentHeight(
+            _ snapshot: CodexTranscriptRenderSnapshot? = nil
+        ) -> CGFloat {
+            guard let snapshot = snapshot ?? currentSnapshot else { return 0 }
+            let itemHeight = snapshot.orderedItemIDs.reduce(CGFloat.zero) { partial, id in
+                partial + (snapshot.itemsByID[id]?.measuredHeight ?? 0)
+            }
+            let turnGaps = CGFloat(max(0, snapshot.sectionIDs.count - 1))
+                * CodexTranscriptColumnMetrics.turnGap
+            return shortTranscriptTopInset + itemHeight + turnGaps
+        }
+
+        private func projectedMinY(
+            for targetID: CodexTranscriptRenderItemID,
+            in snapshot: CodexTranscriptRenderSnapshot
+        ) -> CGFloat? {
+            var y = shortTranscriptTopInset
+            for (sectionIndex, sectionID) in snapshot.sectionIDs.enumerated() {
+                if sectionIndex > 0 { y += CodexTranscriptColumnMetrics.turnGap }
+                for id in snapshot.itemIDsBySection[sectionID] ?? [] {
+                    if id == targetID { return y }
+                    y += snapshot.itemsByID[id]?.measuredHeight ?? 0
+                }
+            }
+            return nil
         }
 
         private func perform(_ action: CodexTranscriptRenderAction) {
@@ -637,19 +682,19 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             updateJumpButton()
         }
 
-        private func restoreScroll(_ presentation: CodexThreadUIPresentation) {
+        private func restoreScroll(
+            _ presentation: CodexThreadUIPresentation,
+            contentHeight: CGFloat
+        ) {
             guard let container else { return }
             scrollRestorationTask?.cancel()
             isRestoringScroll = true
-            setScrollOrigin(for: presentation, in: container)
+            setScrollOrigin(for: presentation, in: container, contentHeight: contentHeight)
             scrollRestorationTask = Task { @MainActor [weak self, weak container] in
                 await Task.yield()
                 guard !Task.isCancelled, let self, let container,
                       self.currentPresentation?.threadID == presentation.threadID else { return }
-                container.collectionView.layoutSubtreeIfNeeded()
-                self.setScrollOrigin(for: presentation, in: container)
-                await Task.yield()
-                guard !Task.isCancelled else { return }
+                self.setScrollOrigin(for: presentation, in: container, contentHeight: contentHeight)
                 self.isRestoringScroll = false
                 self.updateJumpButton()
             }
@@ -657,11 +702,15 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         private func setScrollOrigin(
             for presentation: CodexThreadUIPresentation,
-            in container: CodexTranscriptCollectionContainerView
+            in container: CodexTranscriptCollectionContainerView,
+            contentHeight: CGFloat
         ) {
             let targetY = presentation.isPinnedToBottom
-                ? bottomOffset()
-                : min(max(-container.scrollView.contentInsets.top, presentation.rawScrollOffset), bottomOffset())
+                ? bottomOffset(contentHeight: contentHeight)
+                : min(
+                    max(-container.scrollView.contentInsets.top, presentation.rawScrollOffset),
+                    bottomOffset(contentHeight: contentHeight)
+                )
             container.scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: targetY))
             container.scrollView.reflectScrolledClipView(container.scrollView.contentView)
         }
@@ -671,12 +720,12 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             scrollToBottom(markPinned: true)
         }
 
-        private func scrollToBottom(markPinned: Bool) {
+        private func scrollToBottom(markPinned: Bool, contentHeight: CGFloat? = nil) {
             guard let container, var presentation = currentPresentation else { return }
             scrollRestorationTask?.cancel()
             scrollRestorationTask = nil
             isRestoringScroll = true
-            let targetY = bottomOffset()
+            let targetY = bottomOffset(contentHeight: contentHeight)
             container.scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: targetY))
             container.scrollView.reflectScrolledClipView(container.scrollView.contentView)
             isRestoringScroll = false
@@ -694,9 +743,10 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             updateJumpButton()
         }
 
-        private func bottomOffset() -> CGFloat {
+        private func bottomOffset(contentHeight projectedContentHeight: CGFloat? = nil) -> CGFloat {
             guard let container else { return 0 }
-            let contentHeight = container.collectionView.collectionViewLayout?.collectionViewContentSize.height
+            let contentHeight = projectedContentHeight
+                ?? container.collectionView.collectionViewLayout?.collectionViewContentSize.height
                 ?? container.collectionView.bounds.height
             return max(
                 -container.scrollView.contentInsets.top,
@@ -713,10 +763,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             guard let container, let presentation = currentPresentation else { return }
             container.jumpButton.isHidden = presentation.isPinnedToBottom || distanceToBottom() <= 80
             let imageName = hasUnseenOutput ? "arrow.down.circle.fill" : "arrow.down"
-            container.jumpButton.image = NSImage(
-                systemSymbolName: imageName,
-                accessibilityDescription: "Jump to latest"
-            )
+            container.setJumpButtonImage(named: imageName)
             container.jumpButton.contentTintColor = hasUnseenOutput ? appKitTheme?.accent : nil
         }
 
@@ -759,9 +806,30 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 }
 
 @MainActor
+final class CodexTranscriptCollectionView: NSCollectionView {
+    private(set) var layoutSubtreeSettlementCount = 0
+
+    override func layoutSubtreeIfNeeded() {
+        layoutSubtreeSettlementCount += 1
+        super.layoutSubtreeIfNeeded()
+    }
+}
+
+@MainActor
 final class CodexTranscriptCollectionContainerView: NSView {
+    private static let jumpButtonImages: [String: NSImage] = [
+        "arrow.down": NSImage(
+            systemSymbolName: "arrow.down",
+            accessibilityDescription: "Jump to latest"
+        ),
+        "arrow.down.circle.fill": NSImage(
+            systemSymbolName: "arrow.down.circle.fill",
+            accessibilityDescription: "Jump to latest"
+        ),
+    ].compactMapValues { $0 }
+
     let scrollView = NSScrollView()
-    let collectionView = NSCollectionView()
+    let collectionView = CodexTranscriptCollectionView()
     let jumpButton = NSButton()
     var onJumpToLatest: (() -> Void)?
     var onWidthChange: ((CGFloat) -> Void)?
@@ -836,5 +904,10 @@ final class CodexTranscriptCollectionContainerView: NSView {
 
     @objc private func jump() {
         onJumpToLatest?()
+    }
+
+    func setJumpButtonImage(named name: String) {
+        guard jumpButton.image !== Self.jumpButtonImages[name] else { return }
+        jumpButton.image = Self.jumpButtonImages[name]
     }
 }

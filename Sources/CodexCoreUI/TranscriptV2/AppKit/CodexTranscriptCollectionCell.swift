@@ -1,19 +1,29 @@
 import AppKit
+import ImageIO
 import QuickLookUI
 import SwiftUI
 
 private final class CodexTranscriptHoverView: NSView {
     var onHoverChange: ((Bool) -> Void)?
-    var usesPointingHand = false { didSet { window?.invalidateCursorRects(for: self) } }
+    var contextMenuProvider: (() -> NSMenu?)?
+    private var hoverTrackingArea: NSTrackingArea?
+    var usesPointingHand = false {
+        didSet {
+            guard usesPointingHand != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
+        guard hoverTrackingArea == nil else { return }
+        let area = NSTrackingArea(
             rect: .zero,
             options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
             owner: self
-        ))
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -26,6 +36,10 @@ private final class CodexTranscriptHoverView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: usesPointingHand ? .pointingHand : .arrow)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenuProvider?() ?? super.menu(for: event)
     }
 }
 
@@ -78,6 +92,7 @@ private final class CodexShimmerTextField: NSTextField {
 
 final class CodexSelectableTranscriptTextView: NSTextView {
     var onSelectionStateChange: ((Bool) -> Void)?
+    var contextMenuProvider: (() -> NSMenu?)?
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -106,6 +121,10 @@ final class CodexSelectableTranscriptTextView: NSTextView {
         onSelectionStateChange?(true)
         super.mouseDown(with: event)
         onSelectionStateChange?(selectedRange().length > 0)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenuProvider?() ?? super.menu(for: event)
     }
 
     func bind(
@@ -183,6 +202,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var diffControlsInstalled = false
     private var approvalControlsInstalled = false
     private var footerControlsInstalled = false
+    private var footerActionControlsInstalled = false
+    private var agentChipHostCreationCount = 0
     private var hostedView: NSView?
     private var item: CodexTranscriptRenderItem?
     private var appKitTheme: CodexTranscriptAppKitTheme?
@@ -202,10 +223,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         ensureTextControls()
         return selectableTextView
     }
+    var hoverTrackingAreaCountForTesting: Int { view.trackingAreas.count }
     var hasHostedViewForTesting: Bool { hostedView != nil }
-    var footerCopyTurnIsVisibleForTesting: Bool { footerControlsInstalled && !footerCopyTurnButton.isHidden }
-    var footerCopyItemTitleForTesting: String { footerControlsInstalled ? footerCopyItemButton.title : "" }
-    var footerCopyItemToolTipForTesting: String? { footerControlsInstalled ? footerCopyItemButton.toolTip : nil }
+    var footerCopyTurnIsVisibleForTesting: Bool {
+        footerActionControlsInstalled && !footerCopyTurnButton.isHidden
+    }
+    var footerCopyItemTitleForTesting: String { footerActionControlsInstalled ? footerCopyItemButton.title : "" }
+    var footerCopyItemToolTipForTesting: String? { footerActionControlsInstalled ? footerCopyItemButton.toolTip : nil }
+    var footerActionControlsInstalledForTesting: Bool { footerActionControlsInstalled }
     var contentFrameForTesting: NSRect { backgroundView.frame }
     var codeHeaderIsVisibleForTesting: Bool { codeHeaderControlsInstalled && !codeHeaderView.isHidden }
     var codeLanguageForTesting: String { codeHeaderControlsInstalled ? codeLanguageLabel.stringValue : "" }
@@ -213,7 +238,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copyControlInstalled ? copyButton.image?.accessibilityDescription : nil
     }
     var footerCopyTurnAccessibilityDescriptionForTesting: String? {
-        footerControlsInstalled ? footerCopyTurnButton.image?.accessibilityDescription : nil
+        footerActionControlsInstalled ? footerCopyTurnButton.image?.accessibilityDescription : nil
     }
     var chipLabelForTesting: String { chipControlsInstalled ? chipLabel.stringValue : "" }
     var chipIconDescriptionForTesting: String? {
@@ -233,6 +258,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var hasHorizontalScrollerForTesting: Bool { textControlsInstalled && textScrollView.hasHorizontalScroller }
     var copyButtonIsVisibleForTesting: Bool { copyControlInstalled && !copyButton.isHidden }
     var agentChipCountForTesting: Int { agentChipHosts.count }
+    var agentChipHostCreationCountForTesting: Int { agentChipHostCreationCount }
     var agentChipTitlesForTesting: [String] {
         configuredAgentChips.map { "\($0.label) · \(Self.agentStatusTitle($0.status).lowercased())" }
     }
@@ -270,7 +296,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     func copyItemForTesting() { copyItem(copyControlInstalled ? copyButton : nil) }
-    func copyTurnForTesting() { copyTurn(footerControlsInstalled ? footerCopyTurnButton : nil) }
+    func copyTurnForTesting() { copyTurn(footerActionControlsInstalled ? footerCopyTurnButton : nil) }
     func invokePrimaryActionForTesting() { invokePrimaryAction() }
     func editUserForTesting() { editUser() }
     func forkChatForTesting() { invokeForkChat() }
@@ -293,6 +319,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     override func loadView() {
         let hoverView = CodexTranscriptHoverView()
         hoverView.onHoverChange = { [weak self] hovered in self?.setHovered(hovered) }
+        hoverView.contextMenuProvider = { [weak self] in self?.makeContextMenu() }
         view = hoverView
         view.wantsLayer = true
         backgroundView.wantsLayer = true
@@ -307,6 +334,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             guard let self, let id = self.item?.id else { return }
             self.selectionChanged?(id, selecting)
         }
+        selectableTextView.contextMenuProvider = { [weak self] in self?.makeContextMenu() }
         textScrollView.documentView = selectableTextView
         textScrollView.drawsBackground = false
         textScrollView.borderType = .noBorder
@@ -410,6 +438,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         footerTimestampLabel.isBordered = false
         footerTimestampLabel.isHidden = true
         view.addSubview(footerTimestampLabel)
+    }
+
+    private func ensureFooterActionControls() {
+        guard !footerActionControlsInstalled else { return }
+        footerActionControlsInstalled = true
         configureFooterButton(
             footerCopyItemButton,
             systemImage: "doc.on.doc",
@@ -469,6 +502,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
         if footerControlsInstalled {
             footerTimestampLabel.isHidden = true
+        }
+        if footerActionControlsInstalled {
             footerCopyItemButton.isHidden = true
             footerCopyTurnButton.isHidden = true
             footerContextButton.isHidden = true
@@ -477,14 +512,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if copyControlInstalled {
             resetCopyConfirmation(copyButton, imageName: "doc.on.doc", accessibilityDescription: "Copy")
         }
-        if footerControlsInstalled {
+        if footerActionControlsInstalled {
             resetCopyConfirmation(footerCopyItemButton, imageName: "doc.on.doc", accessibilityDescription: "Copy answer")
             resetCopyConfirmation(footerCopyTurnButton, imageName: "doc.on.doc.fill", accessibilityDescription: "Copy turn")
         }
         isHovered = false
         (view as? CodexTranscriptHoverView)?.usesPointingHand = false
-        view.menu = nil
-        if textControlsInstalled { selectableTextView.menu = nil }
     }
 
     func configure(
@@ -536,7 +569,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipStatusLabel.stringValue = ""
             chipDisclosureView.image = nil
         }
-        clearAgentChips()
+        let canReuseAgentChips = preservesIdentity
+            && !item.agentChips.isEmpty
+            && configuredAgentChips.map(\.id) == item.agentChips.map(\.id)
+        if !canReuseAgentChips { clearAgentChips() }
         if approvalControlsInstalled {
             approvalAllowButton.isHidden = true
             approvalDenyButton.isHidden = true
@@ -544,6 +580,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         (view as? CodexTranscriptHoverView)?.usesPointingHand = false
         if footerControlsInstalled {
             footerTimestampLabel.isHidden = true
+        }
+        if footerActionControlsInstalled {
             footerCopyItemButton.isHidden = true
             footerCopyTurnButton.isHidden = true
             footerContextButton.isHidden = true
@@ -704,7 +742,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             }
         }
 
-        configureContextMenu()
         updateFooterChromeVisibility()
         view.needsLayout = true
     }
@@ -1071,6 +1108,16 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         footerTimestampLabel.font = theme.microFont
         footerTimestampLabel.textColor = theme.textTertiary
         footerTimestampLabel.setAccessibilityLabel(item.accessibilityLabel)
+        if footerActionControlsInstalled {
+            configureFooterActions(footer, theme: theme)
+        }
+    }
+
+    private func configureFooterActions(
+        _ footer: CodexTranscriptFooterRender,
+        theme: CodexTranscriptAppKitTheme
+    ) {
+        guard footerActionControlsInstalled else { return }
         footerCopyItemButton.font = theme.microFont
         footerCopyTurnButton.font = theme.microFont
         footerContextButton.font = theme.microFont
@@ -1101,6 +1148,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private func setHovered(_ hovered: Bool) {
         guard isHovered != hovered else { return }
         isHovered = hovered
+        if hovered, let footer = item?.footer, let theme = appKitTheme {
+            ensureFooterActionControls()
+            configureFooterActions(footer, theme: theme)
+        }
         updateFooterChromeVisibility()
         updateChipAppearance()
         view.needsLayout = true
@@ -1113,7 +1164,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func updateFooterChromeVisibility() {
-        guard footerControlsInstalled else { return }
+        guard footerActionControlsInstalled else { return }
         guard let footer = item?.footer else {
             footerCopyItemButton.isHidden = true
             footerCopyTurnButton.isHidden = true
@@ -1136,8 +1187,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         footerTimestampLabel.sizeToFit()
         let labelSize = footerTimestampLabel.frame.size
         let labelY = frame.midY - labelSize.height / 2
-        let visibleButtons = [footerCopyItemButton, footerCopyTurnButton, footerContextButton]
-            .filter { !$0.isHidden }
+        let visibleButtons = footerActionControlsInstalled
+            ? [footerCopyItemButton, footerCopyTurnButton, footerContextButton].filter { !$0.isHidden }
+            : []
         let buttonWidth: CGFloat = 22
         let buttonsWidth = CGFloat(visibleButtons.count) * buttonWidth
             + CGFloat(max(visibleButtons.count - 1, 0)) * 2
@@ -1321,36 +1373,67 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
     private func configureAgentChips(
         _ chips: [CodexTranscriptAgentChipRender],
-        theme: CodexTranscriptAppKitTheme,
+        theme _: CodexTranscriptAppKitTheme,
         swiftUITheme: CodexAgentTheme
     ) {
-        clearAgentChips()
+        let canReuseHosts = agentChipHosts.count == chips.count
+            && configuredAgentChips.map(\.id) == chips.map(\.id)
+        if !canReuseHosts { clearAgentChips() }
         configuredAgentChips = chips
         agentChipContainer.isHidden = false
+
+        if canReuseHosts {
+            for (index, chip) in chips.enumerated() {
+                let host = agentChipHosts[index]
+                host.rootView = agentPillView(chip, index: index, swiftUITheme: swiftUITheme)
+                configureAgentChipAccessibility(host, chip: chip)
+            }
+            return
+        }
+
         for (index, chip) in chips.enumerated() {
-            let isAttachment = chip.threadID == nil && chip.taskSummary != nil
-            let pill = CodexTranscriptAgentPill(
-                chip: chip,
-                onHover: { [weak self] hovered in
-                    guard !isAttachment else {
-                        if hovered { self?.closeAgentPreview() }
-                        return
-                    }
-                    self?.setAgentPreviewHover(hovered, index: index)
-                },
-                onOpen: { [weak self] in
-                    if let path = chip.taskSummary, isAttachment {
-                        CodexTranscriptQuickLookController.shared.present(URL(fileURLWithPath: path))
-                    } else if let threadID = chip.threadID {
-                        self?.performAction?(.openSubagent(threadID: threadID))
-                    }
-                }
-            )
-            let host = NSHostingView(rootView: AnyView(pill.codexAgentTheme(swiftUITheme)))
-            host.setAccessibilityLabel(isAttachment ? chip.label : "\(chip.label), \(Self.agentStatusTitle(chip.status))")
+            let host = NSHostingView(rootView: agentPillView(chip, index: index, swiftUITheme: swiftUITheme))
+            configureAgentChipAccessibility(host, chip: chip)
             agentChipContainer.addSubview(host)
             agentChipHosts.append(host)
+            agentChipHostCreationCount += 1
         }
+    }
+
+    private func agentPillView(
+        _ chip: CodexTranscriptAgentChipRender,
+        index: Int,
+        swiftUITheme: CodexAgentTheme
+    ) -> AnyView {
+        let isAttachment = chip.threadID == nil && chip.taskSummary != nil
+        let pill = CodexTranscriptAgentPill(
+            chip: chip,
+            onHover: { [weak self] hovered in
+                guard !isAttachment else {
+                    if hovered { self?.closeAgentPreview() }
+                    return
+                }
+                self?.setAgentPreviewHover(hovered, index: index)
+            },
+            onOpen: { [weak self] in
+                if let path = chip.taskSummary, isAttachment {
+                    CodexTranscriptQuickLookController.shared.present(URL(fileURLWithPath: path))
+                } else if let threadID = chip.threadID {
+                    self?.performAction?(.openSubagent(threadID: threadID))
+                }
+            }
+        )
+        return AnyView(pill.codexAgentTheme(swiftUITheme))
+    }
+
+    private func configureAgentChipAccessibility(
+        _ host: NSHostingView<AnyView>,
+        chip: CodexTranscriptAgentChipRender
+    ) {
+        let isAttachment = chip.threadID == nil && chip.taskSummary != nil
+        host.setAccessibilityLabel(
+            isAttachment ? chip.label : "\(chip.label), \(Self.agentStatusTitle(chip.status))"
+        )
     }
 
     private func layoutAgentChips(
@@ -1509,8 +1592,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         forkChat?()
     }
 
-    private func configureContextMenu() {
-        guard let item else { return }
+    private func makeContextMenu() -> NSMenu? {
+        guard let item else { return nil }
         let menu = NSMenu()
         if item.copyText != nil {
             let title: String = if item.code != nil { "Copy code" }
@@ -1532,8 +1615,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             menu.addItem(withTitle: "Fork chat", action: #selector(invokeForkChat), keyEquivalent: "")
         }
         for menuItem in menu.items { menuItem.target = self }
-        view.menu = menu
-        if textControlsInstalled { selectableTextView.menu = menu }
+        return menu
     }
 
     private func flashCopyConfirmation(_ button: NSButton) {
@@ -1739,13 +1821,8 @@ private struct CodexTranscriptAgentPill: View {
         let isAttachment = chip.threadID == nil && chip.taskSummary != nil
         HStack(spacing: 5) {
             if imageAttachment {
-                if let path = chip.taskSummary,
-                   let image = CodexTranscriptAttachmentImageCache.image(at: path) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                if let path = chip.taskSummary {
+                    CodexTranscriptAttachmentThumbnail(path: path, label: chip.label)
                 } else {
                     VStack(spacing: 3) {
                         Image(systemName: "photo")
@@ -1815,22 +1892,95 @@ private struct CodexTranscriptAgentPill: View {
     }
 }
 
-@MainActor
-private enum CodexTranscriptAttachmentImageCache {
-    private static let cache: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 24
+struct CodexTranscriptDecodedThumbnail: @unchecked Sendable {
+    let image: CGImage
+    let decodedOnMainThread: Bool
+}
+
+actor CodexTranscriptAttachmentThumbnailLoader {
+    static let shared = CodexTranscriptAttachmentThumbnailLoader()
+
+    private let cache: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.countLimit = 32
         return cache
     }()
+    private var inFlight: [String: Task<CodexTranscriptDecodedThumbnail?, Never>] = [:]
 
-    static func image(at path: String) -> NSImage? {
+    func thumbnail(at path: String) async -> CodexTranscriptDecodedThumbnail? {
         let key = path as NSString
         if let cached = cache.object(forKey: key) {
-            return cached
+            return CodexTranscriptDecodedThumbnail(image: cached, decodedOnMainThread: false)
         }
-        guard let image = NSImage(contentsOfFile: path) else { return nil }
-        cache.setObject(image, forKey: key)
-        return image
+        if let task = inFlight[path] { return await task.value }
+        let task = Task.detached(priority: .utility) {
+            Self.downsample(path: path, maxPixelSize: 128)
+        }
+        inFlight[path] = task
+        let decoded = await task.value
+        inFlight[path] = nil
+        guard let decoded else { return nil }
+        cache.setObject(decoded.image, forKey: key)
+        return decoded
+    }
+
+    nonisolated private static func downsample(
+        path: String,
+        maxPixelSize: Int
+    ) -> CodexTranscriptDecodedThumbnail? {
+        let url = URL(fileURLWithPath: path) as CFURL
+        guard let source = CGImageSourceCreateWithURL(url, [
+            kCGImageSourceShouldCache: false,
+        ] as CFDictionary) else { return nil }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ] as CFDictionary
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        return CodexTranscriptDecodedThumbnail(
+            image: image,
+            decodedOnMainThread: Thread.isMainThread
+        )
+    }
+}
+
+private struct CodexTranscriptAttachmentThumbnail: View {
+    @Environment(\.codexAgentTheme) private var theme
+    let path: String
+    let label: String
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                VStack(spacing: 3) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(theme.colors.textSecondary)
+                    Text(label)
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(5)
+                .background(theme.colors.surface.opacity(0.7))
+            }
+        }
+        .frame(width: 64, height: 64)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .task(id: path) {
+            image = nil
+            guard let thumbnail = await CodexTranscriptAttachmentThumbnailLoader.shared.thumbnail(at: path),
+                  !Task.isCancelled else { return }
+            image = NSImage(cgImage: thumbnail.image, size: .zero)
+        }
     }
 }
 
