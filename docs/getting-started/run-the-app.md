@@ -2,6 +2,8 @@
 
 The reference app demonstrates the SDK and reusable UI. It is not required by library consumers, and some visible routes are previews rather than wired workflows; see [support status](../reference/support-status.md).
 
+![CodexCore workspace with model and reasoning controls](../assets/screenshots/composer-controls.png)
+
 ## Build and launch
 
 ```bash

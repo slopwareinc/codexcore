@@ -9,6 +9,8 @@ RootView()
 
 The reference app demonstrates appearance settings and responsive panel behavior. A host may provide its own navigation and chrome while reusing the transcript and composer.
 
+![CodexCore appearance settings](../assets/screenshots/appearance-settings.png)
+
 ## Host-owned responsibilities
 
 - connection and authentication lifecycle

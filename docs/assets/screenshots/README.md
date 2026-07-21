@@ -2,20 +2,21 @@
 
 Public screenshots must be captured from the current CodexCore source, not from official Codex reference images or historical QA output.
 
-| Asset | Scenario | Source commit | Theme | Window |
+| Asset | Scenario | Source commit | Theme | Exported pixels |
 | --- | --- | --- | --- | --- |
-| `hero-workspace.png` | Populated workspace with a completed coding turn | pending capture | dark | 1440×900 |
+| `hero-workspace.png` | Completed read-only project inspection with a concise rendered answer | PR #142 capture build | dark | 1193×768 |
 | `first-run-auth.png` | ChatGPT and API-key sign-in choices | pending capture | dark | 1200×800 |
 | `search-resume.png` | Search results with a resumable chat | pending capture | dark | 1200×800 |
-| `composer-controls.png` | Model, reasoning, permissions, Plan/Goal, attachment controls | pending capture | dark | 1200×800 |
+| `composer-controls.png` | Model, reasoning, permission, and composer controls | `ae80282` | dark | 1193×768 |
 | `approval-prompt.png` | A command or file approval before execution | pending capture | dark | 1200×800 |
-| `files-preview.png` | File tree and syntax-highlighted preview | pending capture | dark | 1200×800 |
-| `workspace-terminal.png` | Real interactive workspace terminal side panel | pending capture | dark | 1200×800 |
+| `files-preview.png` | File tree with rendered README preview | PR #142 capture build | dark | 1193×768 |
+| `workspace-terminal.png` | Real interactive workspace terminal with Swift version output | PR #142 capture build | dark | 1193×768 |
+| `browser-panel.png` | Manual embedded browser showing Swift documentation | PR #142 capture build | dark | 1193×768 |
 | `capability-inventory.png` | Read-only plugin, skill, and MCP inventory | pending capture | dark | 1200×800 |
-| `sidechat-subagents.png` | Side chat and subagent activity | pending capture | dark | 1200×800 |
-| `appearance-settings.png` | Implemented appearance settings | pending capture | dark | 1200×800 |
+| `subagent-activity.png` | Expanded command rows and completed subagent activity | PR #142 capture build | dark | 1193×768 |
+| `appearance-settings.png` | Implemented theme, typography, and motion settings | `ae80282` | dark | 951×768 |
 
-Window values are layout dimensions in points; record exported pixel dimensions after capture. Do not publish screenshots that imply support for Git review/commit/push/PR, automation scheduling, mobile pairing, plugin mutation, or worktree handoff.
+Pending rows are capture candidates, not promised screenshots. Published captures must be reviewed deliberately for visible account, path, and project context. Never expose secrets, tokens, private source, or unrelated applications, and never imply support for Git review/commit/push/PR, automation scheduling, mobile pairing, plugin mutation, or worktree handoff.
 
 ## Capture checklist
 

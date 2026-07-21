@@ -2,6 +2,8 @@
 
 The reference app is a native Codex host and living integration example. The [support matrix](../reference/support-status.md) distinguishes working flows from preview-only surfaces.
 
+![CodexCore native macOS workspace](../assets/screenshots/hero-workspace.png)
+
 ## Main routes
 
 - **Chat:** project threads, transcript, composer, approvals, plans, and tools.
@@ -29,3 +31,7 @@ Start with the least privilege that can complete the task. Review commands, requ
 ## Transcript
 
 The transcript groups user input, agent work, tool calls, subagents, approvals, plans, diffs, and final answers into canonical turns. Expanded heavy details are materialized on demand.
+
+![A completed task with expanded command activity and a subagent](../assets/screenshots/subagent-activity.png)
+
+Subagents appear inside the parent turn. Select a subagent chip to inspect its focused transcript without losing the parent task.

@@ -4,8 +4,7 @@ Native Swift infrastructure for the Codex app-server: a Swift SDK, a reusable Sw
 
 > **Status:** CodexCore `0.7.0` targets macOS 26+, Swift 6.2, and exactly `codex-cli 0.145.0`. The CLI release is GA; CodexCore still opts into experimental app-server capabilities.
 
-<!-- Replace this architecture preview with docs/assets/screenshots/hero-workspace.png after capture. -->
-![CodexCore architecture](docs/codexcore-overview.svg)
+![CodexCore native macOS workspace](docs/assets/screenshots/hero-workspace.png)
 
 ## Choose your layer
 
