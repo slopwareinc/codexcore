@@ -138,7 +138,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         if mainWindow == nil {
             let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
                 .codexClipboardService(clipboardService)
-                .frame(minWidth: 600, minHeight: 540))
+                .frame(minWidth: CodexProjectSidebar.minimumExpandedShellWidth, minHeight: 540))
             let window = CodexMainWindow(contentViewController: controller)
             window.title = "CodexCore"
             window.setAccessibilityElement(true)
@@ -153,7 +153,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             // sizes where content sits under the titlebar region.
             window.isMovableByWindowBackground = false
             window.backgroundColor = .clear
-            window.minSize = NSSize(width: 600, height: 540)
+            window.minSize = NSSize(width: CodexProjectSidebar.minimumExpandedShellWidth, height: 540)
             window.isReleasedWhenClosed = false
             let restoredSavedFrame = window.setFrameUsingName(Self.mainWindowFrameAutosaveName)
             _ = window.setFrameAutosaveName(Self.mainWindowFrameAutosaveName)

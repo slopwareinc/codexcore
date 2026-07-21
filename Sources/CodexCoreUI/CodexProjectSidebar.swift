@@ -1048,6 +1048,8 @@ public extension CodexProjectSidebar {
     static let defaultExpandedWidth: CGFloat = 288
     static let minExpandedWidth: CGFloat = 220
     static let maxExpandedWidth: CGFloat = 460
+    /// Preserves the 540pt chat workspace beside the narrowest expanded sidebar.
+    static let minimumExpandedShellWidth: CGFloat = minExpandedWidth + 540
 
     static func clampExpandedWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minExpandedWidth), maxExpandedWidth)

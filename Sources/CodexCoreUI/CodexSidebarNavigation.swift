@@ -142,6 +142,21 @@ public enum CodexProjectDropPlacement: Sendable, Equatable {
     case after
 }
 
+public enum CodexSidebarArchiveSelectionGuard {
+    public static func shouldClearSelection(
+        selectedThreadIDAtStart: String?,
+        currentSelectedThreadID: String?,
+        selectionGenerationAtStart: Int,
+        currentSelectionGeneration: Int,
+        archivedThreadIDs: Set<String>
+    ) -> Bool {
+        guard let selectedThreadIDAtStart else { return false }
+        return archivedThreadIDs.contains(selectedThreadIDAtStart)
+            && currentSelectedThreadID == selectedThreadIDAtStart
+            && currentSelectionGeneration == selectionGenerationAtStart
+    }
+}
+
 public struct CodexSidebarNavigationSession: Sendable, Equatable {
     public static let projectChatPreviewLimit = 5
     public static let recentProjectInterval: TimeInterval = 7 * 24 * 60 * 60
@@ -392,7 +407,16 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             )
         }
         let recentCutoff = Date().timeIntervalSince1970 - Self.recentProjectInterval
-        let pinnedGroups = projectGroups.filter { $0.isPinned }
+        let pinnedProjectOrder = Dictionary(
+            uniqueKeysWithValues: pinnedProjectIDs.enumerated().map { ($0.element, $0.offset) }
+        )
+        let pinnedGroups = projectGroups
+            .filter { $0.isPinned }
+            .sorted { lhs, rhs in
+                let left = pinnedProjectOrder[lhs.project.workspacePath] ?? Int.max
+                let right = pinnedProjectOrder[rhs.project.workspacePath] ?? Int.max
+                return left < right
+            }
         let unpinnedGroups = projectGroups.filter { !$0.isPinned }
         let recentGroups = unpinnedGroups.filter { group in
             group.project.updatedAt.map { $0 >= recentCutoff } ?? false

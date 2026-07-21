@@ -64,7 +64,7 @@ struct CodexCoreAppShell: View {
                 value: sidebarOverlaySession.isPresented
             )
         }
-        .frame(minWidth: 600, minHeight: 540)
+        .frame(minWidth: CodexProjectSidebar.minimumExpandedShellWidth, minHeight: 540)
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: sidebarSnapshot.isCollapsed) { _, isCollapsed in
             if !isCollapsed {

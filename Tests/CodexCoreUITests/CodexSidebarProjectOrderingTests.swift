@@ -91,6 +91,28 @@ struct CodexSidebarProjectOrderingTests {
         #expect(snapshot.pinnedProjects[0].rows.map(\.id) == ["beta"])
     }
 
+    @Test func pinnedProjectsPreserveTheirPersistedPinOrder() {
+        let now = Date().timeIntervalSince1970
+        let alpha = CodexProjectSummary(workspacePath: "/tmp/Alpha", updatedAt: now)
+        let beta = CodexProjectSummary(workspacePath: "/tmp/Beta", updatedAt: now)
+        let gamma = CodexProjectSummary(workspacePath: "/tmp/Gamma", updatedAt: now)
+        let session = CodexSidebarNavigationSession(
+            currentWorkspacePath: alpha.workspacePath,
+            projectOrder: [alpha.workspacePath, beta.workspacePath, gamma.workspacePath],
+            pinnedProjectIDs: [gamma.workspacePath, alpha.workspacePath]
+        )
+
+        let snapshot = session.snapshot(
+            projects: [alpha, beta, gamma],
+            chats: [],
+            currentWorkspacePath: alpha.workspacePath,
+            currentThreadID: nil
+        )
+
+        #expect(snapshot.pinnedProjects.map(\.project.workspacePath) == [gamma.workspacePath, alpha.workspacePath])
+        #expect(snapshot.projects.map(\.project.workspacePath) == [beta.workspacePath])
+    }
+
     @Test func projectOrderStorageNormalizesAndPersistsOrder() {
         let store = ProjectOrderPreferenceStore()
         CodexProjectOrderStorage.saveProjectOrder(
@@ -144,6 +166,30 @@ struct CodexSidebarProjectOrderingTests {
 
         #expect(CodexHiddenProjectStorage.loadHiddenProjectIDs(from: store) == ["/tmp/Beta"])
         #expect(CodexProjectAliasStorage.loadProjectAliases(from: store) == ["/tmp/Alpha": "Primary workspace"])
+    }
+
+    @Test func bulkArchiveClearsOnlyTheUnchangedArchivedSelection() {
+        #expect(CodexSidebarArchiveSelectionGuard.shouldClearSelection(
+            selectedThreadIDAtStart: "old",
+            currentSelectedThreadID: "old",
+            selectionGenerationAtStart: 4,
+            currentSelectionGeneration: 4,
+            archivedThreadIDs: ["old"]
+        ))
+        #expect(!CodexSidebarArchiveSelectionGuard.shouldClearSelection(
+            selectedThreadIDAtStart: "old",
+            currentSelectedThreadID: "new",
+            selectionGenerationAtStart: 4,
+            currentSelectionGeneration: 5,
+            archivedThreadIDs: ["old"]
+        ))
+        #expect(!CodexSidebarArchiveSelectionGuard.shouldClearSelection(
+            selectedThreadIDAtStart: "old",
+            currentSelectedThreadID: "old",
+            selectionGenerationAtStart: 4,
+            currentSelectionGeneration: 4,
+            archivedThreadIDs: ["different"]
+        ))
     }
 }
 

@@ -328,6 +328,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         return imageRect.minX - titleRect.maxX
     }
     var workHeaderShimmerIsActiveForTesting: Bool { actionButton.isShimmering }
+    var workHeaderWidthForTesting: CGFloat { actionControlInstalled ? actionButton.frame.width : 0 }
     var textUsedHeightForTesting: CGFloat {
         guard textControlsInstalled,
               let layoutManager = selectableTextView.layoutManager,
@@ -1600,6 +1601,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func updateWorkingHeader(at date: Date) {
         guard actionControlInstalled, let header = item?.workHeader else { return }
         actionButton.title = Self.workHeaderTitle(header, at: date)
+        view.needsLayout = true
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {

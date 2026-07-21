@@ -503,6 +503,74 @@ struct CodexTranscriptAppKitIntegrationTests {
         }
     }
 
+    @Test func liveWorkHeaderRelayoutsAsElapsedLabelGrows() async throws {
+        let startedAt = Int64(Date().timeIntervalSince1970) - 1
+        let turn = CodexTurnV2(
+            id: "turn",
+            liveTail: "Running tests",
+            status: .working(since: startedAt)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
+        cell.configure(
+            item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+        let initialWidth = cell.workHeaderWidthForTesting
+
+        cell.updateWorkingHeader(at: Date(timeIntervalSince1970: TimeInterval(startedAt + 3_661)))
+        cell.view.layoutSubtreeIfNeeded()
+
+        #expect(cell.workHeaderWidthForTesting > initialWidth)
+    }
+
+    @Test func workHeaderStopsShimmeringOnCompletionAndRestartsOnReuse() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+
+        func header(for status: CodexTurnStatusV2) async throws -> CodexTranscriptRenderItem {
+            let snapshot = try await projector.project(
+                presentation: .init(
+                    threadID: "thread",
+                    transcript: .init(turns: [.init(id: "turn", liveTail: "Running tests", status: status)])
+                ),
+                availableWidth: 860,
+                theme: theme
+            )
+            return try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+        }
+
+        func configure(_ item: CodexTranscriptRenderItem) {
+            cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: item.measuredHeight)
+            cell.configure(
+                item: item, appKitTheme: theme, swiftUITheme: .officialDark,
+                contentHorizontalOffset: 0, productToolRenderer: nil,
+                performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+                forkChat: nil, selectionChanged: { _, _ in }
+            )
+            cell.view.layoutSubtreeIfNeeded()
+        }
+
+        configure(try await header(for: .working(since: nil)))
+        #expect(cell.workHeaderShimmerIsActiveForTesting)
+        configure(try await header(for: .done(durationMs: 500)))
+        #expect(!cell.workHeaderShimmerIsActiveForTesting)
+        configure(try await header(for: .working(since: nil)))
+        #expect(cell.workHeaderShimmerIsActiveForTesting)
+    }
+
     @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)

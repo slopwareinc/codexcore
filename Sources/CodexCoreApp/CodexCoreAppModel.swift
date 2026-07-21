@@ -1322,6 +1322,7 @@ final class CodexCoreAppModel {
         }
 
         let selectedID = currentThreadID ?? sidebarNavigationSession.selectedThreadID
+        let archiveGeneration = chatSelectionGeneration
         var archivedIDs: Set<String> = []
         var failures = 0
         for chat in chats {
@@ -1336,7 +1337,14 @@ final class CodexCoreAppModel {
             }
         }
 
-        if let selectedID, archivedIDs.contains(selectedID) {
+        let currentSelectedID = currentThreadID ?? sidebarNavigationSession.selectedThreadID
+        if CodexSidebarArchiveSelectionGuard.shouldClearSelection(
+            selectedThreadIDAtStart: selectedID,
+            currentSelectedThreadID: currentSelectedID,
+            selectionGenerationAtStart: archiveGeneration,
+            currentSelectionGeneration: chatSelectionGeneration,
+            archivedThreadIDs: archivedIDs
+        ) {
             invalidatePendingChatSelection()
             clearThreadState()
             sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
