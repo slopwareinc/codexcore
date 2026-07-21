@@ -241,13 +241,6 @@ public struct CodexProjectSidebar: View {
                 action: onOpenSearch
             )
             SidebarCommandRow(
-                systemImage: CodexAppRoute.automations.systemImage,
-                title: "Scheduled",
-                isSelected: snapshot.selectedRoute == .automations,
-                isCollapsed: snapshot.isCollapsed,
-                action: { onSelectRoute(.automations) }
-            )
-            SidebarCommandRow(
                 systemImage: CodexAppRoute.plugins.systemImage,
                 title: CodexAppRoute.plugins.title,
                 isSelected: snapshot.selectedRoute == .plugins,
@@ -394,13 +387,6 @@ public struct CodexProjectSidebar: View {
                 title: "Open folder",
                 isCollapsed: snapshot.isCollapsed,
                 action: onOpenFolder
-            )
-            SidebarCommandRow(
-                systemImage: CodexAppRoute.codexMobile.systemImage,
-                title: CodexAppRoute.codexMobile.title,
-                isSelected: snapshot.selectedRoute == .codexMobile,
-                isCollapsed: snapshot.isCollapsed,
-                action: { onSelectRoute(.codexMobile) }
             )
             SidebarCommandRow(
                 systemImage: CodexAppRoute.settingsAbout.systemImage,
@@ -568,10 +554,6 @@ private struct ProjectSidebarGroupView: View {
                         } label: {
                             Label("Reveal in Finder", systemImage: "folder")
                         }
-                        Button {} label: {
-                            Label("Create permanent worktree", systemImage: "arrow.turn.up.right")
-                        }
-                        .disabled(true)
                         Button {
                             onRenameProject(group.project)
                         } label: {

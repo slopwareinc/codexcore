@@ -41,11 +41,11 @@ This is the authoritative user-facing capability matrix for CodexCore `0.7.0` wi
 | Plugin, skill, and MCP inventory | Supported (read-only) | Inspect and refresh work; install/uninstall/enable/disable actions are presentation only. |
 | Current-turn diff preview | Conditional | Appears only for a parseable unified diff; shows summary/counts, not repository review. |
 | Branch/review/jump/commit/push/pull request | Unsupported | Controls are disabled or no-op. Use Git tooling outside the app. |
-| Automations | Presentation only | Can draft a supported chat prompt (Daily Brief); no scheduler, persistence, run list, or history. |
-| Mobile remote control | Presentation only | Status/environment can render; allow/pair/revoke provider is unsupported. |
-| Plugin mutation | Presentation only | “Try in Chat” prepares a draft; lifecycle mutation provider is unsupported. |
-| Environment/worktree handoff | Presentation only | Provider is unsupported and permanent worktree creation is disabled. |
-| Git settings | Presentation only | Preferences persist but have no production consumers. |
-| Bottom terminal | Presentation only | Runs a hard-coded demo command; use the workspace terminal instead. |
+| Automations | Unsupported | Not shown in the reference app because scheduling, persistence, runs, and history are not implemented. |
+| Mobile remote control | Unsupported | Not shown in the reference app because allow/pair/revoke is not implemented. |
+| Plugin mutation | Unsupported | Install/uninstall/enable/disable controls are omitted; inventory, refresh, and “Try in Chat” remain. |
+| Environment/worktree handoff | Unsupported | Creation and handoff controls are omitted. Use external Git tooling. |
+| Git settings and mutations | Unsupported | Settings and commit/push/PR controls are omitted. |
+| Demo bottom terminal | Unsupported | Removed from the reference app; use the real workspace terminal. |
 
 When source and this page disagree, treat production source and tests as authoritative and update this matrix in the same change.

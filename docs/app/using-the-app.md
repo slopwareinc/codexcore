@@ -7,9 +7,7 @@ The reference app is a native Codex host and living integration example. The [su
 - **Chat:** project threads, transcript, composer, approvals, plans, and tools.
 - **Search:** find and resume existing chats.
 - **Plugins:** inspect plugins, skills, and MCP-backed capabilities.
-- **Automations:** prepare supported automation prompts through chat; there is no scheduler or run history.
-- **Codex mobile:** display remote-control status; pairing actions are not wired.
-- **Settings:** appearance, history, sidebar, stored Git preferences, and application information.
+- **Settings:** appearance, history, sidebar, integrations, and application information.
 
 ## Projects and chats
 

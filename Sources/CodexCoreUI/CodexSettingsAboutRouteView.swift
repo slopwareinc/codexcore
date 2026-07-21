@@ -338,13 +338,13 @@ public struct CodexSettingsAboutRouteView: View {
     }
 
     private var filteredRoutes: [CodexSettingsRoute] {
-        guard !normalizedSearchText.isEmpty else { return CodexSettingsRoute.allCases }
+        guard !normalizedSearchText.isEmpty else { return supportedRoutes }
         return searchMatches
     }
 
     private var searchMatches: [CodexSettingsRoute] {
-        guard !normalizedSearchText.isEmpty else { return CodexSettingsRoute.allCases }
-        return CodexSettingsRoute.allCases.filter { route in
+        guard !normalizedSearchText.isEmpty else { return supportedRoutes }
+        return supportedRoutes.filter { route in
             ([route.title, route.groupTitle] + route.searchTerms)
                 .contains { $0.localizedCaseInsensitiveContains(normalizedSearchText) }
         }
@@ -352,6 +352,10 @@ public struct CodexSettingsAboutRouteView: View {
 
     private var normalizedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var supportedRoutes: [CodexSettingsRoute] {
+        CodexSettingsRoute.allCases.filter { $0 != .git }
     }
 }
 
@@ -388,16 +392,6 @@ public struct CodexSettingsGeneralPage: View {
                 CodexSettingsApprovalRow(selection: $approvalSelection, options: approvalOptions)
                 CodexSettingsModelRow(selection: $modelSelection, options: modelOptions)
                 CodexSettingsReasoningRow(selection: $reasoningSelection)
-                CodexSettingsToggleRow(
-                    title: "Bottom panel",
-                    detail: "Show the bottom panel control in the app workspace",
-                    isOn: $isBottomPanelVisible
-                )
-                CodexSettingsDisabledRow(
-                    title: "Default to projectless chat",
-                    detail: "Start new chats without a project",
-                    reason: "Not available in CodexCore yet"
-                )
             }
             .settingsPanel(theme: theme)
         }
@@ -425,11 +419,6 @@ public struct CodexSettingsProfilePage: View {
                     detail: "Current app-server connection",
                     value: serverName ?? "Unavailable",
                     systemImage: "server.rack"
-                )
-                CodexSettingsDisabledRow(
-                    title: "Profile analytics",
-                    detail: "Usage stats, token charts, and public profile controls",
-                    reason: "Not available in CodexCore yet"
                 )
             }
             .settingsPanel(theme: theme)
@@ -474,11 +463,6 @@ public struct CodexSettingsConfigurationPage: View {
                     detail: "Bundled dependency runtime version",
                     value: metadata.versionLine,
                     systemImage: "archivebox"
-                )
-                CodexSettingsDisabledRow(
-                    title: "Open config.toml",
-                    detail: "Edit user configuration directly",
-                    reason: "Not wired in CodexCore yet"
                 )
             }
             .settingsPanel(theme: theme)

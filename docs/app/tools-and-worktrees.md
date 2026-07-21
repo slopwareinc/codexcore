@@ -19,10 +19,4 @@ When the current turn emits a parseable unified diff, the workspace can expose a
 
 Branch selection, review options, commit, push, and pull-request controls are intentionally unwired in the current reference app. Treat the working tree and normal Git tooling as authoritative.
 
-## Environment handoff
-
-Environment/worktree handoff controls are present but use an unsupported provider in the reference app; permanent worktree creation is disabled. Use external Git tooling for worktrees.
-
-## Bottom terminal
-
-The workspace side panel provides the real interactive Ghostty terminal. The separate bottom terminal currently runs only a hard-coded demo command and should not be treated as a workspace shell.
+The reference app omits worktree handoff, Git mutation controls, and the old demo bottom terminal. Use external Git tooling for worktrees and the workspace side panel for the real interactive Ghostty terminal.

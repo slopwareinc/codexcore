@@ -151,10 +151,7 @@ public struct CodexCommandPaletteModel: Equatable, Sendable {
             command("new-chat", "New chat", "Start a new chat in the current project", "Suggested", "square.and.pencil", "⌘N", .newChat),
             command("chat-new", "New chat", "Clear the current thread and focus the composer", "Chat", "bubble.left.and.text.bubble.right", "⌘N", .newChat),
             command("nav-plugins", "Plugins", "Open plugin and integration controls", "Navigation", "puzzlepiece.extension", nil, .openPlugins),
-            command("nav-automations", "Automations", "Create via chat or use captured automation prompts", "Navigation", "clock.arrow.circlepath", nil, .openAutomations),
-            command("nav-mobile", "Codex mobile", "Open mobile permission gate", "Navigation", "iphone", nil, .openMobile),
             command("panel-side-chat", "Open side chat", "Use the side conversation panel for focused follow-up", "Panels", "sidebar.right", nil, .openSideChat),
-            command("panel-review", "Open Review", "Show the bounded Review panel when changes are available", "Panels", "checklist", nil, .openReviewPanel),
             command("skills-refresh", "Refresh skills", "Reload slash commands and skill entries", "Skills", "arrow.clockwise", nil, .refreshSkills),
             command("configure-model", "Configure model", "Use composer model and reasoning controls", "Configure", "slider.horizontal.3", nil, .configureModel),
             command("app-settings", "Settings", "Open About and app settings", "App", "gearshape", "⌘,", .openSettings)

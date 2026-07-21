@@ -268,25 +268,15 @@ struct CodexCoreAppShell: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.theme)
-        case .automations:
-            CodexAutomationRouteView(onAction: model.performAutomationRouteAction)
-                .codexAgentTheme(model.theme)
-        case .codexMobile:
-            CodexMobileRouteView(
-                state: model.mobileRouteSession.state,
-                onRefreshStatus: { Task { await model.refreshMobileRemoteControlStatus() } },
-                onGetStarted: model.openMobilePermissionGate,
-                onCancelPermissionGate: model.cancelMobilePermissionGate,
-                onAllow: model.allowMobileRemoteControlBoundary
-            )
-                .codexAgentTheme(model.theme)
+        case .automations, .codexMobile:
+            chatWorkspace(proxy: proxy)
         case .settingsAbout:
             CodexSettingsAboutRouteView(
                 metadata: CodexAboutMetadata(
                     bundle: .main,
                     serverName: model.serverName,
-                    fallbackAppName: "Codex",
-                    fallbackCopyright: "© OpenAI"
+                    fallbackAppName: "CodexCore",
+                    fallbackCopyright: "© Slopware"
                 ),
                 accountSummary: model.accountMenuSummary,
                 appearanceSettings: $model.appearanceSettings,
@@ -297,7 +287,7 @@ struct CodexCoreAppShell: View {
                 modelSelection: $model.modelSelection,
                 modelOptions: model.modelOptions,
                 reasoningSelection: $model.reasoningSelection,
-                isBottomPanelVisible: $model.isBottomTerminalVisible,
+                isBottomPanelVisible: .constant(false),
                 gitSettings: $model.gitSettings,
                 newThreadHistoryMode: $model.newThreadHistoryMode,
                 mcpServers: model.mcpServers,
@@ -324,7 +314,7 @@ struct CodexCoreAppShell: View {
                 mountedPanels: model.mountedWorkspacePanels,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
-                gitReviewSession: model.gitReviewSession,
+                gitReviewSession: nil,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 leadingTitlebarInset: model.sidebarSnapshot.isCollapsed
@@ -368,7 +358,6 @@ struct CodexCoreAppShell: View {
                 onFilesDropped: { [threadID = model.currentThreadID] urls in
                     model.addReferencedFileURLs(urls, to: threadID)
                 },
-                onEnvironmentHandoffCompletion: { model.handleWorktreeHandoffCompletion($0) },
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
                 onRefreshMCPServers: { Task { await model.refreshMCPServers() } },
@@ -384,15 +373,7 @@ struct CodexCoreAppShell: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if model.isBottomTerminalVisible {
-                CodexBottomTerminalPanel(
-                    model: model,
-                    maxHeight: max(180, proxy.size.height - 180)
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.isBottomTerminalVisible)
     }
 
     private func chooseWorkspaceFolder() {
