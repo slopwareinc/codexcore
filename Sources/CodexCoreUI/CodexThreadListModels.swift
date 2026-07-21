@@ -155,16 +155,24 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
     public var workspacePath: String
     public var chatCount: Int
     public var updatedAt: TimeInterval?
+    public var customDisplayName: String?
 
     public var id: String { workspacePath }
 
-    public init(workspacePath: String, chatCount: Int = 0, updatedAt: TimeInterval? = nil) {
+    public init(
+        workspacePath: String,
+        chatCount: Int = 0,
+        updatedAt: TimeInterval? = nil,
+        customDisplayName: String? = nil
+    ) {
         self.workspacePath = Self.normalizedPath(workspacePath)
         self.chatCount = chatCount
         self.updatedAt = updatedAt
+        self.customDisplayName = customDisplayName?.nilIfBlank
     }
 
     public var displayName: String {
+        if let customDisplayName { return customDisplayName }
         let last = URL(fileURLWithPath: workspacePath).lastPathComponent.nilIfBlank
         return last ?? (workspacePath == "/" ? "/" : workspacePath)
     }
@@ -205,18 +213,9 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
             CodexProjectSummary(workspacePath: path, chatCount: bucket.chatCount, updatedAt: bucket.updatedAt)
         }
         .sorted { lhs, rhs in
-            if lhs.workspacePath == current { return true }
-            if rhs.workspacePath == current { return false }
-            switch (lhs.updatedAt, rhs.updatedAt) {
-            case let (left?, right?) where left != right:
-                return left > right
-            case (_?, nil):
-                return true
-            case (nil, _?):
-                return false
-            default:
-                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }
+            let nameComparison = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+            if nameComparison != .orderedSame { return nameComparison == .orderedAscending }
+            return lhs.workspacePath.localizedCaseInsensitiveCompare(rhs.workspacePath) == .orderedAscending
         }
     }
 

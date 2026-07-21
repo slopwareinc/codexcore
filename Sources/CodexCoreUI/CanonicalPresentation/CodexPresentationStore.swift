@@ -199,12 +199,10 @@ public final class CodexPresentationStore {
 
     public func select(threadID: ThreadID?) {
         guard selectedThreadID != threadID else {
-            print("[DEBUG-TAB-SWITCH] event=store-select-noop target=\(threadID?.rawValue ?? "nil") hydrated=\(isSelectionHydrated) turns=\(activePresentation?.transcript.turns.count ?? -1)")
             if let threadID { touch(threadID) }
             return
         }
 
-        let previousThreadID = selectedThreadID
         selectedThreadID = threadID
         latestSnapshot = nil
         latestRequestBatch = .init(revision: .zero, requests: [])
@@ -238,7 +236,6 @@ public final class CodexPresentationStore {
             )
             isSelectionHydrated = true
             diagnostics.presentationCacheHitCount &+= 1
-            print("[DEBUG-TAB-SWITCH] event=store-select previous=\(previousThreadID?.rawValue ?? "nil") target=\(threadID.rawValue) cache=hit hydrated=true turns=\(cached.canonical.transcript.turns.count)")
         } else {
             activePresentation = Self.presentation(
                 threadID: threadID,
@@ -247,7 +244,6 @@ public final class CodexPresentationStore {
                 pendingApprovals: []
             )
             diagnostics.presentationCacheMissCount &+= 1
-            print("[DEBUG-TAB-SWITCH] event=store-select previous=\(previousThreadID?.rawValue ?? "nil") target=\(threadID.rawValue) cache=miss hydrated=false turns=0")
         }
         presentationRevision &+= 1
         restartObservation()
@@ -300,7 +296,10 @@ public final class CodexPresentationStore {
         local.rawScrollOffset = rawOffset
         local.isPinnedToBottom = isPinnedToBottom
         localStateByThreadID[threadID] = local
-        if selectedThreadID == threadID { refreshActiveLocalState() }
+        // Scrolling is owned live by the AppKit transcript coordinator and can
+        // update every frame. Persist it for restoration without republishing
+        // the observable presentation and feeding the scroll event back through
+        // SwiftUI's NSViewRepresentable update/layout path.
         touch(threadID)
     }
 
@@ -451,13 +450,11 @@ private extension CodexPresentationStore {
         let containsSelectedThread = snapshot.threads[threadID] != nil
             || snapshot.turns.keys.contains(where: { $0.threadID == threadID })
         guard containsSelectedThread else {
-            print("[DEBUG-TAB-SWITCH] event=store-seed-ignored target=\(threadID.rawValue) revision=\(sessionSnapshot.stateRevision.rawValue) reason=thread-absent cached=\(presentationCacheByThreadID[threadID] != nil)")
             clearPendingProjection()
             return
         }
         guard Self.hasDisplayableHistory(snapshot, threadID: threadID) else {
             diagnostics.deferredIncompleteHistoryCount &+= 1
-            print("[DEBUG-TAB-SWITCH] event=store-seed-deferred target=\(threadID.rawValue) revision=\(sessionSnapshot.stateRevision.rawValue) reason=history-incomplete cached=\(presentationCacheByThreadID[threadID] != nil)")
             clearPendingProjection()
             return
         }
@@ -634,7 +631,6 @@ private extension CodexPresentationStore {
             approvals: approvals
         )
         isSelectionHydrated = true
-        print("[DEBUG-TAB-SWITCH] event=store-publish target=\(threadID.rawValue) revision=\(result.presentation.sourceRevision.rawValue) turns=\(result.presentation.transcript.turns.count) hydrated=true")
         diagnostics.projectionPublishCount &+= 1
         presentationRevision &+= 1
     }

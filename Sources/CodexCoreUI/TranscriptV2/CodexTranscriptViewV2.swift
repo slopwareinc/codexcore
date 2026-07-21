@@ -92,32 +92,35 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     }
 
     public var body: some View {
-        Group {
-            if effectivePresentation.transcript.turns.isEmpty {
+        let presentation = effectivePresentation
+        let isEmpty = presentation.transcript.turns.isEmpty
+
+        return ZStack {
+            CodexTranscriptListHost(
+                presentation: presentation,
+                renderUpdate: presentationStore?.activeRenderUpdate,
+                presentationStore: presentationStore,
+                bottomContentInset: bottomContentInset,
+                contentHorizontalOffset: contentHorizontalOffset,
+                productToolRenderer: productToolRenderer,
+                onOpenSubagent: onOpenSubagent,
+                onEditUserMessage: onEditUserMessage,
+                onForkChat: onForkChat,
+                onResolveApproval: onResolveApproval,
+                retryRevision: projectionRetryRevision,
+                onProjectionError: { projectionError = $0 }
+            )
+            .opacity(isEmpty ? 0 : 1)
+            .allowsHitTesting(!isEmpty)
+            .accessibilityHidden(isEmpty)
+
+            if isEmpty {
                 emptyState
                     .padding(.horizontal, 28)
                     .padding(.top, 58)
                     .padding(.bottom, 150)
                     .frame(maxWidth: .infinity, minHeight: 420, alignment: .center)
                     .offset(x: contentHorizontalOffset)
-            } else {
-                CodexTranscriptListHost(
-                    presentation: effectivePresentation,
-                    renderUpdate: presentationStore?.activeRenderUpdate,
-                    presentationStore: presentationStore,
-                    bottomContentInset: bottomContentInset,
-                    contentHorizontalOffset: contentHorizontalOffset,
-                    productToolRenderer: productToolRenderer,
-                    onOpenSubagent: onOpenSubagent,
-                    onEditUserMessage: onEditUserMessage,
-                    onForkChat: onForkChat,
-                    onResolveApproval: onResolveApproval,
-                    retryRevision: projectionRetryRevision,
-                    onProjectionError: { projectionError = $0 }
-                )
-                .onAppear {
-                    print("[DEBUG-TAB-SWITCH] event=view-branch branch=transcript thread=\(effectivePresentation.threadID) turns=\(effectivePresentation.transcript.turns.count) hydrated=\(presentationStore?.isSelectionHydrated ?? true)")
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

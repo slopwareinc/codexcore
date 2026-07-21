@@ -7,6 +7,116 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func unconfiguredCollectionItemDoesNotBuildEverySpecializedControlTree() {
+        let cell = CodexTranscriptCollectionItem()
+
+        _ = cell.view
+        cell.view.updateTrackingAreas()
+        cell.view.updateTrackingAreas()
+
+        #expect(cell.view.subviews.count == 1)
+        #expect(cell.hoverTrackingAreaCountForTesting == 1)
+    }
+
+    @Test func emptyAndPopulatedTranscriptReuseTheSameAppKitHost() throws {
+        let model = TranscriptHostIdentityModel()
+        let hosting = NSHostingView(rootView: TranscriptHostIdentityHarness(model: model))
+        hosting.frame = NSRect(x: 0, y: 0, width: 860, height: 700)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        let emptyHost = try #require(firstDescendant(of: CodexTranscriptCollectionContainerView.self, in: hosting))
+        model.transcript = .init(turns: [.init(
+            id: "turn",
+            finalAnswer: .init(id: "answer", text: "Hello", isStreaming: false),
+            status: .done(durationMs: 1)
+        )])
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        let populatedHost = try #require(firstDescendant(of: CodexTranscriptCollectionContainerView.self, in: hosting))
+        #expect(emptyHost === populatedHost)
+    }
+
+    @Test func transcriptHostUsesCompleteViewportProposalWithoutIntrinsicMeasurement() {
+        #expect(
+            CodexTranscriptListHost.resolvedViewportSize(
+                for: ProposedViewSize(width: 860, height: 700)
+            ) == CGSize(width: 860, height: 700)
+        )
+        #expect(
+            CodexTranscriptListHost.resolvedViewportSize(
+                for: ProposedViewSize(width: 860, height: nil)
+            ) == nil
+        )
+        #expect(
+            CodexTranscriptListHost.resolvedViewportSize(
+                for: ProposedViewSize(width: nil, height: 700)
+            ) == nil
+        )
+        #expect(CodexTranscriptListHost.resolvedViewportSize(for: .unspecified) == nil)
+    }
+
+    @Test func transcriptCellCentersAgainstLiveViewportBeforeDeferredReprojection() async throws {
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "resize-thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    finalAnswer: .init(id: "answer", text: "Resize me", isStreaming: false),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            availableWidth: 600,
+            theme: theme
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.textRole == .finalAnswer })
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1_600, height: 500))
+        scrollView.hasVerticalScroller = false
+        let documentView = NSView(frame: scrollView.contentView.bounds)
+        scrollView.documentView = documentView
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: scrollView.contentSize.width - CodexTranscriptColumnMetrics.flowLayoutHorizontalAllowance,
+            height: item.measuredHeight
+        )
+        documentView.addSubview(cell.view)
+        cell.configure(
+            item: item,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+
+        let liveMetrics = CodexTranscriptColumnMetrics(viewportWidth: scrollView.contentSize.width)
+        let liveOuterWidth = liveMetrics.outerWidth(theme)
+        #expect(
+            abs(
+                cell.contentFrameForTesting.minX
+                    - (scrollView.contentSize.width - liveOuterWidth) / 2
+            ) < 1
+        )
+        #expect(
+            abs(
+                cell.contentFrameForTesting.width
+                    - min(liveOuterWidth, theme.cardMaxWidth)
+            ) < 1
+        )
+    }
+
     @Test func pendingApprovalRendersInlineAndRoutesBothDecisions() async throws {
         let requestKey = CodexServerRequestKey(
             connectionEpoch: 2,
@@ -249,11 +359,42 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         cell.view.layoutSubtreeIfNeeded()
         #expect(cell.agentChipCountForTesting == 5)
+        #expect(cell.agentChipHostCreationCountForTesting == 5)
         #expect(cell.agentChipTitlesForTesting[1] == "Ramanujan · working")
         #expect(cell.agentPillsUseGlassForTesting)
         let preview = try #require(cell.agentPreviewForTesting(at: 1))
         #expect(preview.taskSummary == "Inspect transcript rendering")
         #expect(preview.latestUpdate == "Updated the AppKit cell")
+
+        cell.configure(
+            item: cluster, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        #expect(cell.agentChipHostCreationCountForTesting == 5)
+    }
+
+    @Test func attachmentThumbnailsDownsampleOffMainActor() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-thumbnail-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = NSImage(size: NSSize(width: 1_024, height: 768))
+        source.lockFocus()
+        NSColor.systemIndigo.setFill()
+        NSRect(x: 0, y: 0, width: 1_024, height: 768).fill()
+        source.unlockFocus()
+        let tiff = try #require(source.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: url)
+
+        let thumbnail = try #require(
+            await CodexTranscriptAttachmentThumbnailLoader().thumbnail(at: url.path)
+        )
+
+        #expect(!thumbnail.decodedOnMainThread)
+        #expect(max(thumbnail.image.width, thumbnail.image.height) <= 128)
     }
 
     @Test func expandedDiffUsesOneGlassPanelAndRoutesTabSelection() async throws {
@@ -334,6 +475,100 @@ struct CodexTranscriptAppKitIntegrationTests {
         let gap = try #require(cell.workHeaderTitleAndDisclosureGapForTesting)
         #expect(gap >= 0)
         #expect(gap <= 8)
+    }
+
+    @Test func liveWorkHeaderShimmersForThinkingAndElapsedWorkingLabels() async throws {
+        for narrative: [CodexNarrativeEntry] in [
+            [],
+            [.workGroup(.init(id: "commands", header: "Ran a command", rows: []))],
+        ] {
+            let turn = CodexTurnV2(id: "turn", narrative: narrative, status: .working(since: nil))
+            let snapshot = try await CodexTranscriptRenderProjector().project(
+                presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+                availableWidth: 860,
+                theme: .init(.officialDark)
+            )
+            let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+            let cell = CodexTranscriptCollectionItem()
+            _ = cell.view
+            cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
+            cell.configure(
+                item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+                contentHorizontalOffset: 0, productToolRenderer: nil,
+                performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+                forkChat: nil, selectionChanged: { _, _ in }
+            )
+            cell.view.layoutSubtreeIfNeeded()
+            #expect(cell.workHeaderShimmerIsActiveForTesting)
+        }
+    }
+
+    @Test func liveWorkHeaderRelayoutsAsElapsedLabelGrows() async throws {
+        let startedAt = Int64(Date().timeIntervalSince1970) - 1
+        let turn = CodexTurnV2(
+            id: "turn",
+            liveTail: "Running tests",
+            status: .working(since: startedAt)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
+        cell.configure(
+            item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0, productToolRenderer: nil,
+            performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+            forkChat: nil, selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+        let initialWidth = cell.workHeaderWidthForTesting
+
+        cell.updateWorkingHeader(at: Date(timeIntervalSince1970: TimeInterval(startedAt + 3_661)))
+        cell.view.layoutSubtreeIfNeeded()
+
+        #expect(cell.workHeaderWidthForTesting > initialWidth)
+    }
+
+    @Test func workHeaderStopsShimmeringOnCompletionAndRestartsOnReuse() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+
+        func header(for status: CodexTurnStatusV2) async throws -> CodexTranscriptRenderItem {
+            let snapshot = try await projector.project(
+                presentation: .init(
+                    threadID: "thread",
+                    transcript: .init(turns: [.init(id: "turn", liveTail: "Running tests", status: status)])
+                ),
+                availableWidth: 860,
+                theme: theme
+            )
+            return try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+        }
+
+        func configure(_ item: CodexTranscriptRenderItem) {
+            cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: item.measuredHeight)
+            cell.configure(
+                item: item, appKitTheme: theme, swiftUITheme: .officialDark,
+                contentHorizontalOffset: 0, productToolRenderer: nil,
+                performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+                forkChat: nil, selectionChanged: { _, _ in }
+            )
+            cell.view.layoutSubtreeIfNeeded()
+        }
+
+        configure(try await header(for: .working(since: nil)))
+        #expect(cell.workHeaderShimmerIsActiveForTesting)
+        configure(try await header(for: .done(durationMs: 500)))
+        #expect(!cell.workHeaderShimmerIsActiveForTesting)
+        configure(try await header(for: .working(since: nil)))
+        #expect(cell.workHeaderShimmerIsActiveForTesting)
     }
 
     @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {
@@ -510,6 +745,44 @@ struct CodexTranscriptAppKitIntegrationTests {
         container.collectionView.layoutSubtreeIfNeeded()
 
         #expect(coordinator.shortTranscriptTopInsetForTesting > 200)
+        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 1)
+        coordinator.detach()
+    }
+
+    @Test func repeatedCoordinatorUpdateDoesNotForceLayoutWhenGeometryIsUnchanged() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 700)
+        )
+        let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = container
+        coordinator.attach(to: container)
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "answer", text: "Answer", isStreaming: false),
+                status: .done(durationMs: 1)
+            )])
+        )
+
+        for _ in 0..<2 {
+            coordinator.update(
+                presentation: presentation,
+                presentationStore: nil,
+                bottomContentInset: 170,
+                contentHorizontalOffset: 0,
+                swiftUITheme: .officialDark,
+                clipboardService: CodexNoopClipboardService(),
+                productToolRenderer: nil,
+                onOpenSubagent: { _ in },
+                onEditUserMessage: { _ in },
+                onForkChat: nil
+            )
+        }
+
+        #expect(coordinator.diagnostics.eagerLayoutPassCount == 1)
+        #expect(container.collectionView.layoutSubtreeSettlementCount == 0)
         coordinator.detach()
     }
 
@@ -539,6 +812,7 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(coordinator.renderedItemIDsForTesting.count == 1_085)
         #expect(coordinator.diagnostics.snapshotApplyCount == 1)
+        #expect(coordinator.diagnostics.threadSwitchDataSourceResetCount == 1)
         #expect(coordinator.diagnostics.broadReloadCount == 0)
         #expect(coordinator.diagnostics.insertedItemCount == coordinator.renderedItemIDsForTesting.count)
         #expect(container.scrollView.contentInsets.bottom == 190)
@@ -565,6 +839,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(coordinator.diagnostics.targetedReconfigurePassCount == 1)
         #expect(coordinator.diagnostics.reconfiguredItemCount == 1)
         #expect(coordinator.diagnostics.broadReloadCount == 0)
+        #expect(container.collectionView.layoutSubtreeSettlementCount == 1)
+        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 0)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
         let applyLabel = String(format: "%.3f", coordinator.diagnostics.lastSnapshotApplyDurationMilliseconds)
         let maximumApplyLabel = String(format: "%.3f", coordinator.diagnostics.maximumSnapshotApplyDurationMilliseconds)
@@ -745,7 +1021,9 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
 
         #expect(!cell.footerCopyTurnIsVisibleForTesting)
+        #expect(!cell.footerActionControlsInstalledForTesting)
         cell.setHoveredForTesting(true)
+        #expect(cell.footerActionControlsInstalledForTesting)
         #expect(cell.footerCopyTurnIsVisibleForTesting)
         #expect(cell.footerCopyItemTitleForTesting.isEmpty)
         #expect(cell.footerCopyItemToolTipForTesting == "Copy answer")
@@ -1025,6 +1303,8 @@ struct CodexTranscriptAppKitIntegrationTests {
             try await Task.sleep(for: .milliseconds(20))
             #expect(abs(container.scrollView.contentView.bounds.origin.y - presentation.rawScrollOffset) < 1)
         }
+        #expect(coordinator.diagnostics.threadSwitchDataSourceResetCount == 3)
+        #expect(container.collectionView.layoutSubtreeSettlementCount == 3)
         coordinator.detach()
     }
 
@@ -1087,6 +1367,33 @@ struct CodexTranscriptAppKitIntegrationTests {
             presentedAtByTurnID: [completedTurn.id: date, turn.id: date]
         )
     }
+}
+
+@MainActor
+private final class TranscriptHostIdentityModel: ObservableObject {
+    @Published var transcript = CodexTranscriptV2()
+}
+
+private struct TranscriptHostIdentityHarness: View {
+    @ObservedObject var model: TranscriptHostIdentityModel
+
+    var body: some View {
+        CodexTranscriptViewV2(transcript: model.transcript) {
+            Text("Empty")
+        }
+    }
+}
+
+@MainActor
+private func firstDescendant<ViewType: NSView>(
+    of type: ViewType.Type,
+    in root: NSView
+) -> ViewType? {
+    if let match = root as? ViewType { return match }
+    for child in root.subviews {
+        if let match = firstDescendant(of: type, in: child) { return match }
+    }
+    return nil
 }
 
 private final class RecordingClipboard: CodexClipboardService, @unchecked Sendable {

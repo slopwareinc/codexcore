@@ -8,47 +8,72 @@ struct CodexCoreAppShell: View {
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var renameDraft = ""
+    @State private var projectRenameTarget: CodexProjectSummary?
+    @State private var projectRenameDraft = ""
+    @State private var sidebarOverlaySession = CodexSidebarOverlaySession()
     @AppStorage("codex.sidebar.expandedWidth")
     private var sidebarExpandedWidth: Double = Double(CodexProjectSidebar.defaultExpandedWidth)
 
     var body: some View {
         let sidebarSnapshot = model.sidebarSnapshot
 
-        HStack(spacing: 0) {
-            CodexProjectSidebar(
-                serverName: model.serverName,
-                accountSummary: model.accountMenuSummary,
-                isThreadReady: model.isThreadReady,
-                snapshot: sidebarSnapshot,
-                expandedWidth: CGFloat(sidebarExpandedWidth),
-                onResizeExpandedWidth: { sidebarExpandedWidth = Double($0) },
-                onNewChat: { Task { await model.startNewChat() } },
-                onOpenSearch: { model.selectAppRoute(.search) },
-                onSelectRoute: { model.selectAppRoute($0) },
-                onToggleCollapsed: {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-                        model.toggleSidebarCollapsed()
-                    }
-                },
-                onToggleProject: { model.toggleSidebarProject($0) },
-                onStartProjectChat: { path in Task { await model.startNewChat(inProject: path) } },
-                onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
-                onOpenFolder: { chooseWorkspaceFolder() },
-                onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
-                onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
-                onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
-            )
-            .layoutPriority(0)
-            .transition(.move(edge: .leading).combined(with: .opacity))
+        GeometryReader { shellProxy in
+            let sidebarWidth = resolvedSidebarWidth(availableWidth: shellProxy.size.width)
 
-            GeometryReader { proxy in
-                routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
+            ZStack(alignment: .topLeading) {
+                HStack(alignment: .top, spacing: 0) {
+                    if !sidebarSnapshot.isCollapsed {
+                        projectSidebar(
+                            snapshot: sidebarSnapshot,
+                            width: sidebarWidth
+                        )
+                        .layoutPriority(0)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+
+                    GeometryReader { proxy in
+                        routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
+                    }
+                    .frame(minWidth: 420)
+                    .layoutPriority(1)
+                }
+
+                if sidebarSnapshot.isCollapsed {
+                    sidebarEdgeRevealRegion
+
+                    if sidebarOverlaySession.isPresented {
+                        projectSidebar(
+                            snapshot: expandedSnapshot(from: sidebarSnapshot),
+                            width: sidebarWidth
+                        )
+                        .shadow(color: .black.opacity(0.34), radius: 24, x: 8, y: 0)
+                        .onHover { isInside in
+                            if isInside {
+                                sidebarOverlaySession.pointerEnteredRevealRegion()
+                            } else {
+                                sidebarOverlaySession.pointerExitedRevealRegion()
+                            }
+                        }
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .zIndex(2)
+                    }
+                }
             }
-            .frame(minWidth: sidebarSnapshot.isCollapsed ? 420 : 620)
-            .layoutPriority(1)
+            .animation(
+                .interactiveSpring(response: 0.22, dampingFraction: 0.94, blendDuration: 0.06),
+                value: sidebarOverlaySession.isPresented
+            )
         }
-        .frame(minWidth: sidebarSnapshot.isCollapsed ? 600 : 940, minHeight: 540)
+        .frame(minWidth: CodexProjectSidebar.minimumExpandedShellWidth, minHeight: 540)
         .ignoresSafeArea(.container, edges: .top)
+        .onChange(of: sidebarSnapshot.isCollapsed) { _, isCollapsed in
+            if !isCollapsed {
+                sidebarOverlaySession.dismissImmediately()
+            }
+        }
+        .onExitCommand {
+            sidebarOverlaySession.dismissImmediately()
+        }
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
                 VStack(alignment: .trailing, spacing: 10) {
@@ -105,11 +130,26 @@ struct CodexCoreAppShell: View {
         }
         .sheet(isPresented: $isRenameSheetPresented) {
             RenameChatSheet(
+                title: "Rename chat",
+                placeholder: "Chat name",
                 name: $renameDraft,
                 onCancel: { isRenameSheetPresented = false },
                 onSave: {
                     isRenameSheetPresented = false
                     Task { await model.renameCurrentChat(to: renameDraft) }
+                }
+            )
+            .codexAgentTheme(model.theme)
+        }
+        .sheet(item: $projectRenameTarget) { project in
+            RenameChatSheet(
+                title: "Rename project",
+                placeholder: "Project name",
+                name: $projectRenameDraft,
+                onCancel: { projectRenameTarget = nil },
+                onSave: {
+                    model.renameSidebarProject(project.workspacePath, displayName: projectRenameDraft)
+                    projectRenameTarget = nil
                 }
             )
             .codexAgentTheme(model.theme)
@@ -123,6 +163,87 @@ struct CodexCoreAppShell: View {
                 onRefresh: { Task { await model.refreshMCPServers() } }
             )
             .codexAgentTheme(model.theme)
+        }
+    }
+
+    @ViewBuilder
+    private func projectSidebar(
+        snapshot: CodexSidebarSnapshot,
+        width: CGFloat
+    ) -> some View {
+        CodexProjectSidebar(
+            serverName: model.serverName,
+            accountSummary: model.accountMenuSummary,
+            isThreadReady: model.isThreadReady,
+            snapshot: snapshot,
+            expandedWidth: width,
+            onResizeExpandedWidth: { sidebarExpandedWidth = Double($0) },
+            onNewChat: { Task { await model.startNewChat() } },
+            onOpenSearch: { model.selectAppRoute(.search) },
+            onSelectRoute: { model.selectAppRoute($0) },
+            onToggleProject: { model.toggleSidebarProject($0) },
+            onMoveProject: { source, target, placement in
+                model.moveSidebarProject(source, relativeTo: target, placement: placement)
+            },
+            onToggleProjectPin: { model.toggleSidebarProjectPin($0) },
+            onRevealProject: { path in
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            },
+            onRenameProject: { project in
+                projectRenameDraft = project.displayName
+                projectRenameTarget = project
+            },
+            onArchiveProjectChats: { path in
+                Task { await model.archiveSidebarProjectChats(path) }
+            },
+            onRemoveProject: { model.removeSidebarProject($0) },
+            onStartProjectChat: { path in Task { await model.startNewChat(inProject: path) } },
+            onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
+            onOpenFolder: { chooseWorkspaceFolder() },
+            onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
+            onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
+            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
+        )
+    }
+
+    private var sidebarEdgeRevealRegion: some View {
+        Color.clear
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .padding(.top, CodexWindowChromeMetrics.titlebarHeight)
+            .contentShape(Rectangle())
+            .onHover { isInside in
+                if isInside {
+                    sidebarOverlaySession.pointerEnteredRevealRegion()
+                } else {
+                    sidebarOverlaySession.pointerExitedRevealRegion()
+                }
+            }
+            .zIndex(3)
+            .accessibilityHidden(true)
+    }
+
+    private func expandedSnapshot(from snapshot: CodexSidebarSnapshot) -> CodexSidebarSnapshot {
+        var expanded = snapshot
+        expanded.isCollapsed = false
+        return expanded
+    }
+
+    private func resolvedSidebarWidth(availableWidth: CGFloat) -> CGFloat {
+        let maximumThatPreservesContent = max(
+            CodexProjectSidebar.minExpandedWidth,
+            availableWidth - 420
+        )
+        return min(
+            CodexProjectSidebar.clampExpandedWidth(CGFloat(sidebarExpandedWidth)),
+            maximumThatPreservesContent
+        )
+    }
+
+    private func collapsePinnedSidebar() {
+        sidebarOverlaySession.dismissImmediately()
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+            model.toggleSidebarCollapsed()
         }
     }
 
@@ -206,6 +327,13 @@ struct CodexCoreAppShell: View {
                 gitReviewSession: model.gitReviewSession,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
+                leadingTitlebarInset: model.sidebarSnapshot.isCollapsed
+                    ? (
+                        sidebarOverlaySession.isPresented
+                            ? resolvedSidebarWidth(availableWidth: proxy.size.width)
+                            : CodexWindowChromeMetrics.sidebarTrafficLightReserveWidth
+                    )
+                    : 0,
                 isThreadLoading: !model.runtimeSession.presentationStore.isSelectionHydrated,
                 chatActions: currentChatActionHandlers,
                 approvalOptions: model.approvalOptions,
@@ -244,11 +372,7 @@ struct CodexCoreAppShell: View {
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
                 onRefreshMCPServers: { Task { await model.refreshMCPServers() } },
-                onToggleSidebar: {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-                        model.toggleSidebarCollapsed()
-                    }
-                },
+                onToggleSidebar: collapsePinnedSidebar,
                 onDisconnect: { Task { await model.disconnect() } },
                 onSlashCommandSelected: { command in
                     model.handleSlashCommand(command) {
@@ -333,6 +457,8 @@ struct CodexCoreAppShell: View {
 private struct RenameChatSheet: View {
     @Environment(\.codexAgentTheme) private var theme
 
+    let title: String
+    let placeholder: String
     @Binding var name: String
     let onCancel: () -> Void
     let onSave: () -> Void
@@ -340,11 +466,11 @@ private struct RenameChatSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename chat")
+            Text(title)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(theme.colors.textPrimary)
 
-            TextField("Chat name", text: $name)
+            TextField(placeholder, text: $name)
                 .textFieldStyle(.plain)
                 .font(theme.fonts.chat)
                 .padding(.horizontal, 10)

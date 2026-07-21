@@ -41,5 +41,21 @@ final class CodexAccessibilityLabelTests: XCTestCase {
             CodexSidebarAccessibility.chatArchiveLabel(title: "Review PR"),
             "Archive chat Review PR"
         )
+        XCTAssertEqual(
+            CodexSidebarAccessibility.chatStatusValue(
+                status: .running,
+                hasUnreadUpdates: true,
+                recencyLabel: "2m"
+            ),
+            "Unread updates, Running"
+        )
+        XCTAssertEqual(
+            CodexSidebarAccessibility.chatStatusValue(
+                status: .idle,
+                hasUnreadUpdates: false,
+                recencyLabel: "2m"
+            ),
+            "2m"
+        )
     }
 }

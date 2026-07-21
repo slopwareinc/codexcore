@@ -805,7 +805,7 @@ private struct CodexAgentPanelContent: View {
             }
 
             compactComposer(for: tab)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 20)
                 .padding(.bottom, 12)
         }
     }

@@ -71,6 +71,7 @@ struct CodexTranscriptRenderProjectionTests {
         let attachments = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
         #expect(user.preparedText?.attributedString.string == "Review this")
         #expect(attachments.agentChips.map(\.label) == ["reference.swift"])
+        #expect(attachments.agentChips.map(\.attachmentKind) == [.file])
         #expect(attachments.isTrailingAligned)
         #expect(user.copyText == "Review this")
         #expect(user.editUserText == rawText)
@@ -95,8 +96,11 @@ struct CodexTranscriptRenderProjectionTests {
         )
 
         let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
+        let attachments = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
         #expect(user.copyText == "📎 reference.png")
         #expect(user.editUserText == rawText)
+        #expect(attachments.agentChips.map(\.attachmentKind) == [.image])
+        #expect(attachments.measuredHeight == 64 + CodexTranscriptColumnMetrics.interactiveBottomSpacing)
     }
 
     @Test func expandedWorkProseUsesTheFinalAnswerForeground() async throws {

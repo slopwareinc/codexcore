@@ -34,6 +34,24 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
             theme.transcriptOuterMaxWidth
         )
     }
+
+    func contentWidth(
+        for policy: CodexTranscriptContentWidthPolicy,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CGFloat {
+        let outerWidth = outerWidth(theme)
+        return switch policy {
+        case .full: outerWidth
+        case .card: min(outerWidth, theme.cardMaxWidth)
+        case .user: min(outerWidth * 0.77, theme.userBubbleMaxWidth)
+        }
+    }
+}
+
+enum CodexTranscriptContentWidthPolicy: Sendable, Equatable {
+    case full
+    case card
+    case user
 }
 
 enum CodexTranscriptTextRole: Sendable, Equatable {
@@ -102,6 +120,7 @@ struct CodexTranscriptAgentChipRender: Sendable, Equatable {
     var threadID: String?
     var taskSummary: String?
     var latestUpdate: String?
+    var attachmentKind: CodexReferencedFile.Kind? = nil
 }
 
 struct CodexTranscriptDiffPanelRender: Sendable, Equatable {
@@ -168,6 +187,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var indentation: CGFloat
     var isTrailingAligned: Bool
     var maxContentWidth: CGFloat
+    var contentWidthPolicy: CodexTranscriptContentWidthPolicy
     var intrinsicContentWidth: CGFloat?
     var viewportWidth: CGFloat
     var measuredHeight: CGFloat
@@ -381,6 +401,7 @@ actor CodexTranscriptRenderProjector {
                     indentation: draft.indentation,
                     isTrailingAligned: draft.isTrailingAligned,
                     maxContentWidth: maxWidth,
+                    contentWidthPolicy: draft.maxWidthKind,
                     intrinsicContentWidth: draft.intrinsicContentWidth,
                     viewportWidth: availableWidth,
                     measuredHeight: measuredHeight,
@@ -432,13 +453,14 @@ actor CodexTranscriptRenderProjector {
                             status: .done,
                             threadID: nil,
                             taskSummary: $0.path,
-                            latestUpdate: nil
+                            latestUpdate: nil,
+                            attachmentKind: $0.kind
                         )
                     }
                     let attachmentWidth = min(
                         userMaxWidth,
                         attachmentChips.reduce(CGFloat.zero) { total, chip in
-                            let isImage = chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+                            let isImage = chip.attachmentKind == .image
                             let width = isImage
                                 ? 64
                                 : ceil((chip.label as NSString).size(withAttributes: [.font: theme.captionFont]).width) + 34
@@ -743,12 +765,6 @@ actor CodexTranscriptRenderProjector {
 }
 
 private extension CodexTranscriptRenderProjector {
-    enum MaxWidthKind {
-        case full
-        case card
-        case user
-    }
-
     struct ItemDraft {
         var id: String
         var fingerprint: String
@@ -769,7 +785,7 @@ private extension CodexTranscriptRenderProjector {
         var accessibilityLabel: String
         var indentation: CGFloat
         var isTrailingAligned: Bool
-        var maxWidthKind: MaxWidthKind
+        var maxWidthKind: CodexTranscriptContentWidthPolicy
         var fixedHeight: CGFloat?
         var intrinsicContentWidth: CGFloat?
         var bottomSpacing: CGFloat
@@ -795,7 +811,7 @@ private extension CodexTranscriptRenderProjector {
             accessibilityLabel: String,
             indentation: CGFloat = 0,
             isTrailingAligned: Bool = false,
-            maxWidthKind: MaxWidthKind = .full,
+            maxWidthKind: CodexTranscriptContentWidthPolicy = .full,
             fixedHeight: CGFloat? = nil,
             intrinsicContentWidth: CGFloat? = nil,
             bottomSpacing: CGFloat = 0,
@@ -1252,12 +1268,12 @@ private extension CodexTranscriptRenderProjector {
         width: CGFloat,
         font: NSFont
     ) -> CGFloat {
-        let height: CGFloat = chips.contains(where: { $0.threadID == nil && $0.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil }) ? 64 : 26
+        let height: CGFloat = chips.contains(where: { $0.attachmentKind == .image }) ? 64 : 26
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var rows: CGFloat = 1
         for chip in chips {
-            let isAttachmentImage = chip.threadID == nil && chip.taskSummary.flatMap { NSImage(contentsOfFile: $0) } != nil
+            let isAttachmentImage = chip.attachmentKind == .image
             let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
             let chipWidth = isAttachmentImage ? 64 : min(width, max(74, labelWidth + 28))
