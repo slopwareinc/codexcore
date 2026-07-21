@@ -326,7 +326,11 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard self?.projectionGeneration == generation else { return }
                     self?.onProjectionError(nil)
-                    self?.apply(snapshot, presentation: presentation)
+                    self?.apply(
+                        snapshot,
+                        presentation: presentation,
+                        projectionGeneration: generation
+                    )
                 } catch is CancellationError {
                     return
                 } catch {
@@ -360,10 +364,12 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         private func apply(
             _ projected: CodexTranscriptRenderSnapshot,
-            presentation: CodexThreadUIPresentation
+            presentation: CodexThreadUIPresentation,
+            projectionGeneration: UInt64
         ) {
             var projected = projected
-            guard currentPresentation?.threadID == projected.threadID,
+            guard self.projectionGeneration == projectionGeneration,
+                  currentPresentation?.threadID == projected.threadID,
                   let dataSource,
                   let container else { return }
             for (id, preferred) in hostedPreferredHeightByID
@@ -419,6 +425,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     presentation: presentation,
                     switchedThread: switchedThread,
                     shouldFollow: shouldFollow,
+                    projectionGeneration: projectionGeneration,
                     startedAt: applyStartedAt
                 )
                 return
@@ -438,6 +445,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     presentation: presentation,
                     switchedThread: switchedThread,
                     shouldFollow: shouldFollow,
+                    projectionGeneration: projectionGeneration,
                     startedAt: applyStartedAt
                 )
             }
@@ -505,9 +513,11 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             presentation: CodexThreadUIPresentation,
             switchedThread: Bool,
             shouldFollow: Bool,
+            projectionGeneration: UInt64,
             startedAt: ContinuousClock.Instant
         ) {
-            guard currentSnapshot?.threadID == projected.threadID,
+            guard self.projectionGeneration == projectionGeneration,
+                  currentSnapshot?.threadID == projected.threadID,
                   let container else { return }
             updateShortTranscriptTopInset()
             let contentHeight = projectedContentHeight(projected)

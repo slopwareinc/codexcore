@@ -1148,7 +1148,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private func setHovered(_ hovered: Bool) {
         guard isHovered != hovered else { return }
         isHovered = hovered
-        if hovered, let footer = item?.footer, let theme = appKitTheme {
+        if hovered,
+           let footer = item?.footer,
+           !footer.isTurnStreaming,
+           let theme = appKitTheme {
             ensureFooterActionControls()
             configureFooterActions(footer, theme: theme)
         }
