@@ -59,6 +59,64 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(CodexTranscriptListHost.resolvedViewportSize(for: .unspecified) == nil)
     }
 
+    @Test func transcriptCellCentersAgainstLiveViewportBeforeDeferredReprojection() async throws {
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "resize-thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    finalAnswer: .init(id: "answer", text: "Resize me", isStreaming: false),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            availableWidth: 600,
+            theme: theme
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.textRole == .finalAnswer })
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1_600, height: 500))
+        scrollView.hasVerticalScroller = false
+        let documentView = NSView(frame: scrollView.contentView.bounds)
+        scrollView.documentView = documentView
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: scrollView.contentSize.width - CodexTranscriptColumnMetrics.flowLayoutHorizontalAllowance,
+            height: item.measuredHeight
+        )
+        documentView.addSubview(cell.view)
+        cell.configure(
+            item: item,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+
+        let liveMetrics = CodexTranscriptColumnMetrics(viewportWidth: scrollView.contentSize.width)
+        let liveOuterWidth = liveMetrics.outerWidth(theme)
+        #expect(
+            abs(
+                cell.contentFrameForTesting.minX
+                    - (scrollView.contentSize.width - liveOuterWidth) / 2
+            ) < 1
+        )
+        #expect(
+            abs(
+                cell.contentFrameForTesting.width
+                    - min(liveOuterWidth, theme.cardMaxWidth)
+            ) < 1
+        )
+    }
+
     @Test func pendingApprovalRendersInlineAndRoutesBothDecisions() async throws {
         let requestKey = CodexServerRequestKey(
             connectionEpoch: 2,

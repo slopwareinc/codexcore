@@ -34,6 +34,24 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
             theme.transcriptOuterMaxWidth
         )
     }
+
+    func contentWidth(
+        for policy: CodexTranscriptContentWidthPolicy,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CGFloat {
+        let outerWidth = outerWidth(theme)
+        return switch policy {
+        case .full: outerWidth
+        case .card: min(outerWidth, theme.cardMaxWidth)
+        case .user: min(outerWidth * 0.77, theme.userBubbleMaxWidth)
+        }
+    }
+}
+
+enum CodexTranscriptContentWidthPolicy: Sendable, Equatable {
+    case full
+    case card
+    case user
 }
 
 enum CodexTranscriptTextRole: Sendable, Equatable {
@@ -169,6 +187,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var indentation: CGFloat
     var isTrailingAligned: Bool
     var maxContentWidth: CGFloat
+    var contentWidthPolicy: CodexTranscriptContentWidthPolicy
     var intrinsicContentWidth: CGFloat?
     var viewportWidth: CGFloat
     var measuredHeight: CGFloat
@@ -382,6 +401,7 @@ actor CodexTranscriptRenderProjector {
                     indentation: draft.indentation,
                     isTrailingAligned: draft.isTrailingAligned,
                     maxContentWidth: maxWidth,
+                    contentWidthPolicy: draft.maxWidthKind,
                     intrinsicContentWidth: draft.intrinsicContentWidth,
                     viewportWidth: availableWidth,
                     measuredHeight: measuredHeight,
@@ -745,12 +765,6 @@ actor CodexTranscriptRenderProjector {
 }
 
 private extension CodexTranscriptRenderProjector {
-    enum MaxWidthKind {
-        case full
-        case card
-        case user
-    }
-
     struct ItemDraft {
         var id: String
         var fingerprint: String
@@ -771,7 +785,7 @@ private extension CodexTranscriptRenderProjector {
         var accessibilityLabel: String
         var indentation: CGFloat
         var isTrailingAligned: Bool
-        var maxWidthKind: MaxWidthKind
+        var maxWidthKind: CodexTranscriptContentWidthPolicy
         var fixedHeight: CGFloat?
         var intrinsicContentWidth: CGFloat?
         var bottomSpacing: CGFloat
@@ -797,7 +811,7 @@ private extension CodexTranscriptRenderProjector {
             accessibilityLabel: String,
             indentation: CGFloat = 0,
             isTrailingAligned: Bool = false,
-            maxWidthKind: MaxWidthKind = .full,
+            maxWidthKind: CodexTranscriptContentWidthPolicy = .full,
             fixedHeight: CGFloat? = nil,
             intrinsicContentWidth: CGFloat? = nil,
             bottomSpacing: CGFloat = 0,

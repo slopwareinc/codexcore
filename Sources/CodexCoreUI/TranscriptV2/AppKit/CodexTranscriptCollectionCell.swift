@@ -749,12 +749,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     override func viewDidLayout() {
         super.viewDidLayout()
         guard let item, let theme = appKitTheme else { return }
-        let metrics = CodexTranscriptColumnMetrics(viewportWidth: item.viewportWidth)
+        let liveViewportWidth = liveTranscriptViewportWidth(fallback: item.viewportWidth)
+        let metrics = CodexTranscriptColumnMetrics(viewportWidth: liveViewportWidth)
         let outerWidth = metrics.outerWidth(theme)
-        let centerX = item.viewportWidth / 2 + contentHorizontalOffset
+        let centerX = liveViewportWidth / 2 + contentHorizontalOffset
         let outerMinX = centerX - outerWidth / 2
+        let liveMaximumContentWidth = metrics.contentWidth(for: item.contentWidthPolicy, theme: theme)
         let contentWidth = min(
-            item.intrinsicContentWidth ?? item.maxContentWidth,
+            item.intrinsicContentWidth ?? liveMaximumContentWidth,
+            liveMaximumContentWidth,
             outerWidth - item.indentation
         )
         let contentX = item.isTrailingAligned
@@ -900,6 +903,17 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 }
             }
         }
+    }
+
+    private func liveTranscriptViewportWidth(fallback: CGFloat) -> CGFloat {
+        var ancestor: NSView? = view
+        while let current = ancestor {
+            if let scrollView = current.enclosingScrollView {
+                return scrollView.contentSize.width
+            }
+            ancestor = current.superview
+        }
+        return fallback
     }
 
     private func configureFooterButton(

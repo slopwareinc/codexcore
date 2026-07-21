@@ -17,11 +17,11 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     }
 
     public var supportsDockedOverviewWithoutSidePanel: Bool {
-        availableWidth >= 1_120
+        availableWidth >= 1_300
     }
 
     public var supportsDockedOverviewWithSidePanel: Bool {
-        availableWidth >= 1_560
+        availableWidth >= 1_740
     }
 
     public func supportsDockedOverview(isSidePanelOpen: Bool) -> Bool {
