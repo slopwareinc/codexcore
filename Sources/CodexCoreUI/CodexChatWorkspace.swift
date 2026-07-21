@@ -63,6 +63,7 @@ public struct CodexChatWorkspaceView: View {
     private let gitReviewSession: CodexGitReviewSession?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
+    private let leadingTitlebarInset: CGFloat
     private let isThreadLoading: Bool
     private let chatActions: CodexChatActionHandlers
     private let approvalOptions: [CodexApprovalSelection]
@@ -129,6 +130,7 @@ public struct CodexChatWorkspaceView: View {
         gitReviewSession: CodexGitReviewSession? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = false,
+        leadingTitlebarInset: CGFloat = 0,
         isThreadLoading: Bool = false,
         chatActions: CodexChatActionHandlers = CodexChatActionHandlers(),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
@@ -188,6 +190,7 @@ public struct CodexChatWorkspaceView: View {
         self.gitReviewSession = gitReviewSession
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
+        self.leadingTitlebarInset = max(0, leadingTitlebarInset)
         self.isThreadLoading = isThreadLoading
         self.chatActions = chatActions
         self.approvalOptions = approvalOptions
@@ -359,6 +362,7 @@ public struct CodexChatWorkspaceView: View {
                     workspacePath: workspacePath,
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
+                    leadingTitlebarInset: leadingTitlebarInset,
                     isSummaryPanelOpen: isOverviewControlActive,
                     hasPanelTabs: true,
                     isPanelOpen: panel.isAgentPanelOpen,
@@ -653,6 +657,7 @@ public struct CodexChatHeader: View {
     private let workspacePath: String
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
+    private let leadingTitlebarInset: CGFloat
     private let isSummaryPanelOpen: Bool
     private let hasPanelTabs: Bool
     private let isPanelOpen: Bool
@@ -667,6 +672,7 @@ public struct CodexChatHeader: View {
         workspacePath: String,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = true,
+        leadingTitlebarInset: CGFloat = 0,
         isSummaryPanelOpen: Bool = true,
         hasPanelTabs: Bool = false,
         isPanelOpen: Bool = false,
@@ -680,6 +686,7 @@ public struct CodexChatHeader: View {
         self.workspacePath = workspacePath
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
+        self.leadingTitlebarInset = max(0, leadingTitlebarInset)
         self.isSummaryPanelOpen = isSummaryPanelOpen
         self.hasPanelTabs = hasPanelTabs
         self.isPanelOpen = isPanelOpen
@@ -718,6 +725,11 @@ public struct CodexChatHeader: View {
 
     private var controlsRow: some View {
         HStack(spacing: 8) {
+            if leadingTitlebarInset > 0 {
+                Color.clear
+                    .frame(width: leadingTitlebarInset)
+            }
+
             if showsSidebarToggle {
                 HeaderBubble {
                     ToolbarIconButton(

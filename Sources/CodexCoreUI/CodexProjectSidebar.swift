@@ -18,7 +18,6 @@ public struct CodexProjectSidebar: View {
     let onNewChat: () -> Void
     let onOpenSearch: () -> Void
     let onSelectRoute: (CodexAppRoute) -> Void
-    let onToggleCollapsed: () -> Void
     let onToggleProject: (String) -> Void
     let onStartProjectChat: (String) -> Void
     let onSelectProject: (String) -> Void
@@ -37,7 +36,6 @@ public struct CodexProjectSidebar: View {
         onNewChat: @escaping () -> Void,
         onOpenSearch: @escaping () -> Void,
         onSelectRoute: @escaping (CodexAppRoute) -> Void,
-        onToggleCollapsed: @escaping () -> Void,
         onToggleProject: @escaping (String) -> Void,
         onStartProjectChat: @escaping (String) -> Void,
         onSelectProject: @escaping (String) -> Void,
@@ -55,7 +53,6 @@ public struct CodexProjectSidebar: View {
         self.onNewChat = onNewChat
         self.onOpenSearch = onOpenSearch
         self.onSelectRoute = onSelectRoute
-        self.onToggleCollapsed = onToggleCollapsed
         self.onToggleProject = onToggleProject
         self.onStartProjectChat = onStartProjectChat
         self.onSelectProject = onSelectProject
@@ -67,7 +64,8 @@ public struct CodexProjectSidebar: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            sidebarHeader
+            Color.clear
+                .frame(height: CodexWindowChromeMetrics.titlebarHeight)
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 22) {
@@ -90,6 +88,9 @@ public struct CodexProjectSidebar: View {
             maxWidth: resolvedWidth
         )
         .frame(maxHeight: .infinity)
+        .opacity(snapshot.isCollapsed ? 0 : 1)
+        .allowsHitTesting(!snapshot.isCollapsed)
+        .accessibilityHidden(snapshot.isCollapsed)
         .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.18))
         .background(theme.colors.surface.opacity(0.26))
         .overlay(alignment: .trailing) {
@@ -102,7 +103,7 @@ public struct CodexProjectSidebar: View {
 
     private var resolvedWidth: CGFloat {
         snapshot.isCollapsed
-            ? SidebarMetrics.collapsedWidth
+            ? 0
             : liveResizeWidth ?? CodexProjectSidebar.clampExpandedWidth(expandedWidth)
     }
 
@@ -204,54 +205,6 @@ public struct CodexProjectSidebar: View {
                         .frame(height: 1)
                 }
         }
-    }
-
-    private var sidebarHeader: some View {
-        HStack(spacing: snapshot.isCollapsed ? 0 : 12) {
-            if snapshot.isCollapsed {
-                Spacer(minLength: 0)
-                titlebarChromeButton(
-                    systemImage: "sidebar.left",
-                    title: CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed),
-                    action: onToggleCollapsed
-                )
-                Spacer(minLength: 0)
-            } else {
-                Color.clear
-                    .frame(width: SidebarMetrics.trafficLightReserveWidth, height: 1)
-                titlebarChromeButton(
-                    systemImage: "sidebar.leading",
-                    title: CodexSidebarAccessibility.collapseToggleLabel(isCollapsed: snapshot.isCollapsed),
-                    action: onToggleCollapsed
-                )
-                titlebarChromeButton(systemImage: "chevron.left", title: "Back", isEnabled: false)
-                titlebarChromeButton(systemImage: "chevron.right", title: "Forward", isEnabled: false)
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
-        .frame(height: SidebarMetrics.titlebarHeight)
-        .contentShape(Rectangle())
-        .gesture(WindowDragGesture())
-        .allowsWindowActivationEvents(true)
-    }
-
-    private func titlebarChromeButton(
-        systemImage: String,
-        title: String,
-        isEnabled: Bool = true,
-        action: @escaping () -> Void = {}
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(theme.fonts.sidebar.titlebarIcon.font)
-                .frame(width: 28, height: 28)
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .foregroundStyle(isEnabled ? theme.colors.textSecondary : theme.colors.textTertiary.opacity(0.45))
-        .accessibilityLabel(title)
-        .help(title)
     }
 
     private var routeRows: some View {
@@ -947,10 +900,15 @@ final class SidebarChatRowContainerView: NSView {
 
 private enum SidebarMetrics {
     static let expandedWidth: CGFloat = 288
-    static let collapsedWidth: CGFloat = 58
-    static let titlebarHeight: CGFloat = 54
-    static let trafficLightReserveWidth: CGFloat = 92
     static let resizeHandleHitWidth: CGFloat = 8
+}
+
+public enum CodexWindowChromeMetrics {
+    public static let trafficLightLeadingInset: CGFloat = 18
+    public static let trafficLightTopInset: CGFloat = 14
+    public static let titlebarHeight: CGFloat = 54
+    public static let sidebarControlTopInset: CGFloat = 7
+    public static let sidebarTrafficLightReserveWidth: CGFloat = 104
 }
 
 public extension CodexProjectSidebar {

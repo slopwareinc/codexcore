@@ -4,6 +4,26 @@ import CodexCore
 import CodexCoreUI
 
 private final class CodexMainWindow: NSWindow {
+    func alignTrafficLights() {
+        guard let closeButton = standardWindowButton(.closeButton),
+              let minimizeButton = standardWindowButton(.miniaturizeButton),
+              let zoomButton = standardWindowButton(.zoomButton),
+              let buttonContainer = closeButton.superview
+        else { return }
+
+        let horizontalOffsets = [closeButton, minimizeButton, zoomButton].map {
+            $0.frame.minX - closeButton.frame.minX
+        }
+        let buttonTop = buttonContainer.bounds.maxY - CodexWindowChromeMetrics.trafficLightTopInset
+
+        for (button, horizontalOffset) in zip([closeButton, minimizeButton, zoomButton], horizontalOffsets) {
+            var frame = button.frame
+            frame.origin.x = CodexWindowChromeMetrics.trafficLightLeadingInset + horizontalOffset
+            frame.origin.y = buttonTop - frame.height
+            button.setFrameOrigin(frame.origin)
+        }
+    }
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown,
            event.clickCount == 2,
@@ -15,10 +35,15 @@ private final class CodexMainWindow: NSWindow {
         super.sendEvent(event)
     }
 
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(frameRect, display: flag)
+        alignTrafficLights()
+    }
+
     private func titlebarHitTestContains(_ point: NSPoint) -> Bool {
         // The custom full-size content view still reserves this top strip for
         // title-bar interactions, including the native double-click-to-zoom.
-        let titlebarHeight: CGFloat = 32
+        let titlebarHeight = CodexWindowChromeMetrics.titlebarHeight
         return point.y >= frame.height - titlebarHeight
     }
 }
@@ -97,6 +122,11 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         model.toggleBottomTerminalPanel()
     }
 
+    @objc private func toggleSidebar(_ sender: Any?) {
+        showMainWindow()
+        model.toggleSidebarCollapsed()
+    }
+
     @objc private func openBottomTerminal(_ sender: Any?) {
         showMainWindow()
         Task { await model.openBottomTerminalDemo() }
@@ -106,7 +136,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         if mainWindow == nil {
             let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
                 .codexClipboardService(clipboardService)
-                .frame(minWidth: 940, minHeight: 660))
+                .frame(minWidth: 600, minHeight: 540))
             let window = CodexMainWindow(contentViewController: controller)
             window.title = "CodexCore"
             window.setAccessibilityElement(true)
@@ -125,6 +155,10 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             window.setContentSize(NSSize(width: 1180, height: 760))
             window.isReleasedWhenClosed = false
             window.center()
+            window.alignTrafficLights()
+            DispatchQueue.main.async { [weak window] in
+                window?.alignTrafficLights()
+            }
             mainWindow = window
         }
         mainWindow?.makeKeyAndOrderFront(nil)
@@ -178,6 +212,19 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         searchItem.target = self
         editMenu.addItem(searchItem)
         editItem.submenu = editMenu
+
+        let viewItem = NSMenuItem()
+        mainMenu.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        let toggleSidebarItem = NSMenuItem(
+            title: "Toggle Sidebar",
+            action: #selector(toggleSidebar(_:)),
+            keyEquivalent: "s"
+        )
+        toggleSidebarItem.target = self
+        toggleSidebarItem.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(toggleSidebarItem)
+        viewItem.submenu = viewMenu
 
         NSApplication.shared.mainMenu = mainMenu
     }

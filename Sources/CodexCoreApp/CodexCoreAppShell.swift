@@ -8,47 +8,70 @@ struct CodexCoreAppShell: View {
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var renameDraft = ""
+    @State private var sidebarOverlaySession = CodexSidebarOverlaySession()
     @AppStorage("codex.sidebar.expandedWidth")
     private var sidebarExpandedWidth: Double = Double(CodexProjectSidebar.defaultExpandedWidth)
 
     var body: some View {
         let sidebarSnapshot = model.sidebarSnapshot
 
-        HStack(spacing: 0) {
-            CodexProjectSidebar(
-                serverName: model.serverName,
-                accountSummary: model.accountMenuSummary,
-                isThreadReady: model.isThreadReady,
-                snapshot: sidebarSnapshot,
-                expandedWidth: CGFloat(sidebarExpandedWidth),
-                onResizeExpandedWidth: { sidebarExpandedWidth = Double($0) },
-                onNewChat: { Task { await model.startNewChat() } },
-                onOpenSearch: { model.selectAppRoute(.search) },
-                onSelectRoute: { model.selectAppRoute($0) },
-                onToggleCollapsed: {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-                        model.toggleSidebarCollapsed()
-                    }
-                },
-                onToggleProject: { model.toggleSidebarProject($0) },
-                onStartProjectChat: { path in Task { await model.startNewChat(inProject: path) } },
-                onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
-                onOpenFolder: { chooseWorkspaceFolder() },
-                onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
-                onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
-                onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
-            )
-            .layoutPriority(0)
-            .transition(.move(edge: .leading).combined(with: .opacity))
+        GeometryReader { shellProxy in
+            let sidebarWidth = resolvedSidebarWidth(availableWidth: shellProxy.size.width)
 
-            GeometryReader { proxy in
-                routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
+            ZStack(alignment: .topLeading) {
+                HStack(alignment: .top, spacing: 0) {
+                    if !sidebarSnapshot.isCollapsed {
+                        projectSidebar(
+                            snapshot: sidebarSnapshot,
+                            width: sidebarWidth
+                        )
+                        .layoutPriority(0)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+
+                    GeometryReader { proxy in
+                        routeContent(proxy: proxy, selectedRoute: sidebarSnapshot.selectedRoute)
+                    }
+                    .frame(minWidth: 420)
+                    .layoutPriority(1)
+                }
+
+                if sidebarSnapshot.isCollapsed {
+                    sidebarEdgeRevealRegion
+
+                    if sidebarOverlaySession.isPresented {
+                        projectSidebar(
+                            snapshot: expandedSnapshot(from: sidebarSnapshot),
+                            width: sidebarWidth
+                        )
+                        .shadow(color: .black.opacity(0.34), radius: 24, x: 8, y: 0)
+                        .onHover { isInside in
+                            if isInside {
+                                sidebarOverlaySession.pointerEnteredRevealRegion()
+                            } else {
+                                sidebarOverlaySession.pointerExitedRevealRegion()
+                            }
+                        }
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .zIndex(2)
+                    }
+                }
             }
-            .frame(minWidth: sidebarSnapshot.isCollapsed ? 420 : 620)
-            .layoutPriority(1)
+            .animation(
+                .interactiveSpring(response: 0.22, dampingFraction: 0.94, blendDuration: 0.06),
+                value: sidebarOverlaySession.isPresented
+            )
         }
-        .frame(minWidth: sidebarSnapshot.isCollapsed ? 600 : 940, minHeight: 540)
+        .frame(minWidth: 600, minHeight: 540)
         .ignoresSafeArea(.container, edges: .top)
+        .onChange(of: sidebarSnapshot.isCollapsed) { _, isCollapsed in
+            if !isCollapsed {
+                sidebarOverlaySession.dismissImmediately()
+            }
+        }
+        .onExitCommand {
+            sidebarOverlaySession.dismissImmediately()
+        }
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
                 VStack(alignment: .trailing, spacing: 10) {
@@ -123,6 +146,72 @@ struct CodexCoreAppShell: View {
                 onRefresh: { Task { await model.refreshMCPServers() } }
             )
             .codexAgentTheme(model.theme)
+        }
+    }
+
+    @ViewBuilder
+    private func projectSidebar(
+        snapshot: CodexSidebarSnapshot,
+        width: CGFloat
+    ) -> some View {
+        CodexProjectSidebar(
+            serverName: model.serverName,
+            accountSummary: model.accountMenuSummary,
+            isThreadReady: model.isThreadReady,
+            snapshot: snapshot,
+            expandedWidth: width,
+            onResizeExpandedWidth: { sidebarExpandedWidth = Double($0) },
+            onNewChat: { Task { await model.startNewChat() } },
+            onOpenSearch: { model.selectAppRoute(.search) },
+            onSelectRoute: { model.selectAppRoute($0) },
+            onToggleProject: { model.toggleSidebarProject($0) },
+            onStartProjectChat: { path in Task { await model.startNewChat(inProject: path) } },
+            onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
+            onOpenFolder: { chooseWorkspaceFolder() },
+            onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
+            onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
+            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
+        )
+    }
+
+    private var sidebarEdgeRevealRegion: some View {
+        Color.clear
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .padding(.top, CodexWindowChromeMetrics.titlebarHeight)
+            .contentShape(Rectangle())
+            .onHover { isInside in
+                if isInside {
+                    sidebarOverlaySession.pointerEnteredRevealRegion()
+                } else {
+                    sidebarOverlaySession.pointerExitedRevealRegion()
+                }
+            }
+            .zIndex(3)
+            .accessibilityHidden(true)
+    }
+
+    private func expandedSnapshot(from snapshot: CodexSidebarSnapshot) -> CodexSidebarSnapshot {
+        var expanded = snapshot
+        expanded.isCollapsed = false
+        return expanded
+    }
+
+    private func resolvedSidebarWidth(availableWidth: CGFloat) -> CGFloat {
+        let maximumThatPreservesContent = max(
+            CodexProjectSidebar.minExpandedWidth,
+            availableWidth - 420
+        )
+        return min(
+            CodexProjectSidebar.clampExpandedWidth(CGFloat(sidebarExpandedWidth)),
+            maximumThatPreservesContent
+        )
+    }
+
+    private func collapsePinnedSidebar() {
+        sidebarOverlaySession.dismissImmediately()
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+            model.toggleSidebarCollapsed()
         }
     }
 
@@ -206,6 +295,13 @@ struct CodexCoreAppShell: View {
                 gitReviewSession: model.gitReviewSession,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
+                leadingTitlebarInset: model.sidebarSnapshot.isCollapsed
+                    ? (
+                        sidebarOverlaySession.isPresented
+                            ? resolvedSidebarWidth(availableWidth: proxy.size.width)
+                            : CodexWindowChromeMetrics.sidebarTrafficLightReserveWidth
+                    )
+                    : 0,
                 isThreadLoading: !model.runtimeSession.presentationStore.isSelectionHydrated,
                 chatActions: currentChatActionHandlers,
                 approvalOptions: model.approvalOptions,
@@ -244,11 +340,7 @@ struct CodexCoreAppShell: View {
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
                 onRefreshMCPServers: { Task { await model.refreshMCPServers() } },
-                onToggleSidebar: {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-                        model.toggleSidebarCollapsed()
-                    }
-                },
+                onToggleSidebar: collapsePinnedSidebar,
                 onDisconnect: { Task { await model.disconnect() } },
                 onSlashCommandSelected: { command in
                     model.handleSlashCommand(command) {
