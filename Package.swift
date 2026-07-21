@@ -86,6 +86,7 @@ let package = Package(
             name: "CodexCoreApp",
             dependencies: ["CodexCore", "CodexCoreUI"],
             path: "Sources/CodexCoreApp",
+            exclude: ["Info.plist", "Resources"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

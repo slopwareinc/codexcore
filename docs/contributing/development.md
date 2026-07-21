@@ -20,6 +20,7 @@ Prerequisites are macOS 26+, Swift 6.2/Xcode, Git, Python 3, Bash, and the exact
 swift build --target CodexCoreApp
 swift test
 just run
+just run-app
 python3 -m unittest discover Tools/tests
 git diff --check
 ```

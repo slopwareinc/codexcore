@@ -36,6 +36,15 @@ codex --version       # checks only the PATH candidate; it must print codex-cli 
 swift run codex-core-app
 ```
 
+For a normal Finder/Dock application with bundle metadata and the CodexCore icon:
+
+```bash
+./scripts/package-app.sh --release
+open build/CodexCore.app
+```
+
+The local bundle is ad-hoc signed. Distribution outside your Mac still requires Developer ID signing and notarization.
+
 On first launch, sign in with ChatGPT or an API key, choose a workspace, and start a task. CodexCore stores credentials and configuration in `~/.codexcore`; it does not reuse `~/.codex` implicitly.
 
 See [requirements](docs/getting-started/requirements.md) and [authentication](docs/getting-started/authentication.md) before troubleshooting runtime or sign-in failures.

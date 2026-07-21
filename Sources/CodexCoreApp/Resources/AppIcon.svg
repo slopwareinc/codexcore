@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">CodexCore app icon</title>
+  <desc id="desc">A bright core surrounded by three orbital arcs on an indigo rounded square.</desc>
+  <rect x="72" y="72" width="880" height="880" rx="214" fill="#171A3B"/>
+  <circle cx="512" cy="512" r="238" fill="none" stroke="#6C72FF" stroke-width="72" stroke-linecap="round" stroke-dasharray="1090 405" transform="rotate(-34 512 512)"/>
+  <circle cx="512" cy="512" r="142" fill="none" stroke="#48D7C6" stroke-width="58" stroke-linecap="round" stroke-dasharray="530 362" transform="rotate(112 512 512)"/>
+  <circle cx="512" cy="512" r="68" fill="#F5F7FF"/>
+  <circle cx="731" cy="374" r="42" fill="#FFCA64"/>
+</svg>

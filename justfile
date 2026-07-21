@@ -33,6 +33,17 @@ kill:
 build:
     swift build --target CodexCoreApp
 
+# Assemble a registered, ad-hoc signed macOS application bundle.
+package:
+    ./scripts/package-app.sh
+
+package-release:
+    ./scripts/package-app.sh --release
+
+# Package and launch the real macOS application bundle.
+run-app: kill package
+    open "{{root}}/build/CodexCore.app"
+
 # Kill any running instance, rebuild, and launch the CodexCore app.
 run: kill build
     swift run codex-core-app

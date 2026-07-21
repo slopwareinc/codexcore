@@ -20,6 +20,17 @@ just run
 
 `just run` stops an existing development instance, rebuilds, and launches the app.
 
+## Build a macOS application bundle
+
+`swift run` launches an unbundled development executable. To produce a registered Finder/Dock app with `Info.plist`, icon, and ad-hoc signature:
+
+```bash
+./scripts/package-app.sh --release
+open build/CodexCore.app
+```
+
+Or run `just run-app` for a debug bundle. Output is `build/CodexCore.app`. Ad-hoc signing is for local use; sharing the app requires Developer ID signing and Apple notarization.
+
 ## First session
 
 1. Authenticate with ChatGPT device login or an API key.
