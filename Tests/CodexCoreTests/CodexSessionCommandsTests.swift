@@ -15,7 +15,7 @@ final class CodexSessionCommandsTests: XCTestCase {
         XCTAssertEqual(CodexRequest.specializedMethods.count, 9)
     }
 
-    func testAlpha24RequestFactoriesEncodeNewAppAndThreadSearchMethods() throws {
+    func testGA145RequestFactoriesEncodeAppAndThreadSearchMethods() throws {
         let occurrenceSearch = CodexRequest.threadSearchOccurrences(.init(
             limit: 50,
             searchTerm: "needle",

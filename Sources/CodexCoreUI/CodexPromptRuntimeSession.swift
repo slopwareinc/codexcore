@@ -411,7 +411,7 @@ private extension CodexCommandApprovalDecision {
             .approvedExecpolicyAmendment(amendment)
         case .applyNetworkPolicyAmendment(let amendment):
             .networkPolicyAmendment(amendment)
-        case .decline: .denied
+        case .decline: .denied(rejection: "Rejected by user.")
         case .cancel: .abort
         }
     }
