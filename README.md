@@ -103,16 +103,18 @@ This minimal example can wait when app-server asks for approval or input. Produc
 
 ## Architecture
 
-```text
-Host app
-  ├─ CodexCoreUI (optional presentation layer)
-  └─ CodexCore
-       └─ CodexSession actor
-            ├─ ordered JSON-RPC transport
-            ├─ server-request inbox
-            ├─ thread and turn leases
-            └─ canonical state → observations → projections
-                 └─ pinned Codex app-server subprocess
+```mermaid
+flowchart TD
+    Host["Host application"] --> UI["CodexCoreUI<br/>Optional SwiftUI presentation"]
+    Host --> SDK["CodexCore<br/>Typed SDK and runtime"]
+    UI --> SDK
+    SDK --> Session["CodexSession actor"]
+    Session --> Transport["Ordered JSON-RPC transport"]
+    Session --> Inbox["Server-request inbox<br/>Approvals and user input"]
+    Session --> Leases["Thread and turn leases"]
+    Session --> State["Canonical state"]
+    State --> Observation["Observations and projections"]
+    Transport --> Server["Pinned Codex app-server subprocess"]
 ```
 
 Read the [architecture overview](docs/architecture/overview.md) for invariants and ownership boundaries.
@@ -139,5 +141,7 @@ python3 -m unittest discover Tools/tests
 Protocol bindings are generated. Do not edit `Sources/CodexCore/Generated/` or generated request factories by hand; follow [protocol upgrades](docs/contributing/protocol-upgrades.md).
 
 ## License and support
+
+CodexCore is available under the [MIT License](LICENSE).
 
 Use [GitHub Issues](https://github.com/slopwareinc/codexcore/issues) for reproducible bugs and focused feature requests. Do not post credentials or sensitive app-server logs publicly.
