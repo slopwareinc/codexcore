@@ -76,6 +76,7 @@ private final class CodexShimmerTextField: NSTextField {
         shimmerLayer.locations = [-0.5, 0, 0.5]
         shimmerLayer.frame = bounds
         layer?.mask = shimmerLayer
+        guard shimmerLayer.animation(forKey: "codex-shimmer") == nil else { return }
         let animation = CABasicAnimation(keyPath: "locations")
         animation.fromValue = [-0.5, 0, 0.5]
         animation.toValue = [0.5, 1, 1.5]
@@ -87,6 +88,45 @@ private final class CodexShimmerTextField: NSTextField {
     func stopShimmer() {
         shimmerLayer.removeAllAnimations()
         layer?.mask = nil
+    }
+}
+
+private final class CodexShimmerButton: NSButton {
+    private let shimmerLayer = CAGradientLayer()
+
+    override func layout() {
+        super.layout()
+        shimmerLayer.frame = bounds
+    }
+
+    func startShimmer() {
+        wantsLayer = true
+        shimmerLayer.colors = [
+            NSColor.white.withAlphaComponent(0.45).cgColor,
+            NSColor.white.cgColor,
+            NSColor.white.withAlphaComponent(0.45).cgColor,
+        ]
+        shimmerLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        shimmerLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        shimmerLayer.locations = [-0.5, 0, 0.5]
+        shimmerLayer.frame = bounds
+        layer?.mask = shimmerLayer
+        guard shimmerLayer.animation(forKey: "codex-shimmer") == nil else { return }
+        let animation = CABasicAnimation(keyPath: "locations")
+        animation.fromValue = [-0.5, 0, 0.5]
+        animation.toValue = [0.5, 1, 1.5]
+        animation.duration = 1.35
+        animation.repeatCount = .infinity
+        shimmerLayer.add(animation, forKey: "codex-shimmer")
+    }
+
+    func stopShimmer() {
+        shimmerLayer.removeAllAnimations()
+        layer?.mask = nil
+    }
+
+    var isShimmering: Bool {
+        shimmerLayer.animation(forKey: "codex-shimmer") != nil
     }
 }
 
@@ -166,7 +206,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         return CodexSelectableTranscriptTextView(frame: .zero, textContainer: textContainer)
     }()
     private lazy var textScrollView = NSScrollView()
-    private lazy var actionButton = NSButton()
+    private lazy var actionButton = CodexShimmerButton()
     private lazy var copyButton = NSButton()
     private lazy var codeHeaderView = NSView()
     private lazy var codeLanguageLabel = NSTextField(labelWithString: "")
@@ -287,6 +327,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         let imageRect = cell.imageRect(forBounds: actionButton.bounds)
         return imageRect.minX - titleRect.maxX
     }
+    var workHeaderShimmerIsActiveForTesting: Bool { actionButton.isShimmering }
     var textUsedHeightForTesting: CGFloat {
         guard textControlsInstalled,
               let layoutManager = selectableTextView.layoutManager,
@@ -484,6 +525,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if actionControlInstalled {
             actionButton.isHidden = true
             actionButton.image = nil
+            actionButton.stopShimmer()
         }
         if copyControlInstalled { copyButton.isHidden = true }
         if codeHeaderControlsInstalled { codeHeaderView.isHidden = true }
@@ -558,6 +600,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if actionControlInstalled {
             actionButton.isHidden = true
             actionButton.image = nil
+            actionButton.stopShimmer()
         }
         if copyControlInstalled { copyButton.isHidden = true }
         if codeHeaderControlsInstalled { codeHeaderView.isHidden = true }
@@ -686,6 +729,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             actionButton.imageHugsTitle = true
             actionButton.isEnabled = item.action != nil
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
+            if case .working = header.state { actionButton.startShimmer() }
         } else if let row = item.workRow {
             ensureChipControls()
             chipBackground.isHidden = false

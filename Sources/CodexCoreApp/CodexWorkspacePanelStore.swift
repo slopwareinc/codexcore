@@ -21,7 +21,7 @@ final class CodexWorkspacePanelStore {
     /// Sentinel key for a not-yet-persisted chat (no thread id assigned yet).
     private static let unassignedKey = "__codex_unassigned_thread__"
 
-    init(capacity: Int = 20, defaultPanelWidth: CGFloat = 320) {
+    init(capacity: Int = 20, defaultPanelWidth: CGFloat = 400) {
         self.capacity = max(1, capacity)
         self.defaultPanelWidth = defaultPanelWidth
     }

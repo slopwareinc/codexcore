@@ -176,6 +176,118 @@ public enum CodexExpandedProjectStorage {
     }
 }
 
+public enum CodexProjectOrderStorage {
+    private static let projectOrderStorageKey = "CodexCoreApp.projectOrder.v1"
+
+    public static func loadProjectOrder(
+        from store: any CodexStringListPreferenceStore
+    ) -> [String] {
+        normalized(store.loadStrings(forKey: projectOrderStorageKey))
+    }
+
+    public static func saveProjectOrder(
+        _ paths: [String],
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(normalized(paths), forKey: projectOrderStorageKey)
+    }
+
+    private static func normalized(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        return paths.compactMap { path in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let normalized = CodexProjectSummary.normalizedPath(trimmed)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
+    }
+}
+
+public enum CodexPinnedProjectStorage {
+    private static let pinnedProjectStorageKey = "CodexCoreApp.pinnedProjectIDs.v1"
+
+    public static func loadPinnedProjectIDs(
+        from store: any CodexStringListPreferenceStore
+    ) -> [String] {
+        normalized(store.loadStrings(forKey: pinnedProjectStorageKey))
+    }
+
+    public static func savePinnedProjectIDs(
+        _ paths: [String],
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(normalized(paths), forKey: pinnedProjectStorageKey)
+    }
+
+    private static func normalized(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        return paths.compactMap { path in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let normalized = CodexProjectSummary.normalizedPath(trimmed)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
+    }
+}
+
+public enum CodexHiddenProjectStorage {
+    private static let hiddenProjectStorageKey = "CodexCoreApp.hiddenProjectIDs.v1"
+
+    public static func loadHiddenProjectIDs(
+        from store: any CodexStringListPreferenceStore
+    ) -> Set<String> {
+        Set(store.loadStrings(forKey: hiddenProjectStorageKey).compactMap(normalizedPath))
+    }
+
+    public static func saveHiddenProjectIDs(
+        _ paths: Set<String>,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(paths.compactMap(normalizedPath).sorted(), forKey: hiddenProjectStorageKey)
+    }
+
+    private static func normalizedPath(_ path: String) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return CodexProjectSummary.normalizedPath(trimmed)
+    }
+}
+
+public enum CodexProjectAliasStorage {
+    private static let projectAliasStorageKey = "CodexCoreApp.projectAliases.v1"
+
+    public static func loadProjectAliases(
+        from store: any CodexStringListPreferenceStore
+    ) -> [String: String] {
+        guard let value = store.loadStrings(forKey: projectAliasStorageKey).first,
+              let data = value.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return [:] }
+        return normalized(decoded)
+    }
+
+    public static func saveProjectAliases(
+        _ aliases: [String: String],
+        to store: any CodexStringListPreferenceStore
+    ) {
+        guard let data = try? JSONEncoder().encode(normalized(aliases)),
+              let value = String(data: data, encoding: .utf8)
+        else { return }
+        store.saveStrings([value], forKey: projectAliasStorageKey)
+    }
+
+    private static func normalized(_ aliases: [String: String]) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: aliases.compactMap { path, alias in
+            let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPath.isEmpty, !trimmedAlias.isEmpty else { return nil }
+            return (CodexProjectSummary.normalizedPath(trimmedPath), trimmedAlias)
+        })
+    }
+}
+
 public enum CodexModelPreferenceStorage {
     private static let lastModelKey = "CodexCoreApp.lastManualModel.v1"
     private static let threadModelsKey = "CodexCoreApp.threadModels.v1"

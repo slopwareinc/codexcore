@@ -656,7 +656,7 @@ public struct CodexAgentTheme {
             Spacing(
                 transcriptMaxWidth: 736,
                 composerMaxWidth: 736,
-                sidePanelWidth: 320,
+                sidePanelWidth: 400,
                 summaryPanelWidth: 300,
                 toolbarHeight: 46,
                 rowGap: 12,

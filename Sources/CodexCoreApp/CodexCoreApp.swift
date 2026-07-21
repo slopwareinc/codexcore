@@ -51,6 +51,8 @@ private final class CodexMainWindow: NSWindow {
 @main
 @MainActor
 final class CodexCoreApp: NSObject, NSApplicationDelegate {
+    private static let mainWindowFrameAutosaveName = "CodexCore.MainWindow"
+    private static let defaultMainWindowContentSize = NSSize(width: 1_416, height: 912)
     private static var sharedDelegate: CodexCoreApp?
 
     private let clipboardService: any CodexClipboardService = CodexAppKitClipboardService()
@@ -152,9 +154,13 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             window.isMovableByWindowBackground = false
             window.backgroundColor = .clear
             window.minSize = NSSize(width: 600, height: 540)
-            window.setContentSize(NSSize(width: 1180, height: 760))
             window.isReleasedWhenClosed = false
-            window.center()
+            let restoredSavedFrame = window.setFrameUsingName(Self.mainWindowFrameAutosaveName)
+            _ = window.setFrameAutosaveName(Self.mainWindowFrameAutosaveName)
+            if !restoredSavedFrame {
+                window.setContentSize(Self.defaultMainWindowContentSize)
+                window.center()
+            }
             window.alignTrafficLights()
             DispatchQueue.main.async { [weak window] in
                 window?.alignTrafficLights()

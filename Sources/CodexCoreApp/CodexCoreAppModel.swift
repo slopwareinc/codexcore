@@ -125,10 +125,18 @@ final class CodexCoreAppModel {
         self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
         self.lastManualModelID = CodexModelPreferenceStorage.loadLastModelID(from: preferenceStore)
         let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
+        let projectOrder = CodexProjectOrderStorage.loadProjectOrder(from: preferenceStore)
+        let pinnedProjectIDs = CodexPinnedProjectStorage.loadPinnedProjectIDs(from: preferenceStore)
+        let hiddenProjectIDs = CodexHiddenProjectStorage.loadHiddenProjectIDs(from: preferenceStore)
+        let projectAliases = CodexProjectAliasStorage.loadProjectAliases(from: preferenceStore)
         self.hasStoredExpandedProjectState = expandedState.hasStoredState
         self.sidebarNavigationSession = CodexSidebarNavigationSession(
             currentWorkspacePath: defaultWorkspacePath(),
-            expandedProjectIDs: expandedState.ids
+            expandedProjectIDs: expandedState.ids,
+            projectOrder: projectOrder,
+            pinnedProjectIDs: pinnedProjectIDs,
+            hiddenProjectIDs: hiddenProjectIDs,
+            projectAliases: projectAliases
         )
     }
 
@@ -1020,6 +1028,45 @@ final class CodexCoreAppModel {
         saveExpandedSidebarProjects()
     }
 
+    func moveSidebarProject(
+        _ sourcePath: String,
+        relativeTo targetPath: String,
+        placement: CodexProjectDropPlacement
+    ) {
+        guard sidebarNavigationSession.moveProject(
+            sourcePath,
+            relativeTo: targetPath,
+            placement: placement,
+            among: recentProjects
+        ) else { return }
+        saveSidebarProjectOrder()
+    }
+
+    func toggleSidebarProjectPin(_ workspacePath: String) {
+        _ = sidebarNavigationSession.toggleProjectPin(workspacePath)
+        CodexPinnedProjectStorage.savePinnedProjectIDs(
+            sidebarNavigationSession.pinnedProjectIDs,
+            to: preferenceStore
+        )
+    }
+
+    func renameSidebarProject(_ workspacePath: String, displayName: String) {
+        sidebarNavigationSession.renameProject(workspacePath, displayName: displayName)
+        CodexProjectAliasStorage.saveProjectAliases(
+            sidebarNavigationSession.projectAliases,
+            to: preferenceStore
+        )
+    }
+
+    func removeSidebarProject(_ workspacePath: String) {
+        sidebarNavigationSession.removeProject(workspacePath)
+        saveSidebarProjectVisibility()
+        CodexPinnedProjectStorage.savePinnedProjectIDs(
+            sidebarNavigationSession.pinnedProjectIDs,
+            to: preferenceStore
+        )
+    }
+
     func selectSidebarProject(_ path: String) async {
         sidebarNavigationSession.selectProject(path)
         saveExpandedSidebarProjects()
@@ -1048,6 +1095,9 @@ final class CodexCoreAppModel {
     func switchWorkspace(to path: String) async {
         let normalized = CodexProjectSummary.normalizedPath(path)
         guard !normalized.isEmpty else { return }
+        if sidebarNavigationSession.restoreProject(normalized) {
+            saveSidebarProjectVisibility()
+        }
         guard normalized != CodexProjectSummary.normalizedPath(workspacePath) else {
             sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: currentThreadID)
             saveExpandedSidebarProjects()
@@ -1257,6 +1307,51 @@ final class CodexCoreAppModel {
         } catch {
             appendActivity(.notice, title: "Archive failed", detail: friendlyError(error))
         }
+    }
+
+    func archiveSidebarProjectChats(_ workspacePath: String) async {
+        guard let codex else { return }
+        let normalizedPath = CodexProjectSummary.normalizedPath(workspacePath)
+        let chats = allSidebarChats.filter {
+            guard let path = $0.workspacePath else { return false }
+            return CodexProjectSummary.normalizedPath(path) == normalizedPath
+        }
+        guard !chats.isEmpty else {
+            appendActivity(.notice, title: "No chats to archive", detail: normalizedPath)
+            return
+        }
+
+        let selectedID = currentThreadID ?? sidebarNavigationSession.selectedThreadID
+        var archivedIDs: Set<String> = []
+        var failures = 0
+        for chat in chats {
+            do {
+                _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: chat.id)))
+                archivedIDs.insert(chat.id)
+                setThreadPinned(chat.id, pinned: false, announces: false)
+                composerSession.discardThreadState(for: chat.id)
+                removeChatFromSidebar(chat.id)
+            } catch {
+                failures += 1
+            }
+        }
+
+        if let selectedID, archivedIDs.contains(selectedID) {
+            invalidatePendingChatSelection()
+            clearThreadState()
+            sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+        }
+
+        if failures == 0 {
+            appendActivity(.notice, title: "Archived project chats", detail: "\(archivedIDs.count) chats · \(normalizedPath)")
+        } else {
+            appendActivity(
+                .notice,
+                title: "Some chats could not be archived",
+                detail: "\(archivedIDs.count) archived, \(failures) failed · \(normalizedPath)"
+            )
+        }
+        await refreshRecentChats(using: codex)
     }
 
     func addAutomationForCurrentChat() {
@@ -1906,6 +2001,17 @@ final class CodexCoreAppModel {
     private func saveExpandedSidebarProjects() {
         CodexExpandedProjectStorage.saveExpandedProjectIDs(sidebarNavigationSession.expandedProjectIDs, to: preferenceStore)
         hasStoredExpandedProjectState = true
+    }
+
+    private func saveSidebarProjectOrder() {
+        CodexProjectOrderStorage.saveProjectOrder(sidebarNavigationSession.projectOrder, to: preferenceStore)
+    }
+
+    private func saveSidebarProjectVisibility() {
+        CodexHiddenProjectStorage.saveHiddenProjectIDs(
+            sidebarNavigationSession.hiddenProjectIDs,
+            to: preferenceStore
+        )
     }
 
     private func renameChatInSidebar(_ threadID: String, title: String) {

@@ -19,6 +19,12 @@ public struct CodexProjectSidebar: View {
     let onOpenSearch: () -> Void
     let onSelectRoute: (CodexAppRoute) -> Void
     let onToggleProject: (String) -> Void
+    let onMoveProject: (String, String, CodexProjectDropPlacement) -> Void
+    let onToggleProjectPin: (String) -> Void
+    let onRevealProject: (String) -> Void
+    let onRenameProject: (CodexProjectSummary) -> Void
+    let onArchiveProjectChats: (String) -> Void
+    let onRemoveProject: (String) -> Void
     let onStartProjectChat: (String) -> Void
     let onSelectProject: (String) -> Void
     let onOpenFolder: () -> Void
@@ -37,6 +43,12 @@ public struct CodexProjectSidebar: View {
         onOpenSearch: @escaping () -> Void,
         onSelectRoute: @escaping (CodexAppRoute) -> Void,
         onToggleProject: @escaping (String) -> Void,
+        onMoveProject: @escaping (String, String, CodexProjectDropPlacement) -> Void = { _, _, _ in },
+        onToggleProjectPin: @escaping (String) -> Void = { _ in },
+        onRevealProject: @escaping (String) -> Void = { _ in },
+        onRenameProject: @escaping (CodexProjectSummary) -> Void = { _ in },
+        onArchiveProjectChats: @escaping (String) -> Void = { _ in },
+        onRemoveProject: @escaping (String) -> Void = { _ in },
         onStartProjectChat: @escaping (String) -> Void,
         onSelectProject: @escaping (String) -> Void,
         onOpenFolder: @escaping () -> Void,
@@ -54,6 +66,12 @@ public struct CodexProjectSidebar: View {
         self.onOpenSearch = onOpenSearch
         self.onSelectRoute = onSelectRoute
         self.onToggleProject = onToggleProject
+        self.onMoveProject = onMoveProject
+        self.onToggleProjectPin = onToggleProjectPin
+        self.onRevealProject = onRevealProject
+        self.onRenameProject = onRenameProject
+        self.onArchiveProjectChats = onArchiveProjectChats
+        self.onRemoveProject = onRemoveProject
         self.onStartProjectChat = onStartProjectChat
         self.onSelectProject = onSelectProject
         self.onOpenFolder = onOpenFolder
@@ -241,7 +259,7 @@ public struct CodexProjectSidebar: View {
 
     @ViewBuilder
     private var pinnedSection: some View {
-        if !snapshot.pinnedRows.isEmpty && !snapshot.isCollapsed {
+        if (!snapshot.pinnedRows.isEmpty || !snapshot.pinnedProjects.isEmpty) && !snapshot.isCollapsed {
             VStack(alignment: .leading, spacing: 4) {
                 SidebarSectionHeader(title: "Pinned")
                 ForEach(snapshot.pinnedRows) { row in
@@ -251,6 +269,25 @@ public struct CodexProjectSidebar: View {
                         onSelect: { onSelectChat(row.summary) },
                         onTogglePin: { onTogglePinChat(row.summary) },
                         onArchive: { onArchiveChat(row.summary) }
+                    )
+                }
+                ForEach(snapshot.pinnedProjects) { group in
+                    ProjectSidebarGroupView(
+                        group: group,
+                        isCollapsed: false,
+                        isThreadReady: group.isSelected && isThreadReady,
+                        onToggleProject: onToggleProject,
+                        onMoveProject: onMoveProject,
+                        onToggleProjectPin: onToggleProjectPin,
+                        onRevealProject: onRevealProject,
+                        onRenameProject: onRenameProject,
+                        onArchiveProjectChats: onArchiveProjectChats,
+                        onRemoveProject: onRemoveProject,
+                        onStartProjectChat: onStartProjectChat,
+                        onSelectProject: onSelectProject,
+                        onSelectChat: onSelectChat,
+                        onTogglePinChat: onTogglePinChat,
+                        onArchiveChat: onArchiveChat
                     )
                 }
             }
@@ -269,6 +306,12 @@ public struct CodexProjectSidebar: View {
                     isCollapsed: snapshot.isCollapsed,
                     isThreadReady: group.isSelected && isThreadReady,
                     onToggleProject: onToggleProject,
+                    onMoveProject: onMoveProject,
+                    onToggleProjectPin: onToggleProjectPin,
+                    onRevealProject: onRevealProject,
+                    onRenameProject: onRenameProject,
+                    onArchiveProjectChats: onArchiveProjectChats,
+                    onRemoveProject: onRemoveProject,
                     onStartProjectChat: onStartProjectChat,
                     onSelectProject: onSelectProject,
                     onSelectChat: onSelectChat,
@@ -324,6 +367,12 @@ public struct CodexProjectSidebar: View {
                                 isCollapsed: snapshot.isCollapsed,
                                 isThreadReady: group.isSelected && isThreadReady,
                                 onToggleProject: onToggleProject,
+                                onMoveProject: onMoveProject,
+                                onToggleProjectPin: onToggleProjectPin,
+                                onRevealProject: onRevealProject,
+                                onRenameProject: onRenameProject,
+                                onArchiveProjectChats: onArchiveProjectChats,
+                                onRemoveProject: onRemoveProject,
                                 onStartProjectChat: onStartProjectChat,
                                 onSelectProject: onSelectProject,
                                 onSelectChat: onSelectChat,
@@ -453,11 +502,19 @@ private struct SidebarSectionHeader: View {
 private struct ProjectSidebarGroupView: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var isHovered = false
+    @State private var isDropTargeted = false
+    @State private var isArchiveConfirmationPresented = false
 
     let group: CodexSidebarProjectGroup
     let isCollapsed: Bool
     let isThreadReady: Bool
     let onToggleProject: (String) -> Void
+    let onMoveProject: (String, String, CodexProjectDropPlacement) -> Void
+    let onToggleProjectPin: (String) -> Void
+    let onRevealProject: (String) -> Void
+    let onRenameProject: (CodexProjectSummary) -> Void
+    let onArchiveProjectChats: (String) -> Void
+    let onRemoveProject: (String) -> Void
     let onStartProjectChat: (String) -> Void
     let onSelectProject: (String) -> Void
     let onSelectChat: (CodexThreadSummary) -> Void
@@ -466,56 +523,131 @@ private struct ProjectSidebarGroupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Button {
-                if group.isExpanded {
-                    onToggleProject(group.project.workspacePath)
-                } else {
-                    onToggleProject(group.project.workspacePath)
-                    onSelectProject(group.project.workspacePath)
-                }
-            } label: {
-                HStack(spacing: 14) {
-                    Image(systemName: "folder.badge.gearshape")
-                        .font(theme.fonts.sidebar.projectIcon.font)
-                        .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                        .frame(width: 20)
-                    if !isCollapsed {
-                        Text(group.project.displayName)
-                            .font(theme.fonts.sidebar.projectTitle.font)
-                            .foregroundStyle(theme.colors.textSecondary)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                }
-                .frame(height: isCollapsed ? theme.fonts.sidebar.collapsedProjectRowHeight : theme.fonts.sidebar.projectRowHeight)
-                .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-                .padding(.horizontal, isCollapsed ? 4 : 6)
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(CodexSidebarAccessibility.projectDisclosureLabel(projectTitle: group.project.displayName, isExpanded: group.isExpanded))
-            .help(group.project.displayName)
-            .contextMenu {
-                if group.canStartNewChat {
-                    Button {
-                        onStartProjectChat(group.project.workspacePath)
-                    } label: {
-                        Label("New chat", systemImage: "square.and.pencil")
-                    }
-                }
-
+            HStack(spacing: 4) {
                 Button {
-                    onSelectProject(group.project.workspacePath)
+                    if group.isExpanded {
+                        onToggleProject(group.project.workspacePath)
+                    } else {
+                        onToggleProject(group.project.workspacePath)
+                        onSelectProject(group.project.workspacePath)
+                    }
                 } label: {
-                    Label("Select project", systemImage: "folder")
+                    HStack(spacing: 14) {
+                        Image(systemName: "folder.badge.gearshape")
+                            .font(theme.fonts.sidebar.projectIcon.font)
+                            .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                            .frame(width: 20)
+                        if !isCollapsed {
+                            Text(group.project.displayName)
+                                .font(theme.fonts.sidebar.projectTitle.font)
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .frame(height: isCollapsed ? theme.fonts.sidebar.collapsedProjectRowHeight : theme.fonts.sidebar.projectRowHeight)
+                    .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+                    .padding(.leading, isCollapsed ? 4 : 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(CodexSidebarAccessibility.projectDisclosureLabel(projectTitle: group.project.displayName, isExpanded: group.isExpanded))
+                .help(group.project.displayName)
+                if !isCollapsed {
+                    Menu {
+                        Button {
+                            onToggleProjectPin(group.project.workspacePath)
+                        } label: {
+                            Label(
+                                group.isPinned ? "Unpin project" : "Pin project",
+                                systemImage: group.isPinned ? "pin.slash" : "pin"
+                            )
+                        }
+                        Button {
+                            onRevealProject(group.project.workspacePath)
+                        } label: {
+                            Label("Reveal in Finder", systemImage: "folder")
+                        }
+                        Button {} label: {
+                            Label("Create permanent worktree", systemImage: "arrow.turn.up.right")
+                        }
+                        .disabled(true)
+                        Button {
+                            onRenameProject(group.project)
+                        } label: {
+                            Label("Rename project", systemImage: "pencil")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            isArchiveConfirmationPresented = true
+                        } label: {
+                            Label("Archive chats", systemImage: "archivebox")
+                        }
+                        Button(role: .destructive) {
+                            onRemoveProject(group.project.workspacePath)
+                        } label: {
+                            Label("Remove", systemImage: "xmark")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .frame(width: 26, height: theme.fonts.sidebar.projectRowHeight)
+                            .contentShape(Rectangle())
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Project actions")
+
+                    if group.canStartNewChat {
+                        Button {
+                            onStartProjectChat(group.project.workspacePath)
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .frame(width: 26, height: theme.fonts.sidebar.projectRowHeight)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("New chat in \(group.project.displayName)")
+                    }
                 }
             }
-            .padding(.horizontal, isCollapsed ? 0 : 2)
+            .padding(.horizontal, isCollapsed ? 0 : 4)
+            .contentShape(Rectangle())
             .background(
-                projectRowFill,
+                isDropTargeted ? theme.colors.accent.opacity(0.16) : projectRowFill,
                 in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             .onHover { isHovered = $0 }
+            .draggable(group.project.workspacePath) {
+                Label(group.project.displayName, systemImage: "folder")
+                    .font(theme.fonts.sidebar.projectTitle.font)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(theme.colors.surfaceElevated, in: Capsule())
+            }
+            .dropDestination(for: String.self) { sourcePaths, location in
+                guard let sourcePath = sourcePaths.first else { return false }
+                let placement: CodexProjectDropPlacement = location.y >= theme.fonts.sidebar.projectRowHeight / 2
+                    ? .after
+                    : .before
+                onMoveProject(sourcePath, group.project.workspacePath, placement)
+                return true
+            } isTargeted: { isDropTargeted = $0 }
+            .confirmationDialog(
+                "Archive all chats in \(group.project.displayName)?",
+                isPresented: $isArchiveConfirmationPresented
+            ) {
+                Button("Archive chats", role: .destructive) {
+                    onArchiveProjectChats(group.project.workspacePath)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes the project's chats from the active sidebar. The project folder is not changed.")
+            }
 
             if group.isExpanded && !isCollapsed {
                 if group.rows.isEmpty {

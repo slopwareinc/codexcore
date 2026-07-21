@@ -8,6 +8,8 @@ struct CodexCoreAppShell: View {
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var renameDraft = ""
+    @State private var projectRenameTarget: CodexProjectSummary?
+    @State private var projectRenameDraft = ""
     @State private var sidebarOverlaySession = CodexSidebarOverlaySession()
     @AppStorage("codex.sidebar.expandedWidth")
     private var sidebarExpandedWidth: Double = Double(CodexProjectSidebar.defaultExpandedWidth)
@@ -128,11 +130,26 @@ struct CodexCoreAppShell: View {
         }
         .sheet(isPresented: $isRenameSheetPresented) {
             RenameChatSheet(
+                title: "Rename chat",
+                placeholder: "Chat name",
                 name: $renameDraft,
                 onCancel: { isRenameSheetPresented = false },
                 onSave: {
                     isRenameSheetPresented = false
                     Task { await model.renameCurrentChat(to: renameDraft) }
+                }
+            )
+            .codexAgentTheme(model.theme)
+        }
+        .sheet(item: $projectRenameTarget) { project in
+            RenameChatSheet(
+                title: "Rename project",
+                placeholder: "Project name",
+                name: $projectRenameDraft,
+                onCancel: { projectRenameTarget = nil },
+                onSave: {
+                    model.renameSidebarProject(project.workspacePath, displayName: projectRenameDraft)
+                    projectRenameTarget = nil
                 }
             )
             .codexAgentTheme(model.theme)
@@ -165,6 +182,21 @@ struct CodexCoreAppShell: View {
             onOpenSearch: { model.selectAppRoute(.search) },
             onSelectRoute: { model.selectAppRoute($0) },
             onToggleProject: { model.toggleSidebarProject($0) },
+            onMoveProject: { source, target, placement in
+                model.moveSidebarProject(source, relativeTo: target, placement: placement)
+            },
+            onToggleProjectPin: { model.toggleSidebarProjectPin($0) },
+            onRevealProject: { path in
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            },
+            onRenameProject: { project in
+                projectRenameDraft = project.displayName
+                projectRenameTarget = project
+            },
+            onArchiveProjectChats: { path in
+                Task { await model.archiveSidebarProjectChats(path) }
+            },
+            onRemoveProject: { model.removeSidebarProject($0) },
             onStartProjectChat: { path in Task { await model.startNewChat(inProject: path) } },
             onSelectProject: { path in Task { await model.selectSidebarProject(path) } },
             onOpenFolder: { chooseWorkspaceFolder() },
@@ -425,6 +457,8 @@ struct CodexCoreAppShell: View {
 private struct RenameChatSheet: View {
     @Environment(\.codexAgentTheme) private var theme
 
+    let title: String
+    let placeholder: String
     @Binding var name: String
     let onCancel: () -> Void
     let onSave: () -> Void
@@ -432,11 +466,11 @@ private struct RenameChatSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename chat")
+            Text(title)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(theme.colors.textPrimary)
 
-            TextField("Chat name", text: $name)
+            TextField(placeholder, text: $name)
                 .textFieldStyle(.plain)
                 .font(theme.fonts.chat)
                 .padding(.horizontal, 10)

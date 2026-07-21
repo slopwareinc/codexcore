@@ -477,6 +477,32 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(gap <= 8)
     }
 
+    @Test func liveWorkHeaderShimmersForThinkingAndElapsedWorkingLabels() async throws {
+        for narrative: [CodexNarrativeEntry] in [
+            [],
+            [.workGroup(.init(id: "commands", header: "Ran a command", rows: []))],
+        ] {
+            let turn = CodexTurnV2(id: "turn", narrative: narrative, status: .working(since: nil))
+            let snapshot = try await CodexTranscriptRenderProjector().project(
+                presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+                availableWidth: 860,
+                theme: .init(.officialDark)
+            )
+            let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+            let cell = CodexTranscriptCollectionItem()
+            _ = cell.view
+            cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
+            cell.configure(
+                item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+                contentHorizontalOffset: 0, productToolRenderer: nil,
+                performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
+                forkChat: nil, selectionChanged: { _, _ in }
+            )
+            cell.view.layoutSubtreeIfNeeded()
+            #expect(cell.workHeaderShimmerIsActiveForTesting)
+        }
+    }
+
     @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)

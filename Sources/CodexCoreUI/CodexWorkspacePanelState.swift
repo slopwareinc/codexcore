@@ -21,7 +21,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
     private var nextTerminalNumber = 1
     private var nextBrowserNumber = 1
 
-    public init(panelWidth: CGFloat = 320) {
+    public init(panelWidth: CGFloat = 400) {
         self.panelWidth = panelWidth
     }
 
