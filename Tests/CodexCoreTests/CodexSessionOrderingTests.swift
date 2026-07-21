@@ -1916,7 +1916,11 @@ final class CodexSessionOrderingTests: XCTestCase {
         XCTAssertNil(legacyExec.startedAtMilliseconds)
         try await session.resolveServerRequest(
             legacyExecEntry.key,
-            result: .dictionary(["decision": .string("denied")])
+            result: .dictionary([
+                "decision": .dictionary([
+                    "denied": .dictionary(["rejection": .string("Rejected in test.")])
+                ])
+            ])
         )
         try await waitUntil {
             await session.serverRequestInboxSnapshot().requests.isEmpty
@@ -1962,7 +1966,11 @@ final class CodexSessionOrderingTests: XCTestCase {
         XCTAssertNil(legacyPatch.startedAtMilliseconds)
         try await session.resolveServerRequest(
             legacyPatchEntry.key,
-            result: .dictionary(["decision": .string("denied")])
+            result: .dictionary([
+                "decision": .dictionary([
+                    "denied": .dictionary(["rejection": .string("Rejected in test.")])
+                ])
+            ])
         )
 
         await session.cancelObservation(observation.id)

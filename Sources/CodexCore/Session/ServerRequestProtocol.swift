@@ -745,6 +745,7 @@ public enum CodexPermissionGrantScope: String, Sendable, Codable, Equatable {
 public enum CodexDynamicToolResultContent: Sendable, Equatable {
     case inputText(String)
     case inputImage(String)
+    case inputAudio(String)
 
     fileprivate init(jsonValue: CodexJSONValue, method: String) throws {
         let object = try ServerRequestJSON.object(jsonValue, context: method)
@@ -754,6 +755,8 @@ public enum CodexDynamicToolResultContent: Sendable, Equatable {
             self = .inputText(try ServerRequestJSON.string(object, "text", context: method))
         case "inputImage":
             self = .inputImage(try ServerRequestJSON.string(object, "imageUrl", context: method))
+        case "inputAudio":
+            self = .inputAudio(try ServerRequestJSON.string(object, "audioUrl", context: method))
         default:
             throw CodexServerRequestValidationError.invalidField(
                 method: method,
@@ -768,6 +771,8 @@ public enum CodexDynamicToolResultContent: Sendable, Equatable {
             return .dictionary(["type": .string("inputText"), "text": .string(text)])
         case .inputImage(let url):
             return .dictionary(["type": .string("inputImage"), "imageUrl": .string(url)])
+        case .inputAudio(let url):
+            return .dictionary(["type": .string("inputAudio"), "audioUrl": .string(url)])
         }
     }
 }
@@ -777,7 +782,7 @@ public enum CodexLegacyReviewDecision: Sendable, Equatable {
     case approvedForSession
     case approvedExecpolicyAmendment([String])
     case networkPolicyAmendment(CodexNetworkPolicyAmendment)
-    case denied
+    case denied(rejection: String)
     case timedOut
     case abort
 
@@ -785,10 +790,15 @@ public enum CodexLegacyReviewDecision: Sendable, Equatable {
         switch jsonValue {
         case .string("approved"): self = .approved
         case .string("approved_for_session"): self = .approvedForSession
-        case .string("denied"): self = .denied
         case .string("timed_out"): self = .timedOut
         case .string("abort"): self = .abort
         case .dictionary(let outer):
+            if outer.count == 1,
+               case .dictionary(let payload)? = outer["denied"],
+               case .string(let rejection)? = payload["rejection"] {
+                self = .denied(rejection: rejection)
+                return
+            }
             if outer.count == 1,
                case .dictionary(let payload)? = outer["approved_execpolicy_amendment"],
                let values = try? ServerRequestJSON.stringArray(
@@ -830,7 +840,12 @@ public enum CodexLegacyReviewDecision: Sendable, Equatable {
                     "network_policy_amendment": amendment.jsonValue
                 ])
             ])
-        case .denied: .string("denied")
+        case .denied(let rejection):
+            .dictionary([
+                "denied": .dictionary([
+                    "rejection": .string(rejection)
+                ])
+            ])
         case .timedOut: .string("timed_out")
         case .abort: .string("abort")
         }

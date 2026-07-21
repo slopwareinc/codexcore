@@ -4,7 +4,7 @@ import XCTest
 final class ProtocolStateAdapterTests: XCTestCase {
     private let adapter = ProtocolStateAdapter()
 
-    func testAlpha24NotificationDispositionInventoryIsExhaustive() throws {
+    func testGA145NotificationDispositionInventoryIsExhaustive() throws {
         XCTAssertEqual(
             CodexAppServerNotificationMethod.allCases.count,
             CodexAppServerProtocolInventory.notificationMethodCount
@@ -32,7 +32,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }
     }
 
-    func testEveryAlpha24StateNotificationHasAValidFixtureAndProducesAMutation() throws {
+    func testEveryGA145StateNotificationHasAValidFixtureAndProducesAMutation() throws {
         let fixtures = try stateNotificationFixtures()
         let stateMethods = Set(CodexAppServerNotificationMethod.allCases.filter {
             expectedDisposition(for: $0) == .state
@@ -46,7 +46,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         )
 
         for method in CodexAppServerNotificationMethod.allCases where stateMethods.contains(method) {
-            let params = try XCTUnwrap(fixtures[method], "Missing alpha.24 fixture for \(method.rawValue)")
+            let params = try XCTUnwrap(fixtures[method], "Missing 0.145.0 GA fixture for \(method.rawValue)")
             let adaptation = try adapter.adaptNotification(method: method, params: params)
 
             XCTAssertEqual(adaptation.disposition, .state, method.rawValue)

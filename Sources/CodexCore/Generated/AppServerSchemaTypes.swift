@@ -1642,16 +1642,24 @@ public struct CodexSchemaConfiguredHookMatcherGroup: Codable, Sendable, Equatabl
 }
 public struct CodexSchemaConnectorMetadata: Codable, Sendable, Equatable {
     public var description: String?
+    public var distributionChannel: String?
     public var iconUrl: String?
+    public var iconUrlDark: String?
     public var id: String
+    public var installUrl: String?
     public var name: String
+    public var pluginDisplayNames: [String]?
     public var toolSummaries: [CodexSchemaAppToolSummary]?
 
-    public init(description: String? = nil, iconUrl: String? = nil, id: String, name: String, toolSummaries: [CodexSchemaAppToolSummary]? = nil) {
+    public init(description: String? = nil, distributionChannel: String? = nil, iconUrl: String? = nil, iconUrlDark: String? = nil, id: String, installUrl: String? = nil, name: String, pluginDisplayNames: [String]? = nil, toolSummaries: [CodexSchemaAppToolSummary]? = nil) {
         self.description = description
+        self.distributionChannel = distributionChannel
         self.iconUrl = iconUrl
+        self.iconUrlDark = iconUrlDark
         self.id = id
+        self.installUrl = installUrl
         self.name = name
+        self.pluginDisplayNames = pluginDisplayNames
         self.toolSummaries = toolSummaries
     }
 }
@@ -3233,6 +3241,7 @@ public enum CodexSchemaHookHandlerType: Codable, Sendable, Equatable, Hashable, 
     }
 }
 public struct CodexSchemaHookMetadata: Codable, Sendable, Equatable {
+    public var additionalContextLimit: Int?
     public var command: String?
     public var currentHash: String
     public var displayOrder: Int
@@ -3250,6 +3259,7 @@ public struct CodexSchemaHookMetadata: Codable, Sendable, Equatable {
     public var trustStatus: CodexSchemaHookTrustStatus
 
     enum CodingKeys: String, CodingKey {
+        case additionalContextLimit
         case command
         case currentHash
         case displayOrder
@@ -3267,7 +3277,8 @@ public struct CodexSchemaHookMetadata: Codable, Sendable, Equatable {
         case trustStatus
     }
 
-    public init(command: String? = nil, currentHash: String, displayOrder: Int, enabled: Bool, eventName: CodexSchemaHookEventName, handlerType: CodexSchemaHookHandlerType, isManaged: Bool, key: String, matcher: String? = nil, pluginID: String? = nil, source: CodexSchemaHookSource, sourcePath: CodexSchemaAbsolutePathBuf, statusMessage: String? = nil, timeoutSec: Int, trustStatus: CodexSchemaHookTrustStatus) {
+    public init(additionalContextLimit: Int? = nil, command: String? = nil, currentHash: String, displayOrder: Int, enabled: Bool, eventName: CodexSchemaHookEventName, handlerType: CodexSchemaHookHandlerType, isManaged: Bool, key: String, matcher: String? = nil, pluginID: String? = nil, source: CodexSchemaHookSource, sourcePath: CodexSchemaAbsolutePathBuf, statusMessage: String? = nil, timeoutSec: Int, trustStatus: CodexSchemaHookTrustStatus) {
+        self.additionalContextLimit = additionalContextLimit
         self.command = command
         self.currentHash = currentHash
         self.displayOrder = displayOrder

@@ -64,7 +64,7 @@ final class ServerRequestProtocolTests: XCTestCase {
         XCTAssertEqual(sdkConfiguration.capabilities.experimentalAPI, true)
     }
 
-    func testTypedKindsExactlyCoverAlpha24GeneratedInventory() {
+    func testTypedKindsExactlyCoverGA145GeneratedInventory() {
         XCTAssertEqual(
             CodexServerRequestKind.knownMethods,
             Set(CodexAppServerServerRequestMethod.allCases.map(\.rawValue))
@@ -73,7 +73,7 @@ final class ServerRequestProtocolTests: XCTestCase {
         XCTAssertEqual(CodexAppServerProtocolInventory.serverRequestMethodCount, 11)
     }
 
-    func testEveryAlpha24RequestArmParsesAndValidatesItsResult() throws {
+    func testEveryGA145RequestArmParsesAndValidatesItsResult() throws {
         let fixtures: [(method: CodexAppServerServerRequestMethod, params: [String: CodexJSONValue], result: CodexJSONValue)] = [
             (
                 .itemCommandExecutionRequestApproval,
@@ -168,7 +168,8 @@ final class ServerRequestProtocolTests: XCTestCase {
                     "success": .bool(true),
                     "contentItems": .array([
                         .dictionary(["type": .string("inputText"), "text": .string("done")]),
-                        .dictionary(["type": .string("inputImage"), "imageUrl": .string("data:image/png;base64,AA==")])
+                        .dictionary(["type": .string("inputImage"), "imageUrl": .string("data:image/png;base64,AA==")]),
+                        .dictionary(["type": .string("inputAudio"), "audioUrl": .string("data:audio/wav;base64,AA==")])
                     ])
                 ])
             ),
@@ -210,7 +211,11 @@ final class ServerRequestProtocolTests: XCTestCase {
                     "cwd": .string("/tmp"),
                     "parsedCmd": .array([])
                 ],
-                .dictionary(["decision": .string("denied")])
+                .dictionary([
+                    "decision": .dictionary([
+                        "denied": .dictionary(["rejection": .string("Rejected in test.")])
+                    ])
+                ])
             )
         ]
 
