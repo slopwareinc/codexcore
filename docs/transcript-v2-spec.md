@@ -1,5 +1,7 @@
 # Transcript V2 — Turn-Centric Redesign Spec
 
+> **Historical engineering note:** Superseded implementation specification. Verify current transcript behavior against production source and tests.
+
 Rebuild CodexCoreUI's transcript pipeline around the turn structure the wire
 protocol actually provides, matching the official Codex.app presentation
 grammar captured via wire traces + CDP DOM snapshots (2026-07-09 capture).

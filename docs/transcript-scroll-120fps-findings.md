@@ -1,5 +1,7 @@
 # Transcript scroll: 120fps gap — findings (2026-07-02)
 
+> **Historical engineering note:** Point-in-time performance findings, not a current performance guarantee.
+
 Status after PR #50 / issue #49 fix: **beachball/hang is resolved**. Scrolling long threads (~1085 items) no longer blocks the main thread. User-reported gap: scroll still does not feel like **120fps** on ProMotion.
 
 Evidence sources:

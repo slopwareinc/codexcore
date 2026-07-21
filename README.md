@@ -1,30 +1,53 @@
 # CodexCore
 
-Swift SDK, reusable SwiftUI app layer, and full native app for the Codex app-server stack.
+Native Swift infrastructure for the Codex app-server: a Swift SDK, a reusable SwiftUI workspace, and a native macOS reference app.
 
-![CodexCore overview](docs/codexcore-overview.svg)
+> **Status:** CodexCore `0.7.0` targets macOS 26+, Swift 6.2, and exactly `codex-cli 0.145.0`. The CLI release is GA; CodexCore still opts into experimental app-server capabilities.
 
-## Products
+<!-- Replace this architecture preview with docs/assets/screenshots/hero-workspace.png after capture. -->
+![CodexCore architecture](docs/codexcore-overview.svg)
 
-| Product | What it is |
+## Choose your layer
+
+| You want to… | Use | Start here |
+| --- | --- | --- |
+| Run a native Codex client | `codex-core-app` | [Run the app](docs/getting-started/run-the-app.md) |
+| Add a reusable Codex workspace to a SwiftUI app | `CodexCoreUI` + `CodexCore` | [Embed the UI](docs/ui/embedding.md) |
+| Build your own UI or automation | `CodexCore` | [SDK quick start](docs/getting-started/sdk-quickstart.md) |
+| Understand or contribute to the runtime | source package | [Contributor guide](CONTRIBUTING.md) |
+
+`CodexCoreUI` is optional. The reference app is an example host, not a runtime dependency.
+
+## What is included
+
+| Product | Purpose |
 | --- | --- |
-| `CodexCore` | Pure Swift SDK: client, transports, protocol types, store, projections, dynamic tools, and command sessions. |
-| `CodexCoreUI` | Reusable SwiftUI app layer for using Codex as an intelligence layer inside a Swift app. |
-| `codex-run` | Small executable for exercising the SDK. |
-| `codex-core-app` | Full usable SwiftUI app demonstrating the modular Swift-native Codex stack. |
+| `CodexCore` | Process transport, typed app-server requests, thread/turn leases, canonical state, observation, approvals, dynamic tools, filesystem/process helpers, and protocol models. |
+| `CodexCoreUI` | SwiftUI workspace, AppKit-backed transcript, composer, prompts, files, terminal, browser, diff previews, plugins, subagents, and theming. |
+| `codex-core-app` | Native macOS reference application. See the [support matrix](docs/reference/support-status.md). |
+| `codex-run` | Trusted development demo. It auto-approves operations and may write `todo.html` in its working directory. |
 
-## Stack Vocabulary
+## Run the reference app
 
-- Codex app-server is the harness.
-- CodexCore is the Swift SDK for Codex app-server.
-- CodexCoreUI is the reusable app layer for using Codex as an intelligence layer in a Swift app.
-- CodexCoreApp is a full usable app made to demonstrate the modular Swift-native Codex stack.
+```bash
+git clone https://github.com/slopwareinc/codexcore.git
+cd codexcore
+codex --version       # checks only the PATH candidate; it must print codex-cli 0.145.0
+swift run codex-core-app
+```
 
-## Install
+On first launch, sign in with ChatGPT or an API key, choose a workspace, and start a task. CodexCore stores credentials and configuration in `~/.codexcore`; it does not reuse `~/.codex` implicitly.
+
+See [requirements](docs/getting-started/requirements.md) and [authentication](docs/getting-started/authentication.md) before troubleshooting runtime or sign-in failures.
+
+## Install the libraries
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/slopwareinc/codexcore.git", from: "0.2.0")
+    .package(
+        url: "https://github.com/slopwareinc/codexcore.git",
+        exact: "0.145.0+codexcore.0.7.0"
+    )
 ]
 ```
 
@@ -32,102 +55,81 @@ dependencies: [
 .target(
     name: "YourApp",
     dependencies: [
-        .product(name: "CodexCore", package: "CodexCore"),
-        .product(name: "CodexCoreUI", package: "CodexCore")
+        .product(name: "CodexCore", package: "codexcore"),
+        .product(name: "CodexCoreUI", package: "codexcore") // optional
     ]
 )
 ```
 
-Use only `CodexCore` if you do not need SwiftUI.
-
-## Quick Start
+## Minimal SDK session
 
 ```swift
 import CodexCore
+import Foundation
 
-let codex = try await Codex(config: CodexConfig(
-    cwd: FileManager.default.currentDirectoryPath,
-    approvalPolicy: .ask
+let cwd = FileManager.default.currentDirectoryPath
+let codex = try await Codex(config: .init(cwd: cwd))
+defer { Task { await codex.close() } }
+
+let thread = try await codex.startThread(.init(cwd: cwd))
+defer { Task { await thread.close() } }
+
+let input = CodexSchemaUserInput(.dictionary([
+    "type": .string("text"),
+    "text": .string("Summarize this project in three bullets."),
+]))
+
+let result = try await thread.runTurn(.init(
+    input: [input],
+    threadID: thread.id.rawValue
 ))
 
-let thread = try await codex.threadStart()
-let result = try await thread.run("Summarize this project.")
-
-print(result.finalResponse ?? "")
-await codex.close()
-```
-
-## SwiftUI Workspace
-
-```swift
-import SwiftUI
-import CodexCoreUI
-
-CodexChatWorkspaceView(
-    messages: messages,
-    lifecycleEvents: lifecycleEvents,
-    sideChat: sideChat,
-    subagents: subagents,
-    activities: activities,
-    connectionState: .connected(server: "Codex"),
-    workspacePath: workspacePath,
-    draft: $draft,
-    isSending: isSending,
-    canSend: canSend,
-    onSend: send,
-    onInterrupt: interrupt,
-    onDisconnect: disconnect
-)
-.codexAgentTheme(.officialDark)
-```
-
-Host apps that embed `CodexTranscriptView` can replace selected dynamic or MCP
-tool-call cards with app-specific UI while leaving other tools on the generic
-`CodexToolCallCard` path:
-
-```swift
-let toolCallRenderer = CodexTranscriptToolCallRenderer { toolCall in
-    guard toolCall.displayName.hasPrefix("walkable.") else { return nil }
-    return AnyView(WalkableResearchCard(toolCall: toolCall))
-}
-
-CodexTranscriptView(
-    messages: messages,
-    toolCallRenderer: toolCallRenderer
-) {
-    EmptyView()
+for item in result.items where item.kind == .agentMessage {
+    if let text = CodexJSONCoercion.string(from: item.payload["text"]) {
+        print(text)
+    }
 }
 ```
 
-Use `item/tool/requestUserInput` with the existing `CodexPrompt` flow for
-blocking questionnaires. Use `CodexTranscriptToolCallRenderer` for non-blocking
-rich progress cards such as research, project, or catalog updates.
+This minimal example can wait when app-server asks for approval or input. Production hosts must present or resolve every supported server-request family; see [approvals and input](docs/sdk/approvals-and-input.md).
 
-## Run Locally
+## Architecture
+
+```text
+Host app
+  ├─ CodexCoreUI (optional presentation layer)
+  └─ CodexCore
+       └─ CodexSession actor
+            ├─ ordered JSON-RPC transport
+            ├─ server-request inbox
+            ├─ thread and turn leases
+            └─ canonical state → observations → projections
+                 └─ pinned Codex app-server subprocess
+```
+
+Read the [architecture overview](docs/architecture/overview.md) for invariants and ownership boundaries.
+
+## Documentation
+
+- [Documentation index](docs/index.md)
+- [App guide](docs/app/using-the-app.md)
+- [SDK lifecycle](docs/sdk/threads-and-turns.md)
+- [Embedding CodexCoreUI](docs/ui/embedding.md)
+- [Configuration reference](docs/reference/configuration.md)
+- [Support status](docs/reference/support-status.md)
+- [Troubleshooting](docs/getting-started/troubleshooting.md)
+- [Contributing](CONTRIBUTING.md)
+
+## Development
 
 ```bash
-swift build
+swift build --target CodexCoreApp
 swift test
-swift run codex-core-app
+python3 -m unittest discover Tools/tests
 ```
 
-`CodexConfig` isolates auth, configuration, threads, and app-server state under
-`CODEX_HOME=~/.codexcore` by default. Pass a `CodexHome` to use another isolated
-home. The normal Codex app's `~/.codex` directory is never selected implicitly.
-CodexCore also forces `cli_auth_credentials_store="file"`, keeping login tokens
-inside that configured home instead of sharing the normal app's credential store.
-Pin the app runtime alongside app-server settings in the isolated home:
+Protocol bindings are generated. Do not edit `Sources/CodexCore/Generated/` or generated request factories by hand; follow [protocol upgrades](docs/contributing/protocol-upgrades.md).
 
-```toml
-[codexcore]
-codex_binary_path = "/absolute/path/to/codex"
-```
+## License and support
 
-An explicit `codexBinaryPath` takes priority, followed by this pin,
-`CODEX_BINARY`, `CODEX_BIN`, `CODEX_APP_BUNDLE`, `PATH`, and Codex.app discovery.
-
-## Requirements
-
-- Swift 6
-- macOS 26+
-- Codex runtime installed locally for live app use
+Use [GitHub Issues](https://github.com/slopwareinc/codexcore/issues) for reproducible bugs and focused feature requests. Do not post credentials or sensitive app-server logs publicly.

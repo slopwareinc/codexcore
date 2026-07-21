@@ -1,5 +1,7 @@
 # CodexCore Session Engine Architecture
 
+> **Historical target design:** This document mixes target and transitional states and is not an inventory of the current engine. Production uses `ThreadLeaseRegistry` and `PaginatedHistoryCoordinator`; source and tests are authoritative.
+
 ## Status
 
 This document defines the server-informed target runtime for the protocol pinned to

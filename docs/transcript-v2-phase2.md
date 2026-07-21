@@ -1,5 +1,7 @@
 # Transcript V2 — Phase 2 brief (SwiftUI views)
 
+> **Historical engineering note:** Completed/superseded phase brief. Do not execute it as a current plan.
+
 Build the SwiftUI presentation layer for the Phase 1 model
 (`Sources/CodexCoreUI/TranscriptV2/CodexTranscriptModelsV2.swift`), matching
 the official presentation grammar in `docs/transcript-v2-spec.md`.

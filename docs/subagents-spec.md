@@ -1,5 +1,7 @@
 # Subagents: dual-mode handling + Subagents panel
 
+> **Historical engineering note:** Capture-derived implementation research, not current public product documentation. Verify behavior against production source and tests.
+
 Ground truth: wire + CDP captures of the official app (ChatGPT.app v0.144,
 2026-07-11) — fixtures `turn-collab-official.jsonl` (classic) and
 `turn-subagents-ultra.jsonl` (ultra) — plus `openai/codex` source

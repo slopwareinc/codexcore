@@ -1,5 +1,7 @@
 # AppKit transcript parity matrix
 
+> **Historical engineering note:** Point-in-time acceptance matrix for issue #126, not the current support matrix.
+
 This matrix is the acceptance contract for issue #126. The V2 reducer,
 models, and wire grammar remain authoritative. The AppKit presentation may
 change how those values are rendered, but it may not introduce a second
