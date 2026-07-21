@@ -6,6 +6,19 @@ Native Swift infrastructure for the Codex app-server: a Swift SDK, a reusable Sw
 
 ![CodexCore native macOS workspace](docs/assets/screenshots/hero-workspace.png)
 
+## Built entirely with Codex
+
+CodexCore was built end to end with **Codex, powered by GPT-5.6**. The human role was product direction and acceptance; Codex performed the repository analysis, architecture, implementation, testing, debugging, documentation, and release preparation.
+
+Codex was used to:
+
+- reverse-engineer and model the Codex app-server protocol as a typed Swift API;
+- design and implement the SDK, reusable SwiftUI layer, and native macOS reference app;
+- migrate the runtime to `codex-cli 0.145.0`, generate and validate protocol types, and maintain concurrency invariants;
+- run tests, delegate audits to subagents, package the app, capture product screenshots, and rebuild the documentation.
+
+The result is also self-demonstrating: CodexCore hosts Codex workflows, while Codex itself is used to develop and verify CodexCore.
+
 ## Choose your layer
 
 | You want to… | Use | Start here |
