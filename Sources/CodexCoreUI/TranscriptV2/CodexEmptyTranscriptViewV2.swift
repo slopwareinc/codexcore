@@ -17,8 +17,8 @@ public struct CodexEmptyTranscriptView: View {
     public static let defaultPrompts = [
         Prompt(systemImage: "ladybug", prompt: "Debug an issue"),
         Prompt(systemImage: "list.bullet.clipboard", prompt: "Plan implementation"),
-        Prompt(systemImage: "arrow.triangle.pull", prompt: "Review a PR"),
-        Prompt(systemImage: "app.connected.to.app.below.fill", prompt: "Connect your favorite apps to Codex")
+        Prompt(systemImage: "text.magnifyingglass", prompt: "Explain this project"),
+        Prompt(systemImage: "scope", prompt: "Find relevant code")
     ]
     private let onSelect: (String) -> Void
     public init(onSelect: @escaping (String) -> Void) { self.onSelect = onSelect }

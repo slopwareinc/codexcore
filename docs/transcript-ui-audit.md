@@ -1,5 +1,7 @@
 # Transcript UI/UX Audit — July 2026
 
+> **Historical engineering note:** Point-in-time audit and external-reference research, not current product documentation.
+
 Consolidated findings from four research tracks: (1) AppKit-migration regression audit, (2) inline directive survey over 465 session rollouts, (3) design-reference mining of the official Codex app's DOM (CDP captures in `~/.codex-ui-capture`), (4) protocol event → UI mapping from wire captures (`~/.codexcore-capture`, `~/.codex-ui-capture/*/wire`) and `LUNA-UX-NOTES.md` (Codex 5.6-luna deep pass, repo root).
 
 ## A. Confirmed regressions from the AppKit migration

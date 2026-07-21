@@ -1,5 +1,7 @@
 # Transcript V2 UI/UX Overhaul — Implementation Plan
 
+> **Historical engineering note:** This implementation plan is complete/superseded. Do not execute it or use it as current product documentation; consult `docs/index.md`, production source, and tests.
+
 This plan is written so another model can execute it end-to-end without re-deriving context. Read this whole file before starting. Companion research documents: `docs/transcript-ui-audit.md` (findings + evidence) and `LUNA-UX-NOTES.md` (design rationale). Work top-to-bottom; phases are ordered by dependency and impact. Commit after each phase with a passing build.
 
 ---

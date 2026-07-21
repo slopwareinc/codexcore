@@ -1,5 +1,7 @@
 # AppKit transcript experiment results
 
+> **Historical engineering note:** Completed experiment record, not current user documentation.
+
 Issue: [#126](https://github.com/slopwareinc/codexcore/issues/126)
 
 ## Decision and shape

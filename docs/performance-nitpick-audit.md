@@ -1,5 +1,7 @@
 # CodexCore performance nitpick audit
 
+> **Historical engineering note:** Point-in-time audit evidence, not a current support or architecture contract.
+
 - Date: 2026-07-17
 - Audited commit: e5d41c191e9e6ef7b43723abe304903140f6bdc5
 - Scope: current origin/main, including the merged AppKit transcript and Fable work

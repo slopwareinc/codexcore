@@ -4,7 +4,7 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexWorkspaceToolsTests: XCTestCase {
-    func testLauncherOptionsEnableTerminalBrowserAndFilesAndDisableFutureTools() {
+    func testLauncherOffersOnlyAvailableWorkspaceTools() {
         let options = CodexWorkspaceToolCatalog.launcherOptions
 
         XCTAssertEqual(options.first?.id, CodexWorkspaceToolCatalog.terminalID)
@@ -21,15 +21,15 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(files?.isEnabled, true)
         XCTAssertEqual(files?.detail, "Browse this workspace")
 
-        let disabledOptions = options.filter {
-            ![
+        XCTAssertEqual(
+            options.map(\.id),
+            [
                 CodexWorkspaceToolCatalog.terminalID,
                 CodexWorkspaceToolCatalog.browserID,
                 CodexWorkspaceToolCatalog.filesID,
-            ].contains($0.id)
-        }
-        XCTAssertTrue(disabledOptions.allSatisfy { !$0.isEnabled })
-        XCTAssertTrue(disabledOptions.allSatisfy { $0.detail.contains("Not available") })
+            ]
+        )
+        XCTAssertTrue(options.allSatisfy(\.isEnabled))
     }
 
     @MainActor

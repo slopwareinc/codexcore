@@ -119,19 +119,9 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         model.selectAppRoute(.search)
     }
 
-    @objc private func toggleBottomTerminalPanel(_ sender: Any?) {
-        showMainWindow()
-        model.toggleBottomTerminalPanel()
-    }
-
     @objc private func toggleSidebar(_ sender: Any?) {
         showMainWindow()
         model.toggleSidebarCollapsed()
-    }
-
-    @objc private func openBottomTerminal(_ sender: Any?) {
-        showMainWindow()
-        Task { await model.openBottomTerminalDemo() }
     }
 
     private func showMainWindow() {
@@ -191,14 +181,6 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
         let newWindowItem = NSMenuItem(title: "New Chat", action: #selector(newWindow(_:)), keyEquivalent: "n")
         newWindowItem.target = self
         fileMenu.addItem(newWindowItem)
-        fileMenu.addItem(.separator())
-        let toggleTerminalItem = NSMenuItem(title: "Toggle Bottom Panel", action: #selector(toggleBottomTerminalPanel(_:)), keyEquivalent: "t")
-        toggleTerminalItem.target = self
-        toggleTerminalItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(toggleTerminalItem)
-        let openTerminalItem = NSMenuItem(title: "Open Terminal Demo", action: #selector(openBottomTerminal(_:)), keyEquivalent: "")
-        openTerminalItem.target = self
-        fileMenu.addItem(openTerminalItem)
         fileItem.submenu = fileMenu
 
         let editItem = NSMenuItem()
@@ -289,8 +271,8 @@ private struct CodexSettingsWindowView: View {
             metadata: CodexAboutMetadata(
                 bundle: .main,
                 serverName: model.serverName,
-                fallbackAppName: "Codex",
-                fallbackCopyright: "© OpenAI"
+                fallbackAppName: "CodexCore",
+                fallbackCopyright: "© Slopware"
             ),
             accountSummary: model.accountMenuSummary,
             appearanceSettings: $model.appearanceSettings,
@@ -301,7 +283,7 @@ private struct CodexSettingsWindowView: View {
             modelSelection: $model.modelSelection,
             modelOptions: model.modelOptions,
             reasoningSelection: $model.reasoningSelection,
-            isBottomPanelVisible: $model.isBottomTerminalVisible,
+            isBottomPanelVisible: .constant(false),
             gitSettings: $model.gitSettings,
             newThreadHistoryMode: $model.newThreadHistoryMode,
             mcpServers: model.mcpServers,

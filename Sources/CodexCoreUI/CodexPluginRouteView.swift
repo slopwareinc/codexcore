@@ -86,7 +86,7 @@ public struct CodexPluginRouteView: View {
                 Text("Plugins")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(theme.colors.textPrimary)
-                Text("Manage marketplace plugins, apps, MCPs, and skills.")
+                Text("Inspect available plugins, apps, MCPs, and skills.")
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
             }
@@ -255,9 +255,6 @@ public struct CodexPluginRouteView: View {
                     onSelect: {
                         selectedPluginID = plugin.id
                         selectedSkillID = nil
-                    },
-                    onToggleEnabled: {
-                        onAction(.setPluginEnabled(CodexPluginActionTarget(plugin: plugin), enabled: !plugin.enabled))
                     }
                 )
             }
@@ -349,7 +346,6 @@ private struct PluginCatalogRow: View {
     let plugin: CodexPluginSummary
     let isSelected: Bool
     let onSelect: () -> Void
-    let onToggleEnabled: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
@@ -364,15 +360,9 @@ private struct PluginCatalogRow: View {
                         .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(1)
                     Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { plugin.enabled },
-                        set: { _ in onToggleEnabled() }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(!plugin.installed)
-                    .accessibilityLabel("Plugin enabled")
+                    Text(plugin.statusLabel)
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(plugin.enabled ? theme.colors.success : theme.colors.textTertiary)
                 }
 
                 Text(plugin.detail)
@@ -510,35 +500,8 @@ private struct PluginDetailPane: View {
                 .buttonStyle(.borderedProminent)
             }
 
-            if let primary = detail.primaryAction {
-                Button(action: { onAction(primary) }) {
-                    Text(primaryTitle)
-                }
-                .buttonStyle(.bordered)
-            }
-
-            if detail.canToggleEnabled, case .plugin(let target) = detail.kind {
-                Button(detail.isEnabled ? "Disable" : "Enable") {
-                    onAction(.setPluginEnabled(target, enabled: !detail.isEnabled))
-                }
-                .buttonStyle(.bordered)
-            }
-
-            if let title = detail.boundaryActionTitle {
-                Button(title) {}
-                    .buttonStyle(.bordered)
-                    .disabled(true)
-                    .help("\(title) is bounded until plugin installation and permissions are wired.")
-            }
-
             Spacer()
         }
-    }
-
-    private var primaryTitle: String {
-        if detail.canInstall { return "Install" }
-        if detail.canUninstall { return "Uninstall" }
-        return detail.isEnabled ? "Disable" : "Enable"
     }
 
     @ViewBuilder

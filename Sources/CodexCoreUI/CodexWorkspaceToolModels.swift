@@ -22,10 +22,8 @@ public struct CodexWorkspaceToolOption: Identifiable, Equatable, Sendable {
 
 public enum CodexWorkspaceToolCatalog {
     public static let terminalID = "terminal"
-    public static let subagentsID = "subagents"
     public static let browserID = "browser"
     public static let filesID = "files"
-    public static let gitID = "git"
 
     public static var launcherOptions: [CodexWorkspaceToolOption] {
         [
@@ -35,13 +33,6 @@ public enum CodexWorkspaceToolCatalog {
                 detail: "Run shell commands in this workspace",
                 systemImage: "terminal",
                 isEnabled: true
-            ),
-            CodexWorkspaceToolOption(
-                id: subagentsID,
-                title: "Sub-agents",
-                detail: "Not available in CodexCore yet",
-                systemImage: "person.2.wave.2",
-                isEnabled: false
             ),
             CodexWorkspaceToolOption(
                 id: browserID,
@@ -56,13 +47,6 @@ public enum CodexWorkspaceToolCatalog {
                 detail: "Browse this workspace",
                 systemImage: "folder",
                 isEnabled: true
-            ),
-            CodexWorkspaceToolOption(
-                id: gitID,
-                title: "Git",
-                detail: "Not available in CodexCore yet",
-                systemImage: "arrow.triangle.branch",
-                isEnabled: false
             ),
         ]
     }

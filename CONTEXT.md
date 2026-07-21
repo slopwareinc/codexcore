@@ -1,5 +1,7 @@
 # CodexCore Domain Language
 
+> **Maintainer note:** This glossary contains architectural vocabulary and may retain target-state language. Production source and tests are authoritative for current ownership and behavior.
+
 ## App-server protocol
 
 The version-pinned JSON-RPC contract generated from the bundled Codex app-server.
