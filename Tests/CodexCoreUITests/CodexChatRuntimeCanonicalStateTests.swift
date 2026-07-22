@@ -61,6 +61,50 @@ struct CodexChatRuntimeCanonicalStateTests {
         #expect(runtime.activeTurnID == nil)
     }
 
+    @Test func queuedFollowUpsDrainOneAtATimeInFIFOOrderDespiteStaleCanonicalState() throws {
+        let runtime = CodexChatRuntimeSession()
+        runtime.selectThread("thread")
+        runtime.applyCanonicalSnapshot(snapshot(status: .inProgress, threadStatus: .active(flags: [])))
+
+        var composer = CodexComposerStateSession(activeThreadID: "thread")
+        let first = CodexComposerSubmission(prompt: "first", clientID: "first", threadID: "thread")
+        let second = CodexComposerSubmission(prompt: "second", clientID: "second", threadID: "thread")
+        composer.enqueueFollowUp(first)
+        composer.enqueueFollowUp(second)
+
+        _ = runtime.beginMainTurnSubmission(.init(prompt: "running"))
+        runtime.startMainTurn(id: "turn-1")
+        _ = try #require(runtime.finishMainTurn(id: "turn-1"))
+
+        // The canonical projection intentionally still says the completed turn
+        // is active. Queue serialization follows the matching local lifecycle.
+        #expect(runtime.isSending)
+        #expect(!runtime.isMainTurnPendingOrRunning)
+
+        let firstQueued = try #require(runtime.dequeueQueuedFollowUp(
+            composerSession: &composer,
+            isSending: runtime.isMainTurnPendingOrRunning
+        ))
+        #expect(firstQueued.submission.clientID == first.clientID)
+        #expect(runtime.isMainTurnPendingOrRunning)
+        #expect(composer.queuedFollowUpSubmissions(for: "thread").map(\.clientID) == [second.clientID])
+
+        // A second drain attempt cannot start a concurrent turn.
+        #expect(runtime.dequeueQueuedFollowUp(
+            composerSession: &composer,
+            isSending: runtime.isMainTurnPendingOrRunning
+        ) == nil)
+
+        runtime.startMainTurn(id: "turn-2")
+        _ = try #require(runtime.finishMainTurn(id: "turn-2"))
+        let secondQueued = try #require(runtime.dequeueQueuedFollowUp(
+            composerSession: &composer,
+            isSending: runtime.isMainTurnPendingOrRunning
+        ))
+        #expect(secondQueued.submission.clientID == second.clientID)
+        #expect(composer.queuedFollowUpSubmissions(for: "thread").isEmpty)
+    }
+
     private func snapshot(
         status: CanonicalTurnStatus,
         threadStatus: CanonicalThreadStatus

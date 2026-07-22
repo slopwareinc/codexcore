@@ -29,7 +29,7 @@ CodexChatWorkspaceView(
 
 This is intentionally only the minimal initializer path. Add model selection, permissions, panels, MCP state, side chat, subagents, and host actions as your product supports them.
 
-For desktop-style follow-ups, pass the active thread's `[CodexComposerSubmission]` through `queuedFollowUps` and wire `onSteerQueuedFollowUp`, `onRemoveQueuedFollowUp`, and `onEditQueuedFollowUp` by `clientID`. The host remains responsible for calling `turn/steer`, preserving a failed steer at the front of the queue, and starting one queued follow-up after the active turn completes.
+For desktop-style follow-ups, pass the active thread's `[CodexComposerSubmission]` through `queuedFollowUps` and wire `onSteerQueuedFollowUp`, `onRemoveQueuedFollowUp`, and `onEditQueuedFollowUp` by `clientID`. The host remains responsible for calling `turn/steer`, preserving a failed steer at the front of the queue, and atomically dequeuing exactly one FIFO follow-up while marking its turn pending after each active turn completes. Do not gate that completion-triggered dequeue on a cached canonical `isSending` projection; it may still describe the turn whose terminal event initiated the drain.
 
 ## Production wiring
 

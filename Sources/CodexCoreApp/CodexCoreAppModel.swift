@@ -411,14 +411,48 @@ final class CodexCoreAppModel {
         composerSession.restore(submission)
     }
 
-    /// Sends the next queued follow-up as a fresh turn. Called after a turn
-    /// finishes; messages were already rendered when they were queued.
-    private func flushQueuedFollowUps() {
-        guard let submission = composerSession.dequeueQueuedFollowUpSubmission(isSending: isSending) else { return }
+    /// Sends exactly one queued follow-up as a fresh turn. This mirrors the
+    /// upstream TUI queue reducer: dequeue FIFO and synchronously mark the next
+    /// turn pending before its asynchronous request starts.
+    private func flushQueuedFollowUps(afterTurnEnded: Bool = false) {
+        syncComposerThreadID()
+        let blocksQueueDrain = runtimeSession.isMainTurnPendingOrRunning
+            || activeTurnLease != nil
+            || (!afterTurnEnded && runtimeSession.isSending)
+        guard let queued = runtimeSession.dequeueQueuedFollowUp(
+            composerSession: &composerSession,
+            isSending: blocksQueueDrain
+        ) else { return }
+
+        appendActivity(queued.activity)
 
         Task { [weak self] in
             guard let self else { return }
-            await startMainTurn(submission, restoreDraftOnFailure: false)
+            await startQueuedFollowUp(queued)
+        }
+    }
+
+    private func startQueuedFollowUp(_ queued: CodexQueuedFollowUpSubmission) async {
+        var submission = queued.submission
+        do {
+            let thread = try await ensureThread()
+            if submission.threadID == nil {
+                submission.threadID = thread.id.rawValue
+            }
+            let lease = try await thread.startTurn(turnStartParameters(
+                threadID: thread.id,
+                input: submission.turnInput,
+                clientUserMessageID: submission.clientID
+            ))
+            activeTurnLease = lease
+            runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
+            monitorMainTurn(lease)
+        } catch {
+            appendActivity(runtimeSession.failQueuedFollowUp(
+                queued,
+                message: friendlyError(error),
+                composerSession: &composerSession
+            ))
         }
     }
 
@@ -468,7 +502,7 @@ final class CodexCoreAppModel {
                     detail: terminal.turn.error?.message ?? lease.key.turnID.rawValue
                 )
                 Task { await refreshRecentChats() }
-                flushQueuedFollowUps()
+                flushQueuedFollowUps(afterTurnEnded: true)
             } catch is CancellationError {
                 return
             } catch {

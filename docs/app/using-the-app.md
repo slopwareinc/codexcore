@@ -26,7 +26,7 @@ The composer supports:
 - slash commands;
 - queued follow-ups, explicit steering, and turn interruption.
 
-While a turn is running, sending adds a follow-up card above the composer. Choose **Steer** to inject that exact message into the active turn, edit or remove it from the card, or leave it queued to start automatically after the current turn completes.
+While a turn is running, each send adds another follow-up card above the composer. Choose **Steer** to inject that exact message into the active turn, edit or remove it from the card, or leave the FIFO queue alone. CodexCore starts exactly one queued message when the current turn completes; any remaining messages wait for each new turn to complete in order.
 
 Start with the least privilege that can complete the task. Review commands, requested permissions, and proposed file changes before approval; inspect resulting files afterward.
 
