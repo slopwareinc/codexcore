@@ -30,6 +30,10 @@ public struct CodexTurnViewV2: View {
                 onOpenSubagent: onOpenSubagent
             )
 
+            ForEach(turn.steeredMessages) { message in
+                userBubble(message)
+            }
+
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     CodexAssistantContentView(

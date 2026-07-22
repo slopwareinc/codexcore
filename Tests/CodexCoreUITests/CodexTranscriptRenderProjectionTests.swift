@@ -103,6 +103,38 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(attachments.measuredHeight == 64 + CodexTranscriptColumnMetrics.interactiveBottomSpacing)
     }
 
+    @Test func steeredMessagesRenderAsDistinctUserBubblesAfterActiveWork() async throws {
+        let turn = CodexTurnV2(
+            id: "turn",
+            userMessage: .init(id: "original", text: "Original prompt"),
+            steeredMessages: [
+                .init(id: "steer-one", text: "First direction"),
+                .init(id: "steer-two", text: "Second direction")
+            ],
+            narrative: [.prose(.init(id: "work", text: "Still working", isStreaming: true))],
+            status: .working(since: nil)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let orderedItems = snapshot.orderedItemIDs.compactMap { snapshot.itemsByID[$0] }
+        let userItems = orderedItems.filter { $0.textRole == .user }
+
+        #expect(userItems.map { $0.preparedText?.attributedString.string } == [
+            "Original prompt", "First direction", "Second direction"
+        ])
+        #expect(Set(userItems.map(\.id)).count == 3)
+        let workIndex = try #require(orderedItems.firstIndex { $0.workHeader != nil })
+        let firstSteerIndex = try #require(orderedItems.firstIndex { $0.id.rawValue.contains(":user:steer-one") })
+        #expect(workIndex < firstSteerIndex)
+        let copyTurnText = try #require(userItems.first).copyTurnText
+        #expect(copyTurnText.contains("You\nOriginal prompt"))
+        #expect(copyTurnText.contains("You\nFirst direction"))
+        #expect(copyTurnText.contains("You\nSecond direction"))
+    }
+
     @Test func expandedWorkProseUsesTheFinalAnswerForeground() async throws {
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let turn = CodexTurnV2(

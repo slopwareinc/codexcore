@@ -338,7 +338,12 @@ private extension CodexCanonicalTranscriptProjector {
             let completed = item.authority == .completed || canonical?.status.isTerminal == true
             switch item.kind {
             case .userMessage:
-                turn.userMessage = userMessage(item)
+                let message = userMessage(item)
+                if turn.userMessage == nil {
+                    turn.userMessage = message
+                } else {
+                    turn.steeredMessages.append(message)
+                }
             case .hookPrompt:
                 break
             case .agentMessage:
@@ -383,10 +388,13 @@ private extension CodexCanonicalTranscriptProjector {
             )
         }
 
-        if turn.userMessage == nil, let intent = intents.first {
+        var remainingIntents = intents[...]
+        if turn.userMessage == nil, let intent = remainingIntents.first {
             turn.userMessage = optimisticUserMessage(intent)
+            remainingIntents = remainingIntents.dropFirst()
         }
-        if canonical == nil, let intent = intents.first {
+        turn.steeredMessages.append(contentsOf: remainingIntents.map(optimisticUserMessage))
+        for intent in intents {
             appendIntentState(intent, to: &turn)
         }
 

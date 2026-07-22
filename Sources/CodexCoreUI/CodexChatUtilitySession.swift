@@ -50,7 +50,9 @@ public struct CodexChatStatusSummaryContext: Equatable, Sendable {
 public enum CodexChatUtilitySession {
     public static func transcriptText(transcript: CodexTranscriptV2) -> String {
         transcript.turns.flatMap { turn in
-            [turn.userMessage.map { "You: \($0.text)" }, turn.finalAnswer.map { "Codex: \($0.text)" }].compactMap { $0 }
+            let userMessages = ([turn.userMessage].compactMap { $0 } + turn.steeredMessages)
+                .map { "You: \($0.text)" }
+            return userMessages + [turn.finalAnswer.map { "Codex: \($0.text)" }].compactMap { $0 }
         }.joined(separator: "\n\n")
     }
 

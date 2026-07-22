@@ -9,13 +9,15 @@ public struct CodexTranscriptV2: Sendable, Equatable {
 public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var userMessage: CodexUserMessageV2?
+    /// Additional user messages appended to this in-flight turn by `turn/steer`.
+    public var steeredMessages: [CodexUserMessageV2]
     public var narrative: [CodexNarrativeEntry]
     public var finalAnswer: CodexAssistantTextV2?
     public var liveTail: String?
     public var status: CodexTurnStatusV2
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2) {
-        self.id = id; self.userMessage = userMessage; self.narrative = narrative
+    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2) {
+        self.id = id; self.userMessage = userMessage; self.steeredMessages = steeredMessages; self.narrative = narrative
         self.finalAnswer = finalAnswer; self.liveTail = liveTail; self.status = status
     }
 }

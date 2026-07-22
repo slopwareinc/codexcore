@@ -414,80 +414,16 @@ actor CodexTranscriptRenderProjector {
             }
 
             if let user = turn.userMessage {
-                // Trailing whitespace/newlines would measure as phantom empty lines
-                // and inflate the bubble; display trimmed, keep the raw text for copy.
-                let displayText = user.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                let visibleUserText = displayText.isEmpty && !user.referencedFiles.isEmpty ? "Attached files" : displayText
-                let prepared = cachedPreparedText(
-                    content: user.displayText,
-                    style: "user-plain",
+                for draft in userMessageDrafts(
+                    user,
+                    sectionID: sectionID,
+                    contentWidth: contentWidth,
+                    presentedAt: presentedAt,
+                    turnIsStreaming: turnIsStreaming,
                     theme: theme,
                     cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses
-                ) {
-                    Self.prepareUserMessage(user, text: visibleUserText, font: theme.bodyFont, color: theme.textPrimary, theme: theme)
-                }
-                let userMaxWidth = min(contentWidth * 0.77, theme.userBubbleMaxWidth)
-                let horizontalPadding = CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
-                let textBounds = prepared.attributedString.boundingRect(
-                    with: NSSize(width: max(1, userMaxWidth - horizontalPadding), height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading]
-                )
-                let userDraft = ItemDraft(
-                    id: "\(sectionID):user:\(user.id)",
-                    fingerprint: "user:\(user.rawText):\(user.isOptimistic)",
-                    textRole: .user,
-                    preparedText: prepared,
-                    copyText: user.text.isEmpty ? user.displayText : user.text,
-                    editUserText: user.rawText,
-                    accessibilityLabel: "You: \(visibleUserText)",
-                    isTrailingAligned: true,
-                    maxWidthKind: .user,
-                    intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
-                )
-                if !user.referencedFiles.isEmpty {
-                    let attachmentChips = user.referencedFiles.map {
-                        CodexTranscriptAgentChipRender(
-                            id: "\(user.id):attachment:\($0.id)",
-                            label: $0.displayName,
-                            status: .done,
-                            threadID: nil,
-                            taskSummary: $0.path,
-                            latestUpdate: nil,
-                            attachmentKind: $0.kind
-                        )
-                    }
-                    let attachmentWidth = min(
-                        userMaxWidth,
-                        attachmentChips.reduce(CGFloat.zero) { total, chip in
-                            let isImage = chip.attachmentKind == .image
-                            let width = isImage
-                                ? 64
-                                : ceil((chip.label as NSString).size(withAttributes: [.font: theme.captionFont]).width) + 34
-                            return total + width
-                        } + CGFloat(max(0, attachmentChips.count - 1) * 6)
-                    )
-                    append(ItemDraft(
-                        id: "\(sectionID):user:\(user.id):attachments",
-                        fingerprint: "attachments:\(user.referencedFiles.map(\.path).joined(separator: "|"))",
-                        agentChips: attachmentChips,
-                        accessibilityLabel: "Attached files: \(user.referencedFiles.map(\.displayName).joined(separator: ", "))",
-                        indentation: user.isOptimistic ? 0 : 0,
-                        isTrailingAligned: true,
-                        maxWidthKind: .user,
-                        intrinsicContentWidth: attachmentWidth,
-                        bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
-                    ))
-                }
-                append(userDraft)
-                append(timestampDraft(
-                    id: "\(sectionID):user-timestamp",
-                    date: presentedAt,
-                    trailing: true,
-                    kind: .user,
-                    isTurnStreaming: turnIsStreaming,
-                    copyText: user.text.isEmpty ? user.displayText : user.text
-                ))
+                ) { append(draft) }
             }
 
             let showsWork = Self.shouldRenderWork(turn)
@@ -688,6 +624,19 @@ actor CodexTranscriptRenderProjector {
                         fixedHeight: 28
                     ))
                 }
+            }
+
+            for user in turn.steeredMessages {
+                for draft in userMessageDrafts(
+                    user,
+                    sectionID: sectionID,
+                    contentWidth: contentWidth,
+                    presentedAt: presentedAt,
+                    turnIsStreaming: turnIsStreaming,
+                    theme: theme,
+                    cacheHits: &preparedTextCacheHits,
+                    cacheMisses: &preparedTextCacheMisses
+                ) { append(draft) }
             }
 
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
@@ -1181,6 +1130,104 @@ private extension CodexTranscriptRenderProjector {
             maxWidthKind: trailing ? .user : .card,
             fixedHeight: CodexTranscriptColumnMetrics.footerHeight
         )
+    }
+
+    func userMessageDrafts(
+        _ user: CodexUserMessageV2,
+        sectionID: String,
+        contentWidth: CGFloat,
+        presentedAt: Date,
+        turnIsStreaming: Bool,
+        theme: CodexTranscriptAppKitTheme,
+        cacheHits: inout Int,
+        cacheMisses: inout Int
+    ) -> [ItemDraft] {
+        // Trailing whitespace/newlines would measure as phantom empty lines
+        // and inflate the bubble; display trimmed, keep the raw text for copy.
+        let displayText = user.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visibleUserText = displayText.isEmpty && !user.referencedFiles.isEmpty
+            ? "Attached files"
+            : displayText
+        let prepared = cachedPreparedText(
+            content: user.displayText,
+            style: "user-plain",
+            theme: theme,
+            cacheHits: &cacheHits,
+            cacheMisses: &cacheMisses
+        ) {
+            Self.prepareUserMessage(
+                user,
+                text: visibleUserText,
+                font: theme.bodyFont,
+                color: theme.textPrimary,
+                theme: theme
+            )
+        }
+        let userMaxWidth = min(contentWidth * 0.77, theme.userBubbleMaxWidth)
+        let horizontalPadding = CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
+        let textBounds = prepared.attributedString.boundingRect(
+            with: NSSize(
+                width: max(1, userMaxWidth - horizontalPadding),
+                height: .greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        var drafts: [ItemDraft] = []
+        if !user.referencedFiles.isEmpty {
+            let attachmentChips = user.referencedFiles.map {
+                CodexTranscriptAgentChipRender(
+                    id: "\(user.id):attachment:\($0.id)",
+                    label: $0.displayName,
+                    status: .done,
+                    threadID: nil,
+                    taskSummary: $0.path,
+                    latestUpdate: nil,
+                    attachmentKind: $0.kind
+                )
+            }
+            let attachmentWidth = min(
+                userMaxWidth,
+                attachmentChips.reduce(CGFloat.zero) { total, chip in
+                    let width = chip.attachmentKind == .image
+                        ? 64
+                        : ceil((chip.label as NSString).size(
+                            withAttributes: [.font: theme.captionFont]
+                        ).width) + 34
+                    return total + width
+                } + CGFloat(max(0, attachmentChips.count - 1) * 6)
+            )
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):attachments",
+                fingerprint: "attachments:\(user.referencedFiles.map(\.path).joined(separator: "|"))",
+                agentChips: attachmentChips,
+                accessibilityLabel: "Attached files: \(user.referencedFiles.map(\.displayName).joined(separator: ", "))",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                intrinsicContentWidth: attachmentWidth,
+                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+            ))
+        }
+        drafts.append(ItemDraft(
+            id: "\(sectionID):user:\(user.id)",
+            fingerprint: "user:\(user.rawText):\(user.isOptimistic)",
+            textRole: .user,
+            preparedText: prepared,
+            copyText: user.text.isEmpty ? user.displayText : user.text,
+            editUserText: user.rawText,
+            accessibilityLabel: "You: \(visibleUserText)",
+            isTrailingAligned: true,
+            maxWidthKind: .user,
+            intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
+        ))
+        drafts.append(timestampDraft(
+            id: "\(sectionID):user-timestamp:\(user.id)",
+            date: presentedAt,
+            trailing: true,
+            kind: .user,
+            isTurnStreaming: turnIsStreaming,
+            copyText: user.text.isEmpty ? user.displayText : user.text
+        ))
+        return drafts
     }
 
     func cachedPreparedText(
@@ -1755,6 +1802,11 @@ private extension CodexTranscriptRenderProjector {
             }
         }
         if !work.isEmpty { parts.append("Work\n" + work.joined(separator: "\n")) }
+        for user in turn.steeredMessages {
+            if let text = user.displayText.codexAppKitNilIfEmpty {
+                parts.append("You\n" + text)
+            }
+        }
         if let answer = turn.finalAnswer?.text.codexAppKitNilIfEmpty { parts.append("Assistant\n" + answer) }
         return parts.joined(separator: "\n\n")
     }
