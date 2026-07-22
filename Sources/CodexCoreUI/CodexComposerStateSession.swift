@@ -293,6 +293,24 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         queuedFollowUpSubmissionsByThreadID[key] = queue
     }
 
+    public mutating func takeQueuedFollowUpSubmission(
+        clientID: String,
+        threadID: String? = nil
+    ) -> CodexComposerSubmission? {
+        let key = Self.draftKey(for: threadID ?? activeThreadID)
+        guard var queue = queuedFollowUpSubmissionsByThreadID[key],
+              let index = queue.firstIndex(where: { $0.clientID == clientID }) else {
+            return nil
+        }
+        let submission = queue.remove(at: index)
+        if queue.isEmpty {
+            queuedFollowUpSubmissionsByThreadID.removeValue(forKey: key)
+        } else {
+            queuedFollowUpSubmissionsByThreadID[key] = queue
+        }
+        return submission
+    }
+
     public mutating func dequeueQueuedFollowUp(isSending: Bool) -> String? {
         dequeueQueuedFollowUpSubmission(isSending: isSending)?.prompt
     }

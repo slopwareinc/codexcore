@@ -86,11 +86,15 @@ public struct CodexChatWorkspaceView: View {
     private let canUsePlanMode: Bool
     private let isGoalPursuitEnabled: Bool
     private let followUpHint: String?
+    private let queuedFollowUps: [CodexComposerSubmission]
     private let mentionResults: [FuzzyFileSearchResult]
     private let onMentionQueryChanged: ((String?) -> Void)?
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
+    private let onSteerQueuedFollowUp: (String) -> Void
+    private let onRemoveQueuedFollowUp: (String) -> Void
+    private let onEditQueuedFollowUp: (String) -> Void
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
     private let onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
@@ -153,11 +157,15 @@ public struct CodexChatWorkspaceView: View {
         canUsePlanMode: Bool = true,
         isGoalPursuitEnabled: Bool = false,
         followUpHint: String? = nil,
+        queuedFollowUps: [CodexComposerSubmission] = [],
         mentionResults: [FuzzyFileSearchResult] = [],
         onMentionQueryChanged: ((String?) -> Void)? = nil,
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
+        onSteerQueuedFollowUp: @escaping (String) -> Void = { _ in },
+        onRemoveQueuedFollowUp: @escaping (String) -> Void = { _ in },
+        onEditQueuedFollowUp: @escaping (String) -> Void = { _ in },
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
@@ -213,11 +221,15 @@ public struct CodexChatWorkspaceView: View {
         self.canUsePlanMode = canUsePlanMode
         self.isGoalPursuitEnabled = isGoalPursuitEnabled
         self.followUpHint = followUpHint
+        self.queuedFollowUps = queuedFollowUps
         self.mentionResults = mentionResults
         self.onMentionQueryChanged = onMentionQueryChanged
         self.onMentionSelected = onMentionSelected
         self.onSend = onSend
         self.onInterrupt = onInterrupt
+        self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
+        self.onRemoveQueuedFollowUp = onRemoveQueuedFollowUp
+        self.onEditQueuedFollowUp = onEditQueuedFollowUp
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onComposerAddMenuRoute = onComposerAddMenuRoute
@@ -383,6 +395,19 @@ public struct CodexChatWorkspaceView: View {
                             .padding(.horizontal, 14)
                             .padding(.bottom, 6)
                             .offset(x: -contentShift)
+                    }
+                    if !queuedFollowUps.isEmpty {
+                        CodexQueuedFollowUpStack(
+                            submissions: queuedFollowUps,
+                            canSteer: isSending,
+                            onSteer: onSteerQueuedFollowUp,
+                            onRemove: onRemoveQueuedFollowUp,
+                            onEdit: onEditQueuedFollowUp
+                        )
+                        .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 8)
+                        .offset(x: -contentShift)
                     }
                     CodexComposerBar(
                         draft: $draft,

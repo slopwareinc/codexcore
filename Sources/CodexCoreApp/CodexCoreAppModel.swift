@@ -83,7 +83,7 @@ final class CodexCoreAppModel {
     var pinnedThreadIDs: [String]
     private var hasStoredExpandedProjectState: Bool
     var configurationSession = CodexChatConfigurationSession()
-    var composerSession = CodexComposerStateSession()
+    var composerSession = CodexComposerStateSession(followUpBehavior: .queue)
     var activityLog = CodexActivityLogSession()
     var structuredPanelDismissalState = CodexStructuredPanelDismissalState()
     let runtimeSession = CodexChatRuntimeSession()
@@ -367,6 +367,48 @@ final class CodexCoreAppModel {
 
         composerSession.enqueueFollowUp(submission)
         appendActivity(.turn, title: "Follow-up queued", detail: submission.prompt)
+    }
+
+    func steerQueuedFollowUp(clientID: String) async {
+        syncComposerThreadID()
+        guard let activeTurnLease,
+              let submission = composerSession.takeQueuedFollowUpSubmission(
+                  clientID: clientID,
+                  threadID: currentThreadID
+              ) else { return }
+
+        appendActivity(.turn, title: "Steering turn", detail: submission.prompt)
+        do {
+            _ = try await activeTurnLease.steer(.init(
+                clientUserMessageID: submission.clientID,
+                expectedTurnID: activeTurnLease.key.turnID.rawValue,
+                input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
+                threadID: activeTurnLease.key.threadID.rawValue
+            ))
+        } catch {
+            composerSession.requeueFollowUp(submission)
+            appendActivity(.turn, title: "Steer failed — queued instead", detail: friendlyError(error))
+            if !isSending {
+                flushQueuedFollowUps()
+            }
+        }
+    }
+
+    func removeQueuedFollowUp(clientID: String) {
+        syncComposerThreadID()
+        _ = composerSession.takeQueuedFollowUpSubmission(
+            clientID: clientID,
+            threadID: currentThreadID
+        )
+    }
+
+    func editQueuedFollowUp(clientID: String) {
+        syncComposerThreadID()
+        guard let submission = composerSession.takeQueuedFollowUpSubmission(
+            clientID: clientID,
+            threadID: currentThreadID
+        ) else { return }
+        composerSession.restore(submission)
     }
 
     /// Sends the next queued follow-up as a fresh turn. Called after a turn

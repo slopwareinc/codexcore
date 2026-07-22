@@ -277,6 +277,10 @@ extension CodexCoreAppModel {
         composerSession.followUpHint(isSending: isSending, canSendFollowUp: canSendFollowUp)
     }
 
+    var queuedFollowUps: [CodexComposerSubmission] {
+        composerSession.queuedFollowUpSubmissions(for: currentThreadID)
+    }
+
     var canSendSideChatMessage: Bool {
         if case .connected = connectionState,
            isAuthenticated,

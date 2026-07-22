@@ -1245,6 +1245,92 @@ private struct CodexComposerInlineSelectorPalette: View {
     }
 }
 
+struct CodexQueuedFollowUpStack: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let submissions: [CodexComposerSubmission]
+    let canSteer: Bool
+    let onSteer: (String) -> Void
+    let onRemove: (String) -> Void
+    let onEdit: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(submissions, id: \.clientID) { submission in
+                queuedRow(submission)
+            }
+        }
+        .animation(.snappy(duration: theme.animations.snappyDuration), value: submissions.map(\.clientID))
+    }
+
+    private func queuedRow(_ submission: CodexComposerSubmission) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.turn.down.right")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(submission.prompt.isEmpty ? "Attached follow-up" : submission.prompt)
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !submission.referencedFiles.isEmpty {
+                    Label(
+                        "\(submission.referencedFiles.count) attachment\(submission.referencedFiles.count == 1 ? "" : "s")",
+                        systemImage: "paperclip"
+                    )
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                }
+            }
+
+            Button {
+                onSteer(submission.clientID)
+            } label: {
+                Label("Steer", systemImage: "arrow.turn.down.right")
+                    .font(theme.fonts.chat.weight(.medium))
+                    .foregroundStyle(canSteer ? theme.colors.textSecondary : theme.colors.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSteer)
+            .help(canSteer ? "Send this message to the active turn" : "No active turn to steer")
+
+            Button {
+                onRemove(submission.clientID)
+            } label: {
+                Image(systemName: "trash")
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove queued follow-up")
+            .help("Remove from queue")
+
+            Menu {
+                Button("Edit message", systemImage: "pencil") {
+                    onEdit(submission.clientID)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .frame(width: 24, height: 24)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel("Queued follow-up actions")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+}
+
 private struct SendButton: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var tapCount = 0
