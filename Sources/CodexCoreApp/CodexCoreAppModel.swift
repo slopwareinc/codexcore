@@ -71,6 +71,8 @@ final class CodexCoreAppModel {
     private var skillsChangedObservationGeneration: UInt64 = 0
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
+    private var pendingSteerSubmissions: [CodexComposerSubmission] = []
+    private var isProcessingSteerSubmissions = false
     private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
     private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
     private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
@@ -346,22 +348,8 @@ final class CodexCoreAppModel {
     /// Handles send while a turn is already running: steer it immediately or
     /// queue the message for the next turn, per `followUpBehavior`.
     private func sendFollowUp(submission: CodexComposerSubmission) async {
-        if followUpBehavior == .steer, let activeTurnLease {
-            appendActivity(.turn, title: "Steering turn", detail: submission.prompt)
-            do {
-                _ = try await activeTurnLease.steer(.init(
-                    clientUserMessageID: submission.clientID,
-                    expectedTurnID: activeTurnLease.key.turnID.rawValue,
-                    input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
-                    threadID: activeTurnLease.key.threadID.rawValue
-                ))
-            } catch {
-                appendActivity(CodexTurnSubmissionSession.failSteeredFollowUp(
-                    submission: submission,
-                    message: friendlyError(error),
-                    composerSession: &composerSession
-                ))
-            }
+        if followUpBehavior == .steer {
+            await enqueueSteerSubmission(submission)
             return
         }
 
@@ -371,27 +359,153 @@ final class CodexCoreAppModel {
 
     func steerQueuedFollowUp(clientID: String) async {
         syncComposerThreadID()
-        guard let activeTurnLease,
-              let submission = composerSession.takeQueuedFollowUpSubmission(
+        guard let submission = composerSession.takeQueuedFollowUpSubmission(
                   clientID: clientID,
                   threadID: currentThreadID
               ) else { return }
 
+        await enqueueSteerSubmission(submission)
+    }
+
+    /// Serializes steer requests in the same order as the upstream TUI's app
+    /// event reducer. This also prevents a terminal notification from draining
+    /// the ordinary follow-up queue while a steer race is still being resolved.
+    private func enqueueSteerSubmission(_ submission: CodexComposerSubmission) async {
+        pendingSteerSubmissions.append(submission)
+        guard !isProcessingSteerSubmissions else { return }
+
+        isProcessingSteerSubmissions = true
+        defer {
+            isProcessingSteerSubmissions = false
+            flushQueuedFollowUps()
+        }
+
+        while !pendingSteerSubmissions.isEmpty {
+            let next = pendingSteerSubmissions.removeFirst()
+            await processSteerSubmission(next)
+        }
+    }
+
+    private func processSteerSubmission(_ submission: CodexComposerSubmission) async {
+        guard let turn = activeTurnLease else {
+            await startSubmissionAfterSteerRace(submission, replacing: nil)
+            return
+        }
+        let submissionThreadID = submission.threadID ?? currentThreadID
+        guard submissionThreadID == turn.key.threadID.rawValue else {
+            requeueFailedSteer(
+                submission,
+                message: "The selected thread changed before the steer could be sent."
+            )
+            return
+        }
+
         appendActivity(.turn, title: "Steering turn", detail: submission.prompt)
         do {
-            _ = try await activeTurnLease.steer(.init(
+            _ = try await turn.steer(.init(
                 clientUserMessageID: submission.clientID,
-                expectedTurnID: activeTurnLease.key.turnID.rawValue,
+                expectedTurnID: turn.key.turnID.rawValue,
                 input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
-                threadID: activeTurnLease.key.threadID.rawValue
+                threadID: turn.key.threadID.rawValue
             ))
+            restoreAcceptedSteerLeaseIfNeeded(turn)
         } catch {
-            composerSession.requeueFollowUp(submission)
-            appendActivity(.turn, title: "Steer failed — queued instead", detail: friendlyError(error))
-            if !isSending {
-                flushQueuedFollowUps()
+            switch classifyCodexTurnSteerRace(error) {
+            case .noActiveTurn:
+                await startSubmissionAfterSteerRace(submission, replacing: turn)
+
+            case .expectedTurnMismatch(let actualTurnID)
+                where actualTurnID != turn.key.turnID.rawValue:
+                await retrySteerSubmission(
+                    submission,
+                    replacing: turn,
+                    actualTurnID: actualTurnID
+                )
+
+            case .expectedTurnMismatch, nil:
+                requeueFailedSteer(submission, error: error)
             }
         }
+    }
+
+    /// App-server includes its current active turn ID in a mismatch error. The
+    /// TUI retries exactly once with that ID, without another read/poll RPC.
+    private func retrySteerSubmission(
+        _ submission: CodexComposerSubmission,
+        replacing staleTurn: CodexTurnLease,
+        actualTurnID: String
+    ) async {
+        guard let thread = currentThreadLease,
+              thread.id == staleTurn.key.threadID
+        else {
+            requeueFailedSteer(
+                submission,
+                message: "The selected thread changed before the steer retry."
+            )
+            return
+        }
+
+        do {
+            let recoveredTurn = try await thread.steerTurn(.init(
+                clientUserMessageID: submission.clientID,
+                expectedTurnID: actualTurnID,
+                input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
+                threadID: thread.id.rawValue
+            ))
+            activeTurnLease = recoveredTurn
+            runtimeSession.startMainTurn(id: recoveredTurn.key.turnID.rawValue)
+            monitorMainTurn(recoveredTurn)
+        } catch {
+            if classifyCodexTurnSteerRace(error) == .noActiveTurn {
+                await startSubmissionAfterSteerRace(submission, replacing: staleTurn)
+            } else {
+                requeueFailedSteer(submission, error: error)
+            }
+        }
+    }
+
+    /// If the active turn completed between local submission and app-server
+    /// validation, the TUI falls through directly from failed `turn/steer` to
+    /// `turn/start` with the same input. Do the same without waiting for a later
+    /// projection tick or losing queue order.
+    private func startSubmissionAfterSteerRace(
+        _ submission: CodexComposerSubmission,
+        replacing staleTurn: CodexTurnLease?
+    ) async {
+        let submissionThreadID = submission.threadID ?? currentThreadID
+        guard submissionThreadID == currentThreadID else {
+            requeueFailedSteer(
+                submission,
+                message: "The selected thread changed before the follow-up could start."
+            )
+            return
+        }
+
+        if let staleTurn, activeTurnLease?.key == staleTurn.key {
+            activeTurnLease = nil
+            activeTurnCompletionTask?.cancel()
+            activeTurnCompletionTask = nil
+            _ = runtimeSession.finishMainTurn(id: staleTurn.key.turnID.rawValue)
+        }
+        await startMainTurn(submission, restoreDraftOnFailure: false)
+    }
+
+    private func restoreAcceptedSteerLeaseIfNeeded(_ turn: CodexTurnLease) {
+        guard currentThreadID == turn.key.threadID.rawValue,
+              activeTurnLease?.key != turn.key
+        else { return }
+        activeTurnLease = turn
+        runtimeSession.startMainTurn(id: turn.key.turnID.rawValue)
+        monitorMainTurn(turn)
+    }
+
+    private func requeueFailedSteer(_ submission: CodexComposerSubmission, error: Error) {
+        requeueFailedSteer(submission, message: friendlyError(error))
+    }
+
+    private func requeueFailedSteer(_ submission: CodexComposerSubmission, message: String) {
+        composerSession.requeueFollowUp(submission)
+        appendActivity(.turn, title: "Steer failed — queued instead", detail: message)
     }
 
     func removeQueuedFollowUp(clientID: String) {
@@ -418,6 +532,7 @@ final class CodexCoreAppModel {
         syncComposerThreadID()
         let blocksQueueDrain = runtimeSession.isMainTurnPendingOrRunning
             || activeTurnLease != nil
+            || isProcessingSteerSubmissions
             || (!afterTurnEnded && runtimeSession.isSending)
         guard let queued = runtimeSession.dequeueQueuedFollowUp(
             composerSession: &composerSession,

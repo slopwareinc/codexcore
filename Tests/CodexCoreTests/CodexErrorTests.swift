@@ -49,6 +49,27 @@ final class CodexErrorTests: XCTestCase {
         )))
     }
 
+    func testTurnSteerRaceClassificationMatchesAppServerErrors() {
+        XCTAssertEqual(
+            classifyCodexTurnSteerRace(CodexJSONRPCErrorObject(
+                code: -32602,
+                message: "no active turn to steer"
+            )),
+            .noActiveTurn
+        )
+        XCTAssertEqual(
+            classifyCodexTurnSteerRace(CodexJSONRPCErrorObject(
+                code: -32602,
+                message: "expected active turn id `turn-old` but found `turn-current`"
+            )),
+            .expectedTurnMismatch(actualTurnID: "turn-current")
+        )
+        XCTAssertNil(classifyCodexTurnSteerRace(CodexJSONRPCErrorObject(
+            code: -32602,
+            message: "cannot steer a review turn"
+        )))
+    }
+
     func testOfficialAppServerOverloadIsRetryableWithoutLegacyErrorData() {
         let mapped = mapJSONRPCError(
             code: -32_001,

@@ -541,6 +541,37 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(graph.submissionIntents[intentID]?.state, .reconciled(item: key))
     }
 
+    func testFailedSteerIntentCanBeRearmedForExactRecoveryPayload() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let intentID: SubmissionIntentID = "steer-client"
+        let input: [CodexJSONValue] = [
+            .dictionary(["type": .string("text"), "text": .string("redirect")]),
+        ]
+        let stale = SubmissionIntent(
+            id: intentID,
+            threadID: "thread",
+            expectedTurnID: "turn-old",
+            input: input,
+            localOrdinal: 1
+        )
+        _ = reducer.apply(.submissionIntentRegistered(stale), to: &graph)
+        _ = reducer.apply(.submissionIntentFailed(id: intentID, message: "turn changed"), to: &graph)
+
+        let retry = SubmissionIntent(
+            id: intentID,
+            threadID: "thread",
+            expectedTurnID: "turn-current",
+            input: input,
+            localOrdinal: 2
+        )
+        _ = reducer.apply(.submissionIntentRegistered(retry), to: &graph)
+
+        XCTAssertEqual(graph.submissionIntents[intentID]?.state, .pending)
+        XCTAssertEqual(graph.submissionIntents[intentID]?.expectedTurnID, "turn-current")
+        XCTAssertEqual(graph.submissionIntents[intentID]?.localOrdinal, 2)
+    }
+
     func testProtocolAdaptationMutationsCommitAtOneSharedRevision() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()
