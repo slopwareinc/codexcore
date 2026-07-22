@@ -11,14 +11,42 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var userMessage: CodexUserMessageV2?
     /// Additional user messages appended to this in-flight turn by `turn/steer`.
     public var steeredMessages: [CodexUserMessageV2]
+    /// Chronological work slices. The first slice follows `userMessage`; every
+    /// later slice begins with its `steeredMessage` and contains only work that
+    /// occurred after that steer.
+    public var conversationSegments: [CodexTurnConversationSegmentV2]
     public var narrative: [CodexNarrativeEntry]
     public var finalAnswer: CodexAssistantTextV2?
     public var liveTail: String?
     public var status: CodexTurnStatusV2
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2) {
+    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2) {
         self.id = id; self.userMessage = userMessage; self.steeredMessages = steeredMessages; self.narrative = narrative
+        self.conversationSegments = conversationSegments ?? [
+            CodexTurnConversationSegmentV2(id: "\(id):initial", narrative: narrative)
+        ] + steeredMessages.map {
+            CodexTurnConversationSegmentV2(
+                id: "\(id):steer:\($0.clientID ?? $0.id)",
+                steeredMessage: $0
+            )
+        }
         self.finalAnswer = finalAnswer; self.liveTail = liveTail; self.status = status
+    }
+}
+
+public struct CodexTurnConversationSegmentV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var steeredMessage: CodexUserMessageV2?
+    public var narrative: [CodexNarrativeEntry]
+
+    public init(
+        id: String,
+        steeredMessage: CodexUserMessageV2? = nil,
+        narrative: [CodexNarrativeEntry] = []
+    ) {
+        self.id = id
+        self.steeredMessage = steeredMessage
+        self.narrative = narrative
     }
 }
 

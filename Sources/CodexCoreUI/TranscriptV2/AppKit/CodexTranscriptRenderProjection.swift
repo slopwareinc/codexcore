@@ -458,9 +458,22 @@ actor CodexTranscriptRenderProjector {
             }
 
             if showsWork && workExpanded {
-                for entry in turn.narrative {
-                    try Task.checkCancellation()
-                    switch entry {
+                for segment in turn.conversationSegments {
+                    if let user = segment.steeredMessage {
+                        for draft in userMessageDrafts(
+                            user,
+                            sectionID: sectionID,
+                            contentWidth: contentWidth,
+                            presentedAt: presentedAt,
+                            turnIsStreaming: turnIsStreaming,
+                            theme: theme,
+                            cacheHits: &preparedTextCacheHits,
+                            cacheMisses: &preparedTextCacheMisses
+                        ) { append(draft) }
+                    }
+                    for entry in segment.narrative {
+                        try Task.checkCancellation()
+                        switch entry {
                     case .prose(let prose):
                         if tailMode { continue }
                         let sourceID = "\(sectionID):commentary:\(prose.id)"
@@ -608,6 +621,7 @@ actor CodexTranscriptRenderProjector {
                             accessibilityLabel: notice.message,
                             maxWidthKind: .card
                         ))
+                        }
                     }
                 }
                 if case .working = turn.status,
@@ -624,19 +638,19 @@ actor CodexTranscriptRenderProjector {
                         fixedHeight: 28
                     ))
                 }
-            }
-
-            for user in turn.steeredMessages {
-                for draft in userMessageDrafts(
-                    user,
-                    sectionID: sectionID,
-                    contentWidth: contentWidth,
-                    presentedAt: presentedAt,
-                    turnIsStreaming: turnIsStreaming,
-                    theme: theme,
-                    cacheHits: &preparedTextCacheHits,
-                    cacheMisses: &preparedTextCacheMisses
-                ) { append(draft) }
+            } else {
+                for user in turn.steeredMessages {
+                    for draft in userMessageDrafts(
+                        user,
+                        sectionID: sectionID,
+                        contentWidth: contentWidth,
+                        presentedAt: presentedAt,
+                        turnIsStreaming: turnIsStreaming,
+                        theme: theme,
+                        cacheHits: &preparedTextCacheHits,
+                        cacheMisses: &preparedTextCacheMisses
+                    ) { append(draft) }
+                }
             }
 
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
@@ -1784,29 +1798,35 @@ private extension CodexTranscriptRenderProjector {
         var parts: [String] = []
         if let user = turn.userMessage?.displayText.codexAppKitNilIfEmpty { parts.append("You\n" + user) }
         var work: [String] = []
-        for entry in turn.narrative {
-            switch entry {
-            case .prose(let prose): if !prose.text.isEmpty { work.append(prose.text) }
-            case .workGroup(let group):
-                work.append(group.header)
-                work.append(contentsOf: group.rows.map { row in
-                    [label(for: row), detail(for: row)].compactMap { $0 }.joined(separator: "\n")
-                })
-            case .productToolCall(let call):
-                let label = [call.namespace, call.tool].compactMap { $0 }.joined(separator: " · ")
-                let payload = [call.arguments.map(\.description), call.contentItems.isEmpty ? nil : call.contentItems.map(\.description).joined(separator: "\n")]
-                    .compactMap { $0 }
-                    .joined(separator: "\n")
-                work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
-            case .notice(let notice): work.append(notice.message)
+        func flushWork() {
+            guard !work.isEmpty else { return }
+            parts.append("Work\n" + work.joined(separator: "\n"))
+            work.removeAll(keepingCapacity: true)
+        }
+        for segment in turn.conversationSegments {
+            if let user = segment.steeredMessage?.displayText.codexAppKitNilIfEmpty {
+                flushWork()
+                parts.append("You\n" + user)
+            }
+            for entry in segment.narrative {
+                switch entry {
+                case .prose(let prose): if !prose.text.isEmpty { work.append(prose.text) }
+                case .workGroup(let group):
+                    work.append(group.header)
+                    work.append(contentsOf: group.rows.map { row in
+                        [label(for: row), detail(for: row)].compactMap { $0 }.joined(separator: "\n")
+                    })
+                case .productToolCall(let call):
+                    let label = [call.namespace, call.tool].compactMap { $0 }.joined(separator: " · ")
+                    let payload = [call.arguments.map(\.description), call.contentItems.isEmpty ? nil : call.contentItems.map(\.description).joined(separator: "\n")]
+                        .compactMap { $0 }
+                        .joined(separator: "\n")
+                    work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
+                case .notice(let notice): work.append(notice.message)
+                }
             }
         }
-        if !work.isEmpty { parts.append("Work\n" + work.joined(separator: "\n")) }
-        for user in turn.steeredMessages {
-            if let text = user.displayText.codexAppKitNilIfEmpty {
-                parts.append("You\n" + text)
-            }
-        }
+        flushWork()
         if let answer = turn.finalAnswer?.text.codexAppKitNilIfEmpty { parts.append("Assistant\n" + answer) }
         return parts.joined(separator: "\n\n")
     }

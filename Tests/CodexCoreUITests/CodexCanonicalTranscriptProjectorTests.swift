@@ -300,6 +300,9 @@ struct CodexCanonicalTranscriptProjectorTests {
             consistency: .authoritative,
             lastChangedRevision: StateRevision(8)
         )
+        let continued = item(threadID, turnID, "continued", .agentMessage, [
+            "phase": .string("commentary"), "text": .string("Following the new direction")
+        ])
         let answer = item(threadID, turnID, "answer", .agentMessage, [
             "phase": .string("final_answer"), "text": .string("Done")
         ])
@@ -310,10 +313,10 @@ struct CodexCanonicalTranscriptProjectorTests {
                 turns: [turn(
                     turnID,
                     threadID: threadID,
-                    itemIDs: ["original", "work", "steered", "answer"],
+                    itemIDs: ["original", "work", "steered", "continued", "answer"],
                     revision: 8
                 )],
-                items: [original, commentary, steered, answer]
+                items: [original, commentary, steered, continued, answer]
             ),
             threadID: threadID
         ).presentation.transcript
@@ -322,6 +325,11 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(turn.userMessage?.text == "Original prompt")
         #expect(turn.steeredMessages.map(\.text) == ["New direction"])
         #expect(turn.steeredMessages.first?.clientID == "steer-client")
+        #expect(turn.conversationSegments.count == 2)
+        #expect(turn.conversationSegments[0].steeredMessage == nil)
+        #expect(turn.conversationSegments[0].narrative.first?.id == "work")
+        #expect(turn.conversationSegments[1].steeredMessage?.text == "New direction")
+        #expect(turn.conversationSegments[1].narrative.first?.id == "continued")
         #expect(turn.finalAnswer?.text == "Done")
     }
 

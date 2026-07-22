@@ -18,10 +18,11 @@ public struct CodexTurnViewV2: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if let user = turn.userMessage {
-                userBubble(user)
+                CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt)
             }
 
             CodexWorkBlockViewV2(
+                conversationSegments: turn.conversationSegments,
                 narrative: turn.narrative,
                 liveTail: turn.liveTail,
                 status: turn.status,
@@ -29,10 +30,6 @@ public struct CodexTurnViewV2: View {
                 productToolRenderer: productToolRenderer,
                 onOpenSubagent: onOpenSubagent
             )
-
-            ForEach(turn.steeredMessages) { message in
-                userBubble(message)
-            }
 
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -49,7 +46,21 @@ public struct CodexTurnViewV2: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func userBubble(_ message: CodexUserMessageV2) -> some View {
+    private func timestamp(alignment: Alignment) -> some View {
+        Text(presentedAt.formatted(date: .omitted, time: .shortened))
+            .font(theme.fonts.micro)
+            .foregroundStyle(theme.colors.textTertiary)
+            .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: alignment)
+    }
+}
+
+struct CodexUserMessageBubbleV2: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let message: CodexUserMessageV2
+    let presentedAt: Date
+
+    var body: some View {
         VStack(alignment: .trailing, spacing: 5) {
             Text(message.displayText)
                 .font(theme.fonts.chat)
@@ -63,15 +74,11 @@ public struct CodexTurnViewV2: View {
                     RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
                         .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
                 }
-            timestamp(alignment: .trailing)
+            Text(presentedAt.formatted(date: .omitted, time: .shortened))
+                .font(theme.fonts.micro)
+                .foregroundStyle(theme.colors.textTertiary)
+                .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    private func timestamp(alignment: Alignment) -> some View {
-        Text(presentedAt.formatted(date: .omitted, time: .shortened))
-            .font(theme.fonts.micro)
-            .foregroundStyle(theme.colors.textTertiary)
-            .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: alignment)
     }
 }

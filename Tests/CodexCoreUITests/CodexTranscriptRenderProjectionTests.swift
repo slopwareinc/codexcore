@@ -103,15 +103,28 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(attachments.measuredHeight == 64 + CodexTranscriptColumnMetrics.interactiveBottomSpacing)
     }
 
-    @Test func steeredMessagesRenderAsDistinctUserBubblesAfterActiveWork() async throws {
+    @Test func steeredMessagesInterleaveWithWorkInCanonicalConversationOrder() async throws {
+        let firstSteer = CodexUserMessageV2(id: "steer-one", text: "First direction")
+        let secondSteer = CodexUserMessageV2(id: "steer-two", text: "Second direction")
+        let beforeSteer = CodexNarrativeEntry.prose(.init(
+            id: "before-steer", text: "Before first steer", isStreaming: true
+        ))
+        let betweenSteers = CodexNarrativeEntry.prose(.init(
+            id: "between-steers", text: "After first steer", isStreaming: true
+        ))
+        let afterSteers = CodexNarrativeEntry.prose(.init(
+            id: "after-steers", text: "After second steer", isStreaming: true
+        ))
         let turn = CodexTurnV2(
             id: "turn",
             userMessage: .init(id: "original", text: "Original prompt"),
-            steeredMessages: [
-                .init(id: "steer-one", text: "First direction"),
-                .init(id: "steer-two", text: "Second direction")
+            steeredMessages: [firstSteer, secondSteer],
+            conversationSegments: [
+                .init(id: "initial", narrative: [beforeSteer]),
+                .init(id: "first", steeredMessage: firstSteer, narrative: [betweenSteers]),
+                .init(id: "second", steeredMessage: secondSteer, narrative: [afterSteers])
             ],
-            narrative: [.prose(.init(id: "work", text: "Still working", isStreaming: true))],
+            narrative: [beforeSteer, betweenSteers, afterSteers],
             status: .working(since: nil)
         )
         let snapshot = try await CodexTranscriptRenderProjector().project(
@@ -127,12 +140,32 @@ struct CodexTranscriptRenderProjectionTests {
         ])
         #expect(Set(userItems.map(\.id)).count == 3)
         let workIndex = try #require(orderedItems.firstIndex { $0.workHeader != nil })
+        let beforeIndex = try #require(orderedItems.firstIndex {
+            $0.preparedText?.attributedString.string == "Before first steer"
+        })
         let firstSteerIndex = try #require(orderedItems.firstIndex { $0.id.rawValue.contains(":user:steer-one") })
-        #expect(workIndex < firstSteerIndex)
+        let betweenIndex = try #require(orderedItems.firstIndex {
+            $0.preparedText?.attributedString.string == "After first steer"
+        })
+        let secondSteerIndex = try #require(orderedItems.firstIndex { $0.id.rawValue.contains(":user:steer-two") })
+        let afterIndex = try #require(orderedItems.firstIndex {
+            $0.preparedText?.attributedString.string == "After second steer"
+        })
+        #expect(workIndex < beforeIndex)
+        #expect(beforeIndex < firstSteerIndex)
+        #expect(firstSteerIndex < betweenIndex)
+        #expect(betweenIndex < secondSteerIndex)
+        #expect(secondSteerIndex < afterIndex)
         let copyTurnText = try #require(userItems.first).copyTurnText
-        #expect(copyTurnText.contains("You\nOriginal prompt"))
-        #expect(copyTurnText.contains("You\nFirst direction"))
-        #expect(copyTurnText.contains("You\nSecond direction"))
+        let copyBefore = try #require(copyTurnText.range(of: "Before first steer"))
+        let copyFirstSteer = try #require(copyTurnText.range(of: "You\nFirst direction"))
+        let copyBetween = try #require(copyTurnText.range(of: "After first steer"))
+        let copySecondSteer = try #require(copyTurnText.range(of: "You\nSecond direction"))
+        let copyAfter = try #require(copyTurnText.range(of: "After second steer"))
+        #expect(copyBefore.lowerBound < copyFirstSteer.lowerBound)
+        #expect(copyFirstSteer.lowerBound < copyBetween.lowerBound)
+        #expect(copyBetween.lowerBound < copySecondSteer.lowerBound)
+        #expect(copySecondSteer.lowerBound < copyAfter.lowerBound)
     }
 
     @Test func expandedWorkProseUsesTheFinalAnswerForeground() async throws {
