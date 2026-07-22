@@ -141,6 +141,21 @@ public final class CodexThreadLease: @unchecked Sendable {
         )
     }
 
+    /// Steers the exact active turn named by `expectedTurnID` and returns a
+    /// capability for the server-confirmed turn.
+    ///
+    /// This thread-scoped form is intended for the narrow stale-cache recovery
+    /// used by interactive clients: app-server can reject a steer with the
+    /// actual active turn ID, after which the client retries once against that
+    /// ID. Ordinary callers that already hold a `CodexTurnLease` should prefer
+    /// `CodexTurnLease.steer(_:)`.
+    @discardableResult
+    public func steerTurn(
+        _ suppliedParams: CodexSchemaTurnSteerParams
+    ) async throws -> CodexTurnLease {
+        try await performSteer(suppliedParams).lease
+    }
+
     /// Starts a turn and returns the exact atomic canonical terminal result.
     /// No presentation-layer text flattening or polling is involved.
     public func runTurn(
@@ -176,6 +191,54 @@ public final class CodexThreadLease: @unchecked Sendable {
 
     fileprivate func requireOpen() throws {
         guard !isClosed else { throw CodexLeaseError.closedThread(id) }
+    }
+
+    fileprivate func performSteer(
+        _ suppliedParams: CodexSchemaTurnSteerParams
+    ) async throws -> (response: CodexSchemaTurnSteerResponse, lease: CodexTurnLease) {
+        try requireOpen()
+        let actualThreadID = ThreadID(suppliedParams.threadID)
+        guard actualThreadID == id else {
+            throw CodexLeaseError.requestThreadMismatch(expected: id, actual: actualThreadID)
+        }
+
+        var params = suppliedParams
+        let expectedKey = TurnKey(
+            threadID: id,
+            turnID: TurnID(params.expectedTurnID)
+        )
+        let requestedIntentID = params.clientUserMessageID.map { SubmissionIntentID($0) }
+        let intent = await session.makeSubmissionIntent(
+            threadID: id,
+            expectedTurnID: expectedKey.turnID,
+            input: params.input.map(\.rawValue),
+            clientUserMessageID: requestedIntentID
+        )
+        params.clientUserMessageID = intent.id.rawValue
+
+        let request = CodexRequest.turnSteer(params)
+        let call = try await session.performCall(
+            method: request.method,
+            params: try request.encodeParameters(),
+            submissionIntent: intent
+        )
+        let response = try call.value.decode(CodexSchemaTurnSteerResponse.self)
+        let responseKey = TurnKey(
+            threadID: id,
+            turnID: TurnID(response.turnID)
+        )
+        guard responseKey == expectedKey else {
+            throw CodexLeaseError.responseTurnMismatch(expected: expectedKey, actual: responseKey)
+        }
+        return (
+            response,
+            CodexTurnLease(
+                key: responseKey,
+                startRevision: call.startRevision,
+                responseRevision: call.responseRevision,
+                thread: self
+            )
+        )
     }
 
     private func takeToken() -> ThreadLeaseToken? {
@@ -273,31 +336,11 @@ public struct CodexTurnLease: Sendable {
             throw CodexLeaseError.requestTurnMismatch(expected: key, actual: actualKey)
         }
 
-        var params = suppliedParams
-        let requestedIntentID = params.clientUserMessageID.map { SubmissionIntentID($0) }
-        let intent = await thread.session.makeSubmissionIntent(
-            threadID: key.threadID,
-            expectedTurnID: key.turnID,
-            input: params.input.map(\.rawValue),
-            clientUserMessageID: requestedIntentID
-        )
-        params.clientUserMessageID = intent.id.rawValue
-
-        let request = CodexRequest.turnSteer(params)
-        let call = try await thread.session.performCall(
-            method: request.method,
-            params: try request.encodeParameters(),
-            submissionIntent: intent
-        )
-        let response = try call.value.decode(CodexSchemaTurnSteerResponse.self)
-        let responseKey = TurnKey(
-            threadID: key.threadID,
-            turnID: TurnID(response.turnID)
-        )
-        guard responseKey == key else {
-            throw CodexLeaseError.responseTurnMismatch(expected: key, actual: responseKey)
+        let result = try await thread.performSteer(suppliedParams)
+        guard result.lease.key == key else {
+            throw CodexLeaseError.responseTurnMismatch(expected: key, actual: result.lease.key)
         }
-        return response
+        return result.response
     }
 }
 

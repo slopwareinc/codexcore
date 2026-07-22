@@ -280,6 +280,135 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(reconciled.turns.first?.userMessage?.clientID == intentID.rawValue)
     }
 
+    @Test func steerAppendsAUserMessageWithoutReplacingTheOriginalPrompt() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let original = item(threadID, turnID, "original", .userMessage, [
+            "content": .array([.dictionary(["type": .string("text"), "text": .string("Original prompt")])])
+        ])
+        let commentary = item(threadID, turnID, "work", .agentMessage, [
+            "phase": .string("commentary"), "text": .string("Working")
+        ])
+        let steered = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "steered"),
+            kind: .userMessage,
+            payload: [
+                "content": .array([.dictionary(["type": .string("text"), "text": .string("New direction")])])
+            ],
+            authority: .completed,
+            clientUserMessageID: "steer-client",
+            consistency: .authoritative,
+            lastChangedRevision: StateRevision(8)
+        )
+        let continued = item(threadID, turnID, "continued", .agentMessage, [
+            "phase": .string("commentary"), "text": .string("Following the new direction")
+        ])
+        let answer = item(threadID, turnID, "answer", .agentMessage, [
+            "phase": .string("final_answer"), "text": .string("Done")
+        ])
+        let projected = CodexCanonicalTranscriptProjector().rebuild(
+            snapshot: state(
+                revision: 8,
+                threadID: threadID,
+                turns: [turn(
+                    turnID,
+                    threadID: threadID,
+                    itemIDs: ["original", "work", "steered", "continued", "answer"],
+                    revision: 8
+                )],
+                items: [original, commentary, steered, continued, answer]
+            ),
+            threadID: threadID
+        ).presentation.transcript
+
+        let turn = try #require(projected.turns.first)
+        #expect(turn.userMessage?.text == "Original prompt")
+        #expect(turn.steeredMessages.map(\.text) == ["New direction"])
+        #expect(turn.steeredMessages.first?.clientID == "steer-client")
+        #expect(turn.conversationSegments.count == 2)
+        #expect(turn.conversationSegments[0].steeredMessage == nil)
+        #expect(turn.conversationSegments[0].narrative.first?.id == "work")
+        #expect(turn.conversationSegments[1].steeredMessage?.text == "New direction")
+        #expect(turn.conversationSegments[1].narrative.first?.id == "continued")
+        #expect(turn.finalAnswer?.text == "Done")
+    }
+
+    @Test func optimisticSteerReconcilesInPlaceWithoutDuplicatingItsBubble() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let intentID: SubmissionIntentID = "steer-client"
+        let intent = SubmissionIntent(
+            id: intentID,
+            threadID: threadID,
+            expectedTurnID: turnID,
+            input: [.dictionary(["type": .string("text"), "text": .string("New direction")])],
+            localOrdinal: 2,
+            state: .pending,
+            lastChangedRevision: StateRevision(2)
+        )
+        let original = item(threadID, turnID, "original", .userMessage, [
+            "content": .array([.dictionary(["type": .string("text"), "text": .string("Original prompt")])])
+        ], revision: 2)
+        let activeTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .inProgress,
+            itemOrder: ["original"],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(2)
+        )
+        let projector = CodexCanonicalTranscriptProjector()
+        let optimistic = projector.rebuild(
+            snapshot: state(
+                revision: 2,
+                threadID: threadID,
+                turns: [activeTurn],
+                items: [original],
+                intents: [intentID: intent]
+            ),
+            threadID: threadID
+        ).presentation.transcript
+
+        #expect(optimistic.turns.first?.userMessage?.text == "Original prompt")
+        #expect(optimistic.turns.first?.steeredMessages.map(\.text) == ["New direction"])
+        #expect(optimistic.turns.first?.steeredMessages.first?.isOptimistic == true)
+
+        let echo = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "server-steer"),
+            kind: .userMessage,
+            payload: [
+                "content": .array([.dictionary(["type": .string("text"), "text": .string("New direction")])])
+            ],
+            authority: .completed,
+            clientUserMessageID: intentID,
+            consistency: .authoritative,
+            lastChangedRevision: StateRevision(3)
+        )
+        let echoedTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .inProgress,
+            itemOrder: ["original", "server-steer"],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(3)
+        )
+        let reconciled = projector.rebuild(
+            snapshot: state(
+                revision: 3,
+                threadID: threadID,
+                turns: [echoedTurn],
+                items: [original, echo],
+                intents: [intentID: intent]
+            ),
+            threadID: threadID
+        ).presentation.transcript
+
+        #expect(reconciled.turns.first?.userMessage?.text == "Original prompt")
+        #expect(reconciled.turns.first?.steeredMessages.map(\.text) == ["New direction"])
+        #expect(reconciled.turns.first?.steeredMessages.first?.isOptimistic == false)
+        #expect(reconciled.turns.first?.steeredMessages.first?.clientID == intentID.rawValue)
+    }
+
     @Test func fileReferenceContextIsHiddenFromOptimisticAndCanonicalUserBubbles() throws {
         let threadID: ThreadID = "thread"
         let rawPrompt = CodexFileReferencePromptCodec.encode(

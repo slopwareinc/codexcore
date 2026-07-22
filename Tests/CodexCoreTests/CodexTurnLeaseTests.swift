@@ -136,6 +136,78 @@ final class CodexTurnLeaseTests: XCTestCase {
         await session.stop()
     }
 
+    func testThreadScopedSteerRegistersIntentBeforeWriteAndHandlesEchoBeforeResponse() async throws {
+        let transport = CodexSessionLeaseTestTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        let thread = try await session.startThread()
+        await transport.setHoldSteerResponses(true)
+
+        let input = CodexSchemaUserInput(.dictionary([
+            "type": .string("text"),
+            "text": .string("change direction"),
+        ]))
+        let steerTask = Task {
+            try await thread.steerTurn(.init(
+                clientUserMessageID: "steer-client",
+                expectedTurnID: "turn-2",
+                input: [input],
+                threadID: thread.id.rawValue
+            ))
+        }
+
+        let wroteSteerRequest = await transport.waitForRequest(method: "turn/steer")
+        XCTAssertTrue(wroteSteerRequest)
+        var snapshot = await session.canonicalSnapshot()
+        XCTAssertEqual(snapshot.submissionIntents["steer-client"]?.state, .pending)
+
+        let echoedUserItem: CodexJSONValue = .dictionary([
+            "type": .string("userMessage"),
+            "id": .string("steer-user-item"),
+            "clientId": .string("steer-client"),
+            "content": .array([input.rawValue]),
+        ])
+        await transport.sendNotification(
+            method: "item/started",
+            params: [
+                "threadId": .string(thread.id.rawValue),
+                "turnId": .string("turn-2"),
+                "startedAtMs": .int(2),
+                "item": echoedUserItem,
+            ]
+        )
+
+        for _ in 0 ..< 10_000 {
+            snapshot = await session.canonicalSnapshot()
+            if case .reconciled? = snapshot.submissionIntents["steer-client"]?.state {
+                break
+            }
+            await Task.yield()
+        }
+        XCTAssertEqual(
+            snapshot.submissionIntents["steer-client"]?.state,
+            .reconciled(item: .init(
+                threadID: thread.id,
+                turnID: "turn-2",
+                itemID: "steer-user-item"
+            ))
+        )
+
+        await transport.releaseNextSteerResponse()
+        let recoveredTurn = try await steerTask.value
+        let steerRequestCount = await transport.requestCount(method: "turn/steer")
+        let readRequestCount = await transport.requestCount(method: "thread/read")
+        XCTAssertEqual(recoveredTurn.key, .init(threadID: thread.id, turnID: "turn-2"))
+        XCTAssertEqual(steerRequestCount, 1)
+        XCTAssertEqual(readRequestCount, 0)
+
+        await thread.close()
+        await session.stop()
+    }
+
     func testAttachExistingTurnRestoresControlWithoutAnotherProtocolRequest() async throws {
         let transport = CodexSessionLeaseTestTransport()
         let session = CodexSession(
@@ -225,6 +297,8 @@ final class CodexTurnLeaseTests: XCTestCase {
 private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private var outbound: [[String: CodexJSONValue]] = []
+    private var holdSteerResponses = false
+    private var heldSteerResponses: [(CodexJSONRPCID, String)] = []
 
     var requestCount: Int { outbound.count }
 
@@ -278,7 +352,15 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
                 ]),
             ])
         case "turn/steer":
-            result = .dictionary(["turnId": .string("turn-1")])
+            let expectedTurnID = Self.stringParam(
+                "expectedTurnId",
+                from: object
+            ) ?? "turn-1"
+            if holdSteerResponses {
+                heldSteerResponses.append((id, expectedTurnID))
+                return
+            }
+            result = .dictionary(["turnId": .string(expectedTurnID)])
         default:
             result = .dictionary([:])
         }
@@ -302,6 +384,36 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
         if let frame {
             continuation?.yield(frame)
         }
+    }
+
+    func setHoldSteerResponses(_ hold: Bool) {
+        holdSteerResponses = hold
+    }
+
+    func waitForRequest(method: String) async -> Bool {
+        for _ in 0 ..< 10_000 {
+            if outbound.contains(where: { $0["method"] == .string(method) }) {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
+    }
+
+    func releaseNextSteerResponse() {
+        guard !heldSteerResponses.isEmpty else { return }
+        let (id, turnID) = heldSteerResponses.removeFirst()
+        let frame = try? CodexJSONRPCCodec.encodeResult(
+            id: id,
+            result: .dictionary(["turnId": .string(turnID)])
+        )
+        if let frame {
+            continuation?.yield(frame)
+        }
+    }
+
+    func requestCount(method: String) -> Int {
+        outbound.count(where: { $0["method"] == .string(method) })
     }
 
     func latestObjectParams(method: String) -> [String: CodexJSONValue]? {
@@ -336,5 +448,15 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
                 "updatedAt": .int(1),
             ]),
         ])
+    }
+
+    private static func stringParam(
+        _ name: String,
+        from request: [String: CodexJSONValue]
+    ) -> String? {
+        guard case .dictionary(let params)? = request["params"],
+              case .string(let value)? = params[name]
+        else { return nil }
+        return value
     }
 }

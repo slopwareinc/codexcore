@@ -61,7 +61,9 @@ Rules extracted from the captures:
 5. The block exists from the turn's first non-message item. Loose rows never
    float in the transcript.
 6. The user echo (`userMessage` item) carries `clientId` matching the
-   optimistic local bubble — reconcile, never duplicate.
+   optimistic local bubble — reconcile, never duplicate. A later user item in
+   the same active turn is a steer: preserve the opening prompt and append a
+   distinct user bubble.
 
 ## New model (Sources/CodexCoreUI/TranscriptV2/)
 
@@ -73,6 +75,7 @@ public struct CodexTranscriptV2: Sendable, Equatable {
 public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var id: String                    // wire turn id (params.turn.id)
     public var userMessage: CodexUserMessageV2?
+    public var steeredMessages: [CodexUserMessageV2] // later user items in this turn
     public var narrative: [CodexNarrativeEntry]   // inside the work block
     public var finalAnswer: CodexAssistantTextV2? // streaming-capable
     public var liveTail: String?             // derived phrase, live only
@@ -140,7 +143,10 @@ Reduction rules:
    second. Without a pending local match, insert normally. Attach to the
    turn opened by `turn/started`; a `userMessage` arriving before its
    `turn/started` (observed on the wire) must open/route to the correct turn
-   via its notification's turn id.
+   via its notification's turn id. The first user item is `userMessage`; every
+   later user item in the same turn is appended to `steeredMessages` in item
+   order. A pending steer appears optimistically there and reconciles by
+   `clientId` when its echo arrives.
 4. **agentMessage**: `phase == "commentary"` → `.prose` narrative entry,
    streamed via `item/agentMessage/delta` (deltas keyed by `itemId`).
    `phase == "final_answer"` → `finalAnswer`, streamed. `phase == nil` →

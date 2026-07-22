@@ -333,12 +333,26 @@ private extension CodexCanonicalTranscriptProjector {
         )
         var activeReasoning: [(itemID: String, text: String)] = []
         var hasContextCompaction = canonical?.extensions["contextCompacted"] == .bool(true)
+        var conversationSegments: [CodexTurnConversationSegmentV2] = []
+        var currentSteeredMessage: CodexUserMessageV2?
 
         for item in items {
             let completed = item.authority == .completed || canonical?.status.isTerminal == true
             switch item.kind {
             case .userMessage:
-                turn.userMessage = userMessage(item)
+                let message = userMessage(item)
+                if turn.userMessage == nil {
+                    turn.userMessage = message
+                } else {
+                    sealConversationSegment(
+                        turn: &turn,
+                        steeredMessage: &currentSteeredMessage,
+                        segments: &conversationSegments,
+                        closeWork: true
+                    )
+                    turn.steeredMessages.append(message)
+                    currentSteeredMessage = message
+                }
             case .hookPrompt:
                 break
             case .agentMessage:
@@ -383,12 +397,33 @@ private extension CodexCanonicalTranscriptProjector {
             )
         }
 
-        if turn.userMessage == nil, let intent = intents.first {
+        var remainingIntents = intents[...]
+        if turn.userMessage == nil, let intent = remainingIntents.first {
             turn.userMessage = optimisticUserMessage(intent)
+            appendIntentState(intent, to: &turn)
+            remainingIntents = remainingIntents.dropFirst()
         }
-        if canonical == nil, let intent = intents.first {
+        for intent in remainingIntents {
+            sealConversationSegment(
+                turn: &turn,
+                steeredMessage: &currentSteeredMessage,
+                segments: &conversationSegments,
+                closeWork: true
+            )
+            let message = optimisticUserMessage(intent)
+            turn.steeredMessages.append(message)
+            currentSteeredMessage = message
             appendIntentState(intent, to: &turn)
         }
+
+        sealConversationSegment(
+            turn: &turn,
+            steeredMessage: &currentSteeredMessage,
+            segments: &conversationSegments,
+            closeWork: false
+        )
+        turn.conversationSegments = conversationSegments
+        turn.narrative = conversationSegments.flatMap(\.narrative)
 
         if canonical?.status.isTerminal == true {
             finishPresentation(&turn)
@@ -469,6 +504,27 @@ private extension CodexCanonicalTranscriptProjector {
         turn.narrative.append(.notice(.init(id: "intent-\(intent.id.rawValue)-status", message: message)))
     }
 
+    func sealConversationSegment(
+        turn: inout CodexTurnV2,
+        steeredMessage: inout CodexUserMessageV2?,
+        segments: inout [CodexTurnConversationSegmentV2],
+        closeWork: Bool
+    ) {
+        if closeWork {
+            closeWorkGroup(&turn)
+        }
+        let segmentID = steeredMessage.map {
+            "\(turn.id):steer:\($0.clientID ?? $0.id)"
+        } ?? "\(turn.id):initial"
+        segments.append(.init(
+            id: segmentID,
+            steeredMessage: steeredMessage,
+            narrative: turn.narrative
+        ))
+        turn.narrative.removeAll(keepingCapacity: true)
+        steeredMessage = nil
+    }
+
     func appendAgent(_ item: CanonicalItem, completed: Bool, to turn: inout CodexTurnV2) {
         let id = item.key.itemID.rawValue
         let text = completed
@@ -538,14 +594,21 @@ private extension CodexCanonicalTranscriptProjector {
     func finishPresentation(_ turn: inout CodexTurnV2) {
         turn.liveTail = nil
         turn.finalAnswer?.isStreaming = false
-        for index in turn.narrative.indices {
-            switch turn.narrative[index] {
+        finishNarrative(&turn.narrative)
+        for index in turn.conversationSegments.indices {
+            finishNarrative(&turn.conversationSegments[index].narrative)
+        }
+    }
+
+    func finishNarrative(_ narrative: inout [CodexNarrativeEntry]) {
+        for index in narrative.indices {
+            switch narrative[index] {
             case .prose(var prose):
                 prose.isStreaming = false
-                turn.narrative[index] = .prose(prose)
+                narrative[index] = .prose(prose)
             case .workGroup(var group):
                 group.isLive = false
-                turn.narrative[index] = .workGroup(group)
+                narrative[index] = .workGroup(group)
             case .productToolCall, .notice:
                 break
             }

@@ -29,6 +29,10 @@ CodexChatWorkspaceView(
 
 This is intentionally only the minimal initializer path. Add model selection, permissions, panels, MCP state, side chat, subagents, and host actions as your product supports them.
 
+For desktop-style follow-ups, pass the active thread's `[CodexComposerSubmission]` through `queuedFollowUps` and wire `onSteerQueuedFollowUp`, `onRemoveQueuedFollowUp`, and `onEditQueuedFollowUp` by `clientID`. The host remains responsible for serializing `turn/steer` calls and atomically dequeuing exactly one FIFO follow-up while marking its turn pending after each active turn completes. A generic or non-steerable failure returns the selected message to the front of the queue. A missing-active-turn race falls through immediately to `turn/start`; an expected-turn mismatch retries once with the server-reported turn ID. Block queue draining while that recovery sequence is unresolved. Do not gate a completion-triggered dequeue only on a cached canonical `isSending` projection; it may still describe the turn whose terminal event initiated the drain.
+
+The canonical projection keeps the opening prompt in `CodexTurnV2.userMessage`, appends every echoed or optimistic `turn/steer` input to `steeredMessages`, and exposes the authoritative display order through `conversationSegments`. Render the initial segment's work, then each segment's steer bubble followed by only the assistant work produced after that steer. The resulting grammar is opening prompt → earlier assistant work → steer prompt → later assistant work → final answer. Reconcile each optimistic steer by `clientID`; never replace the opening prompt or render the server echo twice.
+
 ## Production wiring
 
 1. Own one `Codex` and session model outside the view tree.

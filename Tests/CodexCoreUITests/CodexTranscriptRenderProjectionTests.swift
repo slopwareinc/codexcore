@@ -103,6 +103,71 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(attachments.measuredHeight == 64 + CodexTranscriptColumnMetrics.interactiveBottomSpacing)
     }
 
+    @Test func steeredMessagesInterleaveWithWorkInCanonicalConversationOrder() async throws {
+        let firstSteer = CodexUserMessageV2(id: "steer-one", text: "First direction")
+        let secondSteer = CodexUserMessageV2(id: "steer-two", text: "Second direction")
+        let beforeSteer = CodexNarrativeEntry.prose(.init(
+            id: "before-steer", text: "Before first steer", isStreaming: true
+        ))
+        let betweenSteers = CodexNarrativeEntry.prose(.init(
+            id: "between-steers", text: "After first steer", isStreaming: true
+        ))
+        let afterSteers = CodexNarrativeEntry.prose(.init(
+            id: "after-steers", text: "After second steer", isStreaming: true
+        ))
+        let turn = CodexTurnV2(
+            id: "turn",
+            userMessage: .init(id: "original", text: "Original prompt"),
+            steeredMessages: [firstSteer, secondSteer],
+            conversationSegments: [
+                .init(id: "initial", narrative: [beforeSteer]),
+                .init(id: "first", steeredMessage: firstSteer, narrative: [betweenSteers]),
+                .init(id: "second", steeredMessage: secondSteer, narrative: [afterSteers])
+            ],
+            narrative: [beforeSteer, betweenSteers, afterSteers],
+            status: .working(since: nil)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let orderedItems = snapshot.orderedItemIDs.compactMap { snapshot.itemsByID[$0] }
+        let userItems = orderedItems.filter { $0.textRole == .user }
+
+        #expect(userItems.map { $0.preparedText?.attributedString.string } == [
+            "Original prompt", "First direction", "Second direction"
+        ])
+        #expect(Set(userItems.map(\.id)).count == 3)
+        let workIndex = try #require(orderedItems.firstIndex { $0.workHeader != nil })
+        let beforeIndex = try #require(orderedItems.firstIndex {
+            $0.preparedText?.attributedString.string == "Before first steer"
+        })
+        let firstSteerIndex = try #require(orderedItems.firstIndex { $0.id.rawValue.contains(":user:steer-one") })
+        let betweenIndex = try #require(orderedItems.firstIndex {
+            $0.preparedText?.attributedString.string == "After first steer"
+        })
+        let secondSteerIndex = try #require(orderedItems.firstIndex { $0.id.rawValue.contains(":user:steer-two") })
+        let afterIndex = try #require(orderedItems.firstIndex {
+            $0.preparedText?.attributedString.string == "After second steer"
+        })
+        #expect(workIndex < beforeIndex)
+        #expect(beforeIndex < firstSteerIndex)
+        #expect(firstSteerIndex < betweenIndex)
+        #expect(betweenIndex < secondSteerIndex)
+        #expect(secondSteerIndex < afterIndex)
+        let copyTurnText = try #require(userItems.first).copyTurnText
+        let copyBefore = try #require(copyTurnText.range(of: "Before first steer"))
+        let copyFirstSteer = try #require(copyTurnText.range(of: "You\nFirst direction"))
+        let copyBetween = try #require(copyTurnText.range(of: "After first steer"))
+        let copySecondSteer = try #require(copyTurnText.range(of: "You\nSecond direction"))
+        let copyAfter = try #require(copyTurnText.range(of: "After second steer"))
+        #expect(copyBefore.lowerBound < copyFirstSteer.lowerBound)
+        #expect(copyFirstSteer.lowerBound < copyBetween.lowerBound)
+        #expect(copyBetween.lowerBound < copySecondSteer.lowerBound)
+        #expect(copySecondSteer.lowerBound < copyAfter.lowerBound)
+    }
+
     @Test func expandedWorkProseUsesTheFinalAnswerForeground() async throws {
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let turn = CodexTurnV2(

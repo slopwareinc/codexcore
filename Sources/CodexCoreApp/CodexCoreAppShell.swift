@@ -346,11 +346,17 @@ struct CodexCoreAppShell: View {
                 canUsePlanMode: model.canUsePlanMode,
                 isGoalPursuitEnabled: model.isGoalPursuitEnabled,
                 followUpHint: model.followUpHint,
+                queuedFollowUps: model.queuedFollowUps,
                 mentionResults: model.mentionResults,
                 onMentionQueryChanged: { model.updateMentionQuery($0) },
                 onMentionSelected: { model.selectMention($0) },
                 onSend: { Task { await model.sendDraft() } },
                 onInterrupt: { Task { await model.interrupt() } },
+                onSteerQueuedFollowUp: { clientID in
+                    Task { await model.steerQueuedFollowUp(clientID: clientID) }
+                },
+                onRemoveQueuedFollowUp: { model.removeQueuedFollowUp(clientID: $0) },
+                onEditQueuedFollowUp: { model.editQueuedFollowUp(clientID: $0) },
                 onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },

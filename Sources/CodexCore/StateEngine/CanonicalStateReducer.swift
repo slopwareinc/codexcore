@@ -569,7 +569,21 @@ internal struct CanonicalStateReducer: Sendable {
             changes.append(.turnItemsMarkedUncertain(key))
 
         case .submissionIntentRegistered(var intent):
-            guard graph.submissionIntents[intent.id] == nil else { break }
+            if let previous = graph.submissionIntents[intent.id] {
+                // A definitive turn/steer race response marks the first
+                // attempt failed before the client retries the same visible
+                // message against the server-reported turn (or turn/start).
+                // Re-arm only that exact payload; never overwrite an in-flight,
+                // reconciled, indeterminate, or unrelated intent.
+                guard case .failed = previous.state,
+                      previous.threadID == intent.threadID,
+                      previous.input == intent.input
+                else { break }
+                intent.lastChangedRevision = revision
+                graph.submissionIntents[intent.id] = intent
+                changes.append(.submissionIntentUpdated(id: intent.id, threadID: intent.threadID))
+                break
+            }
             intent.lastChangedRevision = revision
             graph.submissionIntents[intent.id] = intent
             changes.append(.submissionIntentInserted(id: intent.id, threadID: intent.threadID))

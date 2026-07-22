@@ -6,6 +6,7 @@ import SwiftUI
 public struct CodexWorkBlockViewV2: View {
     @Environment(\.codexAgentTheme) private var theme
 
+    private let conversationSegments: [CodexTurnConversationSegmentV2]
     private let narrative: [CodexNarrativeEntry]
     private let liveTail: String?
     private let status: CodexTurnStatusV2
@@ -16,6 +17,7 @@ public struct CodexWorkBlockViewV2: View {
     @State private var clientStartedAt = Date()
 
     public init(
+        conversationSegments: [CodexTurnConversationSegmentV2]? = nil,
         narrative: [CodexNarrativeEntry],
         liveTail: String?,
         status: CodexTurnStatusV2,
@@ -24,6 +26,9 @@ public struct CodexWorkBlockViewV2: View {
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         initiallyExpanded: Bool = false
     ) {
+        self.conversationSegments = conversationSegments ?? [
+            .init(id: "legacy-initial", narrative: narrative)
+        ]
         self.narrative = narrative
         self.liveTail = liveTail
         self.status = status
@@ -39,6 +44,7 @@ public struct CodexWorkBlockViewV2: View {
         initiallyExpanded: Bool = false
     ) {
         self.init(
+            conversationSegments: turn.conversationSegments,
             narrative: turn.narrative,
             liveTail: turn.liveTail,
             status: turn.status,
@@ -61,11 +67,16 @@ public struct CodexWorkBlockViewV2: View {
                         ))
                             .font(theme.fonts.caption)
                             .foregroundStyle(theme.colors.textTertiary)
+                            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
                     } else {
                         CodexLiveTailV2(text: "Thinking")
+                            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
                     }
-                    if !narrative.isEmpty { narrativeBody }
-                    if let liveTail, !liveTail.isEmpty { CodexLiveTailV2(text: liveTail) }
+                    conversationBody(showsNarrative: true)
+                    if let liveTail, !liveTail.isEmpty {
+                        CodexLiveTailV2(text: liveTail)
+                            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+                    }
 
                 case .done(let durationMs):
                     Button {
@@ -82,19 +93,26 @@ public struct CodexWorkBlockViewV2: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    if isExpanded { narrativeBody }
+                    .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+                    conversationBody(showsNarrative: isExpanded)
 
                 case .failed(let message):
                     Text(message.isEmpty ? "Work failed" : message)
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textTertiary)
+                        .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+                    conversationBody(showsNarrative: false)
                 }
             }
-            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var hasContent: Bool { !narrative.isEmpty || liveTail != nil }
+    private var hasContent: Bool {
+        !narrative.isEmpty
+            || liveTail != nil
+            || conversationSegments.contains { $0.steeredMessage != nil }
+    }
 
     private var shouldRender: Bool {
         switch status {
@@ -122,28 +140,42 @@ public struct CodexWorkBlockViewV2: View {
         }) > 1
     }
 
-    private var narrativeBody: some View {
+    @ViewBuilder
+    private func conversationBody(showsNarrative: Bool) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(narrative) { entry in
-                switch entry {
-                case .prose(let prose):
-                    CodexAssistantContentView(
-                        text: prose.text,
-                        isStreaming: prose.isStreaming,
-                        cacheNamespace: "transcript-v2-prose-\(prose.id)"
-                    )
-                    .foregroundStyle(theme.colors.textSecondary)
-                case .workGroup(let group):
-                    CodexWorkGroupViewV2(group: group, onOpenSubagent: onOpenSubagent)
-                case .notice(let notice):
-                    Text(notice.message)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                case .productToolCall(let call):
-                    if let rendered = productToolRenderer?.render(call) { rendered }
-                    else { CodexProductToolFallbackV2(call: call) }
+            ForEach(conversationSegments) { segment in
+                if let message = segment.steeredMessage {
+                    CodexUserMessageBubbleV2(message: message, presentedAt: clientStartedAt)
+                }
+                if showsNarrative {
+                    ForEach(segment.narrative) { entry in
+                        narrativeEntry(entry)
+                            .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+                    }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func narrativeEntry(_ entry: CodexNarrativeEntry) -> some View {
+        switch entry {
+        case .prose(let prose):
+            CodexAssistantContentView(
+                text: prose.text,
+                isStreaming: prose.isStreaming,
+                cacheNamespace: "transcript-v2-prose-\(prose.id)"
+            )
+            .foregroundStyle(theme.colors.textSecondary)
+        case .workGroup(let group):
+            CodexWorkGroupViewV2(group: group, onOpenSubagent: onOpenSubagent)
+        case .notice(let notice):
+            Text(notice.message)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+        case .productToolCall(let call):
+            if let rendered = productToolRenderer?.render(call) { rendered }
+            else { CodexProductToolFallbackV2(call: call) }
         }
     }
 

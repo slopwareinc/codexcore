@@ -40,6 +40,11 @@ public final class CodexChatRuntimeSession {
         subagentCoordinator?.agents ?? []
     }
     public var isSending: Bool { state.isSending }
+    /// Local optimistic state used to serialize queued turn submission.
+    /// Unlike `isSending`, this deliberately excludes canonical snapshot state,
+    /// which may still describe the just-completed turn while its completion is
+    /// being handled.
+    public var isMainTurnPendingOrRunning: Bool { state.mainChatSession.isSending }
     public var isSideChatSending: Bool { state.isSideChatSending }
     public var activeTurnID: String? { state.activeTurnID }
     public var activeSideChatTurnID: String? { state.activeSideChatTurnID }

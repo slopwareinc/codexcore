@@ -16,7 +16,7 @@ Reproducible verification and performance counters are recorded in
 
 | Surface / behavior | V2 source of truth | Current behavior to preserve or restore | AppKit owner | Required evidence |
 |---|---|---|---|---|
-| User message | `CodexTurnV2.userMessage` | Right-aligned bubble, server echo reconciliation, optimistic text, stable timestamp, selection | user render block + TextKit cell | reducer reconcile test; render projection and copy tests |
+| User message | `CodexTurnV2.userMessage` + `steeredMessages` | Right-aligned bubbles, server echo reconciliation, optimistic text, stable timestamps, selection; steer appends without replacing the opening prompt | user render block + TextKit cell | reducer reconcile test; multi-steer render projection and copy tests |
 | Commentary prose | `.prose(CodexAssistantTextV2)` | Chronological Markdown inside the work block, streaming updates, selectable text | Markdown block projector + TextKit/code cells | fixture ordering; stable-ID/revision test; streaming selection regression |
 | Final answer | `CodexTurnV2.finalAnswer` | Markdown below work, streaming tail, stable timestamp, selection | final Markdown block projector + TextKit/code cells | fixture projection; copy-final and selection regression |
 | Work header | `CodexTurnStatusV2` | Thinking/Working, completed disclosure, failed message, elapsed duration | AppKit working-header cell | duration grammar tests; only active header 1 Hz instrumentation |

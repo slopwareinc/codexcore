@@ -32,7 +32,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.7.0` wi
 | Chat pin, archive, rename, fork, copy | Supported | Chat reorder/hide/reveal is not supported. |
 | Project group, pin, reorder, alias, remove, reveal | Supported | Projects can also archive their chats. |
 | Model, reasoning, approval, Plan and Goal controls | Supported | Availability still depends on server/model capabilities. |
-| Attachments, mentions, slash commands, send/steer/interrupt | Supported | Standard composer workflow. |
+| Attachments, mentions, slash commands, queued follow-ups, steer, interrupt | Supported | Active-turn follow-ups form a multi-message FIFO queue with explicit steer, edit, and remove actions; one queued message starts after each completed turn. Steering appends a distinct in-turn user bubble and preserves the original prompt. |
 | Approval and input prompts | Supported | Decisions happen before the requested operation. |
 | Transcript, plans, goals, subagents, side chat | Supported | Presentation follows canonical session state. |
 | Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. |
