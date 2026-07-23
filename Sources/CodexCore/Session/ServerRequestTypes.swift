@@ -185,6 +185,27 @@ public enum CodexServerRequestKind: Sendable, Codable, Equatable {
     }
 }
 
+extension CodexServerRequestKind {
+    var requiresUnreadAttention: Bool {
+        switch self {
+        case .commandApproval,
+             .fileChangeApproval,
+             .permissionsApproval,
+             .userInput,
+             .mcpElicitation,
+             .legacyApplyPatchApproval,
+             .legacyExecCommandApproval:
+            true
+        case .dynamicToolCall,
+             .tokenRefresh,
+             .attestation,
+             .currentTime,
+             .unknown:
+            false
+        }
+    }
+}
+
 /// The non-secret information retained for an incoming server request.
 /// Request payloads and handler capabilities intentionally live elsewhere.
 public struct CodexServerRequestRegistration: Sendable, Equatable {

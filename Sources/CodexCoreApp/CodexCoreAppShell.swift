@@ -66,6 +66,17 @@ struct CodexCoreAppShell: View {
         }
         .frame(minWidth: CodexProjectSidebar.minimumExpandedShellWidth, minHeight: 540)
         .ignoresSafeArea(.container, edges: .top)
+        .onAppear {
+            model.setConversationViewVisible(
+                routeDisplaysConversation(sidebarSnapshot.selectedRoute)
+            )
+        }
+        .onDisappear {
+            model.setConversationViewVisible(false)
+        }
+        .onChange(of: sidebarSnapshot.selectedRoute) { _, route in
+            model.setConversationViewVisible(routeDisplaysConversation(route))
+        }
         .onChange(of: sidebarSnapshot.isCollapsed) { _, isCollapsed in
             if !isCollapsed {
                 sidebarOverlaySession.dismissImmediately()
@@ -202,7 +213,10 @@ struct CodexCoreAppShell: View {
             onOpenFolder: { chooseWorkspaceFolder() },
             onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
             onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
-            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
+            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } },
+            onSetChatUnread: { chat, unread in
+                model.setSidebarChatUnread(chat, unread: unread)
+            }
         )
     }
 
@@ -238,6 +252,15 @@ struct CodexCoreAppShell: View {
             CodexProjectSidebar.clampExpandedWidth(CGFloat(sidebarExpandedWidth)),
             maximumThatPreservesContent
         )
+    }
+
+    private func routeDisplaysConversation(_ route: CodexAppRoute) -> Bool {
+        switch route {
+        case .chat, .search, .automations, .codexMobile:
+            true
+        case .plugins, .settingsAbout:
+            false
+        }
     }
 
     private func collapsePinnedSidebar() {

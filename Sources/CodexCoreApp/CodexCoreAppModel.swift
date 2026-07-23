@@ -76,8 +76,10 @@ final class CodexCoreAppModel {
     private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
     private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
     private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
-    private var lastSeenAttentionRevisionByThreadID: [ThreadID: StateRevision] = [:]
-    private var hasSeededThreadIndex = false
+    private var unreadState: CodexThreadUnreadState
+    private var isApplicationActive = false
+    private var isMainWindowKey = false
+    private var isConversationViewVisible = false
     private(set) var goalPursuitEnabled = false
     private var loginTask: Task<Void, Never>?
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
@@ -124,6 +126,9 @@ final class CodexCoreAppModel {
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
         self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+        self.unreadState = CodexThreadUnreadState(
+            unreadThreadIDs: CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)
+        )
         self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
         self.lastManualModelID = CodexModelPreferenceStorage.loadLastModelID(from: preferenceStore)
         let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
@@ -236,8 +241,7 @@ final class CodexCoreAppModel {
         selectedThreadSessionSnapshot = nil
         canonicalThreadIndexSnapshot = nil
         canonicalThreadStatusEntries.removeAll(keepingCapacity: false)
-        lastSeenAttentionRevisionByThreadID.removeAll(keepingCapacity: false)
-        hasSeededThreadIndex = false
+        unreadState.resetObservationBaseline()
         workspacePanel.removeAll()
         accountRateLimitsSnapshot = nil
         accountPreferredDisplayName = nil
@@ -802,9 +806,7 @@ final class CodexCoreAppModel {
         selectedThreadSessionSnapshot = nil
         goalPursuitEnabled = false
         runtimeSession.selectThread(lease.id.rawValue)
-        if let summary = canonicalThreadIndexSnapshot?.summary(for: lease.id) {
-            lastSeenAttentionRevisionByThreadID[lease.id] = summary.attentionRevision
-        }
+        clearSelectedThreadUnreadIfFocused()
         syncComposerThreadID()
         if let codex {
             startCurrentThreadObservation(session: codex.session, threadID: lease.id)
@@ -970,21 +972,22 @@ final class CodexCoreAppModel {
 
     private func applyThreadIndexSnapshot(_ snapshot: CanonicalThreadIndexSnapshot) {
         canonicalThreadIndexSnapshot = snapshot
-        if !hasSeededThreadIndex {
-            for summary in snapshot.threads {
-                lastSeenAttentionRevisionByThreadID[summary.id] = summary.attentionRevision
-            }
-            hasSeededThreadIndex = true
+        let previousUnreadThreadIDs = unreadState.unreadThreadIDs
+        unreadState.apply(snapshot)
+        clearSelectedThreadUnreadIfFocused(persists: false)
+        if unreadState.unreadThreadIDs != previousUnreadThreadIDs {
+            persistUnreadState()
         }
+        rebuildCanonicalThreadStatusEntries(from: snapshot)
+    }
 
+    private func rebuildCanonicalThreadStatusEntries(
+        from snapshot: CanonicalThreadIndexSnapshot? = nil
+    ) {
+        guard let snapshot = snapshot ?? canonicalThreadIndexSnapshot else { return }
         var entries: [String: CodexThreadStatusEntry] = [:]
         entries.reserveCapacity(snapshot.threads.count)
         for summary in snapshot.threads {
-            let isSelected = summary.id.rawValue == selectedThreadID
-            if isSelected {
-                lastSeenAttentionRevisionByThreadID[summary.id] = summary.attentionRevision
-            }
-            let lastSeen = lastSeenAttentionRevisionByThreadID[summary.id] ?? .zero
             let status: CodexThreadLiveStatus
             if summary.status.isActive || summary.latestTurnStatus == .inProgress {
                 status = .running
@@ -995,7 +998,7 @@ final class CodexCoreAppModel {
             }
             entries[summary.id.rawValue] = .init(
                 status: status,
-                hasUnreadWhileInactive: !isSelected && lastSeen < summary.attentionRevision,
+                hasUnreadWhileInactive: unreadState.isUnread(summary.id),
                 lastEventAt: Date()
             )
         }
@@ -1028,7 +1031,7 @@ final class CodexCoreAppModel {
         }
         canonicalThreadStatusEntries[threadID] = CodexThreadStatusEntry(
             status: liveStatus,
-            hasUnreadWhileInactive: false,
+            hasUnreadWhileInactive: unreadState.isUnread(id),
             lastEventAt: Date()
         )
     }
@@ -1122,6 +1125,70 @@ final class CodexCoreAppModel {
         if route == .plugins {
             Task { await refreshPlugins() }
         }
+    }
+
+    func setApplicationActive(_ isActive: Bool) {
+        isApplicationActive = isActive
+        if isActive {
+            reloadPersistedUnreadState()
+        }
+        clearSelectedThreadUnreadIfFocused()
+    }
+
+    func setMainWindowKey(_ isKey: Bool) {
+        isMainWindowKey = isKey
+        clearSelectedThreadUnreadIfFocused()
+    }
+
+    func setConversationViewVisible(_ isVisible: Bool) {
+        isConversationViewVisible = isVisible
+        clearSelectedThreadUnreadIfFocused()
+    }
+
+    func setSidebarChatUnread(_ chat: CodexThreadSummary, unread: Bool) {
+        setThreadUnread(ThreadID(chat.id), unread: unread)
+        clearSelectedThreadUnreadIfFocused()
+    }
+
+    private var isSelectedConversationFocused: Bool {
+        isApplicationActive && isMainWindowKey && isConversationViewVisible
+    }
+
+    private func reloadPersistedUnreadState() {
+        let persisted = CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)
+        guard unreadState.replaceUnreadThreadIDs(persisted) else { return }
+        rebuildCanonicalThreadStatusEntries()
+    }
+
+    private func clearSelectedThreadUnreadIfFocused(persists: Bool = true) {
+        let threadID = selectedThreadID.map { ThreadID($0) }
+        guard unreadState.markReadIfFocused(
+            threadID,
+            isConversationFocused: isSelectedConversationFocused
+        ) else { return }
+        if persists {
+            persistUnreadState()
+        }
+        rebuildCanonicalThreadStatusEntries()
+    }
+
+    private func setThreadUnread(
+        _ threadID: ThreadID,
+        unread: Bool,
+        persists: Bool = true
+    ) {
+        guard unreadState.setUnread(unread, for: threadID) else { return }
+        if persists {
+            persistUnreadState()
+        }
+        rebuildCanonicalThreadStatusEntries()
+    }
+
+    private func persistUnreadState() {
+        CodexUnreadThreadStorage.saveUnreadThreadIDs(
+            unreadState.unreadThreadIDs,
+            to: preferenceStore
+        )
     }
 
     func performAutomationRouteAction(_ action: CodexAutomationRouteAction) {
@@ -1275,6 +1342,9 @@ final class CodexCoreAppModel {
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
         sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
+        if isSelectedConversationFocused {
+            setThreadUnread(ThreadID(chat.id), unread: false)
+        }
         saveExpandedSidebarProjects()
         if let path = chat.workspacePath,
            CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
@@ -1642,6 +1712,9 @@ final class CodexCoreAppModel {
     }
 
     func resumeSearchResult(_ result: CodexThreadSearchResult) async {
+        if isSelectedConversationFocused {
+            setThreadUnread(ThreadID(result.thread.id), unread: false)
+        }
         let workspace = result.thread.workspacePath?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let workspace, !workspace.isEmpty {
             let normalized = CodexProjectSummary.normalizedPath(workspace)
@@ -2170,6 +2243,9 @@ final class CodexCoreAppModel {
         accountPreferredDisplayName = nil
         authSession.resetAuthentication()
         threadListSession.reset(currentWorkspacePath: workspacePath)
+        canonicalThreadIndexSnapshot = nil
+        canonicalThreadStatusEntries.removeAll(keepingCapacity: false)
+        unreadState.resetObservationBaseline()
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         runtimeSession.integrationCatalogSession.reset()
         configurationSession.reset()
@@ -2221,6 +2297,9 @@ final class CodexCoreAppModel {
 
     private func removeChatFromSidebar(_ threadID: String) {
         workspacePanel.purge(threadID: threadID)
+        if unreadState.removeThread(ThreadID(threadID)) {
+            persistUnreadState()
+        }
         var session = threadListSession
         session.removeThread(id: threadID, currentWorkspacePath: workspacePath)
         threadListSession = session

@@ -73,6 +73,28 @@ final class ServerRequestProtocolTests: XCTestCase {
         XCTAssertEqual(CodexAppServerProtocolInventory.serverRequestMethodCount, 11)
     }
 
+    func testOnlyUserActionableRequestsRequireUnreadAttention() {
+        let actionable: [CodexServerRequestKind] = [
+            .commandApproval,
+            .fileChangeApproval,
+            .permissionsApproval,
+            .userInput,
+            .mcpElicitation,
+            .legacyApplyPatchApproval,
+            .legacyExecCommandApproval,
+        ]
+        let silent: [CodexServerRequestKind] = [
+            .dynamicToolCall,
+            .tokenRefresh,
+            .attestation,
+            .currentTime,
+            .unknown("future/request"),
+        ]
+
+        XCTAssertTrue(actionable.allSatisfy(\.requiresUnreadAttention))
+        XCTAssertTrue(silent.allSatisfy { !$0.requiresUnreadAttention })
+    }
+
     func testEveryGA145RequestArmParsesAndValidatesItsResult() throws {
         let fixtures: [(method: CodexAppServerServerRequestMethod, params: [String: CodexJSONValue], result: CodexJSONValue)] = [
             (

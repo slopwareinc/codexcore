@@ -15,6 +15,13 @@ The reference app is a native Codex host and living integration example. The [su
 
 The sidebar groups chats by workspace. Chats can be pinned, archived, renamed, forked, copied, searched, and resumed. Projects can be selected, grouped, pinned, reordered, aliased, removed, revealed in Finder, or used to archive their chats. Chat reorder/hide/reveal actions are not supported.
 
+Unread state is local app state rather than app-server protocol state. A chat
+becomes unread when a turn finishes or needs an actionable response such as an
+approval or user input. Streaming text alone does not mark a chat unread. The
+app clears unread state when that chat is visible in the focused main window;
+the chat menu can also mark it read or unread explicitly. Unread state persists
+across reconnects and relaunches.
+
 ## Composer
 
 The composer supports:

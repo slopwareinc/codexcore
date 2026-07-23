@@ -31,6 +31,7 @@ public struct CodexProjectSidebar: View {
     let onSelectChat: (CodexThreadSummary) -> Void
     let onTogglePinChat: (CodexThreadSummary) -> Void
     let onArchiveChat: (CodexThreadSummary) -> Void
+    let onSetChatUnread: (CodexThreadSummary, Bool) -> Void
 
     public init(
         serverName: String?,
@@ -54,7 +55,8 @@ public struct CodexProjectSidebar: View {
         onOpenFolder: @escaping () -> Void,
         onSelectChat: @escaping (CodexThreadSummary) -> Void,
         onTogglePinChat: @escaping (CodexThreadSummary) -> Void,
-        onArchiveChat: @escaping (CodexThreadSummary) -> Void
+        onArchiveChat: @escaping (CodexThreadSummary) -> Void,
+        onSetChatUnread: @escaping (CodexThreadSummary, Bool) -> Void = { _, _ in }
     ) {
         self.serverName = serverName
         self.accountSummary = accountSummary
@@ -78,6 +80,7 @@ public struct CodexProjectSidebar: View {
         self.onSelectChat = onSelectChat
         self.onTogglePinChat = onTogglePinChat
         self.onArchiveChat = onArchiveChat
+        self.onSetChatUnread = onSetChatUnread
     }
 
     public var body: some View {
@@ -261,7 +264,8 @@ public struct CodexProjectSidebar: View {
                         indentation: 0,
                         onSelect: { onSelectChat(row.summary) },
                         onTogglePin: { onTogglePinChat(row.summary) },
-                        onArchive: { onArchiveChat(row.summary) }
+                        onArchive: { onArchiveChat(row.summary) },
+                        onSetUnread: { onSetChatUnread(row.summary, $0) }
                     )
                 }
                 ForEach(snapshot.pinnedProjects) { group in
@@ -280,7 +284,8 @@ public struct CodexProjectSidebar: View {
                         onSelectProject: onSelectProject,
                         onSelectChat: onSelectChat,
                         onTogglePinChat: onTogglePinChat,
-                        onArchiveChat: onArchiveChat
+                        onArchiveChat: onArchiveChat,
+                        onSetChatUnread: onSetChatUnread
                     )
                 }
             }
@@ -309,7 +314,8 @@ public struct CodexProjectSidebar: View {
                     onSelectProject: onSelectProject,
                     onSelectChat: onSelectChat,
                     onTogglePinChat: onTogglePinChat,
-                    onArchiveChat: onArchiveChat
+                    onArchiveChat: onArchiveChat,
+                    onSetChatUnread: onSetChatUnread
                 )
             }
 
@@ -370,7 +376,8 @@ public struct CodexProjectSidebar: View {
                                 onSelectProject: onSelectProject,
                                 onSelectChat: onSelectChat,
                                 onTogglePinChat: onTogglePinChat,
-                                onArchiveChat: onArchiveChat
+                                onArchiveChat: onArchiveChat,
+                                onSetChatUnread: onSetChatUnread
                             )
                         }
                         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -506,6 +513,7 @@ private struct ProjectSidebarGroupView: View {
     let onSelectChat: (CodexThreadSummary) -> Void
     let onTogglePinChat: (CodexThreadSummary) -> Void
     let onArchiveChat: (CodexThreadSummary) -> Void
+    let onSetChatUnread: (CodexThreadSummary, Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -645,7 +653,8 @@ private struct ProjectSidebarGroupView: View {
                             indentation: 32,
                             onSelect: { onSelectChat(row.summary) },
                             onTogglePin: { onTogglePinChat(row.summary) },
-                            onArchive: { onArchiveChat(row.summary) }
+                            onArchive: { onArchiveChat(row.summary) },
+                            onSetUnread: { onSetChatUnread(row.summary, $0) }
                         )
                     }
                     if group.hiddenRowCount > 0 {
@@ -685,6 +694,7 @@ private struct SidebarChatRow: View {
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
+    let onSetUnread: (Bool) -> Void
 
     var body: some View {
         SidebarChatRowHost(
@@ -697,6 +707,32 @@ private struct SidebarChatRow: View {
         )
         .frame(height: theme.fonts.sidebar.chatRowHeight)
         .help(row.summary.title)
+        .contextMenu {
+            Button {
+                onSetUnread(!row.hasUnreadWhileInactive)
+            } label: {
+                Label(
+                    row.hasUnreadWhileInactive ? "Mark as read" : "Mark as unread",
+                    systemImage: row.hasUnreadWhileInactive ? "envelope.open" : "envelope.badge"
+                )
+            }
+            Divider()
+            if row.canPin {
+                Button(action: onTogglePin) {
+                    Label(row.isPinned ? "Unpin chat" : "Pin chat", systemImage: row.isPinned ? "pin.slash" : "pin")
+                }
+            }
+            if row.canArchive {
+                Button(role: .destructive, action: onArchive) {
+                    Label("Archive chat", systemImage: "archivebox")
+                }
+            }
+        }
+        .accessibilityAction(
+            named: row.hasUnreadWhileInactive ? "Mark as read" : "Mark as unread"
+        ) {
+            onSetUnread(!row.hasUnreadWhileInactive)
+        }
     }
 }
 

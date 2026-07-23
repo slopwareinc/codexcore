@@ -50,7 +50,7 @@ private final class CodexMainWindow: NSWindow {
 
 @main
 @MainActor
-final class CodexCoreApp: NSObject, NSApplicationDelegate {
+final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let mainWindowFrameAutosaveName = "CodexCore.MainWindow"
     private static let defaultMainWindowContentSize = NSSize(width: 1_416, height: 912)
     private static var sharedDelegate: CodexCoreApp?
@@ -80,6 +80,24 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             self?.showMainWindow()
             NSRunningApplication.current.activate(options: .activateAllWindows)
         }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        model.setApplicationActive(true)
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        model.setApplicationActive(false)
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === mainWindow else { return }
+        model.setMainWindowKey(true)
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === mainWindow else { return }
+        model.setMainWindowKey(false)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -145,6 +163,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate {
             window.backgroundColor = .clear
             window.minSize = NSSize(width: CodexProjectSidebar.minimumExpandedShellWidth, height: 540)
             window.isReleasedWhenClosed = false
+            window.delegate = self
             let restoredSavedFrame = window.setFrameUsingName(Self.mainWindowFrameAutosaveName)
             _ = window.setFrameAutosaveName(Self.mainWindowFrameAutosaveName)
             if !restoredSavedFrame {

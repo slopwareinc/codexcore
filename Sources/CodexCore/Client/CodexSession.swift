@@ -780,11 +780,18 @@ public actor CodexSession:
     }
 
     public func threadIndexSnapshot() -> CanonicalThreadIndexSnapshot {
-        graph.threadIndexSnapshot(
+        let pendingRequests = interactions.pendingSnapshots()
+        return graph.threadIndexSnapshot(
             attentionRevisions: threadAttentionRevisions,
             pendingRequestThreadIDs: Set(
-                interactions.pendingSnapshots().compactMap { snapshot in
+                pendingRequests.compactMap { snapshot in
                     snapshot.scope.threadID.map { ThreadID($0) }
+                }
+            ),
+            pendingActionableRequestThreadIDs: Set(
+                pendingRequests.compactMap { snapshot in
+                    guard snapshot.kind.requiresUnreadAttention else { return nil }
+                    return snapshot.scope.threadID.map { ThreadID($0) }
                 }
             )
         )

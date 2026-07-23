@@ -4,7 +4,8 @@ import Foundation
 ///
 /// It intentionally contains no turns or items. `latestTurnStatus` preserves a
 /// terminal failure after the thread itself returns to idle, while
-/// `attentionRevision` lets UI-local last-seen state derive unread attention.
+/// request and goal-continuation facts let a host reproduce app-owned unread
+/// behavior without treating every canonical state revision as attention.
 public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
     public let id: ThreadID
     public let order: Int
@@ -24,6 +25,8 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
     public let lastChangedRevision: StateRevision
     public let attentionRevision: StateRevision
     public let hasPendingServerRequest: Bool
+    public let hasPendingActionableRequest: Bool
+    public let isGoalAutoContinuing: Bool
 
     public init(
         id: ThreadID,
@@ -43,7 +46,9 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
         updatedAt: ProtocolSeconds?,
         lastChangedRevision: StateRevision,
         attentionRevision: StateRevision,
-        hasPendingServerRequest: Bool
+        hasPendingServerRequest: Bool,
+        hasPendingActionableRequest: Bool = false,
+        isGoalAutoContinuing: Bool = false
     ) {
         self.id = id
         self.order = order
@@ -63,6 +68,8 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
         self.lastChangedRevision = lastChangedRevision
         self.attentionRevision = attentionRevision
         self.hasPendingServerRequest = hasPendingServerRequest
+        self.hasPendingActionableRequest = hasPendingActionableRequest
+        self.isGoalAutoContinuing = isGoalAutoContinuing
     }
 }
 
@@ -105,7 +112,7 @@ public struct CanonicalThreadIndexSnapshot: Sendable, Equatable {
     ]
 
     /// Captures every field that can change sidebar identity, status, terminal
-    /// failure, request badges, or UI-derived unread attention.
+    /// failure, request badges, goal continuation, or submission state.
     public static let observationScope = StateObservationScope(
         entities: .all,
         fields: attentionFields.union(.threadMetadata)
@@ -115,7 +122,8 @@ public struct CanonicalThreadIndexSnapshot: Sendable, Equatable {
 extension CanonicalStateGraph {
     func threadIndexSnapshot(
         attentionRevisions: [ThreadID: StateRevision],
-        pendingRequestThreadIDs: Set<ThreadID>
+        pendingRequestThreadIDs: Set<ThreadID>,
+        pendingActionableRequestThreadIDs: Set<ThreadID> = []
     ) -> CanonicalThreadIndexSnapshot {
         var seen = Set<ThreadID>()
         var orderedIDs = threadOrder.filter { id in
@@ -136,6 +144,12 @@ extension CanonicalStateGraph {
                 ?? retainedLatestTurn.flatMap { summary in
                     summary.id == projectedLatestTurnID ? summary.status : nil
                 }
+            let hasPendingSubmissionIntent = submissionIntents.values.contains { intent in
+                intent.threadID == threadID && intent.state == .pending
+            }
+            let isGoalAutoContinuing = thread.goal?.status == .active
+                && !pendingRequestThreadIDs.contains(threadID)
+                && !hasPendingSubmissionIntent
             return CanonicalThreadIndexSummary(
                 id: threadID,
                 order: order,
@@ -154,7 +168,9 @@ extension CanonicalStateGraph {
                 updatedAt: thread.metadata.updatedAt,
                 lastChangedRevision: thread.lastChangedRevision,
                 attentionRevision: attentionRevisions[threadID] ?? thread.lastChangedRevision,
-                hasPendingServerRequest: pendingRequestThreadIDs.contains(threadID)
+                hasPendingServerRequest: pendingRequestThreadIDs.contains(threadID),
+                hasPendingActionableRequest: pendingActionableRequestThreadIDs.contains(threadID),
+                isGoalAutoContinuing: isGoalAutoContinuing
             )
         }
         return CanonicalThreadIndexSnapshot(revision: revision, threads: summaries)
