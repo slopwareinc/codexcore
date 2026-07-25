@@ -2,6 +2,22 @@ import XCTest
 @testable import CodexCore
 
 final class V2TypeTests: XCTestCase {
+    func testCodexVoiceWebRTCStartUsesOfficialTransportShape() throws {
+        let params = CodexSchemaThreadRealtimeStartParams.codexVoiceWebRTC(
+            threadID: "thread-voice",
+            offerSDP: "v=0\r\n"
+        )
+        let value = try CodexJSONValue(encoding: params)
+
+        XCTAssertEqual(value.objectValue?["threadId"], .string("thread-voice"))
+        XCTAssertEqual(value.objectValue?["outputModality"], .string("audio"))
+        XCTAssertEqual(value.objectValue?["version"], .string("v3"))
+        XCTAssertEqual(value.objectValue?["transport"], .dictionary([
+            "type": .string("webrtc"),
+            "sdp": .string("v=0\r\n"),
+        ]))
+    }
+
     func testCurrentThreadAndTurnOptionsEncodeWithWireNames() throws {
         let start = ThreadStartParams(
             cwd: "/tmp/project",

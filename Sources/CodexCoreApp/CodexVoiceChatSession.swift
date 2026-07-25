@@ -48,20 +48,19 @@ final class CodexVoiceChatSession {
     private(set) var errorMessage: String?
     var isMuted = false {
         didSet {
-            capture?.isMuted = isMuted
+            webRTC?.setMicrophoneMuted(isMuted)
         }
     }
     var isOutputMuted = false {
         didSet {
-            player?.isMuted = isOutputMuted
+            webRTC?.setOutputMuted(isOutputMuted)
         }
     }
 
     private var codex: Codex?
     private var threadLease: CodexThreadLease?
     private var eventTask: Task<Void, Never>?
-    private var capture: CodexVoiceAudioCapture?
-    private var player: CodexVoiceAudioPlayer?
+    private var webRTC: CodexVoiceWebRTCTransport?
     private var partialEntryIDByRole: [String: UUID] = [:]
 
     var isActive: Bool { phase.isActive }
@@ -81,6 +80,14 @@ final class CodexVoiceChatSession {
             throw CodexVoiceChatError.microphonePermissionDenied
         }
 
+        let transport = CodexVoiceWebRTCTransport { [weak self] level in
+            self?.inputLevel = level
+        }
+        let offerSDP = try await transport.prepareOffer()
+        transport.setMicrophoneMuted(isMuted)
+        transport.setOutputMuted(isOutputMuted)
+        webRTC = transport
+
         let events = try await codex.session.observeRealtimeEvents(
             threadID: threadLease.id.rawValue
         )
@@ -97,43 +104,17 @@ final class CodexVoiceChatSession {
             }
         }
 
-        _ = try await codex.threadRealtimeStart(.init(
-            flushTranscriptTailOnSessionEnd: true,
-            includeStartupContext: true,
-            outputModality: .audio,
+        _ = try await codex.threadRealtimeStart(.codexVoiceWebRTC(
             threadID: threadLease.id.rawValue,
-            version: .v3
+            offerSDP: offerSDP
         ))
-
-        let capture = try CodexVoiceAudioCapture(
-            codex: codex,
-            threadID: threadLease.id.rawValue,
-            onLevel: { [weak self] level in
-                Task { @MainActor [weak self] in
-                    self?.inputLevel = level
-                }
-            }
-        )
-        capture.isMuted = isMuted
-        try capture.start()
-        self.capture = capture
-        player = CodexVoiceAudioPlayer { [weak self] isPlaying in
-            Task { @MainActor [weak self] in
-                guard let self, self.phase.isActive else { return }
-                self.phase = isPlaying ? .speaking : .listening
-            }
-        }
-        player?.isMuted = isOutputMuted
-        phase = .listening
     }
 
     func stop() async {
         let activeCodex = codex
         let activeThreadID = threadID
-        capture?.stop()
-        capture = nil
-        player?.stop()
-        player = nil
+        webRTC?.stop()
+        webRTC = nil
         eventTask?.cancel()
         eventTask = nil
         inputLevel = 0
@@ -166,19 +147,14 @@ final class CodexVoiceChatSession {
         case .transcriptDone(let value):
             finishTranscript(role: value.role, text: value.text)
         case .outputAudio(let value):
-            do {
-                try player?.enqueue(value.audio)
-                phase = .speaking
-            } catch {
-                fail(error)
-            }
+            // WebRTC owns model audio. PCM notifications are only used by
+            // websocket clients.
+            _ = value
         case .error(let value):
             fail(CodexVoiceChatError.server(value.message))
         case .closed(let value):
-            capture?.stop()
-            capture = nil
-            player?.stop()
-            player = nil
+            webRTC?.stop()
+            webRTC = nil
             let lease = threadLease
             threadLease = nil
             codex = nil
@@ -188,7 +164,9 @@ final class CodexVoiceChatSession {
             phase = value.reason == nil
                 ? .inactive
                 : .failed(value.reason ?? "Voice chat closed")
-        case .itemAdded, .sdp:
+        case .sdp(let value):
+            webRTC?.applyAnswer(value.sdp)
+        case .itemAdded:
             break
         }
     }
@@ -226,10 +204,8 @@ final class CodexVoiceChatSession {
         let message = CodexErrorFormat.localizedDescription(error)
         errorMessage = message
         phase = .failed(message)
-        capture?.stop()
-        capture = nil
-        player?.stop()
-        player = nil
+        webRTC?.stop()
+        webRTC = nil
     }
 
     private static func requestMicrophoneAccess() async -> Bool {
@@ -269,240 +245,6 @@ enum CodexVoiceChatError: Error, LocalizedError {
             "Voice audio data was invalid."
         case .server(let message):
             message
-        }
-    }
-}
-
-private actor CodexVoiceAudioSender {
-    let codex: Codex
-    let threadID: String
-
-    init(codex: Codex, threadID: String) {
-        self.codex = codex
-        self.threadID = threadID
-    }
-
-    func send(_ chunk: CodexSchemaThreadRealtimeAudioChunk) async {
-        _ = try? await codex.threadRealtimeAppendAudio(.init(
-            audio: chunk,
-            threadID: threadID
-        ))
-    }
-}
-
-private final class CodexVoiceAudioCapture: @unchecked Sendable {
-    var isMuted = false
-
-    private let engine = AVAudioEngine()
-    private let sender: CodexVoiceAudioSender
-    private let onLevel: @Sendable (Float) -> Void
-    private var converter: AVAudioConverter?
-    private var outputFormat: AVAudioFormat?
-
-    init(
-        codex: Codex,
-        threadID: String,
-        onLevel: @escaping @Sendable (Float) -> Void
-    ) throws {
-        sender = CodexVoiceAudioSender(codex: codex, threadID: threadID)
-        self.onLevel = onLevel
-    }
-
-    func start() throws {
-        let input = engine.inputNode
-        let inputFormat = input.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-              let mono = AVAudioFormat(
-                commonFormat: .pcmFormatInt16,
-                sampleRate: inputFormat.sampleRate,
-                channels: 1,
-                interleaved: true
-              ),
-              let converter = AVAudioConverter(from: inputFormat, to: mono)
-        else {
-            throw CodexVoiceChatError.invalidAudioFormat
-        }
-        self.converter = converter
-        outputFormat = mono
-
-        input.installTap(
-            onBus: 0,
-            bufferSize: 4_096,
-            format: inputFormat
-        ) { [weak self] buffer, _ in
-            self?.consume(buffer)
-        }
-        engine.prepare()
-        try engine.start()
-    }
-
-    func stop() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        converter = nil
-        outputFormat = nil
-        onLevel(0)
-    }
-
-    private func consume(_ input: AVAudioPCMBuffer) {
-        guard !isMuted, let converter, let outputFormat else { return }
-        let capacity = AVAudioFrameCount(
-            ceil(Double(input.frameLength) * outputFormat.sampleRate / input.format.sampleRate)
-        )
-        guard let output = AVAudioPCMBuffer(
-            pcmFormat: outputFormat,
-            frameCapacity: max(capacity, 1)
-        ) else { return }
-
-        let source = CodexVoiceConverterInput(buffer: input)
-        var conversionError: NSError?
-        let status = converter.convert(to: output, error: &conversionError) { _, state in
-            guard !source.supplied else {
-                state.pointee = .noDataNow
-                return nil
-            }
-            source.supplied = true
-            state.pointee = .haveData
-            return source.buffer
-        }
-        guard conversionError == nil,
-              status != .error,
-              output.frameLength > 0,
-              let buffer = output.audioBufferList.pointee.mBuffers.mData
-        else { return }
-
-        let byteCount = Int(output.audioBufferList.pointee.mBuffers.mDataByteSize)
-        let data = Data(bytes: buffer, count: byteCount)
-        onLevel(Self.level(fromPCM16: data))
-        let chunk = CodexSchemaThreadRealtimeAudioChunk(
-            data: data.base64EncodedString(),
-            numChannels: 1,
-            sampleRate: Int(outputFormat.sampleRate),
-            samplesPerChannel: Int(output.frameLength)
-        )
-        Task { [sender] in await sender.send(chunk) }
-    }
-
-    private static func level(fromPCM16 data: Data) -> Float {
-        guard data.count >= MemoryLayout<Int16>.size else { return 0 }
-        return data.withUnsafeBytes { raw -> Float in
-            let samples = raw.bindMemory(to: Int16.self)
-            var sum: Double = 0
-            for sample in samples {
-                let normalized = Double(sample) / Double(Int16.max)
-                sum += normalized * normalized
-            }
-            let rms = sqrt(sum / Double(samples.count))
-            return Float(min(1, rms * 5))
-        }
-    }
-}
-
-private final class CodexVoiceConverterInput: @unchecked Sendable {
-    let buffer: AVAudioPCMBuffer
-    var supplied = false
-
-    init(buffer: AVAudioPCMBuffer) {
-        self.buffer = buffer
-    }
-}
-
-private final class CodexVoiceAudioPlayer: @unchecked Sendable {
-    private let engine = AVAudioEngine()
-    private let node = AVAudioPlayerNode()
-    private let lock = NSLock()
-    private let onPlaybackState: @Sendable (Bool) -> Void
-    private var connectedFormat: AVAudioFormat?
-    private var pendingBufferCount = 0
-    var isMuted = false {
-        didSet {
-            node.volume = isMuted ? 0 : 1
-        }
-    }
-
-    init(onPlaybackState: @escaping @Sendable (Bool) -> Void) {
-        self.onPlaybackState = onPlaybackState
-        engine.attach(node)
-    }
-
-    func enqueue(_ chunk: CodexSchemaThreadRealtimeAudioChunk) throws {
-        guard let data = Data(base64Encoded: chunk.data),
-              !data.isEmpty,
-              let format = AVAudioFormat(
-                commonFormat: .pcmFormatInt16,
-                sampleRate: Double(chunk.sampleRate),
-                channels: AVAudioChannelCount(chunk.numChannels),
-                interleaved: true
-              )
-        else {
-            throw CodexVoiceChatError.invalidAudioData
-        }
-
-        if connectedFormat?.sampleRate != format.sampleRate
-            || connectedFormat?.channelCount != format.channelCount {
-            if engine.isRunning { engine.stop() }
-            engine.disconnectNodeOutput(node)
-            engine.connect(node, to: engine.mainMixerNode, format: format)
-            connectedFormat = format
-            engine.prepare()
-            try engine.start()
-        }
-
-        let frames = chunk.samplesPerChannel
-            ?? data.count / MemoryLayout<Int16>.size / max(1, chunk.numChannels)
-        guard let buffer = AVAudioPCMBuffer(
-            pcmFormat: format,
-            frameCapacity: AVAudioFrameCount(frames)
-        ) else {
-            throw CodexVoiceChatError.invalidAudioFormat
-        }
-        buffer.frameLength = AVAudioFrameCount(frames)
-        guard let destination = buffer.audioBufferList.pointee.mBuffers.mData else {
-            throw CodexVoiceChatError.invalidAudioData
-        }
-        let destinationSize = Int(buffer.audioBufferList.pointee.mBuffers.mDataByteSize)
-        data.copyBytes(
-            to: destination.assumingMemoryBound(to: UInt8.self),
-            count: min(destinationSize, data.count)
-        )
-        lock.lock()
-        pendingBufferCount += 1
-        let becameActive = pendingBufferCount == 1
-        lock.unlock()
-        if becameActive {
-            onPlaybackState(true)
-        }
-        node.scheduleBuffer(buffer) { [weak self] in
-            self?.bufferDidFinish()
-        }
-        if !node.isPlaying {
-            node.play()
-        }
-    }
-
-    func stop() {
-        node.stop()
-        engine.stop()
-        lock.lock()
-        let wasActive = pendingBufferCount > 0
-        pendingBufferCount = 0
-        lock.unlock()
-        if wasActive {
-            onPlaybackState(false)
-        }
-    }
-
-    private func bufferDidFinish() {
-        lock.lock()
-        guard pendingBufferCount > 0 else {
-            lock.unlock()
-            return
-        }
-        pendingBufferCount -= 1
-        let becameIdle = pendingBufferCount == 0
-        lock.unlock()
-        if becameIdle {
-            onPlaybackState(false)
         }
     }
 }

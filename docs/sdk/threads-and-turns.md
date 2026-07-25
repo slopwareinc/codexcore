@@ -52,11 +52,9 @@ let events = try await codex.session.observeRealtimeEvents(
     threadID: thread.id.rawValue
 )
 
-try await codex.threadRealtimeStart(.init(
-    includeStartupContext: true,
-    outputModality: .audio,
+try await codex.threadRealtimeStart(.codexVoiceWebRTC(
     threadID: thread.id.rawValue,
-    version: .v3
+    offerSDP: offer.sdp
 ))
 
 for try await event in events {
@@ -71,9 +69,12 @@ for try await event in events {
 }
 ```
 
-Input and output chunks are base64-encoded PCM16 with explicit sample rate and
-channel metadata. The stream ends when its connection is sealed or its consumer
-is cancelled.
+Desktop clients authenticated with ChatGPT use WebRTC: create the browser or
+webview offer first, send it with `codexVoiceWebRTC`, and apply the later
+`thread/realtime/sdp` event as the remote answer. Websocket clients may omit
+`transport` and exchange base64 PCM16 chunks, but that transport requires its
+own supported API authentication. The stream ends when its connection is sealed
+or its consumer is cancelled.
 
 Interactive clients should serialize steer submissions. Send one `turn/steer` with the cached active turn ID and no read or polling call. If `classifyCodexTurnSteerRace(_:)` returns `.expectedTurnMismatch`, retry `steerTurn(...)` once with the server-reported ID. If it returns `.noActiveTurn`, immediately send the same input with `turn/start`. Other failures remain ordinary failures. Keep local queue draining blocked until that sequence resolves.
 
