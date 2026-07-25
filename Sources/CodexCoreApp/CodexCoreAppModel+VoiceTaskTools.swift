@@ -3,6 +3,10 @@ import CodexCoreUI
 import Foundation
 
 extension CodexCoreAppModel {
+    static let realtimeVoiceFeatureConfig: CodexJSONValue = .dictionary([
+        "features.realtime_conversation": .bool(true),
+    ])
+
     static let voiceTaskToolSpecs: [CodexSchemaDynamicToolSpec] = [
         voiceTaskToolSpec(
             name: "list_projects",

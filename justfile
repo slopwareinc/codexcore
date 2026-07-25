@@ -16,6 +16,11 @@ kill:
         kill ${pids} 2>/dev/null || true
         killed=1
     fi
+    if pids=$(pgrep -x CodexCore 2>/dev/null); then
+        echo "Stopping packaged CodexCore: ${pids//$'\n'/ }"
+        kill ${pids} 2>/dev/null || true
+        killed=1
+    fi
     if pids=$(pgrep -f "${root}/.build/.*/codex-core-app" 2>/dev/null); then
         echo "Stopping built binary: ${pids//$'\n'/ }"
         kill ${pids} 2>/dev/null || true
@@ -25,7 +30,10 @@ kill:
         echo "No CodexCore app instance running."
     else
         for _ in {1..20}; do
-            pgrep -x codex-core-app >/dev/null 2>&1 || break
+            if ! pgrep -x codex-core-app >/dev/null 2>&1 \
+                && ! pgrep -x CodexCore >/dev/null 2>&1; then
+                break
+            fi
             sleep 0.05
         done
     fi

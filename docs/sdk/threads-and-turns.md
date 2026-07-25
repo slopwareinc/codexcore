@@ -74,7 +74,10 @@ webview offer first, send it with `codexVoiceWebRTC`, and apply the later
 `thread/realtime/sdp` event as the remote answer. Websocket clients may omit
 `transport` and exchange base64 PCM16 chunks, but that transport requires its
 own supported API authentication. The stream ends when its connection is sealed
-or its consumer is cancelled.
+or its consumer is cancelled. Enable the app-server
+`features.realtime_conversation` feature in the thread's `config` overrides;
+omit an explicit realtime version unless the host has a matching remote
+configuration override.
 
 Interactive clients should serialize steer submissions. Send one `turn/steer` with the cached active turn ID and no read or polling call. If `classifyCodexTurnSteerRace(_:)` returns `.expectedTurnMismatch`, retry `steerTurn(...)` once with the server-reported ID. If it returns `.noActiveTurn`, immediately send the same input with `turn/start`. Other failures remain ordinary failures. Keep local queue draining blocked until that sequence resolves.
 

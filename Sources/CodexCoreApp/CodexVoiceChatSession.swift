@@ -58,28 +58,27 @@ final class CodexVoiceChatSession {
     }
 
     private var codex: Codex?
-    private var threadLease: CodexThreadLease?
     private var eventTask: Task<Void, Never>?
     private var webRTC: CodexVoiceWebRTCTransport?
     private var partialEntryIDByRole: [String: UUID] = [:]
 
     var isActive: Bool { phase.isActive }
 
-    func start(codex: Codex, threadLease: CodexThreadLease) async throws {
+    func start(codex: Codex, threadID: String) async throws {
         await stop()
         phase = .starting
         errorMessage = nil
         transcript = []
         partialEntryIDByRole = [:]
-        threadID = threadLease.id.rawValue
+        self.threadID = threadID
         self.codex = codex
-        self.threadLease = threadLease
 
         let granted = await Self.requestMicrophoneAccess()
         guard granted else {
             throw CodexVoiceChatError.microphonePermissionDenied
         }
 
+        let voices = try await codex.threadRealtimeListVoices()
         let transport = CodexVoiceWebRTCTransport { [weak self] level in
             self?.inputLevel = level
         }
@@ -89,7 +88,7 @@ final class CodexVoiceChatSession {
         webRTC = transport
 
         let events = try await codex.session.observeRealtimeEvents(
-            threadID: threadLease.id.rawValue
+            threadID: threadID
         )
         eventTask = Task { [weak self] in
             do {
@@ -105,8 +104,9 @@ final class CodexVoiceChatSession {
         }
 
         _ = try await codex.threadRealtimeStart(.codexVoiceWebRTC(
-            threadID: threadLease.id.rawValue,
-            offerSDP: offerSDP
+            threadID: threadID,
+            offerSDP: offerSDP,
+            voice: voices.voices.defaultV1
         ))
     }
 
@@ -122,10 +122,6 @@ final class CodexVoiceChatSession {
         if let activeCodex, let activeThreadID, phase.isActive {
             _ = try? await activeCodex.threadRealtimeStop(.init(threadID: activeThreadID))
         }
-        if let threadLease {
-            await threadLease.close()
-        }
-        threadLease = nil
         codex = nil
         phase = .inactive
     }
@@ -155,12 +151,7 @@ final class CodexVoiceChatSession {
         case .closed(let value):
             webRTC?.stop()
             webRTC = nil
-            let lease = threadLease
-            threadLease = nil
             codex = nil
-            if let lease {
-                Task { await lease.close() }
-            }
             phase = value.reason == nil
                 ? .inactive
                 : .failed(value.reason ?? "Voice chat closed")

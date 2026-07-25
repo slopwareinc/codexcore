@@ -1437,6 +1437,7 @@ final class CodexCoreAppModel {
                 clearThreadState()
                 applyPreferredModel(for: nil)
                 var start = try threadStartParametersForCurrentDraft()
+                start.config = Self.realtimeVoiceFeatureConfig
                 start.threadSource = CodexSchemaThreadSource(.string("realtime_voice"))
                 start.dynamicTools = Self.voiceTaskToolSpecs
                 visibleLease = try await codex.startThread(start)
@@ -1450,16 +1451,12 @@ final class CodexCoreAppModel {
                         workspacePath: workspacePath
                     )
                 }
-                _ = try? await codex.perform(CodexRequest.threadNameSet(.init(
-                    name: "Voice chat",
-                    threadID: visibleLease.id.rawValue
-                )))
             }
 
-            let voiceLease = try await codex.resumeThread(
-                threadResumeParametersForCurrentContext(threadID: visibleLease.id.rawValue)
+            try await voiceSession.start(
+                codex: codex,
+                threadID: visibleLease.id.rawValue
             )
-            try await voiceSession.start(codex: codex, threadLease: voiceLease)
             appendActivity(.notice, title: "Voice chat started", detail: visibleLease.id.rawValue)
             await refreshRecentChats(using: codex)
         } catch {
@@ -2091,22 +2088,29 @@ final class CodexCoreAppModel {
     private func threadResumeParametersForCurrentContext(
         threadID: String
     ) -> CodexSchemaThreadResumeParams {
-        guard isProjectlessDraft, let paths = projectlessDraftPaths else {
-            return threadResumeParameters(threadID: threadID)
+        var parameters: CodexSchemaThreadResumeParams
+        if isProjectlessDraft, let paths = projectlessDraftPaths {
+            parameters = CodexSchemaThreadResumeParams(
+                approvalPolicy: protocolApprovalPolicy,
+                approvalsReviewer: protocolApprovalsReviewer,
+                cwd: paths.cwd,
+                model: modelSelection.modelIdentifier,
+                runtimeWorkspaceRoots: [
+                    CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
+                ],
+                sandbox: CodexSchemaSandboxMode(
+                    rawValue: approvalSelection.sandbox.threadMode.rawValue
+                ),
+                threadID: threadID
+            )
+        } else {
+            parameters = threadResumeParameters(threadID: threadID)
         }
-        return CodexSchemaThreadResumeParams(
-            approvalPolicy: protocolApprovalPolicy,
-            approvalsReviewer: protocolApprovalsReviewer,
-            cwd: paths.cwd,
-            model: modelSelection.modelIdentifier,
-            runtimeWorkspaceRoots: [
-                CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
-            ],
-            sandbox: CodexSchemaSandboxMode(
-                rawValue: approvalSelection.sandbox.threadMode.rawValue
-            ),
-            threadID: threadID
-        )
+        if allSidebarChats.first(where: { $0.id == threadID })?
+            .threadSource == "realtime_voice" {
+            parameters.config = Self.realtimeVoiceFeatureConfig
+        }
+        return parameters
     }
 
     private func rememberProjectlessThread(_ threadID: String) {

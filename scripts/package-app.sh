@@ -43,7 +43,35 @@ done
 iconutil --convert icns "${iconset_dir}" --output "${resources_dir}/AppIcon.icns"
 
 plutil -lint "${contents_dir}/Info.plist" >/dev/null
-codesign --force --deep --sign - "${app_dir}"
+
+signing_identity="${CODEXCORE_SIGNING_IDENTITY:-}"
+if [[ -z "${signing_identity}" ]]; then
+    signing_identity="$(
+        security find-identity -v -p codesigning 2>/dev/null |
+            awk -F '"' '
+                /"Developer ID Application:/ {
+                    print $2
+                    found = 1
+                    exit
+                }
+                /"Apple Development:/ && apple_development == "" {
+                    apple_development = $2
+                }
+                END {
+                    if (!found && apple_development != "") {
+                        print apple_development
+                    }
+                }
+            '
+    )"
+fi
+
+if [[ -z "${signing_identity}" ]]; then
+    signing_identity="-"
+    echo "warning: no code-signing identity found; microphone permission may reset after rebuilds" >&2
+fi
+
+codesign --force --deep --sign "${signing_identity}" "${app_dir}"
 codesign --verify --deep --strict "${app_dir}"
 
-echo "Packaged ${app_dir} (${configuration})"
+echo "Packaged ${app_dir} (${configuration}, signed by ${signing_identity})"

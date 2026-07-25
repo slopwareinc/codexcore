@@ -55,7 +55,10 @@ For a normal Finder/Dock application with bundle metadata and the CodexCore icon
 open build/CodexCore.app
 ```
 
-The local bundle is ad-hoc signed. Distribution outside your Mac still requires Developer ID signing and notarization.
+The packager uses an installed Developer ID or Apple Development identity when
+available, preserving macOS privacy grants across local rebuilds. It falls back
+to ad-hoc signing when no identity exists. Distribution outside your Mac still
+requires Developer ID signing and notarization.
 
 On first launch, sign in with ChatGPT or an API key, choose a workspace, and start a task. CodexCore stores credentials and configuration in `~/.codexcore`; it does not reuse `~/.codex` implicitly.
 
