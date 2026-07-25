@@ -67,6 +67,17 @@ struct CodexCoreAppShell: View {
         }
         .frame(minWidth: CodexProjectSidebar.minimumExpandedShellWidth, minHeight: 540)
         .ignoresSafeArea(.container, edges: .top)
+        .onAppear {
+            model.setConversationViewVisible(
+                routeDisplaysConversation(sidebarSnapshot.selectedRoute)
+            )
+        }
+        .onDisappear {
+            model.setConversationViewVisible(false)
+        }
+        .onChange(of: sidebarSnapshot.selectedRoute) { _, route in
+            model.setConversationViewVisible(routeDisplaysConversation(route))
+        }
         .onChange(of: sidebarSnapshot.isCollapsed) { _, isCollapsed in
             if !isCollapsed {
                 sidebarOverlaySession.dismissImmediately()
@@ -271,6 +282,15 @@ struct CodexCoreAppShell: View {
         sidebarOverlaySession.dismissImmediately()
         withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
             model.toggleSidebarCollapsed()
+        }
+    }
+
+    private func routeDisplaysConversation(_ route: CodexAppRoute) -> Bool {
+        switch route {
+        case .chat, .search, .automations, .codexMobile:
+            true
+        case .plugins, .settingsAbout:
+            false
         }
     }
 

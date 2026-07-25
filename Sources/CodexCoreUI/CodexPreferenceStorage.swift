@@ -1,3 +1,4 @@
+import CodexCore
 import Foundation
 
 // Reusable persistence codecs over the injected `CodexStringListPreferenceStore`.
@@ -33,6 +34,35 @@ public enum CodexPinnedThreadStorage {
             }
         }
         return result
+    }
+}
+
+public enum CodexUnreadThreadStorage {
+    private static let unreadThreadStorageKey = "CodexCoreApp.unreadAgentMessageThreadIDs.v2"
+
+    public static func loadUnreadThreadIDs(
+        from store: any CodexStringListPreferenceStore
+    ) -> Set<ThreadID> {
+        Set(normalized(store.loadStrings(forKey: unreadThreadStorageKey)).map { ThreadID($0) })
+    }
+
+    public static func saveUnreadThreadIDs(
+        _ ids: Set<ThreadID>,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(
+            normalized(ids.map(\.rawValue)).sorted(),
+            forKey: unreadThreadStorageKey
+        )
+    }
+
+    private static func normalized(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        return ids.compactMap { id in
+            let normalized = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
     }
 }
 
