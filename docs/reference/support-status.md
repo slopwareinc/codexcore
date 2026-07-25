@@ -1,6 +1,6 @@
 # Support status
 
-This is the authoritative user-facing capability matrix for CodexCore `0.7.0` with `codex-cli 0.145.0`. “Visible in the app” does not necessarily mean “wired to production behavior.”
+This is the authoritative user-facing capability matrix for CodexCore `0.8.0` with `codex-cli 0.145.0`. “Visible in the app” does not necessarily mean “wired to production behavior.”
 
 | Status | Meaning |
 | --- | --- |

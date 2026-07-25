@@ -2,14 +2,15 @@
 
 | CodexCore release | Codex CLI / app-server | Status |
 | --- | --- | --- |
-| `0.7.0` | `0.145.0` | Current GA runtime pin |
+| `0.8.0` | `0.145.0` | Current GA runtime pin |
+| `0.7.0` | `0.145.0` | Historical GA release |
 | `0.6.0` | `0.145.0-alpha.24` | Historical prerelease |
 | `0.5.0` | `0.145.0-alpha.20` | Historical prerelease |
 
 The composite release tag records both identities:
 
 ```text
-v0.145.0+codexcore.0.7.0
+v0.145.0+codexcore.0.8.0
 ```
 
 CodexCore validates exact runtime equality. A GA CLI version does not make every app-server feature stable: the SDK requests experimental capabilities during initialization.
