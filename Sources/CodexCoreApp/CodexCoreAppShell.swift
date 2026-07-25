@@ -382,7 +382,12 @@ struct CodexCoreAppShell: View {
                 onMentionSelected: { model.selectMention($0) },
                 onSend: { Task { await model.sendDraft() } },
                 onInterrupt: { Task { await model.interrupt() } },
-                onStartVoiceChat: { Task { await model.startVoiceChat() } },
+                onStartVoiceChat: model.canStartVoiceChatFromCurrentContext
+                    ? { Task { await model.startVoiceChat() } }
+                    : nil,
+                voiceChatLabel: model.currentThreadID == nil
+                    ? "Start new voice chat"
+                    : "Start voice chat",
                 onSteerQueuedFollowUp: { clientID in
                     Task { await model.steerQueuedFollowUp(clientID: clientID) }
                 },

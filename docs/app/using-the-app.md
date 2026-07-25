@@ -49,8 +49,10 @@ Start with the least privilege that can complete the task. Review commands, requ
 
 When the composer is empty, choose the waveform button in the send-button
 position to start Voice. The microphone beside it remains the separate dictation
-control. From a projectless Home draft, Voice creates a top-level projectless
-task; inside an existing task, it starts Voice on that same task.
+control. From a projectless Home draft, Voice creates a dedicated top-level
+projectless task with `threadSource: realtime_voice`. Ordinary text and project
+tasks do not expose the waveform. Reopen an existing Voice task to start another
+Voice session on that task.
 The task uses app-server's thread-scoped realtime V3 session, streams microphone
 audio and model audio, and shows a live transcript with an animated orb instead
 of the text composer. The active controls independently mute the microphone or

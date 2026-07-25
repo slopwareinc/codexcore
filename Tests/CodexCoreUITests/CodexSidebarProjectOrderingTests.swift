@@ -166,6 +166,15 @@ struct CodexSidebarProjectOrderingTests {
         #expect(snapshot.projects.flatMap(\.rows).map(\.id) == ["chat-project"])
     }
 
+    @Test func threadSummaryPreservesRealtimeVoiceSource() {
+        let summary = CodexThreadSummary(raw: .dictionary([
+            "id": .string("voice-task"),
+            "threadSource": .string("realtime_voice"),
+        ]))
+
+        #expect(summary?.threadSource == "realtime_voice")
+    }
+
     @Test func projectAliasesAndHiddenProjectsChangePresentationWithoutChangingIdentity() {
         let now = Date().timeIntervalSince1970
         let alpha = CodexProjectSummary(workspacePath: "/tmp/Alpha", updatedAt: now)

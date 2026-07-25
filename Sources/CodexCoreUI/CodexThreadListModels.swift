@@ -8,6 +8,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     public var workspacePath: String?
     public var status: String?
     public var modelProvider: String?
+    public var threadSource: String?
     public var parentThreadID: String?
     public var isEphemeral: Bool
     public var createdAt: TimeInterval?
@@ -21,6 +22,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         workspacePath: String? = nil,
         status: String? = nil,
         modelProvider: String? = nil,
+        threadSource: String? = nil,
         parentThreadID: String? = nil,
         isEphemeral: Bool = false,
         createdAt: TimeInterval? = nil,
@@ -33,6 +35,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.workspacePath = workspacePath
         self.status = status
         self.modelProvider = modelProvider
+        self.threadSource = threadSource
         self.parentThreadID = parentThreadID
         self.isEphemeral = isEphemeral
         self.createdAt = createdAt
@@ -55,6 +58,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             workspacePath: Self.string(in: object, keys: ["cwd"]),
             status: Self.status(from: object["status"]),
             modelProvider: Self.string(in: object, keys: ["modelProvider"]),
+            threadSource: Self.string(in: object, keys: ["threadSource"]),
             parentThreadID: Self.string(in: object, keys: ["parentThreadId"]),
             isEphemeral: CodexJSONCoercion.bool(in: object, key: "ephemeral") ?? false,
             createdAt: Self.timeInterval(in: object, key: "createdAt"),

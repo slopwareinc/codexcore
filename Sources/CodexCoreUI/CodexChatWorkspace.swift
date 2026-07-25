@@ -93,6 +93,7 @@ public struct CodexChatWorkspaceView: View {
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let onStartVoiceChat: (() -> Void)?
+    private let voiceChatLabel: String
     private let onSteerQueuedFollowUp: (String) -> Void
     private let onRemoveQueuedFollowUp: (String) -> Void
     private let onEditQueuedFollowUp: (String) -> Void
@@ -166,6 +167,7 @@ public struct CodexChatWorkspaceView: View {
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         onStartVoiceChat: (() -> Void)? = nil,
+        voiceChatLabel: String = "Start new voice chat",
         onSteerQueuedFollowUp: @escaping (String) -> Void = { _ in },
         onRemoveQueuedFollowUp: @escaping (String) -> Void = { _ in },
         onEditQueuedFollowUp: @escaping (String) -> Void = { _ in },
@@ -232,6 +234,7 @@ public struct CodexChatWorkspaceView: View {
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.onStartVoiceChat = onStartVoiceChat
+        self.voiceChatLabel = voiceChatLabel
         self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
         self.onRemoveQueuedFollowUp = onRemoveQueuedFollowUp
         self.onEditQueuedFollowUp = onEditQueuedFollowUp
@@ -441,6 +444,7 @@ public struct CodexChatWorkspaceView: View {
                         onSend: onSend,
                         onInterrupt: onInterrupt,
                         onStartVoiceChat: onStartVoiceChat,
+                        voiceChatLabel: voiceChatLabel,
                         onSlashCommandSelected: onSlashCommandSelected,
                         onOpenMCPDetails: onOpenMCPDetails,
                         onRefreshMCPServers: onRefreshMCPServers,

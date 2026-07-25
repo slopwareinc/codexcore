@@ -97,7 +97,7 @@ final class CodexCoreAppModel {
     var lastManualModelID: String?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     let voiceSession = CodexVoiceChatSession()
-    private var isProjectlessDraft = false
+    private var isProjectlessDraft = true
     private var projectlessDraftPaths: CodexProjectlessThreadPaths?
     private var chatSelectionGeneration = 0
     var pluginLauncherTarget: CodexComposerPluginLauncher?
@@ -1415,6 +1415,14 @@ final class CodexCoreAppModel {
             await showVoiceChat()
             return
         }
+        guard canStartVoiceChatFromCurrentContext else {
+            appendActivity(
+                .notice,
+                title: "Voice unavailable",
+                detail: "Start Voice from Home or reopen an existing Voice task."
+            )
+            return
+        }
         guard let codex else {
             appendActivity(.notice, title: "Voice unavailable", detail: "Connect to Codex first.")
             return
@@ -1468,6 +1476,14 @@ final class CodexCoreAppModel {
 
     func toggleVoiceMute() {
         voiceSession.toggleMute()
+    }
+
+    var canStartVoiceChatFromCurrentContext: Bool {
+        guard let currentThreadID else {
+            return isProjectlessDraft
+        }
+        return allSidebarChats.first(where: { $0.id == currentThreadID })?
+            .threadSource == "realtime_voice"
     }
 
     func toggleVoiceOutputMute() {
