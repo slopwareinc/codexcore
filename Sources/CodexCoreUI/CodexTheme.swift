@@ -455,7 +455,7 @@ public struct CodexAgentTheme {
         }
 
         public struct SidebarTypography: Codable, Equatable {
-            public static let defaultBaseTextSize: Double = 12
+            public static let defaultBaseTextSize: Double = 14
             public static let baseTextSizeRange: ClosedRange<Double> = 11...18
 
             public var titlebarIcon: FontToken
@@ -579,26 +579,26 @@ public struct CodexAgentTheme {
                 }
 
                 return SidebarTypography(
-                    titlebarIcon: token(1, weight: .medium),
+                    titlebarIcon: token(-1, weight: .medium),
                     accountInitialsCollapsed: token(-3, weight: .medium),
                     accountInitialsExpanded: token(-1, weight: .medium),
                     accountName: token(-1, weight: .semibold),
                     accountDetail: token(-3),
-                    accountDeviceIcon: token(1),
-                    commandIcon: token(1),
+                    accountDeviceIcon: token(-1),
+                    commandIcon: token(-1),
                     commandTitle: token(0, weight: .medium),
                     commandShortcut: token(-3),
                     sectionHeader: token(-2, weight: .medium),
-                    disclosureChevron: token(-4, weight: .semibold),
+                    disclosureChevron: token(-6, weight: .semibold),
                     disclosureTitle: token(-1, weight: .medium),
                     disclosureCount: token(-3),
-                    projectIcon: token(1),
+                    projectIcon: token(-1),
                     projectTitle: token(0, weight: .medium),
                     emptyState: token(-3),
                     hiddenRowsPrompt: token(-1, weight: .medium),
                     chatTitle: token(0, weight: .medium),
                     chatRecency: token(-3),
-                    chatActionIcon: FontToken(size: CGFloat(max(8, baseTextSize - 5.5)), weight: .semibold)
+                    chatActionIcon: FontToken(size: CGFloat(max(8, baseTextSize - 7.5)), weight: .semibold)
                 )
             }
         }
