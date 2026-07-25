@@ -84,6 +84,49 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(rows.contains { $0.id == "image" })
     }
 
+    @Test func realtimeDelegationEnvelopeIsNeverRenderedAsUserContent() throws {
+        let threadID: ThreadID = "thread"
+        let handoffTurnID: TurnID = "handoff"
+        let responseTurnID: TurnID = "response"
+        let rawEnvelope = """
+        <realtime_delegation>
+        <source>transcript_tail_flush</source>
+        <input>The user just ended their realtime session.</input>
+        <transcript_delta>user: Hello
+        assistant: Hi there.</transcript_delta>
+        </realtime_delegation>
+        """
+        let handoff = item(threadID, handoffTurnID, "handoff-user", .userMessage, [
+            "content": .array([.dictionary(["type": .string("text"), "text": .string(rawEnvelope)])])
+        ])
+        let responseUser = item(threadID, responseTurnID, "response-user", .userMessage, [
+            "content": .array([.dictionary(["type": .string("text"), "text": .string(rawEnvelope)])])
+        ])
+        let response = item(threadID, responseTurnID, "response", .agentMessage, [
+            "phase": .string("final_answer"),
+            "text": .string("I’ll check that.")
+        ])
+        let snapshot = state(
+            revision: 3,
+            threadID: threadID,
+            turns: [
+                turn(handoffTurnID, threadID: threadID, itemIDs: ["handoff-user"], revision: 2),
+                turn(responseTurnID, threadID: threadID, itemIDs: ["response-user", "response"], revision: 3),
+            ],
+            items: [handoff, responseUser, response]
+        )
+
+        let transcript = CodexCanonicalTranscriptProjector()
+            .rebuild(snapshot: snapshot, threadID: threadID)
+            .presentation.transcript
+
+        #expect(transcript.turns.allSatisfy { $0.userMessage == nil })
+        let visibleTurn = try #require(transcript.turns.first { $0.finalAnswer != nil })
+        #expect(visibleTurn.id == responseTurnID.rawValue)
+        #expect(visibleTurn.userMessage == nil)
+        #expect(visibleTurn.finalAnswer?.text == "I’ll check that.")
+    }
+
     @Test func liveChunksAndCompletedPayloadUseTheSameProjectionPath() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

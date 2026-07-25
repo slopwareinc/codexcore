@@ -22,8 +22,10 @@ struct CodexVoiceMiniControl: View {
                 }
             }
             .buttonStyle(.plain)
+
             Button(role: .destructive, action: onEnd) {
-                Image(systemName: "phone.down.fill")
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
@@ -36,59 +38,125 @@ struct CodexVoiceMiniControl: View {
     }
 }
 
-struct CodexVoiceDock: View {
+/// The official Voice bottom accessory contains only the orb and its compact
+/// composer. Realtime utterances are projected by `CodexVoiceTranscriptProjection`
+/// into the normal transcript above this view.
+struct CodexVoiceConversationPanel: View {
     @Environment(\.codexAgentTheme) private var theme
     @Bindable var session: CodexVoiceChatSession
+    let onSendText: (String) -> Void
     let onToggleMute: () -> Void
     let onToggleOutputMute: () -> Void
     let onEnd: () -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
-            if let latest = session.transcript.last, !latest.text.isEmpty {
-                Text(latest.text)
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: 560)
-            }
+        VStack(spacing: 0) {
+            CodexVoiceOrb(
+                phase: session.phase,
+                level: session.isMuted ? 0 : session.inputLevel
+            )
+            .frame(width: 112, height: 112)
+            .padding(.bottom, 18)
 
-            HStack(spacing: 16) {
-                Button(action: onToggleMute) {
-                    Image(systemName: session.isMuted ? "mic.slash.fill" : "mic.fill")
-                        .frame(width: 34, height: 34)
+            CodexVoiceComposer(
+                session: session,
+                onSendText: onSendText,
+                onToggleMute: onToggleMute,
+                onToggleOutputMute: onToggleOutputMute,
+                onEnd: onEnd
+            )
+        }
+        .frame(maxWidth: theme.spacing.composerMaxWidth + 32)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 22)
+    }
+}
+
+private struct CodexVoiceComposer: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @Bindable var session: CodexVoiceChatSession
+    let onSendText: (String) -> Void
+    let onToggleMute: () -> Void
+    let onToggleOutputMute: () -> Void
+    let onEnd: () -> Void
+
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Do anything", text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(theme.fonts.chat)
+                .foregroundStyle(theme.colors.textPrimary)
+                .lineLimit(1...3)
+                .focused($isFocused)
+                .onSubmit(submit)
+
+            HStack(spacing: 12) {
+                Button(action: {}) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .regular))
+                        .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.bordered)
-                .accessibilityLabel(session.isMuted ? "Unmute microphone" : "Mute microphone")
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textSecondary)
+                .accessibilityLabel("Add to voice chat")
 
-                CodexVoiceOrb(
-                    phase: session.phase,
-                    level: session.isMuted ? 0 : session.inputLevel
-                )
-                .frame(width: 82, height: 82)
+                Label("Approve for me", systemImage: "shield.lefthalf.filled")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.colors.textTertiary)
+
+                Spacer(minLength: 12)
 
                 Button(action: onToggleOutputMute) {
                     Image(systemName: session.isOutputMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .frame(width: 34, height: 34)
+                        .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textSecondary)
                 .accessibilityLabel(session.isOutputMuted ? "Unmute speaker" : "Mute speaker")
 
-                Button(role: .destructive, action: onEnd) {
-                    Image(systemName: "phone.down.fill")
-                        .frame(width: 34, height: 34)
+                Button(action: onToggleMute) {
+                    Image(systemName: session.isMuted ? "mic.slash.fill" : "mic.fill")
+                        .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(theme.colors.danger)
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textSecondary)
+                .accessibilityLabel(session.isMuted ? "Unmute microphone" : "Mute microphone")
+
+                Button(action: onEnd) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.black.opacity(0.82))
+                        .frame(width: 34, height: 34)
+                        .background(Color.white.opacity(0.94), in: Circle())
+                }
+                .buttonStyle(.plain)
                 .accessibilityLabel("End voice chat")
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .codexGlass(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: .black.opacity(0.20), radius: 18, y: 8)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .frame(minHeight: 94)
+        .background(
+            theme.colors.surfaceElevated.opacity(0.86),
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.44), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
+        .onAppear { isFocused = true }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        draft = ""
+        onSendText(text)
     }
 }
 
@@ -100,50 +168,75 @@ private struct CodexVoiceOrb: View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let radius = min(size.width, size.height) / 2
-                let pulse = CGFloat((sin(time * 2.4) + 1) / 2)
-                let activity = CGFloat(level)
-                let haloRadius = radius * (0.76 + pulse * 0.10 + activity * 0.18)
-                let halo = Path(ellipseIn: CGRect(
-                    x: center.x - haloRadius,
-                    y: center.y - haloRadius,
-                    width: haloRadius * 2,
-                    height: haloRadius * 2
-                ))
-                context.fill(
-                    halo,
-                    with: .radialGradient(
-                        Gradient(colors: [
-                            Color(red: 0.98, green: 0.52, blue: 0.70).opacity(0.78),
-                            Color(red: 0.48, green: 0.38, blue: 0.98).opacity(0.30),
-                            .clear,
-                        ]),
-                        center: center,
-                        startRadius: 0,
-                        endRadius: haloRadius
-                    )
-                )
+                let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
+                let circle = Path(ellipseIn: bounds)
+                let activity = max(CGFloat(level), phaseActivity)
+                let drift = CGFloat(sin(time * phaseSpeed))
 
-                let coreRadius = radius * (0.48 + activity * 0.08)
-                let core = Path(ellipseIn: CGRect(
-                    x: center.x - coreRadius,
-                    y: center.y - coreRadius,
-                    width: coreRadius * 2,
-                    height: coreRadius * 2
-                ))
-                context.fill(
-                    core,
-                    with: .linearGradient(
-                        Gradient(colors: [
-                            Color(red: 1.0, green: 0.70, blue: 0.78),
-                            Color(red: 0.56, green: 0.40, blue: 0.98),
-                        ]),
-                        startPoint: CGPoint(x: center.x - coreRadius, y: center.y - coreRadius),
-                        endPoint: CGPoint(x: center.x + coreRadius, y: center.y + coreRadius)
+                context.drawLayer { layer in
+                    layer.clip(to: circle)
+                    layer.fill(
+                        circle,
+                        with: .linearGradient(
+                            Gradient(stops: [
+                                .init(color: Color(red: 0.28, green: 0.24, blue: 0.98), location: 0),
+                                .init(color: Color(red: 0.43, green: 0.38, blue: 1.0), location: 0.42),
+                                .init(color: Color(red: 0.96, green: 0.97, blue: 1.0), location: 1),
+                            ]),
+                            startPoint: CGPoint(x: size.width * 0.34, y: 0),
+                            endPoint: CGPoint(x: size.width * 0.62, y: size.height)
+                        )
                     )
-                )
+
+                    layer.addFilter(.blur(radius: 11))
+                    let glowSize = size.width * (0.72 + activity * 0.16)
+                    let glowRect = CGRect(
+                        x: size.width * (0.06 + drift * 0.06),
+                        y: size.height * (0.46 - activity * 0.08),
+                        width: glowSize,
+                        height: glowSize * 0.68
+                    )
+                    layer.fill(
+                        Path(ellipseIn: glowRect),
+                        with: .color(Color.white.opacity(0.94))
+                    )
+
+                    let violetRect = CGRect(
+                        x: size.width * (0.42 - drift * 0.08),
+                        y: size.height * 0.02,
+                        width: size.width * 0.64,
+                        height: size.height * 0.58
+                    )
+                    layer.fill(
+                        Path(ellipseIn: violetRect),
+                        with: .color(Color(red: 0.34, green: 0.28, blue: 1).opacity(0.72))
+                    )
+                }
+
+                context.stroke(circle, with: .color(.white.opacity(0.30)), lineWidth: 1)
             }
+        }
+        .shadow(color: Color(red: 0.34, green: 0.30, blue: 1).opacity(0.22), radius: 18, y: 8)
+        .accessibilityHidden(true)
+    }
+
+    private var phaseSpeed: Double {
+        switch phase {
+        case .speaking: 3.8
+        case .thinking: 2.6
+        case .starting: 2.1
+        case .listening: 1.8
+        case .inactive, .failed: 1.2
+        }
+    }
+
+    private var phaseActivity: CGFloat {
+        switch phase {
+        case .speaking: 0.5
+        case .thinking: 0.26
+        case .starting: 0.18
+        case .listening: 0.1
+        case .inactive, .failed: 0
         }
     }
 }

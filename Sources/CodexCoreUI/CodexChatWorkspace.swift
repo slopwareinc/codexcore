@@ -113,6 +113,8 @@ public struct CodexChatWorkspaceView: View {
     private let approvalPrompts: [CodexApprovalPrompt]
     private let onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     private let showsComposer: Bool
+    private let bottomAccessory: AnyView?
+    private let supplementalTranscriptTurns: [CodexTurnV2]
     @ObservedObject private var panel: CodexWorkspacePanelState
     private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
@@ -186,7 +188,9 @@ public struct CodexChatWorkspaceView: View {
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
         approvalPrompts: [CodexApprovalPrompt] = [],
         onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
-        showsComposer: Bool = true
+        showsComposer: Bool = true,
+        bottomAccessory: AnyView? = nil,
+        supplementalTranscriptTurns: [CodexTurnV2] = []
     ) {
         self.presentationStore = presentationStore
         self.lifecycleEvents = lifecycleEvents
@@ -254,6 +258,8 @@ public struct CodexChatWorkspaceView: View {
         self.approvalPrompts = approvalPrompts
         self.onResolveApproval = onResolveApproval
         self.showsComposer = showsComposer
+        self.bottomAccessory = bottomAccessory
+        self.supplementalTranscriptTurns = supplementalTranscriptTurns
     }
 
     public var body: some View {
@@ -338,6 +344,7 @@ public struct CodexChatWorkspaceView: View {
                 presentationStore: presentationStore,
                 contentHorizontalOffset: -contentShift,
                 bottomContentInset: composerOverlayHeight + 20,
+                supplementalTurns: supplementalTranscriptTurns,
                 onOpenSubagent: openPanelTab,
                 onEditUserMessage: { rawText in
                     if let decoded = CodexFileReferencePromptCodec.decode(rawText) {
@@ -397,7 +404,18 @@ public struct CodexChatWorkspaceView: View {
                 )
 
                 Spacer(minLength: 0)
-                if showsComposer {
+                if let bottomAccessory {
+                    bottomAccessory
+                        .offset(x: -contentShift)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: CodexComposerOverlayHeightKey.self,
+                                    value: proxy.size.height
+                                )
+                            }
+                        }
+                } else if showsComposer {
                     VStack(spacing: 0) {
                     if let rateLimitBannerMessage {
                         CodexRateLimitBanner(message: rateLimitBannerMessage)

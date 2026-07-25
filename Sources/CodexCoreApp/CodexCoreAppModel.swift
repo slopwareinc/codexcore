@@ -161,14 +161,16 @@ final class CodexCoreAppModel {
 
         await resetSessionState()
         do {
+            await CodexAppAttestation.shared.prepare()
             let config = CodexConfig(
                 codexHome: codexHome,
                 cwd: workspacePath,
-                clientName: "codex_core_app",
+                clientName: "Codex Desktop",
                 clientTitle: "CodexCore App",
-                clientVersion: "1.0.0",
+                clientVersion: CodexPinnedRuntime.version,
                 capabilities: InitializeCapabilities(
-                    mcpServerOpenAIFormElicitation: true
+                    mcpServerOpenAIFormElicitation: true,
+                    requestAttestation: true
                 )
             )
             let codex = try await Codex(
@@ -1430,8 +1432,10 @@ final class CodexCoreAppModel {
 
         do {
             let visibleLease: CodexThreadLease
+            let createdNewVoiceThread: Bool
             if let currentThreadLease, !currentThreadLease.isClosed {
                 visibleLease = currentThreadLease
+                createdNewVoiceThread = false
             } else {
                 invalidatePendingChatSelection()
                 clearThreadState()
@@ -1441,6 +1445,7 @@ final class CodexCoreAppModel {
                 start.threadSource = CodexSchemaThreadSource(.string("realtime_voice"))
                 start.dynamicTools = Self.voiceTaskToolSpecs
                 visibleLease = try await codex.startThread(start)
+                createdNewVoiceThread = true
                 await activateThread(visibleLease)
                 if isProjectlessDraft {
                     rememberProjectlessThread(visibleLease.id.rawValue)
@@ -1449,6 +1454,22 @@ final class CodexCoreAppModel {
                     sidebarNavigationSession.selectChat(
                         visibleLease.id.rawValue,
                         workspacePath: workspacePath
+                    )
+                }
+            }
+
+            if createdNewVoiceThread {
+                do {
+                    _ = try await codex.perform(CodexRequest.threadNameSet(.init(
+                        name: "Voice chat",
+                        threadID: visibleLease.id.rawValue
+                    )))
+                    renameChatInSidebar(visibleLease.id.rawValue, title: "Voice chat")
+                } catch {
+                    appendActivity(
+                        .notice,
+                        title: "Voice task naming failed",
+                        detail: friendlyError(error)
                     )
                 }
             }

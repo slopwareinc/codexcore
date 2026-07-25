@@ -39,21 +39,27 @@ public extension Codex {
 }
 
 public extension CodexSchemaThreadRealtimeStartParams {
-    /// Builds the browser/webview-owned WebRTC shape used by Codex desktop Voice.
+    /// Builds the browser/webview-owned Frameless Bidi WebRTC shape used by
+    /// current Codex desktop Voice.
     static func codexVoiceWebRTC(
         threadID: String,
         offerSDP: String,
-        voice: CodexSchemaRealtimeVoice? = nil
+        realtimeSessionID: String = UUID().uuidString,
+        model: String = "gpt-live-1-codex",
+        voice: CodexSchemaRealtimeVoice = .sol
     ) -> Self {
         Self(
             flushTranscriptTailOnSessionEnd: true,
             includeStartupContext: false,
+            model: model,
             outputModality: .audio,
+            realtimeSessionID: realtimeSessionID,
             threadID: threadID,
             transport: CodexSchemaThreadRealtimeStartTransport(.dictionary([
                 "type": .string("webrtc"),
                 "sdp": .string(offerSDP),
             ])),
+            version: .v3,
             voice: voice
         )
     }

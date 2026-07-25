@@ -6,15 +6,17 @@ final class V2TypeTests: XCTestCase {
         let params = CodexSchemaThreadRealtimeStartParams.codexVoiceWebRTC(
             threadID: "thread-voice",
             offerSDP: "v=0\r\n",
-            voice: .cedar
+            realtimeSessionID: "realtime-session"
         )
         let value = try CodexJSONValue(encoding: params)
 
         XCTAssertEqual(value.objectValue?["threadId"], .string("thread-voice"))
         XCTAssertEqual(value.objectValue?["outputModality"], .string("audio"))
         XCTAssertEqual(value.objectValue?["includeStartupContext"], .bool(false))
-        XCTAssertNil(value.objectValue?["version"])
-        XCTAssertEqual(value.objectValue?["voice"], .string("cedar"))
+        XCTAssertEqual(value.objectValue?["realtimeSessionId"], .string("realtime-session"))
+        XCTAssertEqual(value.objectValue?["model"], .string("gpt-live-1-codex"))
+        XCTAssertEqual(value.objectValue?["version"], .string("v3"))
+        XCTAssertEqual(value.objectValue?["voice"], .string("sol"))
         XCTAssertEqual(value.objectValue?["transport"], .dictionary([
             "type": .string("webrtc"),
             "sdp": .string("v=0\r\n"),

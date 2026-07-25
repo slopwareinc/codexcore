@@ -328,9 +328,24 @@ struct CodexCoreAppShell: View {
     private func chatWorkspace(proxy: GeometryProxy) -> some View {
         let isCurrentVoiceTask = model.voiceSession.isActive
             && model.voiceSession.threadID == model.currentThreadID
+        let voiceAccessory: AnyView? = isCurrentVoiceTask
+            ? AnyView(
+                CodexVoiceConversationPanel(
+                    session: model.voiceSession,
+                    onSendText: { text in
+                        Task { await model.voiceSession.sendText(text) }
+                    },
+                    onToggleMute: { model.toggleVoiceMute() },
+                    onToggleOutputMute: { model.toggleVoiceOutputMute() },
+                    onEnd: { Task { await model.stopVoiceChat() } }
+                )
+            )
+            : nil
+        let supplementalVoiceTurns = model.voiceSession.threadID == model.currentThreadID
+            ? model.voiceSession.transcriptTurns
+            : []
 
-        return ZStack(alignment: .bottom) {
-                CodexChatWorkspaceView(
+        return CodexChatWorkspaceView(
                 presentationStore: model.runtimeSession.presentationStore,
                 lifecycleEvents: model.lifecycleEvents,
                 sideChat: model.sideChat,
@@ -414,22 +429,11 @@ struct CodexCoreAppShell: View {
                 onResolveApproval: { id, approved in
                     model.resolveApprovalPrompt(id: id, approved: approved)
                 },
-                showsComposer: !isCurrentVoiceTask
+                showsComposer: !isCurrentVoiceTask,
+                bottomAccessory: voiceAccessory,
+                supplementalTranscriptTurns: supplementalVoiceTurns
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if isCurrentVoiceTask {
-                CodexVoiceDock(
-                    session: model.voiceSession,
-                    onToggleMute: { model.toggleVoiceMute() },
-                    onToggleOutputMute: { model.toggleVoiceOutputMute() },
-                    onEnd: { Task { await model.stopVoiceChat() } }
-                )
-                .padding(.horizontal, 24)
-                .padding(.bottom, 22)
-                .frame(maxWidth: 720)
-            }
-        }
     }
 
     private func chooseWorkspaceFolder() {

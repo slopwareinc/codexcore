@@ -22,6 +22,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let emptyState: EmptyState
     private let contentHorizontalOffset: CGFloat
     private let bottomContentInset: CGFloat
+    private let supplementalTurns: [CodexTurnV2]
     private let onOpenSubagent: (String) -> Void
     private let onEditUserMessage: (String) -> Void
     private let onForkChat: (() -> Void)?
@@ -37,6 +38,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
+        supplementalTurns: [CodexTurnV2] = [],
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
@@ -50,6 +52,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.presentationStore = presentationStore
         self.productToolRenderer = productToolRenderer
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.supplementalTurns = supplementalTurns
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
@@ -68,6 +71,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
+        supplementalTurns: [CodexTurnV2] = [],
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
@@ -81,6 +85,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.presentationStore = nil
         self.productToolRenderer = productToolRenderer
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.supplementalTurns = supplementalTurns
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
@@ -98,7 +103,12 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         return ZStack {
             CodexTranscriptListHost(
                 presentation: presentation,
-                renderUpdate: presentationStore?.activeRenderUpdate,
+                // Supplemental realtime turns are UI-owned and therefore do
+                // not advance the canonical render-update revision. Force a
+                // projection for each Voice presentation change.
+                renderUpdate: supplementalTurns.isEmpty
+                    ? presentationStore?.activeRenderUpdate
+                    : nil,
                 presentationStore: presentationStore,
                 bottomContentInset: bottomContentInset,
                 contentHorizontalOffset: contentHorizontalOffset,
@@ -153,15 +163,79 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 $0.threadId == presentation.threadID
             }
             presentation.agentDisplayNameByThreadID = agentDisplayNameByThreadID
+            appendSupplementalTurns(to: &presentation)
             return presentation
         }
-        return CodexThreadUIPresentation(
+        var presentation = CodexThreadUIPresentation(
             threadID: threadID,
             transcript: transcript,
             agentDisplayNameByThreadID: agentDisplayNameByThreadID,
             presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) }),
             pendingApprovals: pendingApprovals
         )
+        appendSupplementalTurns(to: &presentation)
+        return presentation
+    }
+
+    private func appendSupplementalTurns(to presentation: inout CodexThreadUIPresentation) {
+        guard !supplementalTurns.isEmpty else { return }
+
+        var seenSupplementalSignatures: Set<String> = []
+        var additions = supplementalTurns.filter { turn in
+            let signature = [
+                turn.userMessage?.text ?? "",
+                turn.finalAnswer?.text ?? "",
+            ].joined(separator: "\u{1f}")
+            return seenSupplementalSignatures.insert(signature).inserted
+        }
+
+        let voiceAnswersWithUser = Set(additions.compactMap { turn -> String? in
+            guard turn.userMessage != nil else { return nil }
+            return normalizedAnswer(turn.finalAnswer?.text)
+        })
+        if !voiceAnswersWithUser.isEmpty {
+            presentation.transcript.turns.removeAll { turn in
+                guard isSimpleAssistantOnlyTurn(turn),
+                      let answer = normalizedAnswer(turn.finalAnswer?.text)
+                else { return false }
+                return voiceAnswersWithUser.contains(answer)
+            }
+        }
+
+        let canonicalAnswers = Set(presentation.transcript.turns.compactMap {
+            normalizedAnswer($0.finalAnswer?.text)
+        })
+        additions.removeAll { turn in
+            guard turn.userMessage == nil,
+                  let answer = normalizedAnswer(turn.finalAnswer?.text)
+            else { return false }
+            return canonicalAnswers.contains(answer)
+        }
+
+        let canonicalIDs = Set(presentation.transcript.turns.map(\.id))
+        additions.removeAll { canonicalIDs.contains($0.id) }
+        presentation.transcript.turns.append(contentsOf: additions)
+        for turn in additions where presentation.presentedAtByTurnID[turn.id] == nil {
+            presentation.presentedAtByTurnID[turn.id] = fallbackPresentedAt
+        }
+    }
+
+    private func normalizedAnswer(_ text: String?) -> String? {
+        guard let value = text?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    private func isSimpleAssistantOnlyTurn(_ turn: CodexTurnV2) -> Bool {
+        turn.userMessage == nil
+            && turn.steeredMessages.isEmpty
+            && turn.conversationSegments.allSatisfy {
+                $0.steeredMessage == nil && $0.narrative.isEmpty
+            }
+            && turn.finalAnswer != nil
     }
 }
 

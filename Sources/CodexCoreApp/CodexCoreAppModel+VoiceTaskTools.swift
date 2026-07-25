@@ -126,6 +126,16 @@ extension CodexCoreAppModel {
     func handleVoiceTaskToolRequest(
         _ parsed: CodexParsedServerRequest
     ) async -> CodexServerRequestHandlerDecision {
+        if case .attestation = parsed.body {
+            let token = await CodexAppAttestation.shared.token()
+            CodexVoiceLog.write(
+                "attestation.generate.complete",
+                level: .notice,
+                fields: ["tokenBytes": String(token.utf8.count)]
+            )
+            return .result(.dictionary(["token": .string(token)]))
+        }
+
         guard case .dynamicToolCall(let request) = parsed.body,
               request.scope.threadID != nil,
               Self.voiceTaskToolNames.contains(request.tool),
