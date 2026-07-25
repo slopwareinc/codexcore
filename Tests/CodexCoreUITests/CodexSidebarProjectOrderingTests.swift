@@ -3,6 +3,45 @@ import Foundation
 import Testing
 
 struct CodexSidebarProjectOrderingTests {
+    @Test func selectingAProjectOrProjectChatExpandsItsGroup() {
+        let alpha = "/tmp/Alpha"
+        let beta = "/tmp/Beta"
+        var session = CodexSidebarNavigationSession(currentWorkspacePath: alpha)
+
+        session.selectProject(alpha)
+        #expect(session.expandedProjectIDs.contains(alpha))
+
+        session.selectChat("beta-task", workspacePath: beta)
+        #expect(session.expandedProjectIDs.contains(beta))
+    }
+
+    @Test func attentionStateUsesOneRailWithLiveWorkTakingPrecedence() {
+        #expect(
+            CodexSidebarAttentionState.resolve(
+                liveStatus: .running,
+                hasUnreadWhileInactive: true
+            ) == .running
+        )
+        #expect(
+            CodexSidebarAttentionState.resolve(
+                liveStatus: .idle,
+                hasUnreadWhileInactive: true
+            ) == .unread
+        )
+
+        let rows = [
+            CodexSidebarThreadRow(
+                summary: .init(id: "unread", title: "Unread"),
+                hasUnreadWhileInactive: true
+            ),
+            CodexSidebarThreadRow(
+                summary: .init(id: "working", title: "Working"),
+                liveStatus: .running
+            ),
+        ]
+        #expect(CodexSidebarAttentionState.aggregate(rows) == .running)
+    }
+
     @Test func projectDiscoveryOrderDoesNotFollowTheSelectedWorkspace() {
         let alpha = "/tmp/Alpha"
         let beta = "/tmp/Beta"

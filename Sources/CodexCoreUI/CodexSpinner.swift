@@ -37,7 +37,7 @@ public struct CodexSpinner: View {
             .frame(width: edge, height: edge)
             .rotationEffect(.degrees(rotation))
             .onAppear {
-                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
                     rotation = 360
                 }
             }
@@ -47,7 +47,7 @@ public struct CodexSpinner: View {
     private var edge: CGFloat {
         switch size {
         case .mini: return 10
-        case .small: return 14
+        case .small: return 16
         case .medium: return 18
         }
     }

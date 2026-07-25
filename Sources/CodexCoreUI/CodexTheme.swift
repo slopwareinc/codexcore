@@ -528,23 +528,23 @@ public struct CodexAgentTheme {
             }
 
             public var commandRowHeight: CGFloat {
-                rowHeight(for: commandTitle, padding: 20)
+                rowHeight(for: commandTitle, padding: 17)
             }
 
             public var projectRowHeight: CGFloat {
-                rowHeight(for: projectTitle, padding: 19)
-            }
-
-            public var collapsedProjectRowHeight: CGFloat {
                 rowHeight(for: projectTitle, padding: 17)
             }
 
+            public var collapsedProjectRowHeight: CGFloat {
+                rowHeight(for: projectTitle, padding: 16)
+            }
+
             public var chatRowHeight: CGFloat {
-                rowHeight(for: chatTitle, padding: 18)
+                rowHeight(for: chatTitle, padding: 17)
             }
 
             public var sectionHeaderHeight: CGFloat {
-                rowHeight(for: sectionHeader, padding: 16)
+                rowHeight(for: sectionHeader, padding: 14)
             }
 
             public var disclosureRowHeight: CGFloat {
@@ -586,17 +586,17 @@ public struct CodexAgentTheme {
                     accountDetail: token(-3),
                     accountDeviceIcon: token(-1),
                     commandIcon: token(-1),
-                    commandTitle: token(0, weight: .medium),
+                    commandTitle: token(0),
                     commandShortcut: token(-3),
                     sectionHeader: token(-2, weight: .medium),
                     disclosureChevron: token(-6, weight: .semibold),
                     disclosureTitle: token(-1, weight: .medium),
                     disclosureCount: token(-3),
                     projectIcon: token(-1),
-                    projectTitle: token(0, weight: .medium),
+                    projectTitle: token(0),
                     emptyState: token(-3),
                     hiddenRowsPrompt: token(-1, weight: .medium),
-                    chatTitle: token(0, weight: .medium),
+                    chatTitle: token(0),
                     chatRecency: token(-3),
                     chatActionIcon: FontToken(size: CGFloat(max(8, baseTextSize - 7.5)), weight: .semibold)
                 )
@@ -657,7 +657,7 @@ public struct CodexAgentTheme {
                 transcriptMaxWidth: 736,
                 composerMaxWidth: 736,
                 sidePanelWidth: 400,
-                summaryPanelWidth: 300,
+                summaryPanelWidth: 328,
                 toolbarHeight: 46,
                 rowGap: 12,
                 cardMaxWidth: 640,

@@ -61,6 +61,40 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
     }
 }
 
+enum CodexSidebarAttentionState: Equatable, Sendable {
+    case idle
+    case unread
+    case running
+    case failed
+
+    static func resolve(
+        liveStatus: CodexThreadLiveStatus,
+        hasUnreadWhileInactive: Bool
+    ) -> Self {
+        switch liveStatus {
+        case .running:
+            return .running
+        case .failed:
+            return .failed
+        case .idle:
+            return hasUnreadWhileInactive ? .unread : .idle
+        }
+    }
+
+    static func aggregate(_ rows: [CodexSidebarThreadRow]) -> Self {
+        let states = rows.map {
+            resolve(
+                liveStatus: $0.liveStatus,
+                hasUnreadWhileInactive: $0.hasUnreadWhileInactive
+            )
+        }
+        if states.contains(.running) { return .running }
+        if states.contains(.failed) { return .failed }
+        if states.contains(.unread) { return .unread }
+        return .idle
+    }
+}
+
 public struct CodexSidebarProjectGroup: Identifiable, Equatable, Sendable {
     public var project: CodexProjectSummary
     public var rows: [CodexSidebarThreadRow]
@@ -339,6 +373,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     public mutating func selectProject(_ workspacePath: String) {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
         selectedProjectPath = normalized
+        expandedProjectIDs.insert(normalized)
         selectedThreadID = nil
         isProjectlessSelected = false
         selectRoute(.chat)
@@ -347,6 +382,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     public mutating func startNewChat(workspacePath: String) {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
         selectedProjectPath = normalized
+        expandedProjectIDs.insert(normalized)
         selectedThreadID = nil
         isProjectlessSelected = false
         selectRoute(.chat)
@@ -364,6 +400,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         if let workspacePath, !workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let normalized = CodexProjectSummary.normalizedPath(workspacePath)
             selectedProjectPath = normalized
+            expandedProjectIDs.insert(normalized)
         }
         selectRoute(.chat)
     }
@@ -377,6 +414,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     public mutating func syncCurrentWorkspace(_ workspacePath: String, currentThreadID: String?) {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
         selectedProjectPath = normalized
+        expandedProjectIDs.insert(normalized)
         selectedThreadID = currentThreadID
         isProjectlessSelected = false
     }

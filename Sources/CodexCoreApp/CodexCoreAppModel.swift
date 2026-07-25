@@ -2475,11 +2475,23 @@ final class CodexCoreAppModel {
     }
 
     var workspaceSummaryContext: CodexWorkspaceSummaryContext {
-        CodexWorkspaceSummaryContext(
+        var seenSourceIDs: Set<String> = []
+        let transcriptSources = transcriptV2.turns.flatMap { turn in
+            let messages = [turn.userMessage].compactMap { $0 } + turn.steeredMessages
+            return messages.flatMap(\.referencedFiles)
+        }
+        let sourceFiles = (transcriptSources + referencedFiles)
+            .reversed()
+            .filter { seenSourceIDs.insert($0.id).inserted }
+            .prefix(12)
+            .reversed()
+
+        return CodexWorkspaceSummaryContext(
             workspacePath: workspacePath,
             gitBranch: gitBranch,
             turnDiff: currentDiff,
-            environmentInfo: environmentInfoState
+            environmentInfo: environmentInfoState,
+            sourceFiles: Array(sourceFiles)
         )
     }
 

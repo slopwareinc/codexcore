@@ -27,7 +27,7 @@ public struct CodexComposerFileReferenceStrip: View {
             HStack(spacing: 6) {
                 ForEach(files) { file in
                     HStack(spacing: 6) {
-                        CodexComposerFilePreview(file: file)
+                        CodexReferencedFilePreview(file: file)
                             .frame(width: 24, height: 24)
                             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
 
@@ -64,7 +64,7 @@ public struct CodexComposerFileReferenceStrip: View {
     }
 }
 
-private struct CodexComposerFilePreview: View {
+struct CodexReferencedFilePreview: View {
     @Environment(\.codexAgentTheme) private var theme
     let file: CodexReferencedFile
     @State private var image: NSImage?
