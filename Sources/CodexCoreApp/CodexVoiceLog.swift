@@ -96,9 +96,10 @@ enum CodexVoiceLog {
             at: directory,
             withIntermediateDirectories: true
         )
-        if let size = try manager.attributesOfItem(
-            atPath: destination.path
-        )[.size] as? NSNumber,
+        if manager.fileExists(atPath: destination.path),
+           let size = try manager.attributesOfItem(
+               atPath: destination.path
+           )[.size] as? NSNumber,
            size.intValue >= maximumFileSize {
             let previousURL = destination.appendingPathExtension("previous")
             if manager.fileExists(atPath: previousURL.path) {

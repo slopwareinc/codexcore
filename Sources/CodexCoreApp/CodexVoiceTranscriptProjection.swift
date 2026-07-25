@@ -1,13 +1,19 @@
 import CodexCoreUI
 import Foundation
 
+struct CodexVoiceTranscriptPresentation {
+    var turns: [CodexTurnV2] = []
+    var presentedAtByTurnID: [String: Date] = [:]
+}
+
 extension CodexVoiceChatSession {
     /// Projects every live Voice utterance through the same turn model consumed
     /// by the normal AppKit transcript. The orb/composer remain a separate
     /// bottom accessory; captions do not.
-    var transcriptTurns: [CodexTurnV2] {
+    var transcriptPresentation: CodexVoiceTranscriptPresentation {
         struct Draft {
             var id: String
+            var presentedAt: Date
             var user: CodexUserMessageV2?
             var answer: CodexAssistantTextV2?
             var userIsFinal = true
@@ -31,6 +37,7 @@ extension CodexVoiceChatSession {
                 let identifier = entry.id.uuidString.lowercased()
                 current = Draft(
                     id: "realtime-voice:\(identifier)",
+                    presentedAt: entry.receivedAt,
                     user: .init(
                         id: "realtime-voice-user:\(identifier)",
                         text: text,
@@ -47,6 +54,7 @@ extension CodexVoiceChatSession {
                 if current == nil {
                     current = Draft(
                         id: "realtime-voice:\(identifier)",
+                        presentedAt: entry.receivedAt,
                         user: nil,
                         answer: nil
                     )
@@ -82,7 +90,7 @@ extension CodexVoiceChatSession {
                 presentationStyle: .realtimeVoice
             )
         }
-        guard !turns.isEmpty else { return turns }
+        guard !turns.isEmpty else { return .init() }
 
         let lastDraft = coalescedDrafts[turns.count - 1]
         let isSettledListeningTurn = phase == .listening
@@ -101,6 +109,11 @@ extension CodexVoiceChatSession {
                 break
             }
         }
-        return turns
+        return CodexVoiceTranscriptPresentation(
+            turns: turns,
+            presentedAtByTurnID: Dictionary(
+                uniqueKeysWithValues: coalescedDrafts.map { ($0.id, $0.presentedAt) }
+            )
+        )
     }
 }

@@ -341,9 +341,9 @@ struct CodexCoreAppShell: View {
                 )
             )
             : nil
-        let supplementalVoiceTurns = model.voiceSession.threadID == model.currentThreadID
-            ? model.voiceSession.transcriptTurns
-            : []
+        let supplementalVoicePresentation = model.voiceSession.threadID == model.currentThreadID
+            ? model.voiceSession.transcriptPresentation
+            : CodexVoiceTranscriptPresentation()
 
         return CodexChatWorkspaceView(
                 presentationStore: model.runtimeSession.presentationStore,
@@ -431,7 +431,8 @@ struct CodexCoreAppShell: View {
                 },
                 showsComposer: !isCurrentVoiceTask,
                 bottomAccessory: voiceAccessory,
-                supplementalTranscriptTurns: supplementalVoiceTurns
+                supplementalTranscriptTurns: supplementalVoicePresentation.turns,
+                supplementalTranscriptPresentedAtByTurnID: supplementalVoicePresentation.presentedAtByTurnID
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

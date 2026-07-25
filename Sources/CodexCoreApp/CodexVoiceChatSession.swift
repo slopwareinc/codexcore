@@ -6,17 +6,20 @@ import Observation
 
 struct CodexVoiceTranscriptEntry: Identifiable, Codable, Sendable, Equatable {
     let id: UUID
+    let receivedAt: Date
     var role: String
     var text: String
     var isFinal: Bool
 
     init(
         id: UUID = UUID(),
+        receivedAt: Date = Date(),
         role: String,
         text: String,
         isFinal: Bool
     ) {
         self.id = id
+        self.receivedAt = receivedAt
         self.role = role
         self.text = text
         self.isFinal = isFinal

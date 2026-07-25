@@ -115,6 +115,7 @@ public struct CodexChatWorkspaceView: View {
     private let showsComposer: Bool
     private let bottomAccessory: AnyView?
     private let supplementalTranscriptTurns: [CodexTurnV2]
+    private let supplementalTranscriptPresentedAtByTurnID: [String: Date]
     @ObservedObject private var panel: CodexWorkspacePanelState
     private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
@@ -190,7 +191,8 @@ public struct CodexChatWorkspaceView: View {
         onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
         showsComposer: Bool = true,
         bottomAccessory: AnyView? = nil,
-        supplementalTranscriptTurns: [CodexTurnV2] = []
+        supplementalTranscriptTurns: [CodexTurnV2] = [],
+        supplementalTranscriptPresentedAtByTurnID: [String: Date] = [:]
     ) {
         self.presentationStore = presentationStore
         self.lifecycleEvents = lifecycleEvents
@@ -260,6 +262,7 @@ public struct CodexChatWorkspaceView: View {
         self.showsComposer = showsComposer
         self.bottomAccessory = bottomAccessory
         self.supplementalTranscriptTurns = supplementalTranscriptTurns
+        self.supplementalTranscriptPresentedAtByTurnID = supplementalTranscriptPresentedAtByTurnID
     }
 
     public var body: some View {
@@ -345,6 +348,7 @@ public struct CodexChatWorkspaceView: View {
                 contentHorizontalOffset: -contentShift,
                 bottomContentInset: composerOverlayHeight + 20,
                 supplementalTurns: supplementalTranscriptTurns,
+                supplementalPresentedAtByTurnID: supplementalTranscriptPresentedAtByTurnID,
                 onOpenSubagent: openPanelTab,
                 onEditUserMessage: { rawText in
                     if let decoded = CodexFileReferencePromptCodec.decode(rawText) {

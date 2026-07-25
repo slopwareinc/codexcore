@@ -64,6 +64,9 @@ with startup context, it can use tools and create subagents. Desktop tasks also
 receive the `codex_app` orchestration tools used by the official app: they can
 list projects and tasks, create a new top-level project or projectless task,
 read a task, or send it a follow-up without moving the visible selection.
+Realtime utterances and canonical delegated work share one arrival-ordered
+transcript. Tool activity stays at the point where Voice delegated it and keeps
+the normal expandable **Worked for …** disclosure.
 
 ## Transcript
 
