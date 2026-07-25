@@ -53,7 +53,7 @@ final class CodexCoreAppModel {
     private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
     private(set) var environmentInfoState: CodexEnvironmentInfoState = .unavailable
 
-    private var codex: Codex?
+    var codex: Codex?
     var authSession = CodexAuthSession()
     private(set) var currentThreadLease: CodexThreadLease?
     private(set) var selectedThreadID: String?
@@ -83,6 +83,8 @@ final class CodexCoreAppModel {
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
     var sidebarNavigationSession = CodexSidebarNavigationSession(currentWorkspacePath: defaultWorkspacePath())
     var pinnedThreadIDs: [String]
+    var projectlessThreadIDs: Set<String>
+    var projectSourceFoldersByPrimaryPath: [String: [String]]
     private var hasStoredExpandedProjectState: Bool
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession(followUpBehavior: .queue)
@@ -94,6 +96,9 @@ final class CodexCoreAppModel {
     var modelIDByThread: [String: String]
     var lastManualModelID: String?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
+    let voiceSession = CodexVoiceChatSession()
+    private var isProjectlessDraft = true
+    private var projectlessDraftPaths: CodexProjectlessThreadPaths?
     private var chatSelectionGeneration = 0
     var pluginLauncherTarget: CodexComposerPluginLauncher?
     var mobileRouteSession = CodexMobileRouteSession()
@@ -124,6 +129,8 @@ final class CodexCoreAppModel {
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
         self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+        self.projectlessThreadIDs = CodexProjectlessThreadStorage.load(from: preferenceStore)
+        self.projectSourceFoldersByPrimaryPath = CodexProjectSourceFoldersStorage.load(from: preferenceStore)
         self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
         self.lastManualModelID = CodexModelPreferenceStorage.loadLastModelID(from: preferenceStore)
         let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
@@ -154,17 +161,25 @@ final class CodexCoreAppModel {
 
         await resetSessionState()
         do {
+            await CodexAppAttestation.shared.prepare()
             let config = CodexConfig(
                 codexHome: codexHome,
                 cwd: workspacePath,
-                clientName: "codex_core_app",
+                clientName: "Codex Desktop",
                 clientTitle: "CodexCore App",
-                clientVersion: "1.0.0",
+                clientVersion: CodexPinnedRuntime.version,
                 capabilities: InitializeCapabilities(
-                    mcpServerOpenAIFormElicitation: true
+                    mcpServerOpenAIFormElicitation: true,
+                    requestAttestation: true
                 )
             )
-            let codex = try await Codex(config: config)
+            let codex = try await Codex(
+                config: config,
+                serverRequestHandler: { [weak self] request in
+                    guard let self else { return .pending }
+                    return await self.handleVoiceTaskToolRequest(request)
+                }
+            )
             self.codex = codex
             await runtimeSession.connect(to: codex)
             promptRuntime.connect(to: codex.session) { [weak self] activity in
@@ -206,6 +221,7 @@ final class CodexCoreAppModel {
     }
 
     func disconnect() async {
+        await voiceSession.stop()
         await stopBottomTerminalSession()
         await runtimeSession.disconnect()
         runtimeSession.reset()
@@ -1064,7 +1080,7 @@ final class CodexCoreAppModel {
         var session = configurationSession
         let activities = await session.refreshStartupCatalogs(
             using: codex,
-            cwds: [workspacePath],
+            cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         configurationSession = session
@@ -1076,7 +1092,7 @@ final class CodexCoreAppModel {
         var session = configurationSession
         let activity = await session.refreshSlashCommands(
             using: codex,
-            cwds: [workspacePath],
+            cwds: workspaceRoots,
             forceReload: forceReload,
             errorMessage: CodexErrorFormat.localizedDescription
         )
@@ -1249,6 +1265,58 @@ final class CodexCoreAppModel {
         )
     }
 
+    func updateSidebarProject(
+        _ project: CodexProjectSummary,
+        displayName: String,
+        sourceFolders: [String]
+    ) async {
+        let roots = CodexProjectSummary.normalizedSourceFolders(sourceFolders)
+        guard let newPrimary = roots.first else { return }
+        let oldPrimary = project.workspacePath
+
+        projectSourceFoldersByPrimaryPath = CodexProjectSourceFoldersStorage.updating(
+            projectSourceFoldersByPrimaryPath,
+            oldPrimary: oldPrimary,
+            sourceFolders: roots
+        )
+        CodexProjectSourceFoldersStorage.save(
+            projectSourceFoldersByPrimaryPath,
+            to: preferenceStore
+        )
+
+        sidebarNavigationSession.replaceProjectPath(oldPrimary, with: newPrimary)
+        sidebarNavigationSession.renameProject(newPrimary, displayName: displayName)
+        saveExpandedSidebarProjects()
+        saveSidebarProjectOrder()
+        saveSidebarProjectVisibility()
+        CodexPinnedProjectStorage.savePinnedProjectIDs(
+            sidebarNavigationSession.pinnedProjectIDs,
+            to: preferenceStore
+        )
+        CodexProjectAliasStorage.saveProjectAliases(
+            sidebarNavigationSession.projectAliases,
+            to: preferenceStore
+        )
+
+        if project.contains(workspacePath: workspacePath) {
+            workspacePath = newPrimary
+            sidebarNavigationSession.syncCurrentWorkspace(
+                newPrimary,
+                currentThreadID: currentThreadID
+            )
+        }
+        threadListSession.refreshProjects(currentWorkspacePath: workspacePath)
+        appendActivity(
+            .notice,
+            title: "Updated project",
+            detail: "\(roots.count) source folder\(roots.count == 1 ? "" : "s")"
+        )
+        if let codex {
+            await refreshSlashCommands(using: codex)
+            await refreshRecentChats(using: codex)
+        }
+    }
+
     func removeSidebarProject(_ workspacePath: String) {
         sidebarNavigationSession.removeProject(workspacePath)
         saveSidebarProjectVisibility()
@@ -1270,13 +1338,34 @@ final class CodexCoreAppModel {
         if CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
             await switchWorkspace(to: path)
         }
-        await startNewChat()
+        isProjectlessDraft = false
+        projectlessDraftPaths = nil
+        invalidatePendingChatSelection()
+        sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+        saveExpandedSidebarProjects()
+        clearThreadState()
+        applyPreferredModel(for: nil)
+        guard codex != nil else { return }
+        await refreshRecentChats()
     }
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
-        sidebarNavigationSession.selectChat(chat.id, workspacePath: chat.workspacePath)
+        if projectlessThreadIDs.contains(chat.id) {
+            isProjectlessDraft = true
+            projectlessDraftPaths = CodexProjectlessThreadPaths(resumingCWD: chat.workspacePath)
+            sidebarNavigationSession.selectProjectlessChat(chat.id)
+            saveExpandedSidebarProjects()
+            await resumeChat(id: chat.id)
+            return
+        }
+        isProjectlessDraft = false
+        projectlessDraftPaths = nil
+        let projectPath = chat.workspacePath.flatMap { chatPath in
+            recentProjects.first { $0.contains(workspacePath: chatPath) }?.workspacePath
+        } ?? chat.workspacePath
+        sidebarNavigationSession.selectChat(chat.id, workspacePath: projectPath)
         saveExpandedSidebarProjects()
-        if let path = chat.workspacePath,
+        if let path = projectPath,
            CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
             await switchWorkspace(to: path)
         }
@@ -1312,13 +1401,132 @@ final class CodexCoreAppModel {
     }
 
     func startNewChat() async {
+        isProjectlessDraft = true
+        projectlessDraftPaths = nil
         invalidatePendingChatSelection()
-        sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
+        sidebarNavigationSession.startNewProjectlessChat()
         saveExpandedSidebarProjects()
         clearThreadState()
         applyPreferredModel(for: nil)
         guard codex != nil else { return }
         await refreshRecentChats()
+    }
+
+    func startVoiceChat() async {
+        if voiceSession.isActive {
+            await showVoiceChat()
+            return
+        }
+        guard canStartVoiceChatFromCurrentContext else {
+            appendActivity(
+                .notice,
+                title: "Voice unavailable",
+                detail: "Start Voice from Home or reopen an existing Voice task."
+            )
+            return
+        }
+        guard let codex else {
+            appendActivity(.notice, title: "Voice unavailable", detail: "Connect to Codex first.")
+            return
+        }
+
+        do {
+            let visibleLease: CodexThreadLease
+            let createdNewVoiceThread: Bool
+            if let currentThreadLease, !currentThreadLease.isClosed {
+                visibleLease = currentThreadLease
+                createdNewVoiceThread = false
+            } else {
+                invalidatePendingChatSelection()
+                clearThreadState()
+                applyPreferredModel(for: nil)
+                var start = try threadStartParametersForCurrentDraft()
+                start.config = Self.realtimeVoiceFeatureConfig
+                start.threadSource = CodexSchemaThreadSource(.string("realtime_voice"))
+                start.dynamicTools = Self.voiceTaskToolSpecs
+                visibleLease = try await codex.startThread(start)
+                createdNewVoiceThread = true
+                await activateThread(visibleLease)
+                if isProjectlessDraft {
+                    rememberProjectlessThread(visibleLease.id.rawValue)
+                    sidebarNavigationSession.selectProjectlessChat(visibleLease.id.rawValue)
+                } else {
+                    sidebarNavigationSession.selectChat(
+                        visibleLease.id.rawValue,
+                        workspacePath: workspacePath
+                    )
+                }
+            }
+
+            if createdNewVoiceThread {
+                do {
+                    _ = try await codex.perform(CodexRequest.threadNameSet(.init(
+                        name: "Voice chat",
+                        threadID: visibleLease.id.rawValue
+                    )))
+                    renameChatInSidebar(visibleLease.id.rawValue, title: "Voice chat")
+                } catch {
+                    appendActivity(
+                        .notice,
+                        title: "Voice task naming failed",
+                        detail: friendlyError(error)
+                    )
+                }
+            }
+
+            try await voiceSession.start(
+                codex: codex,
+                threadID: visibleLease.id.rawValue
+            )
+            appendActivity(.notice, title: "Voice chat started", detail: visibleLease.id.rawValue)
+            await refreshRecentChats(using: codex)
+        } catch {
+            await voiceSession.stop()
+            appendActivity(.notice, title: "Voice chat failed", detail: friendlyError(error))
+        }
+    }
+
+    func stopVoiceChat() async {
+        await voiceSession.stop()
+        appendActivity(.notice, title: "Voice chat ended", detail: "The task remains in your history.")
+        await refreshRecentChats()
+    }
+
+    func toggleVoiceMute() {
+        voiceSession.toggleMute()
+    }
+
+    var canStartVoiceChatFromCurrentContext: Bool {
+        guard let currentThreadID else {
+            return isProjectlessDraft
+        }
+        return allSidebarChats.first(where: { $0.id == currentThreadID })?
+            .threadSource == "realtime_voice"
+    }
+
+    func toggleVoiceOutputMute() {
+        voiceSession.toggleOutputMute()
+    }
+
+    func showVoiceChat() async {
+        guard let threadID = voiceSession.threadID else { return }
+        if projectlessThreadIDs.contains(threadID) {
+            isProjectlessDraft = true
+            if let chat = allSidebarChats.first(where: { $0.id == threadID }) {
+                projectlessDraftPaths = CodexProjectlessThreadPaths(
+                    resumingCWD: chat.workspacePath
+                )
+            }
+            sidebarNavigationSession.selectProjectlessChat(threadID)
+            saveExpandedSidebarProjects()
+            await resumeChat(id: threadID)
+            return
+        }
+        if let chat = allSidebarChats.first(where: { $0.id == threadID }) {
+            await selectSidebarChat(chat)
+        } else {
+            await resumeChat(id: threadID)
+        }
     }
 
     func resumeChat(id threadID: String) async {
@@ -1342,7 +1550,9 @@ final class CodexCoreAppModel {
             let resumeSpan = trace.begin("chatLoad.threadResume", metadata: ["threadID": threadID])
             let lease: CodexThreadLease
             do {
-                lease = try await codex.resumeThread(threadResumeParameters(threadID: threadID))
+                lease = try await codex.resumeThread(
+                    threadResumeParametersForCurrentContext(threadID: threadID)
+                )
                 resumeSpan.end(metadata: ["threadID": lease.id.rawValue, "outcome": "success"])
             } catch {
                 resumeSpan.end(metadata: ["threadID": threadID, "outcome": "failure", "error": errorType(error)])
@@ -1373,7 +1583,14 @@ final class CodexCoreAppModel {
             goalPursuitEnabled = goalResponse?.goal != nil
 
             let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": lease.id.rawValue])
-            sidebarNavigationSession.selectChat(lease.id.rawValue, workspacePath: workspacePath)
+            if isProjectlessDraft {
+                sidebarNavigationSession.selectProjectlessChat(lease.id.rawValue)
+            } else {
+                sidebarNavigationSession.selectChat(
+                    lease.id.rawValue,
+                    workspacePath: workspacePath
+                )
+            }
             sidebarSpan.end(metadata: ["threadID": lease.id.rawValue])
             appendActivity(.notice, title: "Resumed chat", detail: lease.id.rawValue)
             flushQueuedFollowUps()
@@ -1430,12 +1647,12 @@ final class CodexCoreAppModel {
         var session = runtimeSession.integrationCatalogSession
         let pluginActivity = await session.refreshPlugins(
             using: codex,
-            cwds: [workspacePath],
+            cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         let skillActivity = await session.refreshSkills(
             using: codex,
-            cwds: [workspacePath],
+            cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         runtimeSession.integrationCatalogSession = session
@@ -1489,9 +1706,17 @@ final class CodexCoreAppModel {
             setThreadPinned(chat.id, pinned: false, announces: false)
             composerSession.discardThreadState(for: chat.id)
             removeChatFromSidebar(chat.id)
+            forgetProjectlessThread(chat.id)
             if shouldClearSelection, chatSelectionGeneration == archiveGeneration {
                 clearThreadState()
-                sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+                if isProjectlessDraft {
+                    sidebarNavigationSession.startNewProjectlessChat()
+                } else {
+                    sidebarNavigationSession.syncCurrentWorkspace(
+                        workspacePath,
+                        currentThreadID: nil
+                    )
+                }
             }
             appendActivity(.notice, title: "Archived chat", detail: chat.id)
             await refreshRecentChats(using: codex)
@@ -1503,9 +1728,11 @@ final class CodexCoreAppModel {
     func archiveSidebarProjectChats(_ workspacePath: String) async {
         guard let codex else { return }
         let normalizedPath = CodexProjectSummary.normalizedPath(workspacePath)
+        let project = recentProjects.first { $0.workspacePath == normalizedPath }
         let chats = allSidebarChats.filter {
             guard let path = $0.workspacePath else { return false }
-            return CodexProjectSummary.normalizedPath(path) == normalizedPath
+            return project?.contains(workspacePath: path)
+                ?? (CodexProjectSummary.normalizedPath(path) == normalizedPath)
         }
         guard !chats.isEmpty else {
             appendActivity(.notice, title: "No chats to archive", detail: normalizedPath)
@@ -1642,6 +1869,17 @@ final class CodexCoreAppModel {
     }
 
     func resumeSearchResult(_ result: CodexThreadSearchResult) async {
+        if projectlessThreadIDs.contains(result.thread.id) {
+            isProjectlessDraft = true
+            projectlessDraftPaths = CodexProjectlessThreadPaths(
+                resumingCWD: result.thread.workspacePath
+            )
+            sidebarNavigationSession.selectProjectlessChat(result.thread.id)
+            await resumeChat(id: result.thread.id)
+            return
+        }
+        isProjectlessDraft = false
+        projectlessDraftPaths = nil
         let workspace = result.thread.workspacePath?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let workspace, !workspace.isEmpty {
             let normalized = CodexProjectSummary.normalizedPath(workspace)
@@ -1668,7 +1906,15 @@ final class CodexCoreAppModel {
             clearThreadState(keepCurrentThread: true)
             await activateThread(fork)
             guard chatSelectionGeneration == forkSelectionGeneration else { return }
-            sidebarNavigationSession.selectChat(fork.id.rawValue, workspacePath: workspacePath)
+            if isProjectlessDraft {
+                rememberProjectlessThread(fork.id.rawValue)
+                sidebarNavigationSession.selectProjectlessChat(fork.id.rawValue)
+            } else {
+                sidebarNavigationSession.selectChat(
+                    fork.id.rawValue,
+                    workspacePath: workspacePath
+                )
+            }
             appendActivity(.notice, title: "Forked chat", detail: sourceID)
             await refreshRecentChats(using: codex)
         } catch {
@@ -1685,9 +1931,17 @@ final class CodexCoreAppModel {
             setThreadPinned(archivedID, pinned: false, announces: false)
             composerSession.discardThreadState(for: archivedID)
             removeChatFromSidebar(archivedID)
+            forgetProjectlessThread(archivedID)
             if chatSelectionGeneration == archiveGeneration {
                 clearThreadState()
-                sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+                if isProjectlessDraft {
+                    sidebarNavigationSession.startNewProjectlessChat()
+                } else {
+                    sidebarNavigationSession.syncCurrentWorkspace(
+                        workspacePath,
+                        currentThreadID: nil
+                    )
+                }
             }
             appendActivity(.notice, title: "Archived chat", detail: archivedID)
             await refreshRecentChats(using: codex)
@@ -1732,8 +1986,12 @@ final class CodexCoreAppModel {
         if let currentThreadLease, !currentThreadLease.isClosed {
             return currentThreadLease
         }
-        let thread = try await codex.startThread(threadStartParameters())
+        let thread = try await codex.startThread(threadStartParametersForCurrentDraft())
         await activateThread(thread)
+        if isProjectlessDraft {
+            rememberProjectlessThread(thread.id.rawValue)
+            sidebarNavigationSession.selectProjectlessChat(thread.id.rawValue)
+        }
         syncComposerThreadID()
         rememberModelSelection(for: thread.id.rawValue)
         workspacePanel.migrateUnassigned(to: thread.id.rawValue)
@@ -1803,7 +2061,7 @@ final class CodexCoreAppModel {
         }
     }
 
-    private var protocolApprovalPolicy: CodexSchemaAskForApproval? {
+    var protocolApprovalPolicy: CodexSchemaAskForApproval? {
         if case .string(let raw)? = configurationSession.turnParameterOverrides["approvalPolicy"] {
             return CodexSchemaAskForApproval(.string(raw))
         }
@@ -1812,7 +2070,7 @@ final class CodexCoreAppModel {
         }
     }
 
-    private var protocolApprovalsReviewer: CodexSchemaApprovalsReviewer? {
+    var protocolApprovalsReviewer: CodexSchemaApprovalsReviewer? {
         let raw: String?
         if case .string(let override)? = configurationSession.turnParameterOverrides["approvalsReviewer"] {
             raw = override
@@ -1827,10 +2085,63 @@ final class CodexCoreAppModel {
             approvalPolicy: protocolApprovalPolicy,
             approvalsReviewer: protocolApprovalsReviewer,
             cwd: workspacePath,
+            dynamicTools: Self.voiceTaskToolSpecs,
             historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
             model: modelSelection.modelIdentifier,
+            runtimeWorkspaceRoots: protocolWorkspaceRoots,
             sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue)
         )
+    }
+
+    private func threadStartParametersForCurrentDraft() throws -> CodexSchemaThreadStartParams {
+        guard isProjectlessDraft else { return threadStartParameters() }
+        let paths = try projectlessDraftPaths ?? CodexProjectlessThreadPaths.create()
+        projectlessDraftPaths = paths
+        var parameters = threadStartParameters()
+        parameters.cwd = paths.cwd
+        parameters.runtimeWorkspaceRoots = [
+            CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
+        ]
+        parameters.developerInstructions = paths.developerInstructions
+        return parameters
+    }
+
+    private func threadResumeParametersForCurrentContext(
+        threadID: String
+    ) -> CodexSchemaThreadResumeParams {
+        var parameters: CodexSchemaThreadResumeParams
+        if isProjectlessDraft, let paths = projectlessDraftPaths {
+            parameters = CodexSchemaThreadResumeParams(
+                approvalPolicy: protocolApprovalPolicy,
+                approvalsReviewer: protocolApprovalsReviewer,
+                cwd: paths.cwd,
+                model: modelSelection.modelIdentifier,
+                runtimeWorkspaceRoots: [
+                    CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
+                ],
+                sandbox: CodexSchemaSandboxMode(
+                    rawValue: approvalSelection.sandbox.threadMode.rawValue
+                ),
+                threadID: threadID
+            )
+        } else {
+            parameters = threadResumeParameters(threadID: threadID)
+        }
+        if allSidebarChats.first(where: { $0.id == threadID })?
+            .threadSource == "realtime_voice" {
+            parameters.config = Self.realtimeVoiceFeatureConfig
+        }
+        return parameters
+    }
+
+    private func rememberProjectlessThread(_ threadID: String) {
+        projectlessThreadIDs.insert(threadID)
+        CodexProjectlessThreadStorage.save(projectlessThreadIDs, to: preferenceStore)
+    }
+
+    private func forgetProjectlessThread(_ threadID: String) {
+        guard projectlessThreadIDs.remove(threadID) != nil else { return }
+        CodexProjectlessThreadStorage.save(projectlessThreadIDs, to: preferenceStore)
     }
 
     private func threadResumeParameters(threadID: String) -> CodexSchemaThreadResumeParams {
@@ -1839,6 +2150,7 @@ final class CodexCoreAppModel {
             approvalsReviewer: protocolApprovalsReviewer,
             cwd: workspacePath,
             model: modelSelection.modelIdentifier,
+            runtimeWorkspaceRoots: protocolWorkspaceRoots,
             sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue),
             threadID: threadID
         )
@@ -1848,12 +2160,19 @@ final class CodexCoreAppModel {
         threadID: String,
         ephemeral: Bool = false
     ) -> CodexSchemaThreadForkParams {
-        CodexSchemaThreadForkParams(
+        let cwd = isProjectlessDraft ? projectlessDraftPaths?.cwd ?? workspacePath : workspacePath
+        let roots = if isProjectlessDraft, let paths = projectlessDraftPaths {
+            [CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot))]
+        } else {
+            protocolWorkspaceRoots
+        }
+        return CodexSchemaThreadForkParams(
             approvalPolicy: protocolApprovalPolicy,
             approvalsReviewer: protocolApprovalsReviewer,
-            cwd: workspacePath,
+            cwd: cwd,
             ephemeral: ephemeral,
             model: modelSelection.modelIdentifier,
+            runtimeWorkspaceRoots: roots,
             sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue),
             threadID: threadID
         )
@@ -1868,15 +2187,22 @@ final class CodexCoreAppModel {
         let collaborationMode = overrides["collaborationMode"].flatMap {
             try? $0.decode(CodexSchemaCollaborationMode.self)
         }
+        let cwd = isProjectlessDraft ? projectlessDraftPaths?.cwd ?? workspacePath : workspacePath
+        let roots = if isProjectlessDraft, let paths = projectlessDraftPaths {
+            [CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot))]
+        } else {
+            protocolWorkspaceRoots
+        }
         return CodexSchemaTurnStartParams(
             approvalPolicy: protocolApprovalPolicy,
             approvalsReviewer: protocolApprovalsReviewer,
             clientUserMessageID: clientUserMessageID,
             collaborationMode: collaborationMode,
-            cwd: workspacePath,
+            cwd: cwd,
             effort: CodexSchemaReasoningEffort(.string(reasoningSelection.effort.rawValue)),
             input: input.map { CodexSchemaUserInput($0.jsonValue) },
             model: modelSelection.modelIdentifier,
+            runtimeWorkspaceRoots: roots,
             sandboxPolicy: CodexSchemaSandboxPolicy(approvalSelection.sandbox.turnPolicy),
             threadID: threadID.rawValue
         )

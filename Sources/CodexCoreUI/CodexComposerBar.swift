@@ -31,6 +31,8 @@ public struct CodexComposerBar: View {
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
+    private let onStartVoiceChat: (() -> Void)?
+    private let voiceChatLabel: String
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
     private let onOpenMCPDetails: (() -> Void)?
     private let onRefreshMCPServers: (() -> Void)?
@@ -73,6 +75,8 @@ public struct CodexComposerBar: View {
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
+        onStartVoiceChat: (() -> Void)? = nil,
+        voiceChatLabel: String = "Start new voice chat",
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
         onOpenMCPDetails: (() -> Void)? = nil,
         onRefreshMCPServers: (() -> Void)? = nil,
@@ -105,6 +109,8 @@ public struct CodexComposerBar: View {
         self.onMentionSelected = onMentionSelected
         self.onSend = onSend
         self.onInterrupt = onInterrupt
+        self.onStartVoiceChat = onStartVoiceChat
+        self.voiceChatLabel = voiceChatLabel
         self.onSlashCommandSelected = onSlashCommandSelected
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onRefreshMCPServers = onRefreshMCPServers
@@ -191,13 +197,17 @@ public struct CodexComposerBar: View {
                     }
 
                     ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
-                    ComposerMicrophoneButton()
+                    ComposerMicrophoneButton(action: nil)
 
                     if isSending {
                         // The composer stays live during a run: send steers or
                         // queues the draft, stop interrupts the turn.
                         SendButton(enabled: canSend, action: onSend)
                         ComposerStopButton(action: onInterrupt)
+                    } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                              referencedFiles.isEmpty,
+                              let onStartVoiceChat {
+                        ComposerVoiceButton(label: voiceChatLabel, action: onStartVoiceChat)
                     } else {
                         SendButton(enabled: canSend, action: onSend)
                     }
@@ -871,18 +881,43 @@ private struct ComposerStopButton: View {
 
 private struct ComposerMicrophoneButton: View {
     @Environment(\.codexAgentTheme) private var theme
+    let action: (() -> Void)?
 
     var body: some View {
-        Button {} label: {
+        Button {
+            action?()
+        } label: {
             Image(systemName: "mic")
                 .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
         }
         .buttonStyle(.plain)
-        .disabled(true)
-        .help("Voice input is not available yet")
-        .accessibilityLabel("Voice input")
+        .disabled(action == nil)
+        .help(action == nil ? "Dictation is unavailable" : "Start dictation")
+        .accessibilityLabel("Start dictation")
+    }
+}
+
+private struct ComposerVoiceButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "waveform")
+                .font(theme.fonts.label.weight(.semibold))
+                .foregroundStyle(theme.colors.canvas)
+                .frame(
+                    width: theme.spacing.iconLarge + 4,
+                    height: theme.spacing.iconLarge + 4
+                )
+                .background(theme.colors.textPrimary, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 

@@ -126,6 +126,55 @@ struct CodexSidebarProjectOrderingTests {
         #expect(CodexPinnedProjectStorage.loadPinnedProjectIDs(from: store) == ["/tmp/Alpha"])
     }
 
+    @Test func projectlessChatsStayOutsideProjectGroupsAndPersistIdentity() {
+        let store = ProjectOrderPreferenceStore()
+        CodexProjectlessThreadStorage.save(["chat-global"], to: store)
+        let project = CodexProjectSummary(
+            workspacePath: "/tmp/Alpha",
+            updatedAt: Date().timeIntervalSince1970
+        )
+        var session = CodexSidebarNavigationSession(
+            currentWorkspacePath: project.workspacePath,
+            expandedProjectIDs: [project.workspacePath]
+        )
+        session.selectProjectlessChat("chat-global")
+        let chats = [
+            CodexThreadSummary(
+                id: "chat-global",
+                title: "Global",
+                workspacePath: "/tmp/generated/work",
+                recencyAt: 200
+            ),
+            CodexThreadSummary(
+                id: "chat-project",
+                title: "Project",
+                workspacePath: project.workspacePath,
+                recencyAt: 100
+            ),
+        ]
+
+        let snapshot = session.snapshot(
+            projects: [project],
+            chats: chats,
+            currentWorkspacePath: project.workspacePath,
+            currentThreadID: "chat-global",
+            projectlessThreadIDs: CodexProjectlessThreadStorage.load(from: store)
+        )
+
+        #expect(snapshot.isProjectlessSelected)
+        #expect(snapshot.projectlessRows.map(\.id) == ["chat-global"])
+        #expect(snapshot.projects.flatMap(\.rows).map(\.id) == ["chat-project"])
+    }
+
+    @Test func threadSummaryPreservesRealtimeVoiceSource() {
+        let summary = CodexThreadSummary(raw: .dictionary([
+            "id": .string("voice-task"),
+            "threadSource": .string("realtime_voice"),
+        ]))
+
+        #expect(summary?.threadSource == "realtime_voice")
+    }
+
     @Test func projectAliasesAndHiddenProjectsChangePresentationWithoutChangingIdentity() {
         let now = Date().timeIntervalSince1970
         let alpha = CodexProjectSummary(workspacePath: "/tmp/Alpha", updatedAt: now)
@@ -166,6 +215,71 @@ struct CodexSidebarProjectOrderingTests {
 
         #expect(CodexHiddenProjectStorage.loadHiddenProjectIDs(from: store) == ["/tmp/Beta"])
         #expect(CodexProjectAliasStorage.loadProjectAliases(from: store) == ["/tmp/Alpha": "Primary workspace"])
+    }
+
+    @Test func sourceFolderStoragePreservesPrimaryOrderAndMigratesPrimary() {
+        let store = ProjectOrderPreferenceStore()
+        CodexProjectSourceFoldersStorage.save(
+            ["/tmp/Alpha": ["/tmp/Alpha", "/tmp/Beta", "/tmp/Alpha"]],
+            to: store
+        )
+        #expect(CodexProjectSourceFoldersStorage.load(from: store) == [
+            "/tmp/Alpha": ["/tmp/Alpha", "/tmp/Beta"]
+        ])
+
+        let migrated = CodexProjectSourceFoldersStorage.updating(
+            CodexProjectSourceFoldersStorage.load(from: store),
+            oldPrimary: "/tmp/Alpha",
+            sourceFolders: ["/tmp/Beta", "/tmp/Alpha"]
+        )
+        #expect(migrated == [
+            "/tmp/Beta": ["/tmp/Beta", "/tmp/Alpha"]
+        ])
+    }
+
+    @Test func multiFolderProjectGroupsChatsFromEverySourceFolder() {
+        let now = Date().timeIntervalSince1970
+        let project = CodexProjectSummary(
+            workspacePath: "/tmp/Frontend",
+            sourceFolders: ["/tmp/Frontend", "/tmp/Backend"],
+            updatedAt: now
+        )
+        let session = CodexSidebarNavigationSession(
+            currentWorkspacePath: project.workspacePath,
+            expandedProjectIDs: [project.workspacePath]
+        )
+        let snapshot = session.snapshot(
+            projects: [project],
+            chats: [
+                .init(id: "front", title: "Frontend", workspacePath: "/tmp/Frontend"),
+                .init(id: "back", title: "Backend", workspacePath: "/tmp/Backend"),
+            ],
+            currentWorkspacePath: project.workspacePath,
+            currentThreadID: nil
+        )
+
+        #expect(snapshot.projects.count == 1)
+        #expect(Set(snapshot.projects[0].rows.map(\.id)) == ["front", "back"])
+        #expect(project.contains(workspacePath: "/tmp/Backend"))
+    }
+
+    @Test func changingPrimaryMigratesSidebarProjectMetadata() {
+        var session = CodexSidebarNavigationSession(
+            currentWorkspacePath: "/tmp/Alpha",
+            expandedProjectIDs: ["/tmp/Alpha"],
+            projectOrder: ["/tmp/Alpha"],
+            pinnedProjectIDs: ["/tmp/Alpha"],
+            hiddenProjectIDs: ["/tmp/Alpha"],
+            projectAliases: ["/tmp/Alpha": "Workspace"]
+        )
+        session.replaceProjectPath("/tmp/Alpha", with: "/tmp/Beta")
+
+        #expect(session.selectedProjectPath == "/tmp/Beta")
+        #expect(session.expandedProjectIDs == ["/tmp/Beta"])
+        #expect(session.projectOrder == ["/tmp/Beta"])
+        #expect(session.pinnedProjectIDs == ["/tmp/Beta"])
+        #expect(session.hiddenProjectIDs == ["/tmp/Beta"])
+        #expect(session.projectAliases == ["/tmp/Beta": "Workspace"])
     }
 
     @Test func bulkArchiveClearsOnlyTheUnchangedArchivedSelection() {

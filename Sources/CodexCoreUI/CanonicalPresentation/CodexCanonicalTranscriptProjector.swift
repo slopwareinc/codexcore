@@ -340,7 +340,7 @@ private extension CodexCanonicalTranscriptProjector {
             let completed = item.authority == .completed || canonical?.status.isTerminal == true
             switch item.kind {
             case .userMessage:
-                let message = userMessage(item)
+                guard let message = userMessage(item) else { continue }
                 if turn.userMessage == nil {
                     turn.userMessage = message
                 } else {
@@ -458,9 +458,10 @@ private extension CodexCanonicalTranscriptProjector {
         }
     }
 
-    func userMessage(_ item: CanonicalItem) -> CodexUserMessageV2 {
+    func userMessage(_ item: CanonicalItem) -> CodexUserMessageV2? {
         let clientID = item.clientUserMessageID?.rawValue ?? item.payload.string("clientId")
         let rawText = item.payload.textContent
+        guard !isRealtimeDelegationEnvelope(rawText) else { return nil }
         let decoded = CodexFileReferencePromptCodec.decode(rawText)
         return CodexUserMessageV2(
             id: item.key.itemID.rawValue,
@@ -470,6 +471,12 @@ private extension CodexCanonicalTranscriptProjector {
             referencedFiles: decoded?.files ?? [],
             isOptimistic: false
         )
+    }
+
+    func isRealtimeDelegationEnvelope(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasPrefix("<realtime_delegation")
     }
 
     func optimisticUserMessage(_ intent: SubmissionIntent) -> CodexUserMessageV2 {

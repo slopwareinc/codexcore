@@ -24,14 +24,22 @@ just run
 
 ## Build a macOS application bundle
 
-`swift run` launches an unbundled development executable. To produce a registered Finder/Dock app with `Info.plist`, icon, and ad-hoc signature:
+`swift run` launches an unbundled development executable. To produce a registered Finder/Dock app with `Info.plist`, icon, and a local code signature:
 
 ```bash
 ./scripts/package-app.sh --release
 open build/CodexCore.app
 ```
 
-Or run `just run-app` for a debug bundle. Output is `build/CodexCore.app`. Ad-hoc signing is for local use; sharing the app requires Developer ID signing and Apple notarization.
+Or run `just run-app` for a debug bundle. Output is `build/CodexCore.app`.
+
+The packager automatically uses an installed Developer ID or Apple Development
+identity so macOS privacy grants survive rebuilds. Set
+`CODEXCORE_SIGNING_IDENTITY` to choose a specific Keychain identity, or set it
+to `-` to force ad-hoc signing. If no identity is available, the script falls
+back to ad-hoc signing and warns that microphone permission may reset after
+each rebuild. Sharing the app still requires Developer ID signing and Apple
+notarization.
 
 ## First session
 

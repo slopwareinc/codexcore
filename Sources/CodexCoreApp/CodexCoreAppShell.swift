@@ -8,8 +8,9 @@ struct CodexCoreAppShell: View {
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var renameDraft = ""
-    @State private var projectRenameTarget: CodexProjectSummary?
-    @State private var projectRenameDraft = ""
+    @State private var projectEditTarget: CodexProjectSummary?
+    @State private var projectNameDraft = ""
+    @State private var projectSourceFoldersDraft: [String] = []
     @State private var sidebarOverlaySession = CodexSidebarOverlaySession()
     @AppStorage("codex.sidebar.expandedWidth")
     private var sidebarExpandedWidth: Double = Double(CodexProjectSidebar.defaultExpandedWidth)
@@ -128,6 +129,19 @@ struct CodexCoreAppShell: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if model.voiceSession.isActive,
+               model.voiceSession.threadID != model.currentThreadID {
+                CodexVoiceMiniControl(
+                    session: model.voiceSession,
+                    onOpen: {
+                        Task { await model.showVoiceChat() }
+                    },
+                    onEnd: { Task { await model.stopVoiceChat() } }
+                )
+                .padding(20)
+            }
+        }
         .sheet(isPresented: $isRenameSheetPresented) {
             RenameChatSheet(
                 title: "Rename chat",
@@ -141,15 +155,27 @@ struct CodexCoreAppShell: View {
             )
             .codexAgentTheme(model.theme)
         }
-        .sheet(item: $projectRenameTarget) { project in
-            RenameChatSheet(
-                title: "Rename project",
-                placeholder: "Project name",
-                name: $projectRenameDraft,
-                onCancel: { projectRenameTarget = nil },
+        .sheet(item: $projectEditTarget) { project in
+            EditProjectSheet(
+                name: $projectNameDraft,
+                sourceFolders: $projectSourceFoldersDraft,
+                onAddFolders: addProjectSourceFolders,
+                onRemoveProject: {
+                    model.removeSidebarProject(project.workspacePath)
+                    projectEditTarget = nil
+                },
+                onCancel: { projectEditTarget = nil },
                 onSave: {
-                    model.renameSidebarProject(project.workspacePath, displayName: projectRenameDraft)
-                    projectRenameTarget = nil
+                    let name = projectNameDraft
+                    let roots = projectSourceFoldersDraft
+                    projectEditTarget = nil
+                    Task {
+                        await model.updateSidebarProject(
+                            project,
+                            displayName: name,
+                            sourceFolders: roots
+                        )
+                    }
                 }
             )
             .codexAgentTheme(model.theme)
@@ -190,8 +216,9 @@ struct CodexCoreAppShell: View {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             },
             onRenameProject: { project in
-                projectRenameDraft = project.displayName
-                projectRenameTarget = project
+                projectNameDraft = project.displayName
+                projectSourceFoldersDraft = project.sourceFolders
+                projectEditTarget = project
             },
             onArchiveProjectChats: { path in
                 Task { await model.archiveSidebarProjectChats(path) }
@@ -299,8 +326,26 @@ struct CodexCoreAppShell: View {
     }
 
     private func chatWorkspace(proxy: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
-            CodexChatWorkspaceView(
+        let isCurrentVoiceTask = model.voiceSession.isActive
+            && model.voiceSession.threadID == model.currentThreadID
+        let voiceAccessory: AnyView? = isCurrentVoiceTask
+            ? AnyView(
+                CodexVoiceConversationPanel(
+                    session: model.voiceSession,
+                    onSendText: { text in
+                        Task { await model.voiceSession.sendText(text) }
+                    },
+                    onToggleMute: { model.toggleVoiceMute() },
+                    onToggleOutputMute: { model.toggleVoiceOutputMute() },
+                    onEnd: { Task { await model.stopVoiceChat() } }
+                )
+            )
+            : nil
+        let supplementalVoicePresentation = model.voiceSession.threadID == model.currentThreadID
+            ? model.voiceSession.transcriptPresentation
+            : CodexVoiceTranscriptPresentation()
+
+        return CodexChatWorkspaceView(
                 presentationStore: model.runtimeSession.presentationStore,
                 lifecycleEvents: model.lifecycleEvents,
                 sideChat: model.sideChat,
@@ -352,6 +397,12 @@ struct CodexCoreAppShell: View {
                 onMentionSelected: { model.selectMention($0) },
                 onSend: { Task { await model.sendDraft() } },
                 onInterrupt: { Task { await model.interrupt() } },
+                onStartVoiceChat: model.canStartVoiceChatFromCurrentContext
+                    ? { Task { await model.startVoiceChat() } }
+                    : nil,
+                voiceChatLabel: model.currentThreadID == nil
+                    ? "Start new voice chat"
+                    : "Start voice chat",
                 onSteerQueuedFollowUp: { clientID in
                     Task { await model.steerQueuedFollowUp(clientID: clientID) }
                 },
@@ -375,11 +426,15 @@ struct CodexCoreAppShell: View {
                     }
                 },
                 approvalPrompts: model.approvalPrompts,
-                onResolveApproval: { id, approved in model.resolveApprovalPrompt(id: id, approved: approved) }
+                onResolveApproval: { id, approved in
+                    model.resolveApprovalPrompt(id: id, approved: approved)
+                },
+                showsComposer: !isCurrentVoiceTask,
+                bottomAccessory: voiceAccessory,
+                supplementalTranscriptTurns: supplementalVoicePresentation.turns,
+                supplementalTranscriptPresentedAtByTurnID: supplementalVoicePresentation.presentedAtByTurnID
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-        }
     }
 
     private func chooseWorkspaceFolder() {
@@ -391,6 +446,21 @@ struct CodexCoreAppShell: View {
         panel.directoryURL = URL(fileURLWithPath: model.workspacePath)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await model.switchWorkspace(to: url.path) }
+    }
+
+    private func addProjectSourceFolders() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.canCreateDirectories = true
+        panel.directoryURL = URL(
+            fileURLWithPath: projectSourceFoldersDraft.first ?? model.workspacePath
+        )
+        guard panel.runModal() == .OK else { return }
+        projectSourceFoldersDraft = CodexProjectSummary.normalizedSourceFolders(
+            projectSourceFoldersDraft + panel.urls.map(\.path)
+        )
     }
 
     private func handleCommandPaletteAction(_ action: CodexCommandPaletteAction) {
@@ -482,5 +552,155 @@ private struct RenameChatSheet: View {
         .frame(width: 360)
         .background(theme.colors.surface)
         .onAppear { isFocused = true }
+    }
+}
+
+private struct EditProjectSheet: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    @Binding var name: String
+    @Binding var sourceFolders: [String]
+    let onAddFolders: () -> Void
+    let onRemoveProject: () -> Void
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Edit project")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .medium))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+
+            HStack(spacing: 0) {
+                Image(systemName: "folder")
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .frame(width: 44)
+                Divider()
+                TextField("Project name", text: $name)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 17))
+                    .padding(.horizontal, 14)
+            }
+            .frame(height: 48)
+            .background(
+                theme.colors.surfaceElevated.opacity(0.55),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(theme.colors.border, lineWidth: 1)
+            )
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(sourceFolders.count == 1 ? "Source folder" : "Source folders")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(sourceFolders.enumerated()), id: \.element) { index, path in
+                        sourceFolderRow(path: path, index: index)
+                        if index < sourceFolders.count - 1 {
+                            Divider()
+                        }
+                    }
+                    if !sourceFolders.isEmpty {
+                        Divider()
+                    }
+                    Button(action: onAddFolders) {
+                        Label("Add folder", systemImage: "folder.badge.plus")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .frame(height: 50)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .background(
+                    theme.colors.surfaceElevated.opacity(0.30),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(theme.colors.border.opacity(0.8), lineWidth: 1)
+                )
+            }
+
+            Text("Codex runs in the Primary folder. Every source folder is available to the task.")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+
+            HStack {
+                Button("Remove project", role: .destructive, action: onRemoveProject)
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.plain)
+                Button("Save", action: onSave)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(
+                        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || sourceFolders.isEmpty
+                    )
+            }
+        }
+        .padding(24)
+        .frame(width: 560)
+        .background(theme.colors.surface)
+    }
+
+    private func sourceFolderRow(path: String, index: Int) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "folder")
+                .foregroundStyle(theme.colors.textSecondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(URL(fileURLWithPath: path).lastPathComponent)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineLimit(1)
+                Text(CodexPathFormatter.abbreviatingHome(path))
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if index == 0 {
+                Text("Primary")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(theme.colors.surfaceSunken, in: Capsule())
+            } else {
+                Button("Make primary") {
+                    sourceFolders.remove(at: index)
+                    sourceFolders.insert(path, at: 0)
+                }
+                .buttonStyle(.plain)
+                .font(theme.fonts.caption.weight(.semibold))
+            }
+            Button {
+                sourceFolders.remove(at: index)
+            } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .disabled(sourceFolders.count == 1)
+            .accessibilityLabel("Remove \(URL(fileURLWithPath: path).lastPathComponent)")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 62)
     }
 }

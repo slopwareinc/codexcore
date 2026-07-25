@@ -12,6 +12,25 @@ Expected. `~/.codexcore` is isolated from `~/.codex`. Authenticate within the re
 
 Inspect the server-request inbox. The app-server may be waiting for command approval, file approval, permissions, user input, MCP elicitation, or a dynamic-tool result. A host that returns `.pending` must later resolve the exact request key.
 
+## Voice starts but no audio plays
+
+The reference app writes detailed Voice diagnostics to
+`~/Library/Logs/CodexCore/voice.jsonl`. The log includes session lifecycle, complete
+SDP offers and answers, WebRTC state, remote-track and audio-element events,
+inbound RTP statistics, protocol errors, and the complete transcript text.
+If macOS denies direct Library log creation, the app falls back to
+`$TMPDIR/CodexCore/voice.jsonl`; `session.start.requested` records the resolved
+`logFile` path in unified logging.
+
+```bash
+tail -f ~/Library/Logs/CodexCore/voice.jsonl
+```
+
+The same records are available through unified logging under subsystem
+`com.slopware.codexcore` and category `voice`. Voice logs rotate at 25 MiB to
+`voice.jsonl.previous`. Because transcript and SDP fields are intentionally
+unredacted, review the file before sharing it.
+
 ## Paginated thread operations fail
 
 In Codex `0.145.0`, paginated threads still do not support rollback, fork, or `thread/read(includeTurns: true)`. These limitations come from the upstream protocol or raw request surface; CodexCore rejects known-unsafe facade operations where it can. Existing threads retain their server-declared history mode.

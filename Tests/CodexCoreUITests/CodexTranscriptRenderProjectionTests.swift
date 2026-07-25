@@ -49,6 +49,32 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func realtimeVoiceTurnUsesNormalMessagesWithoutWorkChromeOrTimestamps() async throws {
+        let turn = CodexTurnV2(
+            id: "voice",
+            userMessage: .init(id: "voice-user", text: "Can you check that?"),
+            finalAnswer: .init(id: "voice-assistant", text: "Checking that.", isStreaming: false),
+            liveTail: "Thinking",
+            status: .working(since: nil),
+            presentationStyle: .realtimeVoice
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let items = snapshot.itemsByID.values
+
+        #expect(items.contains { $0.textRole == .user })
+        #expect(items.contains { $0.textRole == .finalAnswer })
+        #expect(items.contains {
+            $0.textRole == .liveTail
+                && $0.preparedText?.attributedString.string == "Thinking"
+        })
+        #expect(!items.contains { $0.textRole == .timestamp })
+        #expect(!items.contains { $0.workHeader != nil })
+    }
+
     @Test func attachmentUserBubbleKeepsFilesSeparateAndEditsWithRawContext() async throws {
         let file = CodexReferencedFile(path: "/tmp/reference.swift", kind: .file)
         let rawText = CodexFileReferencePromptCodec.encode(files: [file], request: "Review this")

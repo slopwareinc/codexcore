@@ -22,6 +22,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let emptyState: EmptyState
     private let contentHorizontalOffset: CGFloat
     private let bottomContentInset: CGFloat
+    private let supplementalTurns: [CodexTurnV2]
+    private let supplementalPresentedAtByTurnID: [String: Date]
     private let onOpenSubagent: (String) -> Void
     private let onEditUserMessage: (String) -> Void
     private let onForkChat: (() -> Void)?
@@ -37,6 +39,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
+        supplementalTurns: [CodexTurnV2] = [],
+        supplementalPresentedAtByTurnID: [String: Date] = [:],
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
@@ -50,6 +54,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.presentationStore = presentationStore
         self.productToolRenderer = productToolRenderer
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.supplementalTurns = supplementalTurns
+        self.supplementalPresentedAtByTurnID = supplementalPresentedAtByTurnID
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
@@ -68,6 +74,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         productToolRenderer: CodexProductToolRendererV2? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
+        supplementalTurns: [CodexTurnV2] = [],
+        supplementalPresentedAtByTurnID: [String: Date] = [:],
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
@@ -81,6 +89,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.presentationStore = nil
         self.productToolRenderer = productToolRenderer
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.supplementalTurns = supplementalTurns
+        self.supplementalPresentedAtByTurnID = supplementalPresentedAtByTurnID
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
@@ -98,7 +108,12 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         return ZStack {
             CodexTranscriptListHost(
                 presentation: presentation,
-                renderUpdate: presentationStore?.activeRenderUpdate,
+                // Supplemental realtime turns are UI-owned and therefore do
+                // not advance the canonical render-update revision. Force a
+                // projection for each Voice presentation change.
+                renderUpdate: supplementalTurns.isEmpty
+                    ? presentationStore?.activeRenderUpdate
+                    : nil,
                 presentationStore: presentationStore,
                 bottomContentInset: bottomContentInset,
                 contentHorizontalOffset: contentHorizontalOffset,
@@ -153,14 +168,26 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 $0.threadId == presentation.threadID
             }
             presentation.agentDisplayNameByThreadID = agentDisplayNameByThreadID
+            appendSupplementalTurns(to: &presentation)
             return presentation
         }
-        return CodexThreadUIPresentation(
+        var presentation = CodexThreadUIPresentation(
             threadID: threadID,
             transcript: transcript,
             agentDisplayNameByThreadID: agentDisplayNameByThreadID,
             presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) }),
             pendingApprovals: pendingApprovals
+        )
+        appendSupplementalTurns(to: &presentation)
+        return presentation
+    }
+
+    private func appendSupplementalTurns(to presentation: inout CodexThreadUIPresentation) {
+        CodexSupplementalTranscriptTimeline.merge(
+            supplementalTurns,
+            presentedAtByTurnID: supplementalPresentedAtByTurnID,
+            fallbackPresentedAt: fallbackPresentedAt,
+            into: &presentation
         )
     }
 }

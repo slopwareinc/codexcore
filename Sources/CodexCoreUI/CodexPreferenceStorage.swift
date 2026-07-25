@@ -288,6 +288,72 @@ public enum CodexProjectAliasStorage {
     }
 }
 
+/// Ordered source folders for local projects. The dictionary key is the
+/// project's primary folder and the first value is always the primary folder.
+/// Projects without an entry retain the legacy single-folder behavior.
+public enum CodexProjectSourceFoldersStorage {
+    private static let storageKey = "CodexCoreApp.projectSourceFolders.v1"
+
+    public static func load(
+        from store: any CodexStringListPreferenceStore
+    ) -> [String: [String]] {
+        guard let value = store.loadStrings(forKey: storageKey).first,
+              let data = value.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: [String]].self, from: data)
+        else { return [:] }
+        return normalized(decoded)
+    }
+
+    public static func save(
+        _ projects: [String: [String]],
+        to store: any CodexStringListPreferenceStore
+    ) {
+        guard let data = try? JSONEncoder().encode(normalized(projects)),
+              let value = String(data: data, encoding: .utf8)
+        else { return }
+        store.saveStrings([value], forKey: storageKey)
+    }
+
+    public static func updating(
+        _ projects: [String: [String]],
+        oldPrimary: String,
+        sourceFolders: [String]
+    ) -> [String: [String]] {
+        var result = projects
+        result.removeValue(forKey: CodexProjectSummary.normalizedPath(oldPrimary))
+        let roots = CodexProjectSummary.normalizedSourceFolders(sourceFolders)
+        guard let newPrimary = roots.first else { return result }
+        result[newPrimary] = roots
+        return normalized(result)
+    }
+
+    private static func normalized(_ projects: [String: [String]]) -> [String: [String]] {
+        var result: [String: [String]] = [:]
+        for (key, value) in projects {
+            let primary = CodexProjectSummary.normalizedPath(key)
+            let roots = CodexProjectSummary.normalizedSourceFolders(value, primary: primary)
+            guard !roots.isEmpty else { continue }
+            result[primary] = roots
+        }
+        return result
+    }
+}
+
+public enum CodexProjectlessThreadStorage {
+    public static let key = "CodexCoreApp.projectlessThreadIDs.v1"
+
+    public static func load(from store: any CodexStringListPreferenceStore) -> Set<String> {
+        Set(store.loadStrings(forKey: key).filter { !$0.isEmpty })
+    }
+
+    public static func save(
+        _ threadIDs: Set<String>,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(threadIDs.sorted(), forKey: key)
+    }
+}
+
 public enum CodexModelPreferenceStorage {
     private static let lastModelKey = "CodexCoreApp.lastManualModel.v1"
     private static let threadModelsKey = "CodexCoreApp.threadModels.v1"

@@ -6,6 +6,11 @@ public struct CodexTranscriptV2: Sendable, Equatable {
     public init(turns: [CodexTurnV2] = []) { self.turns = turns }
 }
 
+public enum CodexTurnPresentationStyleV2: Sendable, Equatable {
+    case standard
+    case realtimeVoice
+}
+
 public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var userMessage: CodexUserMessageV2?
@@ -19,8 +24,9 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var finalAnswer: CodexAssistantTextV2?
     public var liveTail: String?
     public var status: CodexTurnStatusV2
+    public var presentationStyle: CodexTurnPresentationStyleV2
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2) {
+    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
         self.id = id; self.userMessage = userMessage; self.steeredMessages = steeredMessages; self.narrative = narrative
         self.conversationSegments = conversationSegments ?? [
             CodexTurnConversationSegmentV2(id: "\(id):initial", narrative: narrative)
@@ -31,6 +37,7 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
             )
         }
         self.finalAnswer = finalAnswer; self.liveTail = liveTail; self.status = status
+        self.presentationStyle = presentationStyle
     }
 }
 

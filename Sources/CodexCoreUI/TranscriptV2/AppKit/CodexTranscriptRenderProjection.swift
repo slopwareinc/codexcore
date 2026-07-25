@@ -420,13 +420,16 @@ actor CodexTranscriptRenderProjector {
                     contentWidth: contentWidth,
                     presentedAt: presentedAt,
                     turnIsStreaming: turnIsStreaming,
+                    hidesTimestamp: turn.presentationStyle == .realtimeVoice,
                     theme: theme,
                     cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses
                 ) { append(draft) }
             }
 
-            let showsWork = Self.shouldRenderWork(turn)
+            let showsWork = turn.presentationStyle == .realtimeVoice
+                ? false
+                : Self.shouldRenderWork(turn)
             let tailMode = Self.isWorkTailMode(turn)
             let workExpanded = Self.workIsExpanded(turn, presentation: presentation)
             if showsWork {
@@ -466,6 +469,7 @@ actor CodexTranscriptRenderProjector {
                             contentWidth: contentWidth,
                             presentedAt: presentedAt,
                             turnIsStreaming: turnIsStreaming,
+                            hidesTimestamp: turn.presentationStyle == .realtimeVoice,
                             theme: theme,
                             cacheHits: &preparedTextCacheHits,
                             cacheMisses: &preparedTextCacheMisses
@@ -646,6 +650,7 @@ actor CodexTranscriptRenderProjector {
                         contentWidth: contentWidth,
                         presentedAt: presentedAt,
                         turnIsStreaming: turnIsStreaming,
+                        hidesTimestamp: turn.presentationStyle == .realtimeVoice,
                         theme: theme,
                         cacheHits: &preparedTextCacheHits,
                         cacheMisses: &preparedTextCacheMisses
@@ -660,13 +665,34 @@ actor CodexTranscriptRenderProjector {
                     role: .finalAnswer, theme: theme, cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                 ) { append(draft) }
-                append(timestampDraft(
-                    id: "\(sectionID):final-timestamp",
-                    date: presentedAt,
-                    trailing: false,
-                    kind: .finalAnswer,
-                    isTurnStreaming: turnIsStreaming,
-                    copyText: answer.text
+                if turn.presentationStyle != .realtimeVoice {
+                    append(timestampDraft(
+                        id: "\(sectionID):final-timestamp",
+                        date: presentedAt,
+                        trailing: false,
+                        kind: .finalAnswer,
+                        isTurnStreaming: turnIsStreaming,
+                        copyText: answer.text
+                    ))
+                }
+            }
+            if turn.presentationStyle == .realtimeVoice,
+               case .working = turn.status,
+               let tail = turn.liveTail?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !tail.isEmpty {
+                append(ItemDraft(
+                    id: "\(sectionID):voice-live-tail",
+                    fingerprint: "voice-tail:\(tail)",
+                    textRole: .liveTail,
+                    preparedText: Self.preparePlain(
+                        tail,
+                        font: theme.captionFont,
+                        color: theme.textTertiary,
+                        theme: theme
+                    ),
+                    accessibilityLabel: tail,
+                    maxWidthKind: .card,
+                    fixedHeight: 28
                 ))
             }
             itemIDsBySection[sectionID] = sectionItems
@@ -1152,6 +1178,7 @@ private extension CodexTranscriptRenderProjector {
         contentWidth: CGFloat,
         presentedAt: Date,
         turnIsStreaming: Bool,
+        hidesTimestamp: Bool = false,
         theme: CodexTranscriptAppKitTheme,
         cacheHits: inout Int,
         cacheMisses: inout Int
@@ -1233,14 +1260,16 @@ private extension CodexTranscriptRenderProjector {
             maxWidthKind: .user,
             intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
         ))
-        drafts.append(timestampDraft(
-            id: "\(sectionID):user-timestamp:\(user.id)",
-            date: presentedAt,
-            trailing: true,
-            kind: .user,
-            isTurnStreaming: turnIsStreaming,
-            copyText: user.text.isEmpty ? user.displayText : user.text
-        ))
+        if !hidesTimestamp {
+            drafts.append(timestampDraft(
+                id: "\(sectionID):user-timestamp:\(user.id)",
+                date: presentedAt,
+                trailing: true,
+                kind: .user,
+                isTurnStreaming: turnIsStreaming,
+                copyText: user.text.isEmpty ? user.displayText : user.text
+            ))
+        }
         return drafts
     }
 
