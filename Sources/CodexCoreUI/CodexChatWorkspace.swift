@@ -92,6 +92,7 @@ public struct CodexChatWorkspaceView: View {
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
+    private let onStartVoiceChat: (() -> Void)?
     private let onSteerQueuedFollowUp: (String) -> Void
     private let onRemoveQueuedFollowUp: (String) -> Void
     private let onEditQueuedFollowUp: (String) -> Void
@@ -110,6 +111,7 @@ public struct CodexChatWorkspaceView: View {
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
     private let approvalPrompts: [CodexApprovalPrompt]
     private let onResolveApproval: (CodexServerRequestKey, Bool) -> Void
+    private let showsComposer: Bool
     @ObservedObject private var panel: CodexWorkspacePanelState
     private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
@@ -163,6 +165,7 @@ public struct CodexChatWorkspaceView: View {
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
+        onStartVoiceChat: (() -> Void)? = nil,
         onSteerQueuedFollowUp: @escaping (String) -> Void = { _ in },
         onRemoveQueuedFollowUp: @escaping (String) -> Void = { _ in },
         onEditQueuedFollowUp: @escaping (String) -> Void = { _ in },
@@ -180,7 +183,8 @@ public struct CodexChatWorkspaceView: View {
         onPromptSelected: ((String) -> Void)? = nil,
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
         approvalPrompts: [CodexApprovalPrompt] = [],
-        onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in }
+        onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
+        showsComposer: Bool = true
     ) {
         self.presentationStore = presentationStore
         self.lifecycleEvents = lifecycleEvents
@@ -227,6 +231,7 @@ public struct CodexChatWorkspaceView: View {
         self.onMentionSelected = onMentionSelected
         self.onSend = onSend
         self.onInterrupt = onInterrupt
+        self.onStartVoiceChat = onStartVoiceChat
         self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
         self.onRemoveQueuedFollowUp = onRemoveQueuedFollowUp
         self.onEditQueuedFollowUp = onEditQueuedFollowUp
@@ -245,6 +250,7 @@ public struct CodexChatWorkspaceView: View {
         self.onSlashCommandSelected = onSlashCommandSelected
         self.approvalPrompts = approvalPrompts
         self.onResolveApproval = onResolveApproval
+        self.showsComposer = showsComposer
     }
 
     public var body: some View {
@@ -388,7 +394,8 @@ public struct CodexChatWorkspaceView: View {
                 )
 
                 Spacer(minLength: 0)
-                VStack(spacing: 0) {
+                if showsComposer {
+                    VStack(spacing: 0) {
                     if let rateLimitBannerMessage {
                         CodexRateLimitBanner(message: rateLimitBannerMessage)
                             .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
@@ -433,6 +440,7 @@ public struct CodexChatWorkspaceView: View {
                         onMentionSelected: onMentionSelected,
                         onSend: onSend,
                         onInterrupt: onInterrupt,
+                        onStartVoiceChat: onStartVoiceChat,
                         onSlashCommandSelected: onSlashCommandSelected,
                         onOpenMCPDetails: onOpenMCPDetails,
                         onRefreshMCPServers: onRefreshMCPServers,
@@ -447,10 +455,14 @@ public struct CodexChatWorkspaceView: View {
                     .transaction { transaction in
                         transaction.animation = nil
                     }
-                }
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(key: CodexComposerOverlayHeightKey.self, value: proxy.size.height)
+                    }
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: CodexComposerOverlayHeightKey.self,
+                                value: proxy.size.height
+                            )
+                        }
                     }
                 }
             }

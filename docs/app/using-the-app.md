@@ -13,7 +13,20 @@ The reference app is a native Codex host and living integration example. The [su
 
 ## Projects and chats
 
-The sidebar groups chats by workspace. Chats can be pinned, archived, renamed, forked, copied, searched, and resumed. Projects can be selected, grouped, pinned, reordered, aliased, removed, revealed in Finder, or used to archive their chats. Chat reorder/hide/reveal actions are not supported.
+The sidebar groups chats by project. Chats can be pinned, archived, renamed, forked, copied, searched, and resumed. Projects can be selected, grouped, pinned, reordered, edited, removed, revealed in Finder, or used to archive their chats. Chat reorder/hide/reveal actions are not supported.
+
+A separate **Chats** section contains projectless tasks. **New chat** creates a
+projectless task in a generated `Documents/Codex/Chats` workspace; use a
+project's new-chat action when the task should inherit that project's folders.
+Projectless identity is persisted separately from `cwd`, so generated workspaces
+do not appear as projects.
+
+A project may contain multiple ordered source folders. The first folder is
+**Primary**: Codex uses it as `cwd` and looks there for project instructions.
+Every source folder is sent as a runtime workspace root and is available to the
+task. Choose **Edit project** from the project menu to add or remove folders or
+make another folder Primary. Existing single-folder projects migrate without
+configuration.
 
 ## Composer
 
@@ -31,6 +44,24 @@ While a turn is running, each send adds another follow-up card above the compose
 Steer actions are serialized. If the active turn ends at the same moment you choose **Steer**, the app starts the message as the next turn immediately; it does not leave the message stuck waiting for another completion event.
 
 Start with the least privilege that can complete the task. Review commands, requested permissions, and proposed file changes before approval; inspect resulting files afterward.
+
+## Voice chat
+
+When the composer is empty, choose the waveform button in the send-button
+position to start Voice. The microphone beside it remains the separate dictation
+control. From a projectless Home draft, Voice creates a top-level projectless
+task; inside an existing task, it starts Voice on that same task.
+The task uses app-server's thread-scoped realtime V3 session, streams microphone
+audio and model audio, and shows a live transcript with an animated orb instead
+of the text composer. The active controls independently mute the microphone or
+speaker and end the call. Only one Voice task can be active at a time.
+
+Voice remains active when you inspect another task; use the floating Voice
+control to return or end the call. Because Voice is an ordinary Codex thread
+with startup context, it can use tools and create subagents. Desktop tasks also
+receive the `codex_app` orchestration tools used by the official app: they can
+list projects and tasks, create a new top-level project or projectless task,
+read a task, or send it a follow-up without moving the visible selection.
 
 ## Transcript
 

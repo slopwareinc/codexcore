@@ -41,6 +41,40 @@ let terminal = try await turn.awaitTerminal(timeout: .seconds(600))
 
 Lease methods validate composite identities. A turn ID cannot be accidentally used with another thread.
 
+## Observe realtime Voice events
+
+Realtime transcript and audio notifications are ephemeral and intentionally do
+not become canonical `ThreadItem`s. Register the thread-scoped stream before
+starting realtime so the startup notification cannot race the observer:
+
+```swift
+let events = try await codex.session.observeRealtimeEvents(
+    threadID: thread.id.rawValue
+)
+
+try await codex.threadRealtimeStart(.init(
+    includeStartupContext: true,
+    outputModality: .audio,
+    threadID: thread.id.rawValue,
+    version: .v3
+))
+
+for try await event in events {
+    switch event {
+    case .transcriptDone(let value):
+        print(value.role, value.text)
+    case .outputAudio(let value):
+        playPCM16(value.audio)
+    default:
+        break
+    }
+}
+```
+
+Input and output chunks are base64-encoded PCM16 with explicit sample rate and
+channel metadata. The stream ends when its connection is sealed or its consumer
+is cancelled.
+
 Interactive clients should serialize steer submissions. Send one `turn/steer` with the cached active turn ID and no read or polling call. If `classifyCodexTurnSteerRace(_:)` returns `.expectedTurnMismatch`, retry `steerTurn(...)` once with the server-reported ID. If it returns `.noActiveTurn`, immediately send the same input with `turn/start`. Other failures remain ordinary failures. Keep local queue draining blocked until that sequence resolves.
 
 CodexCore registers the submission intent before writing either request. The echoed user item can therefore reconcile by `clientUserMessageId` even if its notification arrives before the RPC response. A successful steer stays inside the existing turn and does not produce another `turn/started` event.

@@ -20,6 +20,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.7.0` wi
 | Canonical state, snapshots, scoped observations | Supported | Observation signals are coalesced invalidations; consumers reread state. |
 | Approvals, user input, MCP elicitation, dynamic-tool requests | Supported | The host must provide policy/UI or resolve pending inbox requests. |
 | Dynamic-tool declaration | Conditional | Public thread-start seam currently accepts a raw generated schema wrapper, not the handwritten typed helper. |
+| Realtime Voice requests and event stream | Supported | `CodexRealtimeEvent` routes ephemeral thread-scoped transcript, PCM audio, lifecycle, and SDP notifications. |
 | Product-specific transcript cards | Conditional | Custom renderer supports dynamic-tool calls in `CodexTranscriptViewV2`; MCP uses generic rendering. |
 | `CodexChatWorkspaceView` defaults | Conditional | Several bindings/actions are constants or no-ops until the host wires them. |
 
@@ -28,13 +29,14 @@ This is the authoritative user-facing capability matrix for CodexCore `0.7.0` wi
 | Capability | Status | Notes |
 | --- | --- | --- |
 | ChatGPT/API-key authentication and isolated home | Supported | Uses `~/.codexcore` by default. |
-| Workspace selection; new/resume/search chat | Supported | Starting in a project scopes the working directory. |
+| Projectless chats; multi-folder projects; new/resume/search chat | Supported | Projectless tasks live in a separate Chats section and generated Documents/Codex workspaces. For projects, Primary is `cwd` and all ordered source folders are runtime workspace roots. |
 | Chat pin, archive, rename, fork, copy | Supported | Chat reorder/hide/reveal is not supported. |
 | Project group, pin, reorder, alias, remove, reveal | Supported | Projects can also archive their chats. |
 | Model, reasoning, approval, Plan and Goal controls | Supported | Availability still depends on server/model capabilities. |
 | Attachments, mentions, slash commands, queued follow-ups, steer, interrupt | Supported | Active-turn follow-ups form a multi-message FIFO queue with explicit steer, edit, and remove actions; one queued message starts after each completed turn. Steering appends a distinct in-turn user bubble and preserves the original prompt. |
 | Approval and input prompts | Supported | Decisions happen before the requested operation. |
 | Transcript, plans, goals, subagents, side chat | Supported | Presentation follows canonical session state. |
+| Global realtime Voice task | Supported | One active top-level V3 Voice task with microphone capture, audio playback, live transcript, orb UI, background mini-control, and list/read/message access to other tasks. |
 | Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. |
 | Workspace terminal | Supported | Interactive Ghostty terminal in the workspace side panel. |
 | Embedded browser | Supported (manual) | WKWebView navigation only; not agent browser-tool integration. |

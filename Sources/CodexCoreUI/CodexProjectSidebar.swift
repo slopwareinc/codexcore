@@ -89,6 +89,7 @@ public struct CodexProjectSidebar: View {
                 VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 22) {
                     routeRows
                     pinnedSection
+                    projectlessSection
                     projectListSection
                     olderProjectsSection
                 }
@@ -117,6 +118,24 @@ public struct CodexProjectSidebar: View {
                 .frame(width: 1)
         }
         .overlay(alignment: .trailing) { resizeHandle }
+    }
+
+    @ViewBuilder
+    private var projectlessSection: some View {
+        if !snapshot.projectlessRows.isEmpty && !snapshot.isCollapsed {
+            VStack(alignment: .leading, spacing: 4) {
+                SidebarSectionHeader(title: "Chats")
+                ForEach(snapshot.projectlessRows) { row in
+                    SidebarChatRow(
+                        row: row,
+                        indentation: 0,
+                        onSelect: { onSelectChat(row.summary) },
+                        onTogglePin: { onTogglePinChat(row.summary) },
+                        onArchive: { onArchiveChat(row.summary) }
+                    )
+                }
+            }
+        }
     }
 
     private var resolvedWidth: CGFloat {

@@ -142,6 +142,49 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertEqual(hub.publish(connectionEpoch: 2, notification: change), 1)
         XCTAssertTrue(hub.cancel(second.id))
     }
+
+    func testRealtimeHubRoutesOnlyTheMatchingEpochAndThread() async throws {
+        var hub = CodexRealtimeObserverHub()
+        let observation = hub.observe(connectionEpoch: 4, threadID: "voice")
+        let event = CodexRealtimeEvent.transcriptDone(.init(
+            role: "assistant",
+            text: "Ready",
+            threadID: "voice"
+        ))
+
+        XCTAssertEqual(hub.publish(connectionEpoch: 3, event: event), 0)
+        XCTAssertEqual(
+            hub.publish(
+                connectionEpoch: 4,
+                event: .transcriptDone(.init(
+                    role: "assistant",
+                    text: "Wrong task",
+                    threadID: "other"
+                ))
+            ),
+            0
+        )
+        XCTAssertEqual(hub.publish(connectionEpoch: 4, event: event), 1)
+
+        var iterator = observation.events.makeAsyncIterator()
+        let received = try await iterator.next()
+        XCTAssertEqual(received, event)
+        XCTAssertTrue(hub.cancel(observation.id))
+    }
+
+    func testRealtimeHubDisconnectFailsTheStream() async throws {
+        var hub = CodexRealtimeObserverHub()
+        let observation = hub.observe(connectionEpoch: 9, threadID: "voice")
+        XCTAssertEqual(hub.disconnect(connectionEpoch: 9), 1)
+
+        var iterator = observation.events.makeAsyncIterator()
+        do {
+            _ = try await iterator.next()
+            XCTFail("Disconnected realtime stream should fail")
+        } catch let error as CodexRealtimeObserverError {
+            XCTAssertEqual(error, .disconnected(connectionEpoch: 9))
+        }
+    }
 }
 
 private extension SessionOperationPrimitivesTests {

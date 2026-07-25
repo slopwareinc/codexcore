@@ -572,6 +572,7 @@ public actor CodexSession:
     private var diagnostics = CodexProtocolDiagnosticRing()
     private var commandOutputs = CodexCommandOutputRouter()
     private var skillsChanges = CodexSkillsChangeObserverHub()
+    private var realtimeEvents = CodexRealtimeObserverHub()
 
     public private(set) var lifecycle: CodexSessionLifecycle = .stopped {
         didSet {
@@ -882,6 +883,30 @@ public actor CodexSession:
 
     func cancelSkillsChangeObservation(_ id: CodexSkillsChangeObservationID) {
         _ = skillsChanges.cancel(id)
+    }
+
+    /// Observes the ephemeral realtime media and transcript events for one
+    /// thread. Register before `thread/realtime/start` so startup cannot race
+    /// the observer.
+    public func observeRealtimeEvents(
+        threadID: String
+    ) throws -> AsyncThrowingStream<CodexRealtimeEvent, Error> {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let observation = realtimeEvents.observe(
+            connectionEpoch: epoch,
+            threadID: threadID,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelRealtimeObservation(id) }
+            }
+        )
+        return observation.events
+    }
+
+    func cancelRealtimeObservation(_ id: CodexRealtimeObservationID) {
+        _ = realtimeEvents.cancel(id)
     }
 
     func registerCommandOutput(
@@ -1687,6 +1712,7 @@ private extension CodexSession {
         scheduleHistoryEffects(history.connectionLost(epoch))
         _ = commandOutputs.disconnect(connectionEpoch: epoch)
         _ = skillsChanges.disconnect(connectionEpoch: epoch)
+        _ = realtimeEvents.disconnect(connectionEpoch: epoch)
         sealLoginAttempts(connectionEpoch: epoch, error: error)
         for threadID in Array(historyWaiters.keys) {
             failHistoryWaiters(
@@ -2187,6 +2213,63 @@ private extension CodexSession {
                     _ = skillsChanges.publish(
                         connectionEpoch: cursor.connectionEpoch,
                         notification: change
+                    )
+
+                case .threadRealtimeStarted:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .started(try notification.params.decode(
+                            CodexSchemaThreadRealtimeStartedNotification.self
+                        ))
+                    )
+                case .threadRealtimeItemAdded:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .itemAdded(try notification.params.decode(
+                            CodexSchemaThreadRealtimeItemAddedNotification.self
+                        ))
+                    )
+                case .threadRealtimeTranscriptDelta:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .transcriptDelta(try notification.params.decode(
+                            CodexSchemaThreadRealtimeTranscriptDeltaNotification.self
+                        ))
+                    )
+                case .threadRealtimeTranscriptDone:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .transcriptDone(try notification.params.decode(
+                            CodexSchemaThreadRealtimeTranscriptDoneNotification.self
+                        ))
+                    )
+                case .threadRealtimeOutputAudioDelta:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .outputAudio(try notification.params.decode(
+                            CodexSchemaThreadRealtimeOutputAudioDeltaNotification.self
+                        ))
+                    )
+                case .threadRealtimeSdp:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .sdp(try notification.params.decode(
+                            CodexSchemaThreadRealtimeSdpNotification.self
+                        ))
+                    )
+                case .threadRealtimeError:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .error(try notification.params.decode(
+                            CodexSchemaThreadRealtimeErrorNotification.self
+                        ))
+                    )
+                case .threadRealtimeClosed:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .closed(try notification.params.decode(
+                            CodexSchemaThreadRealtimeClosedNotification.self
+                        ))
                     )
 
                 case .accountLoginCompleted:

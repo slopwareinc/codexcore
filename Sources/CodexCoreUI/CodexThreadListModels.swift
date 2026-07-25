@@ -153,6 +153,7 @@ public struct CodexThreadSearchResult: Identifiable, Equatable, Sendable {
 
 public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
     public var workspacePath: String
+    public var sourceFolders: [String]
     public var chatCount: Int
     public var updatedAt: TimeInterval?
     public var customDisplayName: String?
@@ -161,11 +162,17 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
 
     public init(
         workspacePath: String,
+        sourceFolders: [String] = [],
         chatCount: Int = 0,
         updatedAt: TimeInterval? = nil,
         customDisplayName: String? = nil
     ) {
-        self.workspacePath = Self.normalizedPath(workspacePath)
+        let primary = Self.normalizedPath(workspacePath)
+        self.workspacePath = primary
+        self.sourceFolders = Self.normalizedSourceFolders(
+            sourceFolders.isEmpty ? [primary] : sourceFolders,
+            primary: primary
+        )
         self.chatCount = chatCount
         self.updatedAt = updatedAt
         self.customDisplayName = customDisplayName?.nilIfBlank
@@ -184,6 +191,14 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
 
     public var shortPath: String {
         CodexPathFormatter.abbreviatingHome(workspacePath)
+    }
+
+    public var additionalSourceFolderCount: Int {
+        max(0, sourceFolders.count - 1)
+    }
+
+    public func contains(workspacePath path: String) -> Bool {
+        sourceFolders.contains(Self.normalizedPath(path))
     }
 
     public static func projects(
@@ -222,5 +237,25 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
     public static func normalizedPath(_ path: String) -> String {
         let expanded = (path as NSString).expandingTildeInPath
         return URL(fileURLWithPath: expanded).standardizedFileURL.path
+    }
+
+    public static func normalizedSourceFolders(
+        _ paths: [String],
+        primary: String? = nil
+    ) -> [String] {
+        var seen: Set<String> = []
+        var result = paths.compactMap { path -> String? in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let normalized = normalizedPath(trimmed)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
+        if let primary {
+            let normalizedPrimary = normalizedPath(primary)
+            result.removeAll { $0 == normalizedPrimary }
+            result.insert(normalizedPrimary, at: 0)
+        }
+        return result
     }
 }

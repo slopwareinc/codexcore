@@ -60,7 +60,40 @@ extension CodexCoreAppModel {
     }
 
     var recentProjects: [CodexProjectSummary] {
-        threadListSession.recentProjects
+        let projectChats = allSidebarChats.filter { !projectlessThreadIDs.contains($0.id) }
+        let inferred = CodexProjectSummary.projects(
+            from: projectChats,
+            currentWorkspacePath: workspacePath
+        )
+        guard !projectSourceFoldersByPrimaryPath.isEmpty else { return inferred }
+
+        let claimedRoots = Set(projectSourceFoldersByPrimaryPath.values.flatMap { $0 })
+        var projects = inferred.filter { !claimedRoots.contains($0.workspacePath) }
+
+        for (primary, roots) in projectSourceFoldersByPrimaryPath {
+            let members = inferred.filter { roots.contains($0.workspacePath) }
+            let chatCount = members.reduce(0) { $0 + $1.chatCount }
+            let updatedAt = members.compactMap(\.updatedAt).max()
+            projects.append(CodexProjectSummary(
+                workspacePath: primary,
+                sourceFolders: roots,
+                chatCount: chatCount,
+                updatedAt: updatedAt
+            ))
+        }
+        return projects.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+    }
+
+    var workspaceRoots: [String] {
+        projectSourceFoldersByPrimaryPath[
+            CodexProjectSummary.normalizedPath(workspacePath)
+        ] ?? [CodexProjectSummary.normalizedPath(workspacePath)]
+    }
+
+    var protocolWorkspaceRoots: [CodexSchemaAbsolutePathBuf] {
+        workspaceRoots.map { CodexSchemaAbsolutePathBuf(.string($0)) }
     }
 
     var sidebarSnapshot: CodexSidebarSnapshot {
@@ -70,6 +103,7 @@ extension CodexCoreAppModel {
             currentWorkspacePath: workspacePath,
             currentThreadID: currentThreadID,
             pinnedThreadIDs: pinnedThreadIDs,
+            projectlessThreadIDs: projectlessThreadIDs,
             threadStatusEntries: canonicalThreadStatusEntries
         )
     }

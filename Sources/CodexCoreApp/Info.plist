@@ -26,6 +26,8 @@
     <string>26.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>CodexCore uses the microphone for realtime Voice chats.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
