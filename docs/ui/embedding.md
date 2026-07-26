@@ -9,6 +9,12 @@
 - `CodexPresentationStore`: canonical presentation projection used by production transcript hosts.
 - focused route and tool views for plugins, automations, mobile, files, terminal, and browser surfaces. A visible route does not imply that its mutation workflow is wired.
 
+Long `CodexTranscriptViewV2` conversations automatically show a compact turn
+navigator at the leading edge. Its markers follow canonical turn geometry,
+rise with a tapered neighboring-marker mount on hover, show the user request
+and assistant result in a native Liquid Glass preview, and jump to the selected
+turn without requiring host integration.
+
 ## Workspace skeleton
 
 ```swift

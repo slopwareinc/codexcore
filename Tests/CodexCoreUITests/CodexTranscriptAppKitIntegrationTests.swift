@@ -7,6 +7,14 @@ import Testing
 
 @MainActor
 struct CodexTranscriptAppKitIntegrationTests {
+    @Test func transcriptScrollViewReservesWorkspaceHeaderClearance() {
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 700)
+        )
+
+        #expect(container.scrollView.contentInsets.top == 72)
+    }
+
     @Test func unconfiguredCollectionItemDoesNotBuildEverySpecializedControlTree() {
         let cell = CodexTranscriptCollectionItem()
 

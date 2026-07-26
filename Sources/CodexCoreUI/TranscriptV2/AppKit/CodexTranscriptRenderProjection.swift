@@ -20,7 +20,10 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let interactiveBottomSpacing: CGFloat = 8
     static let scrollableOutputMaxHeight: CGFloat = 220
     static let diffPanelHeight: CGFloat = 240
-    static let topContentInset: CGFloat = 0
+    // The workspace title bar floats over the transcript host. Reserve the same
+    // clearance used by the turn navigator so the first turn never scrolls
+    // underneath that chrome.
+    static let topContentInset: CGFloat = 72
 
     var viewportWidth: CGFloat
 
@@ -1858,6 +1861,20 @@ private extension CodexTranscriptRenderProjector {
         flushWork()
         if let answer = turn.finalAnswer?.text.codexAppKitNilIfEmpty { parts.append("Assistant\n" + answer) }
         return parts.joined(separator: "\n\n")
+    }
+}
+
+extension CodexTranscriptRenderProjector {
+    static func prepareMinimapPreviewMarkdown(
+        _ markdown: String,
+        theme: CodexTranscriptAppKitTheme
+    ) -> NSAttributedString {
+        prepareMarkdown(
+            markdown,
+            font: theme.captionFont,
+            color: theme.textSecondary,
+            theme: theme
+        ).attributedString
     }
 }
 

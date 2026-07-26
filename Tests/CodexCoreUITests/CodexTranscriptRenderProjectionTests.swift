@@ -17,7 +17,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexTranscriptColumnMetrics.actionCardHeight == 32)
         #expect(CodexTranscriptColumnMetrics.actionCardRadius == 10)
         #expect(CodexTranscriptColumnMetrics.interactiveBottomSpacing == 8)
-        #expect(CodexTranscriptColumnMetrics.topContentInset == 0)
+        #expect(CodexTranscriptColumnMetrics.topContentInset == 72)
 
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         #expect(theme.bubbleRadius == 16)
