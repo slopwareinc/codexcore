@@ -23,6 +23,6 @@ Protocol upgrades are exact-runtime migrations, not dependency-range bumps.
    swift test
    ```
 
-7. Release with a composite tag such as `v0.145.0+codexcore.0.8.0`.
+7. Release with a composite tag such as `v0.145.0+codexcore.0.9.0`.
 
 Generated output must be reproducible. A clean drift check is required before merge.
