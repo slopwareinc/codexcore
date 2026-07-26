@@ -1,0 +1,82 @@
+import SwiftUI
+
+struct CodexInlineActivityViewV2: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var shimmerPosition: CGFloat = -1
+
+    let activity: CodexInlineActivityV2
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if let systemImage = activity.systemImage, !systemImage.isEmpty {
+                Image(systemName: systemImage)
+                    .font(theme.fonts.caption)
+            }
+            Text(activity.label)
+                .lineLimit(2)
+        }
+        .font(theme.fonts.caption)
+        .foregroundStyle(foregroundStyle)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(activity.label)
+        .accessibilityValue(accessibilityStatus)
+        .task(id: isAnimating) {
+            guard isAnimating else {
+                shimmerPosition = 0
+                return
+            }
+            shimmerPosition = -1
+            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+                shimmerPosition = 2
+            }
+        }
+    }
+
+    private var isAnimating: Bool {
+        activity.status == .inProgress && !reduceMotion
+    }
+
+    private var foregroundStyle: LinearGradient {
+        let color = theme.colors.textTertiary
+        guard isAnimating else {
+            return LinearGradient(colors: [color, color], startPoint: .leading, endPoint: .trailing)
+        }
+        return LinearGradient(
+            colors: [color.opacity(0.52), color, color.opacity(0.52)],
+            startPoint: UnitPoint(x: shimmerPosition - 0.42, y: 0.5),
+            endPoint: UnitPoint(x: shimmerPosition + 0.42, y: 0.5)
+        )
+    }
+
+    private var accessibilityStatus: String {
+        switch activity.status {
+        case .inProgress: "In progress"
+        case .completed: "Completed"
+        case .failed: "Failed"
+        }
+    }
+}
+
+enum CodexProductToolPresentationV2 {
+    static func label(_ call: CodexProductToolCallV2) -> String {
+        let words = call.tool
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            .split(whereSeparator: { $0 == "_" || $0 == "-" })
+            .map(String.init)
+        guard let first = words.first else { return "Use tool" }
+        return ([first.prefix(1).uppercased() + first.dropFirst()] + words.dropFirst())
+            .joined(separator: " ")
+    }
+
+    static func systemImage(_ call: CodexProductToolCallV2) -> String {
+        let value = ([call.namespace, call.tool].compactMap { $0 })
+            .joined(separator: " ")
+            .lowercased()
+        if value.contains("github") { return "point.3.connected.trianglepath.dotted" }
+        if value.contains("search") || value.contains("research") { return "magnifyingglass" }
+        if value.contains("read") { return "book" }
+        if value.contains("issue") || value.contains("pull_request") { return "arrow.triangle.branch" }
+        return "wrench.and.screwdriver"
+    }
+}

@@ -7,7 +7,13 @@ import Foundation
 /// presentation and pass it back for incremental work, or omit it to rebuild the
 /// exact same presentation from canonical state.
 public struct CodexCanonicalTranscriptProjector: Sendable {
-    public init() {}
+    private let itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2?
+
+    public init(
+        itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil
+    ) {
+        self.itemPresentationPolicy = itemPresentationPolicy
+    }
 
     public func rebuild(
         snapshot: CanonicalStateSnapshot,
@@ -338,6 +344,29 @@ private extension CodexCanonicalTranscriptProjector {
 
         for item in items {
             let completed = item.authority == .completed || canonical?.status.isTerminal == true
+            if let itemPresentationPolicy {
+                let context = CodexTranscriptItemContextV2(
+                    threadID: item.key.threadID,
+                    turnID: item.key.turnID,
+                    itemID: item.key.itemID,
+                    kind: item.kind,
+                    payload: item.payload,
+                    status: workStatus(item, completed: completed)
+                )
+                switch itemPresentationPolicy.presentation(for: context) {
+                case .standard:
+                    break
+                case .hidden:
+                    continue
+                case .inlineActivity(let activity):
+                    appendInlineActivity(
+                        activity,
+                        segments: &conversationSegments,
+                        to: &turn
+                    )
+                    continue
+                }
+            }
             switch item.kind {
             case .userMessage:
                 guard let message = userMessage(item) else { continue }
@@ -590,6 +619,21 @@ private extension CodexCanonicalTranscriptProjector {
         upsertNarrative(.notice(.init(id: id.rawValue, message: message)), to: &turn)
     }
 
+    func appendInlineActivity(
+        _ activity: CodexInlineActivityV2,
+        segments: inout [CodexTurnConversationSegmentV2],
+        to turn: inout CodexTurnV2
+    ) {
+        closeWorkGroup(&turn)
+        for index in segments.indices {
+            segments[index].narrative.removeAll { entry in
+                guard case .inlineActivity(let existing) = entry else { return false }
+                return existing.id == activity.id
+            }
+        }
+        upsertNarrative(.inlineActivity(activity), to: &turn)
+    }
+
     func upsertNarrative(_ entry: CodexNarrativeEntry, to turn: inout CodexTurnV2) {
         if let index = turn.narrative.firstIndex(where: { $0.id == entry.id }) {
             turn.narrative[index] = entry
@@ -616,6 +660,11 @@ private extension CodexCanonicalTranscriptProjector {
             case .workGroup(var group):
                 group.isLive = false
                 narrative[index] = .workGroup(group)
+            case .inlineActivity(var activity):
+                if activity.status == .inProgress {
+                    activity.status = .completed
+                    narrative[index] = .inlineActivity(activity)
+                }
             case .productToolCall, .notice:
                 break
             }
@@ -627,6 +676,8 @@ private extension CodexCanonicalTranscriptProjector {
             switch entry {
             case .productToolCall(let value) where value.status == .inProgress:
                 return "Using \(value.tool)"
+            case .inlineActivity(let activity) where activity.status == .inProgress:
+                return nil
             case .workGroup(let group):
                 if let row = group.rows.last(where: \.isInProgress) { return tail(row) }
             default:
@@ -654,6 +705,7 @@ private extension CodexCanonicalTranscriptProjector {
                 label: "Ran `\(shortCommand(command))`",
                 action: commandCategory(item.payload),
                 status: state,
+                targets: commandTargets(item.payload),
                 exitCode: item.payload.int("exitCode"),
                 durationMs: itemDuration(item),
                 output: output.isEmpty ? nil : output
@@ -715,6 +767,29 @@ private extension CodexCanonicalTranscriptProjector {
         case "listfiles", "list": return .list
         case "search", "searchfiles": return .search
         default: return .run
+        }
+    }
+
+    func commandTargets(_ item: [String: CodexJSONValue]) -> [String] {
+        (item.array("commandActions") ?? []).compactMap { value in
+            guard let action = value.object,
+                  let type = action.string("type")?.lowercased(),
+                  type == "read" || type == "fileread" else { return nil }
+            let name = action.string("name")
+                ?? action.string("path").map { URL(fileURLWithPath: $0).lastPathComponent }
+            guard let name, !name.isEmpty else { return nil }
+            if name == "SKILL.md",
+               let path = action.string("path") {
+                let skillName = URL(fileURLWithPath: path)
+                    .deletingLastPathComponent()
+                    .lastPathComponent
+                    .replacingOccurrences(of: "-", with: " ")
+                if !skillName.isEmpty {
+                    let displayName = skillName.lowercased() == "github" ? "GitHub" : skillName
+                    return "\(displayName) skill"
+                }
+            }
+            return name
         }
     }
 

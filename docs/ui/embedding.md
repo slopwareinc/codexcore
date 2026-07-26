@@ -7,6 +7,7 @@
 - `CodexChatWorkspaceView`: reusable transcript, composer, prompts, and panels.
 - `CodexTranscriptViewV2`: transcript-only embedding.
 - `CodexPresentationStore`: canonical presentation projection used by production transcript hosts.
+- `CodexTranscriptItemPresentationPolicyV2`: host mapping from canonical items to compact semantic activity.
 - focused route and tool views for plugins, automations, mobile, files, terminal, and browser surfaces. A visible route does not imply that its mutation workflow is wired.
 
 Long `CodexTranscriptViewV2` conversations automatically show a compact turn
@@ -46,5 +47,11 @@ The canonical projection keeps the opening prompt in `CodexTurnV2.userMessage`, 
 3. Keep drafts, selected routes, scroll state, and panel state on the MainActor.
 4. Route approval and input requests through explicit host actions.
 5. Close leases when their presentation or operation reason ends.
+
+CodexCoreUI uses an official-style compact [activity presentation](live-activity.md)
+by default. For product-specific live progress, configure the presentation
+store with `CodexTranscriptItemPresentationPolicyV2`. The policy can preserve,
+suppress, or replace selected canonical items before the transcript chooses its
+default activity renderer.
 
 Workspace initializer defaults include constant bindings and no-op actions, including approval resolution. Wire every capability your host exposes. Use `Sources/CodexCoreApp/CodexCoreAppModel.swift` as the reference host, but verify [support status](../reference/support-status.md) and do not copy it wholesale when a smaller adapter is enough.

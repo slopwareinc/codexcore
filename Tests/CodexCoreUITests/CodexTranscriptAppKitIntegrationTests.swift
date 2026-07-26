@@ -179,7 +179,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(!cell.approvalButtonsVisibleForTesting)
     }
 
-    @Test func collapsedWorkRowsUsePlainTextWithSemanticStatus() async throws {
+    @Test func defaultWorkGroupUsesOneCompactSemanticSummary() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let presentation = CodexThreadUIPresentation(
@@ -220,13 +220,77 @@ struct CodexTranscriptAppKitIntegrationTests {
             selectionChanged: { _, _ in }
         )
 
-        #expect(cell.chipLabelForTesting.contains("Running swift test"))
+        #expect(cell.chipLabelForTesting == "Ran a command")
         #expect(cell.chipIconDescriptionForTesting == "In progress")
-        #expect(cell.workRowStatusForTesting == "running")
+        #expect(cell.workRowStatusForTesting.isEmpty)
         #expect(row.indentation == 0)
         #expect(!cell.workRowBackgroundIsVisibleForTesting)
-        #expect(!cell.chipIsActionableForTesting)
+        #expect(cell.chipIsActionableForTesting)
+        #expect(row.workRow?.isActivitySummary == true)
+        #expect(!snapshot.itemsByID.values.contains { $0.id.rawValue.contains(":row:command") })
         #expect(row.bottomSpacing == 8)
+    }
+
+    @Test func compactActivityShimmersOnlyWhileActiveAndStopsOnReuse() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+
+        func summary(
+            status: CodexWorkItemStatusV2,
+            isLive: Bool
+        ) async throws -> CodexTranscriptRenderItem {
+            let group = CodexWorkGroupV2(
+                id: "group",
+                rows: [.command(.init(
+                    id: "command",
+                    command: "swift test",
+                    label: "Ran swift test",
+                    action: .run,
+                    status: status
+                ))],
+                isLive: isLive
+            )
+            let snapshot = try await projector.project(
+                presentation: .init(
+                    threadID: "thread",
+                    transcript: .init(turns: [.init(
+                        id: "turn",
+                        narrative: [.workGroup(group)],
+                        status: .working(since: 1)
+                    )])
+                ),
+                availableWidth: 860,
+                theme: theme
+            )
+            return try #require(snapshot.itemsByID.values.first {
+                $0.workRow?.isActivitySummary == true
+            })
+        }
+
+        func configure(_ item: CodexTranscriptRenderItem) {
+            cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: item.measuredHeight)
+            cell.configure(
+                item: item,
+                appKitTheme: theme,
+                swiftUITheme: .officialDark,
+                contentHorizontalOffset: 0,
+                productToolRenderer: nil,
+                performAction: { _ in },
+                copy: { _ in },
+                editUserMessage: { _ in },
+                forkChat: nil,
+                selectionChanged: { _, _ in }
+            )
+        }
+
+        configure(try await summary(status: .inProgress, isLive: true))
+        #expect(cell.workRowShimmerIsActiveForTesting)
+        configure(try await summary(status: .completed, isLive: false))
+        #expect(!cell.workRowShimmerIsActiveForTesting)
+        configure(try await summary(status: .inProgress, isLive: true))
+        #expect(cell.workRowShimmerIsActiveForTesting)
     }
 
     @Test func singleLineAssistantRepliesFitTheirNativeTextLayout() async throws {
@@ -285,7 +349,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 threadID: "thread",
                 transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
-                expandedRowIDs: ["command"]
+                expandedRowIDs: ["group", "command"]
             ),
             availableWidth: 860,
             theme: theme
@@ -344,6 +408,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             presentation: .init(
                 threadID: "thread", transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
+                expandedRowIDs: ["agents"],
                 agentDisplayNameByThreadID: ["thread-2": "Ramanujan"]
             ),
             availableWidth: 860,
@@ -429,7 +494,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "thread", transcript: .init(turns: [turn]),
-                expandedWorkTurnIDs: [turn.id], expandedRowIDs: ["files"]
+                expandedWorkTurnIDs: [turn.id], expandedRowIDs: ["work", "files"]
             ),
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark)
@@ -1215,6 +1280,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 threadID: "thread",
                 transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
+                expandedRowIDs: ["group"],
                 presentedAtByTurnID: [turn.id: Date(timeIntervalSince1970: 100)]
             ),
             availableWidth: 860,

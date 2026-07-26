@@ -89,6 +89,10 @@ private final class CodexShimmerTextField: NSTextField {
         shimmerLayer.removeAllAnimations()
         layer?.mask = nil
     }
+
+    var isShimmering: Bool {
+        shimmerLayer.animation(forKey: "codex-shimmer") != nil
+    }
 }
 
 private final class CodexShimmerButton: NSButton {
@@ -328,6 +332,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         return imageRect.minX - titleRect.maxX
     }
     var workHeaderShimmerIsActiveForTesting: Bool { actionButton.isShimmering }
+    var workRowShimmerIsActiveForTesting: Bool { chipLabel.isShimmering }
     var workHeaderWidthForTesting: CGFloat { actionControlInstalled ? actionButton.frame.width : 0 }
     var textUsedHeightForTesting: CGFloat {
         guard textControlsInstalled,
@@ -741,7 +746,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 Self.chipIconName(row),
                 accessibilityDescription: Self.chipIconAccessibilityDescription(row)
             )
-            chipIconView.contentTintColor = Self.statusColor(row.status, theme: appKitTheme)
+            chipIconView.contentTintColor = row.isInlineActivity || row.isActivitySummary
+                ? appKitTheme.textTertiary
+                : Self.statusColor(row.status, theme: appKitTheme)
             chipLabel.stringValue = row.label
             chipLabel.font = appKitTheme.captionFont
             chipLabel.textColor = appKitTheme.textTertiary
@@ -749,7 +756,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipDurationLabel.stringValue = row.durationMs.map(CodexWorkBlockViewV2.duration) ?? ""
             chipDurationLabel.font = appKitTheme.microFont
             chipDurationLabel.textColor = appKitTheme.textTertiary
-            chipStatusLabel.stringValue = Self.workStatusTitle(row.status)
+            chipStatusLabel.stringValue = row.isInlineActivity || row.isActivitySummary
+                ? ""
+                : Self.workStatusTitle(row.status)
             chipStatusLabel.font = appKitTheme.captionFont
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row)
@@ -779,11 +788,17 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 actionButton.isHidden = false
                 actionButton.isEnabled = false
                 actionButton.font = appKitTheme.captionFont
-                actionButton.contentTintColor = appKitTheme.textSecondary
-                actionButton.title = codexStatusGlyphV2(productTool.status) + " "
-                    + [productTool.namespace, productTool.tool].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+                actionButton.contentTintColor = appKitTheme.textTertiary
+                actionButton.title = CodexProductToolPresentationV2.label(productTool)
+                actionButton.image = Self.symbolImage(
+                    CodexProductToolPresentationV2.systemImage(productTool),
+                    accessibilityDescription: item.accessibilityLabel
+                )
+                actionButton.imagePosition = .imageLeading
+                actionButton.imageScaling = .scaleProportionallyDown
+                actionButton.imageHugsTitle = true
+                if productTool.status == .inProgress { actionButton.startShimmer() }
                 actionButton.setAccessibilityLabel(item.accessibilityLabel)
-                backgroundView.isHidden = false
             }
         }
 
@@ -876,7 +891,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         } else if let row = item.workRow {
             chipBackground.frame = contentFrame
             let rowMidY = contentFrame.height / 2
-            let disclosureWidth: CGFloat = row.isActionable ? 14 : 0
+            let disclosureWidth: CGFloat = row.showsDisclosure ? 14 : 0
             chipDisclosureView.frame = NSRect(
                 x: 0,
                 y: rowMidY - 7,
@@ -1766,6 +1781,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private static func chipIconName(_ row: CodexTranscriptWorkRowRender) -> String {
+        if let systemImage = row.systemImage, !systemImage.isEmpty { return systemImage }
         if row.status == .failed { return "exclamationmark.triangle" }
         return switch row.kind {
         case .command: "terminal"
@@ -1786,7 +1802,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private static func chipDisclosureImage(_ row: CodexTranscriptWorkRowRender) -> NSImage? {
-        guard row.isActionable else { return nil }
+        guard row.showsDisclosure else { return nil }
         let name = row.isSubagentLink ? "arrow.up.right" : (row.isExpanded ? "chevron.down" : "chevron.right")
         return symbolImage(
             name,

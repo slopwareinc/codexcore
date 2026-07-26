@@ -108,6 +108,7 @@ public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
     case prose(CodexAssistantTextV2)
     case workGroup(CodexWorkGroupV2)
     case productToolCall(CodexProductToolCallV2)
+    case inlineActivity(CodexInlineActivityV2)
     case notice(CodexTurnNoticeV2)
 
     public var id: String {
@@ -115,6 +116,7 @@ public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
         case .prose(let value): value.id
         case .workGroup(let value): value.id
         case .productToolCall(let value): value.id
+        case .inlineActivity(let value): value.id
         case .notice(let value): value.id
         }
     }
@@ -146,9 +148,11 @@ public enum CodexAgentDisplayStatusV2: Sendable, Equatable {
 public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var command: String; public var label: String
     public var action: CodexWorkCategoryV2; public var status: CodexWorkItemStatusV2
+    public var targets: [String]
     public var exitCode: Int?; public var durationMs: Int?; public var output: String?
-    public init(id: String, command: String, label: String, action: CodexWorkCategoryV2, status: CodexWorkItemStatusV2, exitCode: Int? = nil, durationMs: Int? = nil, output: String? = nil) {
+    public init(id: String, command: String, label: String, action: CodexWorkCategoryV2, status: CodexWorkItemStatusV2, targets: [String] = [], exitCode: Int? = nil, durationMs: Int? = nil, output: String? = nil) {
         self.id = id; self.command = command; self.label = label; self.action = action; self.status = status
+        self.targets = targets
         self.exitCode = exitCode; self.durationMs = durationMs; self.output = output
     }
 }
@@ -246,6 +250,31 @@ public struct CodexProductToolCallV2: Identifiable, Sendable, Equatable {
     public var arguments: CodexJSONValue?; public var status: CodexWorkItemStatusV2
     public var contentItems: [CodexJSONValue]; public var success: Bool?
 }
+
+/// One compact, semantic activity line embedded in the current assistant turn.
+///
+/// Hosts should reuse `id` for successive canonical items that represent the
+/// same logical activity. Projection then replaces the existing line in place
+/// instead of appending another transcript row.
+public struct CodexInlineActivityV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var label: String
+    public var systemImage: String?
+    public var status: CodexWorkItemStatusV2
+
+    public init(
+        id: String,
+        label: String,
+        systemImage: String? = nil,
+        status: CodexWorkItemStatusV2
+    ) {
+        self.id = id
+        self.label = label
+        self.systemImage = systemImage
+        self.status = status
+    }
+}
+
 public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
     public var id: String; public var message: String
     public init(id: String, message: String) { self.id = id; self.message = message }

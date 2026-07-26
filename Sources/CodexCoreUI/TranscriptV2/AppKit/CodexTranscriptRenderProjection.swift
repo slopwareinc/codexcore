@@ -109,6 +109,10 @@ struct CodexTranscriptWorkRowRender: Sendable, Equatable {
     var kind: CodexWorkRowKind
     var label: String
     var status: CodexWorkItemStatusV2
+    var systemImage: String? = nil
+    var isInlineActivity = false
+    var isActivitySummary = false
+    var showsDisclosure = true
     var durationMs: Int?
     var isExpanded: Bool
     var hasDetail: Bool
@@ -492,17 +496,39 @@ actor CodexTranscriptRenderProjector {
                     case .workGroup(let group):
                         let rows = tailMode ? group.rows.filter(\.isInProgress) : group.rows
                         if rows.isEmpty { continue }
-                        let groupHeader = tailMode ? CodexWorkGroupHeaderV2.synthesize(rows: rows) : group.header
-                        let headerText = Self.preparePlain(groupHeader, font: theme.captionFont, color: theme.textSecondary, theme: theme)
+                        let groupHeader = CodexWorkGroupPresentationV2.header(
+                            group,
+                            rows: tailMode ? rows : nil
+                        )
+                        let groupIsExpanded = presentation.expandedRowIDs.contains(group.id)
+                        let groupStatus = CodexWorkGroupPresentationV2.status(
+                            rows: rows,
+                            isLive: tailMode || group.isLive
+                        )
+                        let summaryRender = CodexTranscriptWorkRowRender(
+                            kind: .other,
+                            label: groupHeader,
+                            status: groupStatus,
+                            systemImage: CodexWorkGroupPresentationV2.systemImage(rows: rows),
+                            isActivitySummary: true,
+                            showsDisclosure: false,
+                            durationMs: nil,
+                            isExpanded: groupIsExpanded,
+                            hasDetail: true,
+                            isSubagentLink: false,
+                            isActionable: true
+                        )
                         append(ItemDraft(
-                            id: "\(sectionID):group:\(group.id):header",
-                            fingerprint: "group-header:\(groupHeader)",
-                            textRole: .commentary,
-                            preparedText: headerText,
-                            accessibilityLabel: groupHeader,
+                            id: "\(sectionID):group:\(group.id):summary",
+                            fingerprint: "group-summary:\(String(describing: summaryRender))",
+                            workRow: summaryRender,
+                            action: .toggleRow(rowID: group.id),
+                            accessibilityLabel: "\(groupHeader), \(groupIsExpanded ? "details shown" : "details hidden")",
                             maxWidthKind: .card,
-                            fixedHeight: 24
+                            fixedHeight: 30,
+                            bottomSpacing: groupIsExpanded ? 2 : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
+                        if !groupIsExpanded { continue }
                         let agentChips = rows.compactMap { row -> CodexTranscriptAgentChipRender? in
                             guard case .collabAgent(let agent) = row else { return nil }
                             let threadID = agent.agentThreadIDs.first
@@ -615,7 +641,31 @@ actor CodexTranscriptRenderProjector {
                             productTool: call,
                             accessibilityLabel: "Tool \([call.namespace, call.tool].compactMap { $0 }.joined(separator: " "))",
                             maxWidthKind: .card,
-                            fixedHeight: 44
+                            fixedHeight: 30,
+                            bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                        ))
+                    case .inlineActivity(let activity):
+                        if tailMode, activity.status != .inProgress { continue }
+                        let rowRender = CodexTranscriptWorkRowRender(
+                            kind: .other,
+                            label: activity.label,
+                            status: activity.status,
+                            systemImage: activity.systemImage,
+                            isInlineActivity: true,
+                            durationMs: nil,
+                            isExpanded: false,
+                            hasDetail: false,
+                            isSubagentLink: false,
+                            isActionable: false
+                        )
+                        append(ItemDraft(
+                            id: "\(sectionID):inline-activity:\(activity.id)",
+                            fingerprint: "inline-activity:\(String(describing: activity))",
+                            workRow: rowRender,
+                            accessibilityLabel: Self.inlineActivityAccessibilityLabel(activity),
+                            maxWidthKind: .card,
+                            fixedHeight: 30,
+                            bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
                     case .notice(let notice):
                         if tailMode { continue }
@@ -1655,6 +1705,7 @@ private extension CodexTranscriptRenderProjector {
             switch entry {
             case .workGroup(let group): group.rows.contains(where: \.isInProgress)
             case .productToolCall(let call): call.status == .inProgress
+            case .inlineActivity(let activity): activity.status == .inProgress
             default: false
             }
         }
@@ -1822,6 +1873,15 @@ private extension CodexTranscriptRenderProjector {
         return "\(render.label), \(state)"
     }
 
+    static func inlineActivityAccessibilityLabel(_ activity: CodexInlineActivityV2) -> String {
+        let state = switch activity.status {
+        case .inProgress: "in progress"
+        case .completed: "completed"
+        case .failed: "failed"
+        }
+        return "\(activity.label), \(state)"
+    }
+
     static func bounded(_ text: String, limit: Int) -> String {
         text.codexAppKitDisplayPrefix(limit: limit)
     }
@@ -1854,6 +1914,7 @@ private extension CodexTranscriptRenderProjector {
                         .compactMap { $0 }
                         .joined(separator: "\n")
                     work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
+                case .inlineActivity(let activity): work.append(activity.label)
                 case .notice(let notice): work.append(notice.message)
                 }
             }

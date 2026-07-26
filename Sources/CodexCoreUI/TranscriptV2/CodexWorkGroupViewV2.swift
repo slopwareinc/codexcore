@@ -4,6 +4,7 @@ struct CodexWorkGroupViewV2: View {
     @Environment(\.codexAgentTheme) private var theme
     let group: CodexWorkGroupV2
     let onOpenSubagent: (String) -> Void
+    @State private var isExpanded = false
 
     init(group: CodexWorkGroupV2, onOpenSubagent: @escaping (String) -> Void = { _ in }) {
         self.group = group
@@ -12,13 +13,34 @@ struct CodexWorkGroupViewV2: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(group.header)
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textSecondary)
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(group.rows) { CodexWorkRowViewV2(row: $0, onOpenSubagent: onOpenSubagent) }
+            Button {
+                withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                CodexInlineActivityViewV2(activity: .init(
+                    id: group.id,
+                    label: CodexWorkGroupPresentationV2.header(group),
+                    systemImage: CodexWorkGroupPresentationV2.systemImage(rows: group.rows),
+                    status: CodexWorkGroupPresentationV2.status(
+                        rows: group.rows,
+                        isLive: group.isLive
+                    )
+                ))
+                .contentShape(Rectangle())
             }
-            .padding(.leading, 12)
+            .buttonStyle(.plain)
+            .help(isExpanded ? "Hide activity details" : "Show activity details")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(group.rows) {
+                        CodexWorkRowViewV2(row: $0, onOpenSubagent: onOpenSubagent)
+                    }
+                }
+                .padding(.leading, 22)
+                .transition(.opacity)
+            }
         }
     }
 }

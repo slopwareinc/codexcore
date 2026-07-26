@@ -155,6 +155,113 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(projected.finalAnswer?.isStreaming == true)
     }
 
+    @Test func hostPolicyCoalescesSuccessiveItemsIntoOneSemanticActivity() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let commentary = item(threadID, turnID, "commentary", .agentMessage, [
+            "phase": .string("commentary"),
+            "text": .string("I’ll research the topic and shape the lessons.")
+        ])
+        let begin = item(threadID, turnID, "begin", .dynamicToolCall, [
+            "tool": .string("begin_research_activity")
+        ])
+        let update = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "update"),
+            kind: .dynamicToolCall,
+            payload: [
+                "tool": .string("update_research_activity"),
+                "arguments": .dictionary(["lessonCount": .int(3)])
+            ],
+            authority: .started,
+            consistency: .authoritative,
+            lastChangedRevision: StateRevision(3)
+        )
+        let canonicalTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .inProgress,
+            itemOrder: ["commentary", "begin", "update"],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(3)
+        )
+        let snapshot = state(
+            revision: 3,
+            threadID: threadID,
+            turns: [canonicalTurn],
+            items: [commentary, begin, update]
+        )
+        let policy = CodexTranscriptItemPresentationPolicyV2 { context in
+            guard context.kind == .dynamicToolCall else { return .standard }
+            let tool: String? = {
+                guard let value = context.payload["tool"],
+                      case .string(let tool) = value else { return nil }
+                return tool
+            }()
+            let label = tool == "begin_research_activity"
+                ? "Researching the musical building blocks"
+                : "Drafting 3 lessons"
+            return .inlineActivity(.init(
+                id: "lesson-authoring",
+                label: label,
+                systemImage: "book.pages",
+                status: context.status
+            ))
+        }
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector(itemPresentationPolicy: policy)
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        #expect(projected.narrative.contains { $0.id == "commentary" })
+        #expect(!projected.narrative.contains { $0.id == "begin" || $0.id == "update" })
+        let activities = projected.narrative.compactMap { entry -> CodexInlineActivityV2? in
+            guard case .inlineActivity(let activity) = entry else { return nil }
+            return activity
+        }
+        #expect(activities == [
+            CodexInlineActivityV2(
+                id: "lesson-authoring",
+                label: "Drafting 3 lessons",
+                systemImage: "book.pages",
+                status: .inProgress
+            )
+        ])
+        #expect(projected.liveTail == nil)
+    }
+
+    @Test func hostPolicyCanHideItemsAndStandardDecisionPreservesFallbackProjection() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let tool = item(threadID, turnID, "tool", .dynamicToolCall, [
+            "namespace": .string("product"),
+            "tool": .string("offer_choices")
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["tool"], revision: 1)],
+            items: [tool]
+        )
+        let baseline = CodexCanonicalTranscriptProjector()
+            .rebuild(snapshot: snapshot, threadID: threadID)
+            .presentation.transcript
+        let standard = CodexCanonicalTranscriptProjector(
+            itemPresentationPolicy: .init { _ in .standard }
+        )
+        .rebuild(snapshot: snapshot, threadID: threadID)
+        .presentation.transcript
+        let hidden = CodexCanonicalTranscriptProjector(
+            itemPresentationPolicy: .init { _ in .hidden }
+        )
+        .rebuild(snapshot: snapshot, threadID: threadID)
+        .presentation.transcript
+
+        #expect(standard == baseline)
+        #expect(baseline.turns.first?.narrative.map(\.id) == ["tool"])
+        #expect(hidden.turns.first?.narrative.isEmpty == true)
+    }
+
     @Test func equivalentHydratedAndLiveCanonicalStateProjectIdentically() {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

@@ -130,7 +130,7 @@ public struct CodexWorkBlockViewV2: View {
         if liveTail?.isEmpty == false, liveTail != "Thinking" { return true }
         if narrative.contains(where: { entry in
             switch entry {
-            case .workGroup, .productToolCall: true
+            case .workGroup, .productToolCall, .inlineActivity: true
             case .prose, .notice: false
             }
         }) { return true }
@@ -176,6 +176,8 @@ public struct CodexWorkBlockViewV2: View {
         case .productToolCall(let call):
             if let rendered = productToolRenderer?.render(call) { rendered }
             else { CodexProductToolFallbackV2(call: call) }
+        case .inlineActivity(let activity):
+            CodexInlineActivityViewV2(activity: activity)
         }
     }
 
@@ -216,21 +218,15 @@ private struct CodexLiveTailV2: View {
 }
 
 private struct CodexProductToolFallbackV2: View {
-    @Environment(\.codexAgentTheme) private var theme
     let call: CodexProductToolCallV2
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(codexStatusGlyphV2(call.status))
-            Text([call.namespace, call.tool].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
-                .lineLimit(1)
-        }
-        .font(theme.fonts.caption)
-        .foregroundStyle(theme.colors.textSecondary)
-        .padding(theme.spacing.chipPadding)
-        .background(theme.colors.surfaceSunken)
-        .clipShape(Capsule())
-        .overlay { Capsule().stroke(theme.colors.border, lineWidth: 1) }
+        CodexInlineActivityViewV2(activity: .init(
+            id: call.id,
+            label: CodexProductToolPresentationV2.label(call),
+            systemImage: CodexProductToolPresentationV2.systemImage(call),
+            status: call.status
+        ))
     }
 }
 

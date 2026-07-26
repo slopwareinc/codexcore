@@ -49,6 +49,29 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func activityLabelsDescribeIntentWithoutRawToolMechanics() {
+        let read = CodexWorkRowV2.command(.init(
+            id: "read-skill",
+            command: "sed -n '1,320p' /plugins/github/skills/github/SKILL.md",
+            label: "Ran sed",
+            action: .read,
+            status: .completed,
+            targets: ["GitHub skill"]
+        ))
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [read]) == "Read GitHub skill")
+
+        let tool = CodexProductToolCallV2(
+            id: "issue",
+            tool: "_create_issue",
+            namespace: "github",
+            arguments: nil,
+            status: .inProgress,
+            contentItems: [],
+            success: nil
+        )
+        #expect(CodexProductToolPresentationV2.label(tool) == "Create issue")
+    }
+
     @Test func realtimeVoiceTurnUsesNormalMessagesWithoutWorkChromeOrTimestamps() async throws {
         let turn = CodexTurnV2(
             id: "voice",
@@ -270,7 +293,7 @@ struct CodexTranscriptRenderProjectionTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "thread", transcript: .init(turns: [turn]),
-                expandedWorkTurnIDs: ["turn"], expandedRowIDs: ["files"],
+                expandedWorkTurnIDs: ["turn"], expandedRowIDs: ["work", "files"],
                 selectedDiffFileIndexByRowID: ["files": 1]
             ),
             availableWidth: 860,
@@ -289,7 +312,7 @@ struct CodexTranscriptRenderProjectionTests {
     }
 
 
-    @Test func streamingAnswerKeepsOnlyLiveWorkChipVisible() async throws {
+    @Test func streamingAnswerKeepsOnlyCompactLiveActivityVisible() async throws {
         let projector = CodexTranscriptRenderProjector()
         let turn = CodexTurnV2(
             id: "turn",
@@ -321,12 +344,114 @@ struct CodexTranscriptRenderProjectionTests {
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark)
         )
-        let rowIDs = snapshot.orderedItemIDs.filter { $0.rawValue.contains(":row:") }
-        #expect(rowIDs.count == 1)
-        #expect(rowIDs.first?.rawValue.hasSuffix(":row:live") == true)
-        #expect(snapshot.itemsByID[rowIDs[0]]?.workRow?.kind == .command)
-        #expect(snapshot.itemsByID[rowIDs[0]]?.workRow?.isActionable == false)
+        let summaries = snapshot.itemsByID.values.filter { $0.workRow?.isActivitySummary == true }
+        #expect(summaries.count == 1)
+        #expect(summaries.first?.workRow?.label == "Ran a command")
+        #expect(summaries.first?.workRow?.status == .inProgress)
+        #expect(summaries.first?.workRow?.isActionable == true)
+        #expect(!snapshot.itemsByID.values.contains { $0.id.rawValue.contains(":row:") })
         #expect(snapshot.itemsByID.values.contains { $0.textRole == .finalAnswer })
+    }
+
+    @Test func inlineActivityProjectsAsOneStableUnadornedLiveRow() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        func presentation(label: String, status: CodexWorkItemStatusV2) -> CodexThreadUIPresentation {
+            let activity = CodexNarrativeEntry.inlineActivity(.init(
+                id: "lesson-authoring",
+                label: label,
+                systemImage: "book.pages",
+                status: status
+            ))
+            return .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    conversationSegments: [.init(id: "initial", narrative: [activity])],
+                    narrative: [activity],
+                    status: .working(since: 1)
+                )])
+            )
+        }
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let first = try await projector.project(
+            presentation: presentation(label: "Researching the musical building blocks", status: .inProgress),
+            availableWidth: 860,
+            theme: theme
+        )
+        let second = try await projector.project(
+            presentation: presentation(label: "Drafting 3 lessons", status: .inProgress),
+            availableWidth: 860,
+            theme: theme
+        )
+        let firstRow = try #require(first.itemsByID.values.first { $0.workRow?.isInlineActivity == true })
+        let secondRow = try #require(second.itemsByID.values.first { $0.workRow?.isInlineActivity == true })
+
+        #expect(firstRow.id == secondRow.id)
+        #expect(secondRow.id.rawValue.hasSuffix(":inline-activity:lesson-authoring"))
+        #expect(secondRow.workRow?.label == "Drafting 3 lessons")
+        #expect(secondRow.workRow?.systemImage == "book.pages")
+        #expect(secondRow.workRow?.status == .inProgress)
+        #expect(secondRow.workRow?.durationMs == nil)
+        #expect(secondRow.workRow?.isActionable == false)
+        #expect(secondRow.accessibilityLabel == "Drafting 3 lessons, in progress")
+        #expect(second.changedItemIDs.contains(secondRow.id))
+    }
+
+    @Test func defaultActivitySummaryUpdatesOneStableRowAsWorkAccumulates() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        func presentation(rows: [CodexWorkRowV2]) -> CodexThreadUIPresentation {
+            .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.workGroup(.init(
+                        id: "group-read",
+                        rows: rows,
+                        isLive: true
+                    ))],
+                    status: .working(since: 1)
+                )])
+            )
+        }
+        let read = CodexWorkRowV2.command(.init(
+            id: "read",
+            command: "sed -n '1,240p' Package.swift",
+            label: "Ran sed",
+            action: .read,
+            status: .completed,
+            targets: ["Package.swift"]
+        ))
+        let run = CodexWorkRowV2.command(.init(
+            id: "run",
+            command: "swift test",
+            label: "Ran swift test",
+            action: .run,
+            status: .inProgress
+        ))
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let first = try await projector.project(
+            presentation: presentation(rows: [read]),
+            availableWidth: 860,
+            theme: theme
+        )
+        let second = try await projector.project(
+            presentation: presentation(rows: [read, run]),
+            availableWidth: 860,
+            theme: theme
+        )
+        let firstSummary = try #require(first.itemsByID.values.first {
+            $0.workRow?.isActivitySummary == true
+        })
+        let secondSummary = try #require(second.itemsByID.values.first {
+            $0.workRow?.isActivitySummary == true
+        })
+
+        #expect(firstSummary.id == secondSummary.id)
+        #expect(firstSummary.workRow?.label == "Read Package.swift")
+        #expect(secondSummary.workRow?.label == "Read Package.swift, ran a command")
+        #expect(secondSummary.workRow?.status == .inProgress)
+        #expect(second.changedItemIDs == [secondSummary.id])
+        #expect(!second.itemsByID.values.contains { $0.id.rawValue.contains(":row:") })
     }
 
     @Test func markdownLinksNestedListsAndCompletedCodeCarryExplicitStyling() async throws {
@@ -436,7 +561,7 @@ struct CodexTranscriptRenderProjectionTests {
             threadID: "thread",
             transcript: .init(turns: [turn]),
             expandedWorkTurnIDs: [turn.id],
-            expandedRowIDs: ["command"],
+            expandedRowIDs: ["group", "command"],
             presentedAtByTurnID: [turn.id: Date(timeIntervalSince1970: 100)]
         )
         let snapshot = try await projector.project(
@@ -452,7 +577,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(rawIDs.contains { $0.contains(":user:user") })
         #expect(rawIDs.contains { $0.hasSuffix(":work-header") })
         #expect(rawIDs.contains { $0.contains(":commentary:commentary:selection-surface:") })
-        #expect(rawIDs.contains { $0.contains(":group:group:header") })
+        #expect(rawIDs.contains { $0.contains(":group:group:summary") })
         #expect(rawIDs.contains { $0.contains(":row:command") })
         #expect(rawIDs.contains { $0.contains(":row:command:detail") })
         #expect(rawIDs.contains { $0.contains(":row:file") })
