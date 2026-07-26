@@ -1861,6 +1861,20 @@ private extension CodexTranscriptRenderProjector {
     }
 }
 
+extension CodexTranscriptRenderProjector {
+    static func prepareMinimapPreviewMarkdown(
+        _ markdown: String,
+        theme: CodexTranscriptAppKitTheme
+    ) -> NSAttributedString {
+        prepareMarkdown(
+            markdown,
+            font: theme.captionFont,
+            color: theme.textSecondary,
+            theme: theme
+        ).attributedString
+    }
+}
+
 private extension CodexBlock {
     var isCodeV2: Bool {
         if case .code = self { return true }

@@ -119,6 +119,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var pendingScrollAnchor: (id: CodexTranscriptRenderItemID, offset: CGFloat)?
         private var hasUnseenOutput = false
         private var shortTranscriptTopInset: CGFloat = 0
+        private var turnMinimapEntries: [CodexTranscriptTurnMinimapEntry] = []
+        private var turnMinimapTargetYByTurnID: [String: CGFloat] = [:]
         private var lastEagerLayoutSize: NSSize?
         private var lastEagerLayoutBottomInset: CGFloat?
         private(set) var diagnostics = CodexTranscriptCollectionDiagnostics()
@@ -147,6 +149,12 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             installDataSource(on: collectionView)
             container.onJumpToLatest = { [weak self] in self?.jumpToLatest() }
             container.onWidthChange = { [weak self] width in self?.widthDidChange(width) }
+            container.turnMinimap.onSelect = { [weak self] entry in
+                self?.jumpToTurn(entry)
+            }
+            container.turnMinimap.onHover = { [weak container] entry, marker in
+                container?.showTurnPreview(entry, beside: marker)
+            }
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(clipViewBoundsChanged),
@@ -274,6 +282,13 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         func setSelectingForTesting(_ selecting: Bool, id: CodexTranscriptRenderItemID) {
             selectionChanged(id: id, selecting: selecting)
+        }
+
+        func jumpToTurnForTesting(_ turnID: String) {
+            guard let entry = container?.turnMinimap.entriesForTesting.first(where: {
+                $0.turnID == turnID
+            }) else { return }
+            jumpToTurn(entry)
         }
 
         func collectionView(
@@ -493,6 +508,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             guard let indexPath = dataSource?.indexPath(for: id), let container else { return }
             invalidateLayoutMetrics(at: [indexPath], in: container)
             updateShortTranscriptTopInset()
+            rebuildTurnMinimap()
             if currentPresentation?.isPinnedToBottom == true, selectedItemIDs.isEmpty {
                 scrollToBottom(markPinned: true, contentHeight: projectedContentHeight())
             }
@@ -541,6 +557,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             }
             pendingScrollAnchor = nil
             updateJumpButton()
+            rebuildTurnMinimap()
             updateTicker(projected)
             let elapsed = startedAt.duration(to: .now)
             let milliseconds = Double(elapsed.components.seconds) * 1_000
@@ -690,6 +707,86 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 isPinnedToBottom: pinned
             )
             updateJumpButton()
+            updateTurnMinimapActiveState()
+        }
+
+        private func rebuildTurnMinimap() {
+            guard let container,
+                  let presentation = currentPresentation,
+                  let snapshot = currentSnapshot,
+                  let theme = appKitTheme else { return }
+            let entries = CodexTranscriptTurnMinimapProjection.entries(
+                presentation: presentation,
+                snapshot: snapshot
+            )
+            let contentHeight = projectedContentHeight(snapshot)
+            let viewportHeight = max(
+                0,
+                container.scrollView.contentView.bounds.height
+                    - container.scrollView.contentInsets.top
+                    - container.scrollView.contentInsets.bottom
+            )
+            guard entries.count >= 3, contentHeight > viewportHeight + 80 else {
+                turnMinimapEntries = []
+                turnMinimapTargetYByTurnID = [:]
+                container.setTurnMinimapVisible(false)
+                return
+            }
+
+            var targetYByTurnID: [String: CGFloat] = [:]
+            for entry in entries {
+                let targetY = projectedMinY(for: entry.targetItemID, in: snapshot) ?? 0
+                targetYByTurnID[entry.turnID] = targetY
+            }
+            turnMinimapEntries = entries
+            turnMinimapTargetYByTurnID = targetYByTurnID
+            container.configureTurnMinimap(
+                entries: entries,
+                activeTurnID: activeTurnMinimapTurnID(),
+                theme: theme
+            )
+        }
+
+        private func activeTurnMinimapTurnID() -> String? {
+            guard let container else { return nil }
+            let viewportAnchor = container.scrollView.contentView.bounds.origin.y
+                + max(
+                    0,
+                    container.scrollView.contentView.bounds.height
+                        - container.scrollView.contentInsets.top
+                        - container.scrollView.contentInsets.bottom
+                ) * 0.28
+            return turnMinimapEntries.last(where: {
+                (turnMinimapTargetYByTurnID[$0.turnID] ?? 0) <= viewportAnchor
+            })?.turnID ?? turnMinimapEntries.first?.turnID
+        }
+
+        private func updateTurnMinimapActiveState() {
+            container?.setTurnMinimapActiveTurn(activeTurnMinimapTurnID())
+        }
+
+        private func jumpToTurn(_ entry: CodexTranscriptTurnMinimapEntry) {
+            guard let container,
+                  let snapshot = currentSnapshot,
+                  var presentation = currentPresentation,
+                  let targetMinY = projectedMinY(for: entry.targetItemID, in: snapshot) else { return }
+            let targetY = min(
+                max(-container.scrollView.contentInsets.top, targetMinY - 24),
+                bottomOffset(contentHeight: projectedContentHeight(snapshot))
+            )
+            container.scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: targetY))
+            container.scrollView.reflectScrolledClipView(container.scrollView.contentView)
+            presentation.rawScrollOffset = targetY
+            presentation.isPinnedToBottom = distanceToBottom() <= 80
+            currentPresentation = presentation
+            presentationStore?.updateScrollState(
+                threadID: ThreadID(presentation.threadID),
+                rawOffset: targetY,
+                isPinnedToBottom: presentation.isPinnedToBottom
+            )
+            container.showTurnPreview(nil, beside: nil)
+            updateJumpButton()
+            updateTurnMinimapActiveState()
         }
 
         private func restoreScroll(
@@ -751,6 +848,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 )
             }
             updateJumpButton()
+            updateTurnMinimapActiveState()
         }
 
         private func bottomOffset(contentHeight projectedContentHeight: CGFloat? = nil) -> CGFloat {
@@ -841,8 +939,12 @@ final class CodexTranscriptCollectionContainerView: NSView {
     let scrollView = NSScrollView()
     let collectionView = CodexTranscriptCollectionView()
     let jumpButton = NSButton()
+    let turnMinimap = CodexTranscriptTurnMinimapView()
+    let turnPreview = CodexTranscriptTurnPreviewView()
     var onJumpToLatest: (() -> Void)?
     var onWidthChange: ((CGFloat) -> Void)?
+    private var turnMinimapTheme: CodexTranscriptAppKitTheme?
+    private var turnPreviewHideTask: Task<Void, Never>?
     var bottomContentInset: CGFloat = 0 {
         didSet {
             guard bottomContentInset != oldValue else { return }
@@ -892,6 +994,17 @@ final class CodexTranscriptCollectionContainerView: NSView {
         jumpButton.action = #selector(jump)
         jumpButton.isHidden = true
         addSubview(jumpButton)
+
+        turnMinimap.isHidden = true
+        addSubview(turnMinimap)
+        addSubview(turnPreview)
+        turnPreview.onHoverChanged = { [weak self] isHovered in
+            if isHovered {
+                self?.turnPreviewHideTask?.cancel()
+            } else {
+                self?.scheduleTurnPreviewHide()
+            }
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -909,6 +1022,16 @@ final class CodexTranscriptCollectionContainerView: NSView {
             width: 40,
             height: 40
         )
+        let minimapBottom = max(bottomContentInset + 26, 72)
+        let minimapTop: CGFloat = 72
+        let availableMinimapHeight = max(0, bounds.height - minimapBottom - minimapTop)
+        let minimapHeight = turnMinimap.preferredHeight(maximum: availableMinimapHeight)
+        turnMinimap.frame = NSRect(
+            x: 14,
+            y: minimapBottom + (availableMinimapHeight - minimapHeight) / 2,
+            width: 30,
+            height: minimapHeight
+        )
         onWidthChange?(viewportWidth)
     }
 
@@ -919,5 +1042,66 @@ final class CodexTranscriptCollectionContainerView: NSView {
     func setJumpButtonImage(named name: String) {
         guard jumpButton.image !== Self.jumpButtonImages[name] else { return }
         jumpButton.image = Self.jumpButtonImages[name]
+    }
+
+    func configureTurnMinimap(
+        entries: [CodexTranscriptTurnMinimapEntry],
+        activeTurnID: String?,
+        theme: CodexTranscriptAppKitTheme
+    ) {
+        turnMinimapTheme = theme
+        turnMinimap.configure(
+            entries: entries,
+            activeTurnID: activeTurnID,
+            theme: theme
+        )
+        setTurnMinimapVisible(true)
+        needsLayout = true
+    }
+
+    func setTurnMinimapVisible(_ visible: Bool) {
+        turnMinimap.isHidden = !visible
+        if !visible {
+            turnPreviewHideTask?.cancel()
+            turnPreview.isHidden = true
+        }
+    }
+
+    func setTurnMinimapActiveTurn(_ turnID: String?) {
+        turnMinimap.setActiveTurnID(turnID)
+    }
+
+    func showTurnPreview(
+        _ entry: CodexTranscriptTurnMinimapEntry?,
+        beside marker: NSView?
+    ) {
+        guard let entry, let marker, let theme = turnMinimapTheme else {
+            scheduleTurnPreviewHide()
+            return
+        }
+        turnPreviewHideTask?.cancel()
+        turnPreview.configure(entry: entry, theme: theme)
+        let width = min(360, max(220, bounds.width - turnMinimap.frame.maxX - 44))
+        let height = turnPreview.preferredHeight(for: width)
+        let markerCenter = convert(
+            NSPoint(x: marker.bounds.midX, y: marker.bounds.midY),
+            from: marker
+        )
+        turnPreview.frame = NSRect(
+            x: turnMinimap.frame.maxX + 12,
+            y: min(max(12, markerCenter.y - height / 2), bounds.height - height - 12),
+            width: width,
+            height: height
+        )
+        turnPreview.isHidden = false
+    }
+
+    private func scheduleTurnPreviewHide() {
+        turnPreviewHideTask?.cancel()
+        turnPreviewHideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(140))
+            guard !Task.isCancelled, let self, !self.turnPreview.isPointerInside else { return }
+            self.turnPreview.isHidden = true
+        }
     }
 }
