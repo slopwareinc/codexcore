@@ -4,23 +4,36 @@ struct CodexInlineActivityViewV2: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.codexAgentTheme) private var theme
     @State private var shimmerPosition: CGFloat = -1
+    @State private var isExpanded = false
 
     let activity: CodexInlineActivityV2
 
     var body: some View {
-        HStack(spacing: 7) {
-            if let systemImage = activity.systemImage, !systemImage.isEmpty {
-                Image(systemName: systemImage)
-                    .font(theme.fonts.caption)
+        VStack(alignment: .leading, spacing: 7) {
+            if detail != nil {
+                Button {
+                    withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    activityLabel
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(accessibilityStatus)
+            } else {
+                activityLabel
+                    .accessibilityValue(accessibilityStatus)
             }
-            Text(activity.label)
-                .lineLimit(2)
+
+            if isExpanded, let detail {
+                Text(detail)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 22)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .font(theme.fonts.caption)
-        .foregroundStyle(foregroundStyle)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(activity.label)
-        .accessibilityValue(accessibilityStatus)
         .task(id: isAnimating) {
             guard isAnimating else {
                 shimmerPosition = 0
@@ -31,6 +44,31 @@ struct CodexInlineActivityViewV2: View {
                 shimmerPosition = 2
             }
         }
+    }
+
+    private var activityLabel: some View {
+        HStack(spacing: 7) {
+            if let systemImage = activity.systemImage, !systemImage.isEmpty {
+                Image(systemName: systemImage)
+                    .font(theme.fonts.caption)
+            }
+            Text(activity.label)
+                .lineLimit(2)
+            if detail != nil {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(theme.fonts.micro)
+            }
+        }
+        .font(theme.fonts.caption)
+        .foregroundStyle(foregroundStyle)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(activity.label)
+    }
+
+    private var detail: String? {
+        let value = activity.detail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
     }
 
     private var isAnimating: Bool {

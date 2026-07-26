@@ -293,6 +293,102 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.workRowShimmerIsActiveForTesting)
     }
 
+    @Test func inlineActivityWithoutDetailsDoesNotShowADeadDisclosure() async throws {
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.inlineActivity(.init(
+                        id: "research",
+                        label: "Drafting three lessons",
+                        systemImage: "book.pages",
+                        status: .inProgress
+                    ))],
+                    status: .working(since: 1)
+                )])
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+
+        let item = try #require(snapshot.itemsByID.values.first {
+            $0.workRow?.isInlineActivity == true
+        })
+        #expect(item.workRow?.hasDetail == false)
+        #expect(item.workRow?.showsDisclosure == false)
+        #expect(item.action == nil)
+    }
+
+    @Test func inlineActivityWithDetailsExpandsInline() async throws {
+        let activity = CodexInlineActivityV2(
+            id: "research",
+            label: "Drafting three lessons",
+            systemImage: "book.pages",
+            detail: "◌ Map the first musical win\n○ Draft the checkpoints",
+            status: .inProgress
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.inlineActivity(activity)],
+            status: .working(since: 1)
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+
+        let collapsed = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn])
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let collapsedItem = try #require(collapsed.itemsByID.values.first {
+            $0.workRow?.isInlineActivity == true
+        })
+        #expect(collapsedItem.workRow?.hasDetail == true)
+        #expect(collapsedItem.workRow?.showsDisclosure == true)
+        #expect(collapsedItem.action == .toggleRow(
+            rowID: "turn:inline-activity:research"
+        ))
+
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 860,
+            height: collapsedItem.measuredHeight
+        )
+        cell.configure(
+            item: collapsedItem,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        #expect(cell.chipIsActionableForTesting)
+
+        let expanded = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedRowIDs: ["turn:inline-activity:research"]
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        #expect(expanded.itemsByID.values.contains {
+            $0.copyText == activity.detail && $0.textRole == .notice
+        })
+    }
+
     @Test func singleLineAssistantRepliesFitTheirNativeTextLayout() async throws {
         let replies = [
             "Hello world! 👋",

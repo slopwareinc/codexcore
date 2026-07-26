@@ -646,27 +646,59 @@ actor CodexTranscriptRenderProjector {
                         ))
                     case .inlineActivity(let activity):
                         if tailMode, activity.status != .inProgress { continue }
+                        let detail = activity.detail?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .codexAppKitNilIfEmpty
+                        let rowID = "\(turn.id):inline-activity:\(activity.id)"
+                        let isExpanded = presentation.expandedRowIDs.contains(rowID)
                         let rowRender = CodexTranscriptWorkRowRender(
                             kind: .other,
                             label: activity.label,
                             status: activity.status,
                             systemImage: activity.systemImage,
                             isInlineActivity: true,
+                            showsDisclosure: detail != nil,
                             durationMs: nil,
-                            isExpanded: false,
-                            hasDetail: false,
+                            isExpanded: isExpanded,
+                            hasDetail: detail != nil,
                             isSubagentLink: false,
-                            isActionable: false
+                            isActionable: detail != nil
                         )
                         append(ItemDraft(
                             id: "\(sectionID):inline-activity:\(activity.id)",
                             fingerprint: "inline-activity:\(String(describing: activity))",
                             workRow: rowRender,
-                            accessibilityLabel: Self.inlineActivityAccessibilityLabel(activity),
+                            action: detail == nil ? nil : .toggleRow(rowID: rowID),
+                            copyText: detail,
+                            accessibilityLabel: Self.inlineActivityAccessibilityLabel(
+                                activity,
+                                isExpanded: isExpanded
+                            ),
                             maxWidthKind: .card,
                             fixedHeight: 30,
-                            bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                            bottomSpacing: isExpanded
+                                ? 2
+                                : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
+                        if isExpanded, let detail {
+                            let bounded = Self.bounded(detail, limit: 20_000)
+                            append(ItemDraft(
+                                id: "\(sectionID):inline-activity:\(activity.id):detail",
+                                fingerprint: "inline-activity-detail:\(bounded)",
+                                textRole: .notice,
+                                preparedText: Self.preparePlain(
+                                    bounded,
+                                    font: theme.bodyFont,
+                                    color: theme.textSecondary,
+                                    theme: theme
+                                ),
+                                copyText: detail,
+                                accessibilityLabel: "Activity details: \(bounded)",
+                                indentation: 22,
+                                maxWidthKind: .card,
+                                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                            ))
+                        }
                     case .notice(let notice):
                         if tailMode { continue }
                         append(ItemDraft(
@@ -1873,13 +1905,21 @@ private extension CodexTranscriptRenderProjector {
         return "\(render.label), \(state)"
     }
 
-    static func inlineActivityAccessibilityLabel(_ activity: CodexInlineActivityV2) -> String {
+    static func inlineActivityAccessibilityLabel(
+        _ activity: CodexInlineActivityV2,
+        isExpanded: Bool = false
+    ) -> String {
         let state = switch activity.status {
         case .inProgress: "in progress"
         case .completed: "completed"
         case .failed: "failed"
         }
-        return "\(activity.label), \(state)"
+        let disclosure = activity.detail?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+            ? ", \(isExpanded ? "details shown" : "details hidden")"
+            : ""
+        return "\(activity.label), \(state)\(disclosure)"
     }
 
     static func bounded(_ text: String, limit: Int) -> String {

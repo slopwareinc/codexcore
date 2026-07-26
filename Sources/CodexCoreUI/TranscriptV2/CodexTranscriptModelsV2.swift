@@ -260,17 +260,21 @@ public struct CodexInlineActivityV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var label: String
     public var systemImage: String?
+    /// Optional learner-facing detail revealed from the compact activity row.
+    public var detail: String?
     public var status: CodexWorkItemStatusV2
 
     public init(
         id: String,
         label: String,
         systemImage: String? = nil,
+        detail: String? = nil,
         status: CodexWorkItemStatusV2
     ) {
         self.id = id
         self.label = label
         self.systemImage = systemImage
+        self.detail = detail
         self.status = status
     }
 }

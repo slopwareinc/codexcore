@@ -87,6 +87,12 @@ Use `context.status` unless the product owns a stronger lifecycle:
 - `.completed` and `.failed` are static;
 - an in-progress activity is finalized automatically when its turn terminates.
 
+Set `detail` when the compact semantic row has useful learner-facing context
+behind it. The row then receives a disclosure affordance and expands inline.
+Omit `detail` for a label-only activity; label-only activities never display a
+dead chevron. Detail should explain domain progress, not dump protocol payloads
+or duplicate the transcript.
+
 The activity ID is scoped by transcript turn. Include a domain identifier only
 when one turn can contain multiple concurrent activities.
 
