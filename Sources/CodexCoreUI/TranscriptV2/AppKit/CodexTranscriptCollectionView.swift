@@ -707,7 +707,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 isPinnedToBottom: pinned
             )
             updateJumpButton()
-            updateTurnMinimapActiveState()
+            updateTurnMinimapVisibleState()
         }
 
         private func rebuildTurnMinimap() {
@@ -742,27 +742,23 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             turnMinimapTargetYByTurnID = targetYByTurnID
             container.configureTurnMinimap(
                 entries: entries,
-                activeTurnID: activeTurnMinimapTurnID(),
+                visibleTurnIDs: visibleTurnMinimapTurnIDs(),
                 theme: theme
             )
         }
 
-        private func activeTurnMinimapTurnID() -> String? {
-            guard let container else { return nil }
-            let viewportAnchor = container.scrollView.contentView.bounds.origin.y
-                + max(
-                    0,
-                    container.scrollView.contentView.bounds.height
-                        - container.scrollView.contentInsets.top
-                        - container.scrollView.contentInsets.bottom
-                ) * 0.28
-            return turnMinimapEntries.last(where: {
-                (turnMinimapTargetYByTurnID[$0.turnID] ?? 0) <= viewportAnchor
-            })?.turnID ?? turnMinimapEntries.first?.turnID
+        private func visibleTurnMinimapTurnIDs() -> Set<String> {
+            guard let container, let snapshot = currentSnapshot else { return [] }
+            return CodexTranscriptTurnVisibilityProjection.visibleTurnIDs(
+                entries: turnMinimapEntries,
+                targetYByTurnID: turnMinimapTargetYByTurnID,
+                contentHeight: projectedContentHeight(snapshot),
+                viewport: container.scrollView.documentVisibleRect
+            )
         }
 
-        private func updateTurnMinimapActiveState() {
-            container?.setTurnMinimapActiveTurn(activeTurnMinimapTurnID())
+        private func updateTurnMinimapVisibleState() {
+            container?.setTurnMinimapVisibleTurns(visibleTurnMinimapTurnIDs())
         }
 
         private func jumpToTurn(_ entry: CodexTranscriptTurnMinimapEntry) {
@@ -786,7 +782,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             )
             container.showTurnPreview(nil, beside: nil)
             updateJumpButton()
-            updateTurnMinimapActiveState()
+            updateTurnMinimapVisibleState()
         }
 
         private func restoreScroll(
@@ -804,6 +800,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 self.setScrollOrigin(for: presentation, in: container, contentHeight: contentHeight)
                 self.isRestoringScroll = false
                 self.updateJumpButton()
+                self.updateTurnMinimapVisibleState()
             }
         }
 
@@ -848,7 +845,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 )
             }
             updateJumpButton()
-            updateTurnMinimapActiveState()
+            updateTurnMinimapVisibleState()
         }
 
         private func bottomOffset(contentHeight projectedContentHeight: CGFloat? = nil) -> CGFloat {
@@ -1046,13 +1043,13 @@ final class CodexTranscriptCollectionContainerView: NSView {
 
     func configureTurnMinimap(
         entries: [CodexTranscriptTurnMinimapEntry],
-        activeTurnID: String?,
+        visibleTurnIDs: Set<String>,
         theme: CodexTranscriptAppKitTheme
     ) {
         turnMinimapTheme = theme
         turnMinimap.configure(
             entries: entries,
-            activeTurnID: activeTurnID,
+            visibleTurnIDs: visibleTurnIDs,
             theme: theme
         )
         setTurnMinimapVisible(true)
@@ -1068,8 +1065,8 @@ final class CodexTranscriptCollectionContainerView: NSView {
         }
     }
 
-    func setTurnMinimapActiveTurn(_ turnID: String?) {
-        turnMinimap.setActiveTurnID(turnID)
+    func setTurnMinimapVisibleTurns(_ turnIDs: Set<String>) {
+        turnMinimap.setVisibleTurnIDs(turnIDs)
     }
 
     func showTurnPreview(

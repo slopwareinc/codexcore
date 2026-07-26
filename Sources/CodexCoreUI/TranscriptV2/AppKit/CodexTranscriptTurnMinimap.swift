@@ -84,11 +84,40 @@ enum CodexTranscriptTurnMinimapProjection {
     }
 }
 
+enum CodexTranscriptTurnVisibilityProjection {
+    static func visibleTurnIDs(
+        entries: [CodexTranscriptTurnMinimapEntry],
+        targetYByTurnID: [String: CGFloat],
+        contentHeight: CGFloat,
+        viewport: NSRect
+    ) -> Set<String> {
+        let visibleMinY = max(0, viewport.minY)
+        let visibleMaxY = min(contentHeight, viewport.maxY)
+        guard visibleMaxY > visibleMinY else { return [] }
+
+        var result: Set<String> = []
+        for (index, entry) in entries.enumerated() {
+            guard let turnMinY = targetYByTurnID[entry.turnID] else { continue }
+            let turnMaxY: CGFloat
+            if entries.indices.contains(index + 1),
+               let nextMinY = targetYByTurnID[entries[index + 1].turnID] {
+                turnMaxY = nextMinY
+            } else {
+                turnMaxY = contentHeight
+            }
+            if turnMinY < visibleMaxY, turnMaxY > visibleMinY {
+                result.insert(entry.turnID)
+            }
+        }
+        return result
+    }
+}
+
 @MainActor
 final class CodexTranscriptTurnMinimapView: NSView {
     private var controlsByTurnID: [String: CodexTranscriptTurnMarkerControl] = [:]
     private var entries: [CodexTranscriptTurnMinimapEntry] = []
-    private var activeTurnID: String?
+    private var visibleTurnIDs: Set<String> = []
     private var hoveredTurnID: String?
 
     var onSelect: ((CodexTranscriptTurnMinimapEntry) -> Void)?
@@ -98,11 +127,11 @@ final class CodexTranscriptTurnMinimapView: NSView {
 
     func configure(
         entries: [CodexTranscriptTurnMinimapEntry],
-        activeTurnID: String?,
+        visibleTurnIDs: Set<String>,
         theme: CodexTranscriptAppKitTheme
     ) {
         self.entries = entries
-        self.activeTurnID = activeTurnID
+        self.visibleTurnIDs = visibleTurnIDs
 
         let liveTurnIDs = Set(entries.map(\.turnID))
         let staleTurnIDs = controlsByTurnID.keys.filter { !liveTurnIDs.contains($0) }
@@ -112,9 +141,9 @@ final class CodexTranscriptTurnMinimapView: NSView {
         for entry in entries {
             let control = controlsByTurnID[entry.turnID] ?? makeControl(for: entry)
             control.entry = entry
-            control.isCurrent = entry.turnID == activeTurnID
+            control.isVisible = visibleTurnIDs.contains(entry.turnID)
             control.markerColor = theme.textTertiary
-            control.activeColor = theme.textSecondary
+            control.activeColor = theme.textPrimary
             control.setAccessibilityLabel("Jump to turn: \(entry.title)")
             control.setAccessibilityHelp(entry.detail)
             control.setAccessibilityIdentifier("transcript-turn-marker-\(entry.turnID)")
@@ -126,11 +155,13 @@ final class CodexTranscriptTurnMinimapView: NSView {
         needsLayout = true
     }
 
-    func setActiveTurnID(_ turnID: String?) {
-        guard activeTurnID != turnID else { return }
-        if let activeTurnID { controlsByTurnID[activeTurnID]?.isCurrent = false }
-        activeTurnID = turnID
-        if let turnID { controlsByTurnID[turnID]?.isCurrent = true }
+    func setVisibleTurnIDs(_ turnIDs: Set<String>) {
+        guard visibleTurnIDs != turnIDs else { return }
+        let changedTurnIDs = visibleTurnIDs.symmetricDifference(turnIDs)
+        visibleTurnIDs = turnIDs
+        for turnID in changedTurnIDs {
+            controlsByTurnID[turnID]?.isVisible = turnIDs.contains(turnID)
+        }
     }
 
     override func layout() {
@@ -175,8 +206,14 @@ final class CodexTranscriptTurnMinimapView: NSView {
     }
 
     var entriesForTesting: [CodexTranscriptTurnMinimapEntry] { entries }
-    var activeTurnIDForTesting: String? { activeTurnID }
+    var visibleTurnIDsForTesting: Set<String> { visibleTurnIDs }
     func markerForTesting(turnID: String) -> NSView? { controlsByTurnID[turnID] }
+    func markerIsVisibleForTesting(turnID: String) -> Bool? {
+        controlsByTurnID[turnID]?.isVisible
+    }
+    func markerLineWidthForTesting(turnID: String) -> CGFloat? {
+        controlsByTurnID[turnID]?.lineWidth
+    }
     func hoverMountInfluenceForTesting(turnID: String) -> CGFloat? {
         controlsByTurnID[turnID]?.hoverMountInfluence
     }
@@ -227,7 +264,7 @@ private final class CodexTranscriptTurnMarkerControl: NSControl {
     )
     var markerColor = NSColor.tertiaryLabelColor { didSet { needsDisplay = true } }
     var activeColor = NSColor.secondaryLabelColor { didSet { needsDisplay = true } }
-    var isCurrent = false { didSet { needsDisplay = true } }
+    var isVisible = false { didSet { needsDisplay = true } }
     var hoverMountInfluence: CGFloat = 0 { didSet { needsDisplay = true } }
     var lineCenterY: CGFloat = 0 { didSet { needsDisplay = true } }
     var onHover: ((Bool) -> Void)?
@@ -259,20 +296,23 @@ private final class CodexTranscriptTurnMarkerControl: NSControl {
         sendAction(action, to: target)
     }
 
+    var lineWidth: CGFloat {
+        10 + (20 * hoverMountInfluence)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let currentInfluence: CGFloat = isCurrent ? 0.9 : 0
-        let visualInfluence = max(hoverMountInfluence, currentInfluence)
-        let width = 10 + (20 * visualInfluence)
-        let lineHeight = 2 + (0.7 * visualInfluence)
+        let lineHeight = 2 + (0.7 * hoverMountInfluence)
         let line = NSRect(
             x: 0,
             y: lineCenterY - lineHeight / 2,
-            width: min(width, bounds.width),
+            width: min(lineWidth, bounds.width),
             height: lineHeight
         )
-        (visualInfluence > 0 ? activeColor : markerColor)
-            .withAlphaComponent(0.42 + (0.53 * visualInfluence))
+        (isVisible || hoverMountInfluence > 0 ? activeColor : markerColor)
+            .withAlphaComponent(
+                isVisible ? 0.96 : 0.42 + (0.42 * hoverMountInfluence)
+            )
             .setFill()
         NSBezierPath(
             roundedRect: line,

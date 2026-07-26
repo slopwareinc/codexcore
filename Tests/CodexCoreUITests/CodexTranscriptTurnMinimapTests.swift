@@ -100,6 +100,13 @@ struct CodexTranscriptTurnMinimapTests {
         #expect(abs(marker.frame.minY - previousMarker.frame.minY - 11) < 1)
         #expect(marker.accessibilityLabel() == "Jump to turn: Question 8")
 
+        let initiallyVisibleTurnIDs = container.turnMinimap.visibleTurnIDsForTesting
+        #expect(!initiallyVisibleTurnIDs.isEmpty)
+        for turnID in initiallyVisibleTurnIDs {
+            #expect(container.turnMinimap.markerIsVisibleForTesting(turnID: turnID) == true)
+            #expect(container.turnMinimap.markerLineWidthForTesting(turnID: turnID) == 10)
+        }
+
         container.turnMinimap.setHoveredTurnIDForTesting("turn-6")
         let hoveredInfluence = try #require(
             container.turnMinimap.hoverMountInfluenceForTesting(turnID: "turn-6")
@@ -117,6 +124,13 @@ struct CodexTranscriptTurnMinimapTests {
             container.turnMinimap.hoverMountInfluenceForTesting(turnID: "turn-7")
                 == adjacentInfluence
         )
+        let hoveredWidth = try #require(
+            container.turnMinimap.markerLineWidthForTesting(turnID: "turn-6")
+        )
+        let adjacentWidth = try #require(
+            container.turnMinimap.markerLineWidthForTesting(turnID: "turn-5")
+        )
+        #expect(hoveredWidth > adjacentWidth)
 
         let originalOffset = container.scrollView.contentView.bounds.origin.y
         let markerCenterInWindow = marker.convert(
@@ -142,7 +156,8 @@ struct CodexTranscriptTurnMinimapTests {
         #expect(clickedOffset > originalOffset + 100)
         await Task.yield()
         #expect(abs(container.scrollView.contentView.bounds.origin.y - clickedOffset) < 1)
-        #expect(container.turnMinimap.activeTurnIDForTesting != "turn-0")
+        #expect(container.turnMinimap.visibleTurnIDsForTesting.contains("turn-8"))
+        #expect(container.turnMinimap.visibleTurnIDsForTesting != initiallyVisibleTurnIDs)
 
         let entry = try #require(
             container.turnMinimap.entriesForTesting.first { $0.turnID == "turn-8" }
@@ -155,6 +170,30 @@ struct CodexTranscriptTurnMinimapTests {
             #expect(container.turnPreview.usesNativeLiquidGlassForTesting)
         }
         coordinator.detach()
+    }
+
+    @Test func visibilityProjectionIncludesEveryTurnIntersectingTheViewport() {
+        let entries = (0..<4).map { index in
+            CodexTranscriptTurnMinimapEntry(
+                turnID: "turn-\(index)",
+                targetItemID: .init(rawValue: "item-\(index)"),
+                title: "Turn \(index)",
+                detail: ""
+            )
+        }
+        let visible = CodexTranscriptTurnVisibilityProjection.visibleTurnIDs(
+            entries: entries,
+            targetYByTurnID: [
+                "turn-0": 0,
+                "turn-1": 100,
+                "turn-2": 200,
+                "turn-3": 300,
+            ],
+            contentHeight: 400,
+            viewport: NSRect(x: 0, y: 75, width: 800, height: 175)
+        )
+
+        #expect(visible == ["turn-0", "turn-1", "turn-2"])
     }
 
     @Test func shortTranscriptKeepsTurnNavigatorHidden() async {
