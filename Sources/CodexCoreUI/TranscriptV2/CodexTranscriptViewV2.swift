@@ -1,6 +1,38 @@
 import SwiftUI
 import CodexCore
 
+struct CodexTranscriptEmptyStateLayout: Equatable, Sendable {
+    var viewportWidth: CGFloat
+    var contentWidth: CGFloat
+    var horizontalOffset: CGFloat
+
+    init(
+        viewportWidth: CGFloat,
+        requestedHorizontalOffset: CGFloat,
+        horizontalPadding: CGFloat,
+        maximumContentWidth: CGFloat
+    ) {
+        self.viewportWidth = max(0, viewportWidth)
+        let padding = max(0, horizontalPadding)
+        let availableWidth = max(0, self.viewportWidth - padding * 2)
+        contentWidth = min(availableWidth, max(0, maximumContentWidth))
+        let maximumOffset = max(0, (self.viewportWidth - contentWidth) / 2 - padding)
+        horizontalOffset = min(
+            max(requestedHorizontalOffset, -maximumOffset),
+            maximumOffset
+        )
+    }
+
+    var contentFrame: CGRect {
+        CGRect(
+            x: (viewportWidth - contentWidth) / 2 + horizontalOffset,
+            y: 0,
+            width: contentWidth,
+            height: 1
+        )
+    }
+}
+
 /// Host hook for product-specific dynamic tool-call presentation.
 public struct CodexProductToolRendererV2 {
     private let body: @MainActor (CodexProductToolCallV2) -> AnyView?
@@ -15,6 +47,8 @@ public struct CodexProductToolRendererV2 {
 
 /// A turn-centric transcript with automatic bottom anchoring.
 public struct CodexTranscriptViewV2<EmptyState: View>: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     private let transcript: CodexTranscriptV2
     private let threadID: String
     private let presentationStore: CodexPresentationStore?
@@ -130,12 +164,22 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
             .accessibilityHidden(isEmpty)
 
             if isEmpty {
-                emptyState
-                    .padding(.horizontal, 28)
-                    .padding(.top, 58)
-                    .padding(.bottom, 150)
-                    .frame(maxWidth: .infinity, minHeight: 420, alignment: .center)
-                    .offset(x: contentHorizontalOffset)
+                GeometryReader { proxy in
+                    let layout = CodexTranscriptEmptyStateLayout(
+                        viewportWidth: proxy.size.width,
+                        requestedHorizontalOffset: contentHorizontalOffset,
+                        horizontalPadding: 28,
+                        maximumContentWidth: theme.spacing.transcriptMaxWidth
+                    )
+                    emptyState
+                        .frame(width: layout.contentWidth)
+                        .frame(maxHeight: .infinity)
+                        .clipped()
+                        .padding(.top, 58)
+                        .padding(.bottom, 150)
+                        .frame(maxWidth: .infinity, minHeight: 420, alignment: .center)
+                        .offset(x: layout.horizontalOffset)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
