@@ -28,6 +28,24 @@ struct CodexSidebarHoverPerformanceTests {
         #expect(view.contentHostIdentityForTesting == contentIdentity)
     }
 
+    @Test func selectedRowsKeepActionsHiddenUntilHovered() {
+        let view = SidebarChatRowContainerView(
+            frame: NSRect(x: 0, y: 0, width: 260, height: 31)
+        )
+        view.configure(
+            content: AnyView(Text("Selected task")),
+            actions: AnyView(Text("Actions")),
+            isSelected: true,
+            baseColor: .black,
+            selectedColor: .darkGray,
+            hoverColor: .gray
+        )
+
+        #expect(!view.actionControlsAreVisibleForTesting)
+        view.setHoveredForTesting(true)
+        #expect(view.actionControlsAreVisibleForTesting)
+    }
+
     @Test func hiddenSidebarOverlayDismissesOnlyAfterPointerLeavesItsRevealRegion() async throws {
         let session = CodexSidebarOverlaySession(dismissalDelay: .milliseconds(30))
 

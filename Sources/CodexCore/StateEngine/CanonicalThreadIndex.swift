@@ -4,7 +4,8 @@ import Foundation
 ///
 /// It intentionally contains no turns or items. `latestTurnStatus` preserves a
 /// terminal failure after the thread itself returns to idle, while
-/// `attentionRevision` lets UI-local last-seen state derive unread attention.
+/// `latestLiveAgentMessageRevision` lets UI-local read state react only to a
+/// newly completed assistant message received during the current session.
 public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
     public let id: ThreadID
     public let order: Int
@@ -23,6 +24,7 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
     public let updatedAt: ProtocolSeconds?
     public let lastChangedRevision: StateRevision
     public let attentionRevision: StateRevision
+    public let latestLiveAgentMessageRevision: StateRevision
     public let hasPendingServerRequest: Bool
 
     public init(
@@ -43,6 +45,7 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
         updatedAt: ProtocolSeconds?,
         lastChangedRevision: StateRevision,
         attentionRevision: StateRevision,
+        latestLiveAgentMessageRevision: StateRevision = .zero,
         hasPendingServerRequest: Bool
     ) {
         self.id = id
@@ -62,6 +65,7 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
         self.updatedAt = updatedAt
         self.lastChangedRevision = lastChangedRevision
         self.attentionRevision = attentionRevision
+        self.latestLiveAgentMessageRevision = latestLiveAgentMessageRevision
         self.hasPendingServerRequest = hasPendingServerRequest
     }
 }
@@ -115,6 +119,7 @@ public struct CanonicalThreadIndexSnapshot: Sendable, Equatable {
 extension CanonicalStateGraph {
     func threadIndexSnapshot(
         attentionRevisions: [ThreadID: StateRevision],
+        liveAgentMessageRevisions: [ThreadID: StateRevision] = [:],
         pendingRequestThreadIDs: Set<ThreadID>
     ) -> CanonicalThreadIndexSnapshot {
         var seen = Set<ThreadID>()
@@ -154,6 +159,7 @@ extension CanonicalStateGraph {
                 updatedAt: thread.metadata.updatedAt,
                 lastChangedRevision: thread.lastChangedRevision,
                 attentionRevision: attentionRevisions[threadID] ?? thread.lastChangedRevision,
+                latestLiveAgentMessageRevision: liveAgentMessageRevisions[threadID] ?? .zero,
                 hasPendingServerRequest: pendingRequestThreadIDs.contains(threadID)
             )
         }

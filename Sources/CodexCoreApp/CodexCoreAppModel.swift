@@ -76,8 +76,10 @@ final class CodexCoreAppModel {
     private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
     private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
     private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
-    private var lastSeenAttentionRevisionByThreadID: [ThreadID: StateRevision] = [:]
-    private var hasSeededThreadIndex = false
+    private var unreadState: CodexThreadUnreadState
+    private var isApplicationActive = false
+    private var isMainWindowKey = false
+    private var isConversationViewVisible = false
     private(set) var goalPursuitEnabled = false
     private var loginTask: Task<Void, Never>?
     var threadListSession = CodexThreadListSession(currentWorkspacePath: defaultWorkspacePath())
@@ -129,6 +131,9 @@ final class CodexCoreAppModel {
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
         self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
+        self.unreadState = CodexThreadUnreadState(
+            unreadThreadIDs: CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)
+        )
         self.projectlessThreadIDs = CodexProjectlessThreadStorage.load(from: preferenceStore)
         self.projectSourceFoldersByPrimaryPath = CodexProjectSourceFoldersStorage.load(from: preferenceStore)
         self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
@@ -252,8 +257,7 @@ final class CodexCoreAppModel {
         selectedThreadSessionSnapshot = nil
         canonicalThreadIndexSnapshot = nil
         canonicalThreadStatusEntries.removeAll(keepingCapacity: false)
-        lastSeenAttentionRevisionByThreadID.removeAll(keepingCapacity: false)
-        hasSeededThreadIndex = false
+        unreadState.resetObservationBaseline()
         workspacePanel.removeAll()
         accountRateLimitsSnapshot = nil
         accountPreferredDisplayName = nil
@@ -818,9 +822,7 @@ final class CodexCoreAppModel {
         selectedThreadSessionSnapshot = nil
         goalPursuitEnabled = false
         runtimeSession.selectThread(lease.id.rawValue)
-        if let summary = canonicalThreadIndexSnapshot?.summary(for: lease.id) {
-            lastSeenAttentionRevisionByThreadID[lease.id] = summary.attentionRevision
-        }
+        clearSelectedThreadUnreadIfFocused()
         syncComposerThreadID()
         if let codex {
             startCurrentThreadObservation(session: codex.session, threadID: lease.id)
@@ -986,21 +988,22 @@ final class CodexCoreAppModel {
 
     private func applyThreadIndexSnapshot(_ snapshot: CanonicalThreadIndexSnapshot) {
         canonicalThreadIndexSnapshot = snapshot
-        if !hasSeededThreadIndex {
-            for summary in snapshot.threads {
-                lastSeenAttentionRevisionByThreadID[summary.id] = summary.attentionRevision
-            }
-            hasSeededThreadIndex = true
+        let previousUnreadThreadIDs = unreadState.unreadThreadIDs
+        unreadState.apply(snapshot)
+        clearSelectedThreadUnreadIfFocused(persists: false)
+        if unreadState.unreadThreadIDs != previousUnreadThreadIDs {
+            persistUnreadState()
         }
+        rebuildCanonicalThreadStatusEntries(from: snapshot)
+    }
 
+    private func rebuildCanonicalThreadStatusEntries(
+        from snapshot: CanonicalThreadIndexSnapshot? = nil
+    ) {
+        guard let snapshot = snapshot ?? canonicalThreadIndexSnapshot else { return }
         var entries: [String: CodexThreadStatusEntry] = [:]
         entries.reserveCapacity(snapshot.threads.count)
         for summary in snapshot.threads {
-            let isSelected = summary.id.rawValue == selectedThreadID
-            if isSelected {
-                lastSeenAttentionRevisionByThreadID[summary.id] = summary.attentionRevision
-            }
-            let lastSeen = lastSeenAttentionRevisionByThreadID[summary.id] ?? .zero
             let status: CodexThreadLiveStatus
             if summary.status.isActive || summary.latestTurnStatus == .inProgress {
                 status = .running
@@ -1011,7 +1014,7 @@ final class CodexCoreAppModel {
             }
             entries[summary.id.rawValue] = .init(
                 status: status,
-                hasUnreadWhileInactive: !isSelected && lastSeen < summary.attentionRevision,
+                hasUnreadWhileInactive: unreadState.isUnread(summary.id),
                 lastEventAt: Date()
             )
         }
@@ -1044,8 +1047,63 @@ final class CodexCoreAppModel {
         }
         canonicalThreadStatusEntries[threadID] = CodexThreadStatusEntry(
             status: liveStatus,
-            hasUnreadWhileInactive: false,
+            hasUnreadWhileInactive: unreadState.isUnread(id),
             lastEventAt: Date()
+        )
+    }
+
+    func setApplicationActive(_ isActive: Bool) {
+        isApplicationActive = isActive
+        if isActive {
+            reloadPersistedUnreadState()
+        }
+        clearSelectedThreadUnreadIfFocused()
+    }
+
+    func setMainWindowKey(_ isKey: Bool) {
+        isMainWindowKey = isKey
+        clearSelectedThreadUnreadIfFocused()
+    }
+
+    func setConversationViewVisible(_ isVisible: Bool) {
+        isConversationViewVisible = isVisible
+        clearSelectedThreadUnreadIfFocused()
+    }
+
+    private var isSelectedConversationFocused: Bool {
+        isApplicationActive && isMainWindowKey && isConversationViewVisible
+    }
+
+    private func reloadPersistedUnreadState() {
+        let persisted = CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)
+        guard unreadState.replaceUnreadThreadIDs(persisted) else { return }
+        rebuildCanonicalThreadStatusEntries()
+    }
+
+    private func clearSelectedThreadUnreadIfFocused(persists: Bool = true) {
+        let threadID = selectedThreadID.map { ThreadID($0) }
+        guard unreadState.markReadIfFocused(
+            threadID,
+            isConversationFocused: isSelectedConversationFocused
+        ) else { return }
+        if persists {
+            persistUnreadState()
+        }
+        rebuildCanonicalThreadStatusEntries()
+    }
+
+    private func markThreadReadIfFocused(_ threadID: ThreadID) {
+        guard isSelectedConversationFocused,
+              unreadState.setUnread(false, for: threadID)
+        else { return }
+        persistUnreadState()
+        rebuildCanonicalThreadStatusEntries()
+    }
+
+    private func persistUnreadState() {
+        CodexUnreadThreadStorage.saveUnreadThreadIDs(
+            unreadState.unreadThreadIDs,
+            to: preferenceStore
         )
     }
 
@@ -1350,6 +1408,7 @@ final class CodexCoreAppModel {
     }
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
+        markThreadReadIfFocused(ThreadID(chat.id))
         if projectlessThreadIDs.contains(chat.id) {
             isProjectlessDraft = true
             projectlessDraftPaths = CodexProjectlessThreadPaths(resumingCWD: chat.workspacePath)
@@ -1869,6 +1928,7 @@ final class CodexCoreAppModel {
     }
 
     func resumeSearchResult(_ result: CodexThreadSearchResult) async {
+        markThreadReadIfFocused(ThreadID(result.thread.id))
         if projectlessThreadIDs.contains(result.thread.id) {
             isProjectlessDraft = true
             projectlessDraftPaths = CodexProjectlessThreadPaths(
@@ -2415,11 +2475,23 @@ final class CodexCoreAppModel {
     }
 
     var workspaceSummaryContext: CodexWorkspaceSummaryContext {
-        CodexWorkspaceSummaryContext(
+        var seenSourceIDs: Set<String> = []
+        let transcriptSources = transcriptV2.turns.flatMap { turn in
+            let messages = [turn.userMessage].compactMap { $0 } + turn.steeredMessages
+            return messages.flatMap(\.referencedFiles)
+        }
+        let sourceFiles = (transcriptSources + referencedFiles)
+            .reversed()
+            .filter { seenSourceIDs.insert($0.id).inserted }
+            .prefix(12)
+            .reversed()
+
+        return CodexWorkspaceSummaryContext(
             workspacePath: workspacePath,
             gitBranch: gitBranch,
             turnDiff: currentDiff,
-            environmentInfo: environmentInfoState
+            environmentInfo: environmentInfoState,
+            sourceFiles: Array(sourceFiles)
         )
     }
 

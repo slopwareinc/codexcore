@@ -5,17 +5,20 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
     public var gitBranch: String?
     public var turnDiff: String?
     public var environmentInfo: CodexEnvironmentInfoState
+    public var sourceFiles: [CodexReferencedFile]
 
     public init(
         workspacePath: String,
         gitBranch: String? = nil,
         turnDiff: String? = nil,
-        environmentInfo: CodexEnvironmentInfoState = .unavailable
+        environmentInfo: CodexEnvironmentInfoState = .unavailable,
+        sourceFiles: [CodexReferencedFile] = []
     ) {
         self.workspacePath = workspacePath
         self.gitBranch = gitBranch
         self.turnDiff = turnDiff
         self.environmentInfo = environmentInfo
+        self.sourceFiles = sourceFiles
     }
 
     public var workspaceLine: String {
@@ -24,6 +27,10 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
             return "\(folder) · \(gitBranch)"
         }
         return workspacePath
+    }
+
+    public var environmentModeTitle: String {
+        workspacePath.contains("/.codex/worktrees/") ? "Worktree" : "Local"
     }
 
     public var diffStatsLine: String? {

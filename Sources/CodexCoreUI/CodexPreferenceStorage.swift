@@ -1,3 +1,4 @@
+import CodexCore
 import Foundation
 
 // Reusable persistence codecs over the injected `CodexStringListPreferenceStore`.
@@ -33,6 +34,35 @@ public enum CodexPinnedThreadStorage {
             }
         }
         return result
+    }
+}
+
+public enum CodexUnreadThreadStorage {
+    private static let unreadThreadStorageKey = "CodexCoreApp.unreadAgentMessageThreadIDs.v2"
+
+    public static func loadUnreadThreadIDs(
+        from store: any CodexStringListPreferenceStore
+    ) -> Set<ThreadID> {
+        Set(normalized(store.loadStrings(forKey: unreadThreadStorageKey)).map { ThreadID($0) })
+    }
+
+    public static func saveUnreadThreadIDs(
+        _ ids: Set<ThreadID>,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings(
+            normalized(ids.map(\.rawValue)).sorted(),
+            forKey: unreadThreadStorageKey
+        )
+    }
+
+    private static func normalized(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        return ids.compactMap { id in
+            let normalized = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
     }
 }
 
@@ -111,15 +141,22 @@ public enum CodexNewThreadHistoryModeStorage {
 public enum CodexSidebarFontSizeStorage {
     public static let defaultFontSize = CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize
     public static let fontSizeRange = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
-    private static let sidebarFontSizeKey = "CodexCoreApp.sidebarFontSize.v2"
+    private static let sidebarFontSizeKey = "CodexCoreApp.sidebarFontSize.v3"
+    private static let legacySidebarFontSizeKey = "CodexCoreApp.sidebarFontSize.v2"
+    private static let legacyFontSizeIncrease: Double = 2
 
     public static func loadSidebarFontSize(from store: any CodexStringListPreferenceStore) -> Double {
-        guard let stored = store.loadStrings(forKey: sidebarFontSizeKey).first,
-              let value = Double(stored)
-        else {
-            return defaultFontSize
+        if let stored = store.loadStrings(forKey: sidebarFontSizeKey).first,
+           let value = Double(stored) {
+            return clamped(value)
         }
-        return clamped(value)
+
+        if let stored = store.loadStrings(forKey: legacySidebarFontSizeKey).first,
+           let value = Double(stored) {
+            return clamped(value + legacyFontSizeIncrease)
+        }
+
+        return defaultFontSize
     }
 
     public static func saveSidebarFontSize(

@@ -30,72 +30,77 @@ public struct CodexFloatingSummaryPanel: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
+        VStack(alignment: .leading, spacing: 18) {
             if let workspaceSummary {
-                SummarySection(title: "Workspace") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(workspaceSummary.workspaceLine)
-                            .font(theme.fonts.caption)
-                            .foregroundStyle(theme.colors.textPrimary)
-                            .lineLimit(2)
-                        if let diffStatsLine = workspaceSummary.diffStatsLine {
-                            Text(diffStatsLine)
-                                .font(theme.fonts.caption)
-                                .foregroundStyle(theme.colors.textSecondary)
+                SummarySection(title: "Environment", showsAddButton: true) {
+                    if let gitReviewSession {
+                        SummaryRow(
+                            title: "Changes",
+                            systemImage: "plus.forwardslash.minus",
+                            trailing: AnyView(
+                                SummaryDiffStats(
+                                    added: gitReviewSession.commitStats.addedLines,
+                                    removed: gitReviewSession.commitStats.removedLines
+                                )
+                            )
+                        ) {
+                            onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-                }
 
-                SummarySection(title: "Environment") {
-                    CodexProjectEnvironmentPanel(
-                        environment: CodexProjectEnvironmentState(
-                            workspacePath: workspaceSummary.workspacePath,
-                            branchName: workspaceSummary.gitBranch,
-                            runtimeInfo: workspaceSummary.environmentInfo
-                        ),
-                        threadTitle: chatTitle,
-                        onCompletion: onEnvironmentHandoffCompletion
+                    SummaryRow(
+                        title: workspaceSummary.environmentModeTitle,
+                        systemImage: workspaceSummary.environmentModeTitle == "Worktree"
+                            ? "square.stack.3d.up"
+                            : "laptopcomputer",
+                        trailingSystemImage: "chevron.down"
                     )
-                }
-            }
 
-            SummarySection(title: "Outputs") {
-                Text("No artifacts yet")
+                    SummaryRow(
+                        title: workspaceSummary.gitBranch?.nilIfBlank ?? "No branch",
+                        systemImage: "arrow.triangle.branch",
+                        trailingSystemImage: "chevron.down"
+                    )
+
+                    if workspaceSummary.gitBranch?.nilIfBlank != nil {
+                        if let gitReviewSession {
+                            SummaryRow(title: "Commit or push", systemImage: "icloud.and.arrow.up") {
+                                onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+                            }
+                            SummaryRow(title: "Create pull request", systemImage: "arrow.triangle.pull") {
+                                onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+                            }
+                        } else {
+                            SummaryRow(title: "Commit or push", systemImage: "icloud.and.arrow.up")
+                            SummaryRow(title: "Create pull request", systemImage: "arrow.triangle.pull")
+                        }
+                    }
+
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: "folder")
+                            .frame(width: 22)
+                        Text(workspaceSummary.workspaceLine)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-            }
-
-            if let gitReviewSession {
-                SummarySection(title: "Changes") {
-                    SummaryRow(title: gitReviewSession.branchSummary.title, systemImage: "arrow.triangle.branch") {
-                        onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
-                    }
-                    Text(gitReviewSession.commitStats.summary)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .padding(.leading, 30)
+                    .padding(.top, 2)
                 }
             }
 
-            SummarySection(title: "Side chats") {
-                if let sideChat {
+            if let sideChat {
+                SummaryDivider()
+                SummarySection(title: "Side chats") {
                     SummaryRow(title: sideChat.title, systemImage: "rectangle.split.2x1") {
                         onSelectTab(sideChat.id)
                     }
-                } else {
-                    Text("No side chats yet")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .padding(.vertical, 4)
                 }
             }
 
             let visibleAgents = subagents.filter(\.isVisibleInFloatingSummary)
             if !visibleAgents.isEmpty {
+                SummaryDivider()
                 SummarySection(title: "Subagents") {
                     ForEach(visibleAgents) { subagent in
                         SummaryRow(title: subagent.floatingSummaryTitle, systemImage: subagent.floatingSummarySystemImage) {
@@ -105,76 +110,260 @@ public struct CodexFloatingSummaryPanel: View {
                 }
             }
 
-            SummarySection(title: "Sources") {
-                Text("No sources yet")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
+            SummaryDivider()
+            SummarySection(title: "Outputs", showsAddButton: true) {
+                SummaryEmptyRow(title: "No artifacts yet")
+            }
+
+            SummaryDivider()
+            SummarySection(title: "Sources", showsAddButton: true) {
+                if let sourceFiles = workspaceSummary?.sourceFiles, !sourceFiles.isEmpty {
+                    ForEach(sourceFiles.suffix(3)) { source in
+                        SummarySourceRow(source: source)
+                    }
+                    if sourceFiles.count > 3 {
+                        SummaryRow(
+                            title: "View all",
+                            systemImage: "point.3.connected.trianglepath.dotted"
+                        )
+                    }
+                } else {
+                    SummaryEmptyRow(title: "No sources yet")
+                }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 18)
         .frame(width: theme.spacing.summaryPanelWidth, alignment: .topLeading)
         .fixedSize(horizontal: true, vertical: false)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.panel, style: .continuous))
+        .codexGlass(
+            RoundedRectangle(cornerRadius: 22, style: .continuous),
+            tint: theme.colors.surface.opacity(0.54)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.52), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 24, y: 10)
     }
 }
 
 private struct SummarySection<Content: View>: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isExpanded = true
+    @State private var isHovered = false
 
     let title: String
+    let showsAddButton: Bool
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(
+        title: String,
+        showsAddButton: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
+        self.showsAddButton = showsAddButton
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Image(systemName: "chevron.down")
-                    .font(theme.fonts.caption)
-                Text(title)
-                    .font(theme.fonts.caption.weight(.semibold))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(theme.colors.textTertiary)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        Text(title)
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
 
-            content
-                .padding(.leading, 2)
+                Spacer(minLength: 0)
+
+                if showsAddButton {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .frame(width: 24, height: 24)
+                        .opacity(isHovered ? 1 : 0.72)
+                        .help("\(title) actions are not available yet")
+                }
+            }
+            .frame(height: 24)
+            .onHover { isHovered = $0 }
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 2) {
+                    content
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
 }
 
 private struct SummaryRow: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let title: String
     let systemImage: String
-    let action: () -> Void
+    let trailing: AnyView?
+    let trailingSystemImage: String?
+    let action: (() -> Void)?
+
+    init(
+        title: String,
+        systemImage: String,
+        trailing: AnyView? = nil,
+        trailingSystemImage: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.trailing = trailing
+        self.trailingSystemImage = trailingSystemImage
+        self.action = action
+    }
+
+    init(
+        title: String,
+        systemImage: String,
+        trailing: AnyView? = nil,
+        trailingSystemImage: String? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.init(
+            title: title,
+            systemImage: systemImage,
+            trailing: trailing,
+            trailingSystemImage: trailingSystemImage,
+            action: Optional(action)
+        )
+    }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: 16)
-                Text(title)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+        Group {
+            if let action {
+                Button(action: action) { rowContent }
+                    .buttonStyle(.plain)
+            } else {
+                rowContent
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
-            .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .background(.clear, in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+        .background(
+            isHovered ? theme.colors.surfaceElevated.opacity(0.42) : .clear,
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+        )
+        .onHover { isHovered = $0 }
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(theme.colors.textSecondary)
+                .frame(width: 24, height: 24)
+            Text(title)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(theme.colors.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            if let trailing {
+                trailing
+            } else if let trailingSystemImage {
+                Image(systemName: trailingSystemImage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+        }
+        .frame(height: 36)
+        .padding(.horizontal, 4)
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+private struct SummaryDiffStats: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let added: Int
+    let removed: Int
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text("+\(added)")
+                .foregroundStyle(theme.colors.success)
+            Text("-\(removed)")
+                .foregroundStyle(theme.colors.danger)
+        }
+        .font(.system(size: 13, weight: .medium, design: .monospaced))
+    }
+}
+
+private struct SummaryEmptyRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13))
+            .foregroundStyle(theme.colors.textTertiary)
+            .frame(height: 30)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 38)
+    }
+}
+
+private struct SummarySourceRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let source: CodexReferencedFile
+
+    var body: some View {
+        HStack(spacing: 10) {
+            thumbnail
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(theme.colors.border.opacity(0.65), lineWidth: 1)
+                }
+            Text(source.displayName)
+                .font(.system(size: 14))
+                .foregroundStyle(theme.colors.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .frame(height: 36)
+        .padding(.horizontal, 4)
+        .help(source.path)
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        CodexReferencedFilePreview(file: source)
+    }
+}
+
+private struct SummaryDivider: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    var body: some View {
+        Rectangle()
+            .fill(theme.colors.border.opacity(0.46))
+            .frame(height: 1)
     }
 }
 

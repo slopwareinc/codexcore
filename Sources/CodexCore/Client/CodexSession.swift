@@ -617,6 +617,7 @@ public actor CodexSession:
     private var anonymousLoginRequestEpochs: Set<UInt64> = []
     private var resumeGenerationByThread: [ThreadID: UInt64] = [:]
     private var threadAttentionRevisions: [ThreadID: StateRevision] = [:]
+    private var threadLiveAgentMessageRevisions: [ThreadID: StateRevision] = [:]
     private var unleasedThreadDetailLRU: [ThreadID] = []
 
     public init(
@@ -783,6 +784,7 @@ public actor CodexSession:
     public func threadIndexSnapshot() -> CanonicalThreadIndexSnapshot {
         graph.threadIndexSnapshot(
             attentionRevisions: threadAttentionRevisions,
+            liveAgentMessageRevisions: threadLiveAgentMessageRevisions,
             pendingRequestThreadIDs: Set(
                 interactions.pendingSnapshots().compactMap { snapshot in
                     snapshot.scope.threadID.map { ThreadID($0) }
@@ -2337,7 +2339,10 @@ private extension CodexSession {
                 )
             }
 
-            try apply(adaptation)
+            try apply(
+                adaptation,
+                recordsLiveAgentMessageCompletions: true
+            )
             resolveTerminalWaitersIfPossible()
         } catch {
             abortConnection(
@@ -2398,16 +2403,23 @@ private extension CodexSession {
     }
 
     func apply(
-        _ adaptation: ProtocolStateAdaptation
+        _ adaptation: ProtocolStateAdaptation,
+        recordsLiveAgentMessageCompletions: Bool = false
     ) throws {
-        try commit(adaptation.mutations)
+        try commit(
+            adaptation.mutations,
+            recordsLiveAgentMessageCompletions: recordsLiveAgentMessageCompletions
+        )
     }
 
     func commit(_ mutation: CanonicalStateMutation) throws {
         try commit([mutation])
     }
 
-    func commit(_ mutations: [CanonicalStateMutation]) throws {
+    func commit(
+        _ mutations: [CanonicalStateMutation],
+        recordsLiveAgentMessageCompletions: Bool = false
+    ) throws {
         guard let batch = reducer.apply(mutations, to: &graph) else { return }
         let removedThreadIDs = Set(batch.changes.compactMap { change -> ThreadID? in
             guard case .threadRemoved(let threadID) = change else { return nil }
@@ -2417,6 +2429,14 @@ private extension CodexSession {
             guard case .threadDetailEvicted(let threadID) = change else { return nil }
             return threadID
         })
+        if recordsLiveAgentMessageCompletions {
+            for change in batch.changes {
+                guard case .itemCompleted(let itemKey) = change,
+                      graph.items[itemKey]?.kind == .agentMessage
+                else { continue }
+                threadLiveAgentMessageRevisions[itemKey.threadID] = graph.revision
+            }
+        }
         publishStateInvalidation(
             StateInvalidation(batch),
             removedThreadIDs: removedThreadIDs,
@@ -3618,6 +3638,7 @@ private extension CodexSession {
         }
         for threadID in removedThreadIDs {
             threadAttentionRevisions.removeValue(forKey: threadID)
+            threadLiveAgentMessageRevisions.removeValue(forKey: threadID)
         }
         observations.publish(invalidation)
     }

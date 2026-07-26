@@ -21,12 +21,30 @@ project's new-chat action when the task should inherit that project's folders.
 Projectless identity is persisted separately from `cwd`, so generated workspaces
 do not appear as projects.
 
+Unread state is local app state, not app-server protocol state. A chat becomes
+unread only when the running app receives a completed assistant message for
+that chat while its conversation is not visible in the focused main window.
+History loading, streaming deltas, tool activity, status changes, failures, and
+metadata refreshes do not create unread state. Opening the chat in the focused
+conversation view marks it read.
+
+The sidebar reserves one trailing state rail per chat: active work takes
+precedence over failure, which takes precedence over unread. Project and section
+rows summarize that state while collapsed. Selecting a project or one of its
+chats expands the project automatically; pin and archive controls appear only
+while the row is hovered.
+
 A project may contain multiple ordered source folders. The first folder is
 **Primary**: Codex uses it as `cwd` and looks there for project instructions.
 Every source folder is sent as a runtime workspace root and is available to the
 task. Choose **Edit project** from the project menu to add or remove folders or
 make another folder Primary. Existing single-folder projects migrate without
 configuration.
+
+The workspace overview mirrors the current environment with changes, local or
+worktree mode, branch, commit/push, and pull-request entries. Its Sources
+section shows the most recent file references from the visible transcript and
+the current composer.
 
 ## Composer
 

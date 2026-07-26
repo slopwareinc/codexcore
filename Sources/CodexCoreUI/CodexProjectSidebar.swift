@@ -6,6 +6,9 @@ import AppKit
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var showsOlderProjects = false
+    @State private var isPinnedSectionExpanded = true
+    @State private var isChatsSectionExpanded = true
+    @State private var isProjectsSectionExpanded = true
     @State private var dragStartWidth: CGFloat?
     @State private var liveResizeWidth: CGFloat?
 
@@ -85,17 +88,17 @@ public struct CodexProjectSidebar: View {
             Color.clear
                 .frame(height: CodexWindowChromeMetrics.titlebarHeight)
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 22) {
+            ScrollView(showsIndicators: true) {
+                VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 16) {
                     routeRows
                     pinnedSection
                     projectlessSection
                     projectListSection
                     olderProjectsSection
                 }
-                .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
+                .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
             }
 
             utilitySection
@@ -123,16 +126,25 @@ public struct CodexProjectSidebar: View {
     @ViewBuilder
     private var projectlessSection: some View {
         if !snapshot.projectlessRows.isEmpty && !snapshot.isCollapsed {
-            VStack(alignment: .leading, spacing: 4) {
-                SidebarSectionHeader(title: "Chats")
-                ForEach(snapshot.projectlessRows) { row in
-                    SidebarChatRow(
-                        row: row,
-                        indentation: 0,
-                        onSelect: { onSelectChat(row.summary) },
-                        onTogglePin: { onTogglePinChat(row.summary) },
-                        onArchive: { onArchiveChat(row.summary) }
-                    )
+            VStack(alignment: .leading, spacing: 2) {
+                SidebarSectionHeader(
+                    title: "Chats",
+                    isExpanded: isChatsSectionExpanded,
+                    attentionState: CodexSidebarAttentionState.aggregate(snapshot.projectlessRows)
+                ) {
+                    isChatsSectionExpanded.toggle()
+                }
+                if isChatsSectionExpanded {
+                    ForEach(snapshot.projectlessRows) { row in
+                        SidebarChatRow(
+                            row: row,
+                            indentation: 0,
+                            showsRecency: true,
+                            onSelect: { onSelectChat(row.summary) },
+                            onTogglePin: { onTogglePinChat(row.summary) },
+                            onArchive: { onArchiveChat(row.summary) }
+                        )
+                    }
                 }
             }
         }
@@ -272,21 +284,70 @@ public struct CodexProjectSidebar: View {
     @ViewBuilder
     private var pinnedSection: some View {
         if (!snapshot.pinnedRows.isEmpty || !snapshot.pinnedProjects.isEmpty) && !snapshot.isCollapsed {
-            VStack(alignment: .leading, spacing: 4) {
-                SidebarSectionHeader(title: "Pinned")
-                ForEach(snapshot.pinnedRows) { row in
-                    SidebarChatRow(
-                        row: row,
-                        indentation: 0,
-                        onSelect: { onSelectChat(row.summary) },
-                        onTogglePin: { onTogglePinChat(row.summary) },
-                        onArchive: { onArchiveChat(row.summary) }
+            VStack(alignment: .leading, spacing: 2) {
+                SidebarSectionHeader(
+                    title: "Pinned",
+                    isExpanded: isPinnedSectionExpanded,
+                    attentionState: CodexSidebarAttentionState.aggregate(
+                        snapshot.pinnedRows + snapshot.pinnedProjects.flatMap(\.rows)
                     )
+                ) {
+                    isPinnedSectionExpanded.toggle()
                 }
-                ForEach(snapshot.pinnedProjects) { group in
+                if isPinnedSectionExpanded {
+                    ForEach(snapshot.pinnedRows) { row in
+                        SidebarChatRow(
+                            row: row,
+                            indentation: 0,
+                            showsRecency: true,
+                            onSelect: { onSelectChat(row.summary) },
+                            onTogglePin: { onTogglePinChat(row.summary) },
+                            onArchive: { onArchiveChat(row.summary) }
+                        )
+                    }
+                    ForEach(snapshot.pinnedProjects) { group in
+                        ProjectSidebarGroupView(
+                            group: group,
+                            isCollapsed: false,
+                            isThreadReady: group.isSelected && isThreadReady,
+                            onToggleProject: onToggleProject,
+                            onMoveProject: onMoveProject,
+                            onToggleProjectPin: onToggleProjectPin,
+                            onRevealProject: onRevealProject,
+                            onRenameProject: onRenameProject,
+                            onArchiveProjectChats: onArchiveProjectChats,
+                            onRemoveProject: onRemoveProject,
+                            onStartProjectChat: onStartProjectChat,
+                            onSelectProject: onSelectProject,
+                            onSelectChat: onSelectChat,
+                            onTogglePinChat: onTogglePinChat,
+                            onArchiveChat: onArchiveChat
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var projectListSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if !snapshot.isCollapsed {
+                SidebarSectionHeader(
+                    title: "Projects",
+                    isExpanded: isProjectsSectionExpanded,
+                    attentionState: CodexSidebarAttentionState.aggregate(
+                        (snapshot.projects + snapshot.olderProjects).flatMap(\.rows)
+                    )
+                ) {
+                    isProjectsSectionExpanded.toggle()
+                }
+            }
+
+            if snapshot.isCollapsed || isProjectsSectionExpanded {
+                ForEach(snapshot.projects) { group in
                     ProjectSidebarGroupView(
                         group: group,
-                        isCollapsed: false,
+                        isCollapsed: snapshot.isCollapsed,
                         isThreadReady: group.isSelected && isThreadReady,
                         onToggleProject: onToggleProject,
                         onMoveProject: onMoveProject,
@@ -303,34 +364,6 @@ public struct CodexProjectSidebar: View {
                     )
                 }
             }
-        }
-    }
-
-    private var projectListSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !snapshot.isCollapsed {
-                SidebarSectionHeader(title: "Projects")
-            }
-
-            ForEach(snapshot.projects) { group in
-                ProjectSidebarGroupView(
-                    group: group,
-                    isCollapsed: snapshot.isCollapsed,
-                    isThreadReady: group.isSelected && isThreadReady,
-                    onToggleProject: onToggleProject,
-                    onMoveProject: onMoveProject,
-                    onToggleProjectPin: onToggleProjectPin,
-                    onRevealProject: onRevealProject,
-                    onRenameProject: onRenameProject,
-                    onArchiveProjectChats: onArchiveProjectChats,
-                    onRemoveProject: onRemoveProject,
-                    onStartProjectChat: onStartProjectChat,
-                    onSelectProject: onSelectProject,
-                    onSelectChat: onSelectChat,
-                    onTogglePinChat: onTogglePinChat,
-                    onArchiveChat: onArchiveChat
-                )
-            }
 
             if snapshot.showsNoChats && !snapshot.isCollapsed {
                 Text(snapshot.noChatsTitle)
@@ -344,7 +377,7 @@ public struct CodexProjectSidebar: View {
 
     @ViewBuilder
     private var olderProjectsSection: some View {
-        if !snapshot.olderProjects.isEmpty {
+        if !snapshot.olderProjects.isEmpty && isProjectsSectionExpanded {
             if snapshot.isCollapsed {
                 EmptyView()
             } else {
@@ -415,7 +448,7 @@ public struct CodexProjectSidebar: View {
                 action: { onSelectRoute(.settingsAbout) }
             )
         }
-        .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
+        .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
         .padding(.vertical, 8)
         .background {
             Rectangle()
@@ -489,18 +522,64 @@ private struct SidebarCommandRow: View {
 
 private struct SidebarSectionHeader: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let title: String
+    let isExpanded: Bool
+    let attentionState: CodexSidebarAttentionState
+    let action: () -> Void
 
     var body: some View {
-        HStack {
-            Text(title)
-                .font(theme.fonts.sidebar.sectionHeader.font)
-            Spacer(minLength: 0)
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(theme.fonts.sidebar.sectionHeader.font)
+                Spacer(minLength: 0)
+                SidebarAttentionIndicator(state: attentionState)
+                    .opacity(isExpanded ? 0 : 1)
+                Image(systemName: "chevron.right")
+                    .font(theme.fonts.sidebar.disclosureChevron.font)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 14, height: 20)
+                    .opacity(isHovered ? 1 : 0)
+            }
+            .foregroundStyle(theme.colors.textTertiary)
+            .frame(height: theme.fonts.sidebar.sectionHeaderHeight)
+            .padding(.horizontal, 2)
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(theme.colors.textTertiary)
-        .frame(height: theme.fonts.sidebar.sectionHeaderHeight)
-        .padding(.horizontal, 2)
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+private struct SidebarAttentionIndicator: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let state: CodexSidebarAttentionState
+
+    var body: some View {
+        Group {
+            switch state {
+            case .idle:
+                Color.clear
+            case .unread:
+                Circle()
+                    .fill(theme.colors.accent)
+                    .frame(width: 6, height: 6)
+                    .accessibilityLabel("Unread updates")
+            case .running:
+                CodexSpinner(color: theme.colors.textSecondary, size: .small)
+                    .accessibilityLabel("Running")
+            case .failed:
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.colors.danger)
+                    .accessibilityLabel("Failed")
+            }
+        }
+        .frame(width: 20, height: 20)
     }
 }
 
@@ -527,8 +606,8 @@ private struct ProjectSidebarGroupView: View {
     let onArchiveChat: (CodexThreadSummary) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 2) {
                 Button {
                     if group.isExpanded {
                         onToggleProject(group.project.workspacePath)
@@ -537,17 +616,23 @@ private struct ProjectSidebarGroupView: View {
                         onSelectProject(group.project.workspacePath)
                     }
                 } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: "folder.badge.gearshape")
+                    HStack(spacing: 11) {
+                        Image(systemName: group.isExpanded ? "folder.fill" : "folder")
                             .font(theme.fonts.sidebar.projectIcon.font)
-                            .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                            .foregroundStyle(theme.colors.textSecondary)
                             .frame(width: 20)
                         if !isCollapsed {
                             Text(group.project.displayName)
                                 .font(theme.fonts.sidebar.projectTitle.font)
-                                .foregroundStyle(theme.colors.textSecondary)
+                                .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                                 .lineLimit(1)
                             Spacer(minLength: 0)
+                            if !group.isExpanded {
+                                SidebarAttentionIndicator(
+                                    state: CodexSidebarAttentionState.aggregate(group.rows)
+                                )
+                                .opacity(isHovered ? 0 : 1)
+                            }
                         }
                     }
                     .frame(height: isCollapsed ? theme.fonts.sidebar.collapsedProjectRowHeight : theme.fonts.sidebar.projectRowHeight)
@@ -591,15 +676,17 @@ private struct ProjectSidebarGroupView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(theme.colors.textSecondary)
-                            .frame(width: 26, height: theme.fonts.sidebar.projectRowHeight)
-                            .contentShape(Rectangle())
+                            .frame(width: 24, height: 24)
+                            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
                     .help("Project actions")
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
 
                     if group.canStartNewChat {
                         Button {
@@ -608,21 +695,24 @@ private struct ProjectSidebarGroupView: View {
                             Image(systemName: "square.and.pencil")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(theme.colors.textSecondary)
-                                .frame(width: 26, height: theme.fonts.sidebar.projectRowHeight)
-                                .contentShape(Rectangle())
+                                .frame(width: 24, height: 24)
+                                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .help("New chat in \(group.project.displayName)")
+                        .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
                     }
                 }
             }
-            .padding(.horizontal, isCollapsed ? 0 : 4)
+            .padding(.horizontal, isCollapsed ? 0 : 2)
             .contentShape(Rectangle())
             .background(
                 isDropTargeted ? theme.colors.accent.opacity(0.16) : projectRowFill,
                 in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
             .draggable(group.project.workspacePath) {
                 Label(group.project.displayName, systemImage: "folder")
                     .font(theme.fonts.sidebar.projectTitle.font)
@@ -661,7 +751,8 @@ private struct ProjectSidebarGroupView: View {
                     ForEach(group.rows) { row in
                         SidebarChatRow(
                             row: row,
-                            indentation: 32,
+                            indentation: 28,
+                            showsRecency: false,
                             onSelect: { onSelectChat(row.summary) },
                             onTogglePin: { onTogglePinChat(row.summary) },
                             onArchive: { onArchiveChat(row.summary) }
@@ -701,6 +792,7 @@ private struct SidebarChatRow: View {
 
     let row: CodexSidebarThreadRow
     var indentation: CGFloat = 0
+    var showsRecency = false
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
@@ -709,6 +801,7 @@ private struct SidebarChatRow: View {
         SidebarChatRowHost(
             row: row,
             indentation: indentation,
+            showsRecency: showsRecency,
             theme: theme,
             onSelect: onSelect,
             onTogglePin: onTogglePin,
@@ -722,6 +815,7 @@ private struct SidebarChatRow: View {
 private struct SidebarChatRowHost: NSViewRepresentable {
     let row: CodexSidebarThreadRow
     let indentation: CGFloat
+    let showsRecency: Bool
     let theme: CodexAgentTheme
     let onSelect: () -> Void
     let onTogglePin: () -> Void
@@ -747,6 +841,7 @@ private struct SidebarChatRowHost: NSViewRepresentable {
                 SidebarChatRowContent(
                     row: row,
                     indentation: indentation,
+                    showsRecency: showsRecency,
                     onSelect: onSelect,
                     onTogglePin: onTogglePin,
                     onArchive: onArchive
@@ -775,6 +870,7 @@ private struct SidebarChatRowContent: View {
 
     let row: CodexSidebarThreadRow
     let indentation: CGFloat
+    let showsRecency: Bool
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
@@ -824,32 +920,28 @@ private struct SidebarChatRowContent: View {
     }
 
     private var trailingStatus: some View {
-        HStack(spacing: 5) {
-            if row.hasUnreadWhileInactive {
-                Circle()
-                    .fill(theme.colors.accent)
-                    .frame(width: 6, height: 6)
-                    .accessibilityLabel("Unread updates")
-            }
-            switch row.liveStatus {
-            case .running:
-                Circle()
-                    .stroke(theme.colors.running, lineWidth: 1.5)
-                    .frame(width: 9, height: 9)
-                    .accessibilityLabel("Running")
-            case .failed:
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(theme.fonts.sidebar.chatRecency.font)
-                    .foregroundStyle(theme.colors.danger)
-                    .accessibilityLabel("Failed")
+        HStack(spacing: 0) {
+            switch CodexSidebarAttentionState.resolve(
+                liveStatus: row.liveStatus,
+                hasUnreadWhileInactive: row.hasUnreadWhileInactive
+            ) {
+            case .running, .failed, .unread:
+                SidebarAttentionIndicator(
+                    state: CodexSidebarAttentionState.resolve(
+                        liveStatus: row.liveStatus,
+                        hasUnreadWhileInactive: row.hasUnreadWhileInactive
+                    )
+                )
             case .idle:
+                if showsRecency {
                 Text(recencyLabel)
                     .font(theme.fonts.sidebar.chatRecency.font)
                     .foregroundStyle(theme.colors.textTertiary)
                     .lineLimit(1)
+                }
             }
         }
-        .frame(width: 52, alignment: .trailing)
+        .frame(width: 42, alignment: .trailing)
     }
 
     private var recencyLabel: String {
@@ -911,12 +1003,8 @@ private struct SidebarChatRowActions: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(theme.fonts.sidebar.chatActionIcon.font)
-                .frame(width: 21, height: 21)
-                .background(.regularMaterial, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(theme.colors.border.opacity(0.7), lineWidth: 1)
-                }
+                .frame(width: 24, height: 24)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .foregroundStyle(isAccented ? theme.colors.accent : theme.colors.textTertiary)
@@ -1020,19 +1108,17 @@ final class SidebarChatRowContainerView: NSView {
     }
 
     private func updateChrome() {
-        let showsActions = isSelected || isHovered
+        let showsActions = isHovered
         let background = isSelected ? selectedColor : (isHovered ? hoverColor : NSColor.clear)
         layer?.backgroundColor = background.cgColor
-        actionBackdrop.layer?.backgroundColor = (
-            isSelected ? selectedColor : (isHovered ? hoverColor : baseColor)
-        ).cgColor
+        actionBackdrop.layer?.backgroundColor = (isHovered ? hoverColor : baseColor).cgColor
         actionBackdrop.isHidden = !showsActions
         actionsHost.isHidden = !showsActions
     }
 }
 
 private enum SidebarMetrics {
-    static let expandedWidth: CGFloat = 288
+    static let expandedWidth: CGFloat = 276
     static let resizeHandleHitWidth: CGFloat = 8
 }
 
@@ -1046,7 +1132,7 @@ public enum CodexWindowChromeMetrics {
 
 public extension CodexProjectSidebar {
     /// Default expanded width and the range the resize handle clamps to.
-    static let defaultExpandedWidth: CGFloat = 288
+    static let defaultExpandedWidth: CGFloat = 276
     static let minExpandedWidth: CGFloat = 220
     static let maxExpandedWidth: CGFloat = 460
     /// Preserves the 540pt chat workspace beside the narrowest expanded sidebar.

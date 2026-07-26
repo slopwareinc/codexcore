@@ -2167,6 +2167,67 @@ final class CodexSessionOrderingTests: XCTestCase {
         let afterDelta = try XCTUnwrap(deltaSnapshot.summary(for: runningThread))
         XCTAssertEqual(afterDelta.lastChangedRevision, afterItemStart.lastChangedRevision)
         XCTAssertGreaterThan(afterDelta.attentionRevision, afterDelta.lastChangedRevision)
+        XCTAssertEqual(afterDelta.latestLiveAgentMessageRevision, .zero)
+
+        try await transport.sendNotification(
+            method: "item/completed",
+            params: [
+                "threadId": .string(runningThread.rawValue),
+                "turnId": .string("turn-running"),
+                "completedAtMs": .int(1_700_000_000_100),
+                "item": .dictionary([
+                    "type": .string("agentMessage"),
+                    "id": .string("message-running"),
+                    "phase": .string("final_answer"),
+                    "text": .string("background output"),
+                ]),
+            ]
+        )
+        try await waitUntil {
+            await session.threadIndexSnapshot()
+                .summary(for: runningThread)?.latestLiveAgentMessageRevision != .zero
+        }
+        let messageCompletedSnapshot = await session.threadIndexSnapshot()
+        let liveMessageRevision = try XCTUnwrap(
+            messageCompletedSnapshot.summary(for: runningThread)
+        ).latestLiveAgentMessageRevision
+
+        try await transport.sendNotification(
+            method: "item/completed",
+            params: [
+                "threadId": .string(runningThread.rawValue),
+                "turnId": .string("turn-running"),
+                "completedAtMs": .int(1_700_000_000_200),
+                "item": .dictionary([
+                    "type": .string("commandExecution"),
+                    "id": .string("command-running"),
+                    "command": .string("pwd"),
+                    "cwd": .string("/tmp"),
+                    "processId": .string("123"),
+                    "source": .string("unifiedExecStartup"),
+                    "status": .string("completed"),
+                    "commandActions": .array([]),
+                    "aggregatedOutput": .string("/tmp\n"),
+                    "exitCode": .int(0),
+                    "durationMs": .int(1),
+                ]),
+            ]
+        )
+        try await waitUntil {
+            let snapshot = await session.canonicalSnapshot()
+            return snapshot.items[
+                ItemKey(
+                    threadID: runningThread,
+                    turnID: "turn-running",
+                    itemID: "command-running"
+                )
+            ] != nil
+        }
+        let afterCommandSnapshot = await session.threadIndexSnapshot()
+        XCTAssertEqual(
+            afterCommandSnapshot.summary(for: runningThread)?.latestLiveAgentMessageRevision,
+            liveMessageRevision
+        )
 
         let failedThread = ThreadID("inactive-failed")
         try await transport.sendNotification(
