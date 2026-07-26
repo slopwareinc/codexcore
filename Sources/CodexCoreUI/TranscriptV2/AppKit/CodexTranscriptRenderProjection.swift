@@ -20,7 +20,10 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let interactiveBottomSpacing: CGFloat = 8
     static let scrollableOutputMaxHeight: CGFloat = 220
     static let diffPanelHeight: CGFloat = 240
-    static let topContentInset: CGFloat = 0
+    // The workspace title bar floats over the transcript host. Reserve the same
+    // clearance used by the turn navigator so the first turn never scrolls
+    // underneath that chrome.
+    static let topContentInset: CGFloat = 72
 
     var viewportWidth: CGFloat
 
