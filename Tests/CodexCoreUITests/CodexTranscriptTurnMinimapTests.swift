@@ -119,8 +119,29 @@ struct CodexTranscriptTurnMinimapTests {
         )
 
         let originalOffset = container.scrollView.contentView.bounds.origin.y
-        coordinator.jumpToTurnForTesting("turn-8")
-        #expect(container.scrollView.contentView.bounds.origin.y > originalOffset + 100)
+        let markerCenterInWindow = marker.convert(
+            NSPoint(x: marker.bounds.midX, y: marker.bounds.midY),
+            to: nil
+        )
+        let markerCenterInContainer = container.convert(markerCenterInWindow, from: nil)
+        let hitView = try #require(container.hitTest(markerCenterInContainer))
+        #expect(hitView === marker)
+        let click = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: markerCenterInWindow,
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        hitView.mouseDown(with: click)
+        let clickedOffset = container.scrollView.contentView.bounds.origin.y
+        #expect(clickedOffset > originalOffset + 100)
+        await Task.yield()
+        #expect(abs(container.scrollView.contentView.bounds.origin.y - clickedOffset) < 1)
         #expect(container.turnMinimap.activeTurnIDForTesting != "turn-0")
 
         let entry = try #require(

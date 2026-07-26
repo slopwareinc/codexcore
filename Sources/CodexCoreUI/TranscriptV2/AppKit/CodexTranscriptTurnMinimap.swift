@@ -215,9 +215,6 @@ final class CodexTranscriptTurnMinimapView: NSView {
         }
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        subviews.first(where: { $0.frame.contains(point) })
-    }
 }
 
 @MainActor
