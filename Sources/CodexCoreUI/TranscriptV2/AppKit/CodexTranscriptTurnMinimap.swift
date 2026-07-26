@@ -89,6 +89,7 @@ final class CodexTranscriptTurnMinimapView: NSView {
     private var controlsByTurnID: [String: CodexTranscriptTurnMarkerControl] = [:]
     private var entries: [CodexTranscriptTurnMinimapEntry] = []
     private var activeTurnID: String?
+    private var hoveredTurnID: String?
 
     var onSelect: ((CodexTranscriptTurnMinimapEntry) -> Void)?
     var onHover: ((CodexTranscriptTurnMinimapEntry?, NSView?) -> Void)?
@@ -118,6 +119,10 @@ final class CodexTranscriptTurnMinimapView: NSView {
             control.setAccessibilityHelp(entry.detail)
             control.setAccessibilityIdentifier("transcript-turn-marker-\(entry.turnID)")
         }
+        if let hoveredTurnID, !liveTurnIDs.contains(hoveredTurnID) {
+            self.hoveredTurnID = nil
+        }
+        updateHoverMount()
         needsLayout = true
     }
 
@@ -153,6 +158,9 @@ final class CodexTranscriptTurnMinimapView: NSView {
         control.action = #selector(selectMarker(_:))
         control.onHover = { [weak self, weak control] isHovered in
             guard let self, let control else { return }
+            if isHovered {
+                self.setHoveredTurnID(control.entry.turnID)
+            }
             self.onHover?(isHovered ? control.entry : nil, isHovered ? control : nil)
         }
         control.setAccessibilityElement(true)
@@ -169,8 +177,42 @@ final class CodexTranscriptTurnMinimapView: NSView {
     var entriesForTesting: [CodexTranscriptTurnMinimapEntry] { entries }
     var activeTurnIDForTesting: String? { activeTurnID }
     func markerForTesting(turnID: String) -> NSView? { controlsByTurnID[turnID] }
+    func hoverMountInfluenceForTesting(turnID: String) -> CGFloat? {
+        controlsByTurnID[turnID]?.hoverMountInfluence
+    }
+    func setHoveredTurnIDForTesting(_ turnID: String?) {
+        setHoveredTurnID(turnID)
+    }
     func preferredHeight(maximum: CGFloat) -> CGFloat {
         min(maximum, CGFloat(entries.count) * 11)
+    }
+
+    func clearHoverMount() {
+        setHoveredTurnID(nil)
+    }
+
+    private func setHoveredTurnID(_ turnID: String?) {
+        guard hoveredTurnID != turnID else { return }
+        hoveredTurnID = turnID
+        updateHoverMount()
+    }
+
+    private func updateHoverMount() {
+        guard let hoveredTurnID,
+              let hoveredIndex = entries.firstIndex(where: { $0.turnID == hoveredTurnID }) else {
+            controlsByTurnID.values.forEach { $0.hoverMountInfluence = 0 }
+            return
+        }
+
+        // A Gaussian falloff makes the rail rise as one continuous mount instead
+        // of turning a single tick into an unrelated long line.
+        let sigma: CGFloat = 1.35
+        for (index, entry) in entries.enumerated() {
+            let distance = CGFloat(abs(index - hoveredIndex))
+            let influence = exp(-0.5 * pow(distance / sigma, 2))
+            controlsByTurnID[entry.turnID]?.hoverMountInfluence =
+                influence < 0.025 ? 0 : influence
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -189,10 +231,10 @@ private final class CodexTranscriptTurnMarkerControl: NSControl {
     var markerColor = NSColor.tertiaryLabelColor { didSet { needsDisplay = true } }
     var activeColor = NSColor.secondaryLabelColor { didSet { needsDisplay = true } }
     var isCurrent = false { didSet { needsDisplay = true } }
+    var hoverMountInfluence: CGFloat = 0 { didSet { needsDisplay = true } }
     var lineCenterY: CGFloat = 0 { didSet { needsDisplay = true } }
     var onHover: ((Bool) -> Void)?
     private var trackingArea: NSTrackingArea?
-    private var isHovered = false { didSet { needsDisplay = true } }
 
     override var isFlipped: Bool { true }
 
@@ -209,12 +251,10 @@ private final class CodexTranscriptTurnMarkerControl: NSControl {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHovered = true
         onHover?(true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        isHovered = false
         onHover?(false)
     }
 
@@ -224,22 +264,31 @@ private final class CodexTranscriptTurnMarkerControl: NSControl {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let width: CGFloat = isCurrent || isHovered ? 28 : 10
+        let currentInfluence: CGFloat = isCurrent ? 0.9 : 0
+        let visualInfluence = max(hoverMountInfluence, currentInfluence)
+        let width = 10 + (20 * visualInfluence)
+        let lineHeight = 2 + (0.7 * visualInfluence)
         let line = NSRect(
             x: 0,
-            y: lineCenterY - 1,
+            y: lineCenterY - lineHeight / 2,
             width: min(width, bounds.width),
-            height: isCurrent ? 2.5 : 2
+            height: lineHeight
         )
-        (isCurrent || isHovered ? activeColor : markerColor)
-            .withAlphaComponent(isCurrent ? 0.95 : isHovered ? 0.78 : 0.42)
+        (visualInfluence > 0 ? activeColor : markerColor)
+            .withAlphaComponent(0.42 + (0.53 * visualInfluence))
             .setFill()
-        NSBezierPath(roundedRect: line, xRadius: 1.25, yRadius: 1.25).fill()
+        NSBezierPath(
+            roundedRect: line,
+            xRadius: lineHeight / 2,
+            yRadius: lineHeight / 2
+        ).fill()
     }
 }
 
 @MainActor
 final class CodexTranscriptTurnPreviewView: NSView {
+    private let glassSurface: NSView
+    private let glassContent = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private(set) var isPointerInside = false
@@ -247,17 +296,33 @@ final class CodexTranscriptTurnPreviewView: NSView {
     private var trackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = 18
+            glass.contentView = glassContent
+            glassSurface = glass
+        } else {
+            let material = NSVisualEffectView()
+            material.material = .popover
+            material.blendingMode = .withinWindow
+            material.state = .active
+            glassSurface = material
+        }
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.cornerRadius = 12
-        layer?.masksToBounds = true
-        layer?.borderWidth = 1
+        if !(glassSurface is NSGlassEffectView) {
+            glassSurface.wantsLayer = true
+            glassSurface.layer?.cornerRadius = 18
+            glassSurface.layer?.masksToBounds = true
+            glassSurface.addSubview(glassContent)
+        }
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         detailLabel.maximumNumberOfLines = 6
         detailLabel.lineBreakMode = .byTruncatingTail
-        addSubview(titleLabel)
-        addSubview(detailLabel)
+        glassContent.addSubview(titleLabel)
+        glassContent.addSubview(detailLabel)
+        addSubview(glassSurface)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         isHidden = true
@@ -284,8 +349,10 @@ final class CodexTranscriptTurnPreviewView: NSView {
                 entry.detail,
                 theme: theme
             )
-        layer?.backgroundColor = theme.surfaceSunken.withAlphaComponent(0.98).cgColor
-        layer?.borderColor = theme.border.withAlphaComponent(0.72).cgColor
+        if #available(macOS 26.0, *),
+           let glass = glassSurface as? NSGlassEffectView {
+            glass.tintColor = theme.surfaceSunken.withAlphaComponent(0.12)
+        }
         setAccessibilityLabel(entry.title)
         setAccessibilityHelp(entry.detail)
     }
@@ -326,7 +393,16 @@ final class CodexTranscriptTurnPreviewView: NSView {
 
     override func layout() {
         super.layout()
-        titleLabel.frame = NSRect(x: 12, y: bounds.height - 34, width: bounds.width - 24, height: 20)
-        detailLabel.frame = NSRect(x: 12, y: 11, width: bounds.width - 24, height: bounds.height - 47)
+        glassSurface.frame = bounds
+        glassContent.frame = glassSurface.bounds
+        titleLabel.frame = NSRect(x: 16, y: bounds.height - 38, width: bounds.width - 32, height: 20)
+        detailLabel.frame = NSRect(x: 16, y: 13, width: bounds.width - 32, height: bounds.height - 52)
+    }
+
+    var usesNativeLiquidGlassForTesting: Bool {
+        if #available(macOS 26.0, *) {
+            return glassSurface is NSGlassEffectView
+        }
+        return false
     }
 }

@@ -1064,6 +1064,7 @@ final class CodexTranscriptCollectionContainerView: NSView {
         if !visible {
             turnPreviewHideTask?.cancel()
             turnPreview.isHidden = true
+            turnMinimap.clearHoverMount()
         }
     }
 
@@ -1102,6 +1103,7 @@ final class CodexTranscriptCollectionContainerView: NSView {
             try? await Task.sleep(for: .milliseconds(140))
             guard !Task.isCancelled, let self, !self.turnPreview.isPointerInside else { return }
             self.turnPreview.isHidden = true
+            self.turnMinimap.clearHoverMount()
         }
     }
 }

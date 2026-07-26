@@ -11,7 +11,8 @@
 
 Long `CodexTranscriptViewV2` conversations automatically show a compact turn
 navigator at the leading edge. Its markers follow canonical turn geometry,
-preview the user request and assistant result on hover, and jump to the selected
+rise with a tapered neighboring-marker mount on hover, show the user request
+and assistant result in a native Liquid Glass preview, and jump to the selected
 turn without requiring host integration.
 
 ## Workspace skeleton

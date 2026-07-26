@@ -100,6 +100,24 @@ struct CodexTranscriptTurnMinimapTests {
         #expect(abs(marker.frame.minY - previousMarker.frame.minY - 11) < 1)
         #expect(marker.accessibilityLabel() == "Jump to turn: Question 8")
 
+        container.turnMinimap.setHoveredTurnIDForTesting("turn-6")
+        let hoveredInfluence = try #require(
+            container.turnMinimap.hoverMountInfluenceForTesting(turnID: "turn-6")
+        )
+        let adjacentInfluence = try #require(
+            container.turnMinimap.hoverMountInfluenceForTesting(turnID: "turn-5")
+        )
+        let secondNeighborInfluence = try #require(
+            container.turnMinimap.hoverMountInfluenceForTesting(turnID: "turn-4")
+        )
+        #expect(hoveredInfluence == 1)
+        #expect(adjacentInfluence < hoveredInfluence)
+        #expect(secondNeighborInfluence < adjacentInfluence)
+        #expect(
+            container.turnMinimap.hoverMountInfluenceForTesting(turnID: "turn-7")
+                == adjacentInfluence
+        )
+
         let originalOffset = container.scrollView.contentView.bounds.origin.y
         coordinator.jumpToTurnForTesting("turn-8")
         #expect(container.scrollView.contentView.bounds.origin.y > originalOffset + 100)
@@ -112,6 +130,9 @@ struct CodexTranscriptTurnMinimapTests {
         #expect(!container.turnPreview.isHidden)
         #expect((86...154).contains(container.turnPreview.frame.height))
         #expect(container.turnPreview.accessibilityLabel() == "Question 8")
+        if #available(macOS 26.0, *) {
+            #expect(container.turnPreview.usesNativeLiquidGlassForTesting)
+        }
         coordinator.detach()
     }
 
