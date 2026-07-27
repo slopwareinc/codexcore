@@ -223,6 +223,10 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(cell.chipLabelForTesting == "Running tests")
         #expect(cell.workRowLabelFitsForTesting)
+        let disclosureGap = try #require(cell.workRowTitleAndDisclosureGapForTesting)
+        #expect(abs(disclosureGap - 6) <= 1)
+        let disclosureOffset = try #require(cell.workRowDisclosureVerticalOffsetForTesting)
+        #expect(abs(disclosureOffset + 2) <= 0.5)
         #expect(cell.chipIconDescriptionForTesting == "In progress")
         #expect(cell.workRowStatusForTesting.isEmpty)
         #expect(row.indentation == 0)

@@ -289,6 +289,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         guard chipControlsInstalled, let cell = chipLabel.cell else { return false }
         return chipLabel.frame.width + 0.5 >= cell.cellSize.width
     }
+    var workRowTitleAndDisclosureGapForTesting: CGFloat? {
+        guard chipControlsInstalled, chipDisclosureView.image != nil else { return nil }
+        return chipDisclosureView.frame.minX - visibleChipLabelMaxX
+    }
+    var workRowDisclosureVerticalOffsetForTesting: CGFloat? {
+        guard chipControlsInstalled, chipDisclosureView.image != nil else { return nil }
+        return chipDisclosureView.frame.midY - chipLabel.frame.midY
+    }
     var chipIconDescriptionForTesting: String? {
         chipControlsInstalled ? chipIconView.image?.accessibilityDescription : nil
     }
@@ -923,9 +931,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 max(20, contentFrame.width - labelX - trailingWidth - 20)
             )
             chipLabel.frame = NSRect(x: labelX, y: rowMidY - 10, width: labelWidth, height: 20)
+            let summaryDisclosureX = min(
+                visibleChipLabelMaxX + 6,
+                chipLabel.frame.maxX + 6
+            )
             chipDisclosureView.frame = NSRect(
-                x: row.style == .activitySummary ? chipLabel.frame.maxX + 6 : 0,
-                y: rowMidY - 7,
+                x: row.style == .activitySummary ? summaryDisclosureX : 0,
+                // SF Symbol chevrons sit optically low when mathematically
+                // centered in an image view; lift them to the text's cap line.
+                y: rowMidY - 9,
                 width: disclosureWidth,
                 height: 14
             )
@@ -1822,6 +1836,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             name,
             accessibilityDescription: row.isSubagentLink ? "Open agent" : "Show details"
         )
+    }
+
+    private var visibleChipLabelMaxX: CGFloat {
+        let font = chipLabel.font ?? appKitTheme?.captionFont ?? NSFont.systemFont(ofSize: 12)
+        let width = ceil((chipLabel.stringValue as NSString).size(
+            withAttributes: [.font: font]
+        ).width)
+        return chipLabel.frame.minX + min(width, chipLabel.frame.width)
     }
 
     private static func statusColor(
