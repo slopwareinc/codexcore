@@ -219,8 +219,10 @@ struct CodexTranscriptAppKitIntegrationTests {
             forkChat: nil,
             selectionChanged: { _, _ in }
         )
+        cell.view.layoutSubtreeIfNeeded()
 
         #expect(cell.chipLabelForTesting == "Ran a command")
+        #expect(cell.workRowLabelFitsForTesting)
         #expect(cell.chipIconDescriptionForTesting == "In progress")
         #expect(cell.workRowStatusForTesting.isEmpty)
         #expect(row.indentation == 0)

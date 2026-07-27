@@ -285,6 +285,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         footerActionControlsInstalled ? footerCopyTurnButton.image?.accessibilityDescription : nil
     }
     var chipLabelForTesting: String { chipControlsInstalled ? chipLabel.stringValue : "" }
+    var workRowLabelFitsForTesting: Bool {
+        guard chipControlsInstalled, let cell = chipLabel.cell else { return false }
+        return chipLabel.frame.width + 0.5 >= cell.cellSize.width
+    }
     var chipIconDescriptionForTesting: String? {
         chipControlsInstalled ? chipIconView.image?.accessibilityDescription : nil
     }
@@ -910,9 +914,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let copyReserve: CGFloat = copyControlInstalled && !copyButton.isHidden ? 34 : 0
             let labelX = iconX + iconSize + 8
             let trailingWidth = statusWidth + (durationWidth > 0 ? durationWidth + 10 : 0) + copyReserve
-            let naturalLabelWidth = ceil((chipLabel.stringValue as NSString).size(
-                withAttributes: [.font: chipLabel.font ?? theme.captionFont]
-            ).width)
+            let naturalLabelWidth = ceil(chipLabel.cell?.cellSize.width ?? 20)
             let labelWidth = min(
                 naturalLabelWidth,
                 max(20, contentFrame.width - labelX - trailingWidth - 20)
