@@ -459,7 +459,11 @@ private extension CodexCanonicalTranscriptProjector {
         } else if let reasoning = activeReasoning.last {
             turn.liveTail = reasoning.text
         } else {
-            turn.liveTail = activeTail(turn)
+            // Tool activity already owns one stable row inside the narrative.
+            // A second derived tail duplicates the same work and diverges from
+            // the official presentation. Only model-authored reasoning
+            // summaries use the separate quiet live-tail line.
+            turn.liveTail = nil
         }
         return turn
     }
@@ -671,21 +675,6 @@ private extension CodexCanonicalTranscriptProjector {
         }
     }
 
-    func activeTail(_ turn: CodexTurnV2) -> String? {
-        for entry in turn.narrative.reversed() {
-            switch entry {
-            case .productToolCall(let value) where value.status == .inProgress:
-                return "Using \(value.tool)"
-            case .inlineActivity(let activity) where activity.status == .inProgress:
-                return nil
-            case .workGroup(let group):
-                if let row = group.rows.last(where: \.isInProgress) { return tail(row) }
-            default:
-                break
-            }
-        }
-        return nil
-    }
 }
 
 // MARK: - Work grammar
@@ -696,20 +685,23 @@ private extension CodexCanonicalTranscriptProjector {
         let state = workStatus(item, completed: completed)
         switch item.kind {
         case .commandExecution:
-            let command = item.payload.string("command") ?? "Command"
+            let parentCommand = item.payload.string("command") ?? "Command"
             let baseOutput = item.payload.string("aggregatedOutput") ?? ""
             let output = completed ? baseOutput : baseOutput + item.liveOverlay.commandOutput.joined()
-            return [.command(.init(
-                id: id,
-                command: command,
-                label: "Ran `\(shortCommand(command))`",
-                action: commandCategory(item.payload),
-                status: state,
-                targets: commandTargets(item.payload),
-                exitCode: item.payload.int("exitCode"),
-                durationMs: itemDuration(item),
-                output: output.isEmpty ? nil : output
-            ))]
+            let actions = commandActions(item.payload, fallbackCommand: parentCommand)
+            return actions.enumerated().map { index, action in
+                .command(.init(
+                    id: actions.count > 1 ? "\(id):\(index)" : id,
+                    command: action.command,
+                    label: commandLabel(action, inProgress: state == .inProgress),
+                    action: action.category,
+                    status: state,
+                    targets: action.target.map { [$0] } ?? [],
+                    exitCode: item.payload.int("exitCode"),
+                    durationMs: itemDuration(item),
+                    output: output.isEmpty ? nil : output
+                ))
+            }
         case .fileChange:
             let files = item.payload.array("changes")?.compactMap { $0.object?.string("path") } ?? []
             return [.fileChange(.init(
@@ -758,38 +750,91 @@ private extension CodexCanonicalTranscriptProjector {
         return completed ? .completed : .inProgress
     }
 
-    func commandCategory(_ item: [String: CodexJSONValue]) -> CodexWorkCategoryV2 {
-        guard let action = item.array("commandActions")?.first?.object?.string("type")?.lowercased() else {
-            return .run
-        }
-        switch action {
-        case "read", "fileread": return .read
-        case "listfiles", "list": return .list
-        case "search", "searchfiles": return .search
-        default: return .run
-        }
+    struct ProjectedCommandAction {
+        var category: CodexWorkCategoryV2
+        var command: String
+        var target: String?
+        var query: String?
+        var path: String?
     }
 
-    func commandTargets(_ item: [String: CodexJSONValue]) -> [String] {
-        (item.array("commandActions") ?? []).compactMap { value in
-            guard let action = value.object,
-                  let type = action.string("type")?.lowercased(),
-                  type == "read" || type == "fileread" else { return nil }
-            let name = action.string("name")
-                ?? action.string("path").map { URL(fileURLWithPath: $0).lastPathComponent }
-            guard let name, !name.isEmpty else { return nil }
-            if name == "SKILL.md",
-               let path = action.string("path") {
-                let skillName = URL(fileURLWithPath: path)
-                    .deletingLastPathComponent()
-                    .lastPathComponent
-                    .replacingOccurrences(of: "-", with: " ")
-                if !skillName.isEmpty {
-                    let displayName = skillName.lowercased() == "github" ? "GitHub" : skillName
-                    return "\(displayName) skill"
-                }
+    func commandActions(
+        _ item: [String: CodexJSONValue],
+        fallbackCommand: String
+    ) -> [ProjectedCommandAction] {
+        let actions = (item.array("commandActions") ?? []).compactMap(\.object).map { action in
+            let type = action.string("type")?.lowercased()
+            let command = action.string("command") ?? fallbackCommand
+            switch type {
+            case "read", "fileread":
+                let path = action.string("path")
+                let name = action.string("name")
+                    ?? path.map { URL(fileURLWithPath: $0).lastPathComponent }
+                let skill = skillDisplayName(name: name, path: path)
+                return ProjectedCommandAction(
+                    category: skill == nil ? .read : .loadedTool,
+                    command: command,
+                    target: skill ?? name,
+                    path: path
+                )
+            case "listfiles", "list":
+                return ProjectedCommandAction(
+                    category: .list,
+                    command: command,
+                    path: action.string("path")
+                )
+            case "search", "searchfiles":
+                return ProjectedCommandAction(
+                    category: .search,
+                    command: command,
+                    query: action.string("query"),
+                    path: action.string("path")
+                )
+            default:
+                return ProjectedCommandAction(category: .run, command: command)
             }
-            return name
+        }
+        return actions.isEmpty
+            ? [ProjectedCommandAction(category: .run, command: fallbackCommand)]
+            : actions
+    }
+
+    func skillDisplayName(name: String?, path: String?) -> String? {
+        guard name?.lowercased() == "skill.md" || path?.lowercased().hasSuffix("/skill.md") == true,
+              let path else { return nil }
+        let skillName = URL(fileURLWithPath: path)
+            .deletingLastPathComponent()
+            .lastPathComponent
+            .replacingOccurrences(of: "-", with: " ")
+        guard !skillName.isEmpty else { return nil }
+        let displayName = skillName.lowercased() == "github" ? "GitHub" : skillName
+        return "\(displayName) skill"
+    }
+
+    func commandLabel(_ action: ProjectedCommandAction, inProgress: Bool) -> String {
+        switch action.category {
+        case .read:
+            return "\(inProgress ? "Reading" : "Read") \(action.target ?? "a file")"
+        case .loadedTool:
+            return "\(inProgress ? "Reading" : "Read") \(action.target ?? "a tool")"
+        case .search:
+            let query = action.query?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let path = action.path?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let query, !query.isEmpty, let path, !path.isEmpty {
+                return "\(inProgress ? "Searching" : "Searched") for \(query) in \(path)"
+            }
+            if let query, !query.isEmpty {
+                return "\(inProgress ? "Searching" : "Searched") for \(query)"
+            }
+            return inProgress ? "Searching for files" : "Searched for files"
+        case .list:
+            if let path = action.path?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !path.isEmpty {
+                return "\(inProgress ? "Listing" : "Listed") files in \(path)"
+            }
+            return inProgress ? "Listing files" : "Listed files"
+        default:
+            return inProgress ? "Running command" : "Ran \(shortCommand(action.command))"
         }
     }
 
@@ -964,23 +1009,6 @@ private extension CodexCanonicalTranscriptProjector {
     func orderedUnion(_ lhs: [String], _ rhs: [String]) -> [String] {
         var seen: Set<String> = []
         return (lhs + rhs).filter { seen.insert($0).inserted }
-    }
-
-    func tail(_ row: CodexWorkRowV2) -> String {
-        switch row {
-        case .command(let value): "Running \(shortCommand(value.command))"
-        case .mcpToolCall(let value): "Asking \(value.appName)"
-        case .fileChange: "Editing files"
-        case .webSearch: "Searching"
-        case .collabAgent(let value):
-            switch value.action {
-            case .created: "Creating an agent"
-            case .sentInput: "Messaging an agent"
-            case .waited: "Waiting for agents"
-            default: "Working with agents"
-            }
-        case .other(let value): value.label
-        }
     }
 
     func shortCommand(_ command: String) -> String {

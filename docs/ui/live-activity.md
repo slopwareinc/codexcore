@@ -4,13 +4,20 @@ CodexCoreUI presents agent work with the same basic grammar as the official
 Codex app:
 
 1. Assistant commentary appears as ordinary transcript prose.
-2. Commands, reads, searches, edits, MCP calls, and collaboration events until
+2. Model-authored reasoning summaries appear verbatim as the quiet live
+   headline; reasoning content is never synthesized from commands.
+3. Every typed `commandAction` becomes its own semantic row. One command
+   execution can therefore reveal several `Read …`, `Searched …`, or
+   `Listed …` rows without exposing the parent shell pipeline.
+4. Commands, reads, searches, edits, MCP calls, and collaboration events until
    the next commentary update form one chronological work group.
-3. The group renders as one quiet semantic summary such as `Read Package.swift`
-   or `Edited 3 files, read 2 files, ran a command`.
-4. The current summary updates in place and shimmers while active. Completed
+5. While active, the group shows its latest action, such as
+   `Searching for liveTail in Sources`. Once closed, it uses the official
+   category order to produce a summary such as
+   `Edited files, read files, ran a command`.
+6. The same stable row updates in place and shimmers while active. Completed
    summaries are static.
-5. Clicking a summary reveals the underlying rows, outputs, diffs, and payloads.
+7. Clicking a summary reveals the underlying rows, outputs, diffs, and payloads.
 
 Dynamic product tools use the same compact treatment by default. CodexCoreUI
 humanizes their canonical names (`create_issue` becomes `Create issue`) rather
@@ -19,6 +26,11 @@ than displaying protocol discriminants or a generic tool card.
 This keeps the default reading path as a transcript—assistant prose interleaved
 with concise activity—not a second event feed. Canonical detail remains
 available when it is useful for debugging or review.
+
+Read, search, and list actions all belong to exploration. Their completed
+collapsed phrase is `Read files`, including search-only and list-only slices.
+Skill-definition reads are counted separately as `Loaded a tool`. Counts select
+singular or plural (`Ran a command` versus `Ran commands`) but are not printed.
 
 ## Host semantic projection
 

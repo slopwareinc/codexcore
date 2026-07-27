@@ -86,10 +86,8 @@ private struct CodexWorkRowViewV2: View {
     @ViewBuilder private var label: some View {
         switch row {
         case .command(let value):
-            HStack(spacing: 3) {
-                Text(value.status == .inProgress ? "Running" : "Ran").font(theme.fonts.caption)
-                Text(value.command.codexDisplayPrefix(limit: 280)).font(theme.fonts.code)
-            }
+            Text(value.label.codexDisplayPrefix(limit: 280))
+                .font(value.action == .run ? theme.fonts.code : theme.fonts.caption)
             .lineLimit(1)
             .truncationMode(.middle)
         default: Text(rowLabel).font(theme.fonts.caption).lineLimit(2)

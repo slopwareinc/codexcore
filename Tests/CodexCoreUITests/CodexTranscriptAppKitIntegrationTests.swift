@@ -221,7 +221,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
         cell.view.layoutSubtreeIfNeeded()
 
-        #expect(cell.chipLabelForTesting == "Ran a command")
+        #expect(cell.chipLabelForTesting == "Running tests")
         #expect(cell.workRowLabelFitsForTesting)
         #expect(cell.chipIconDescriptionForTesting == "In progress")
         #expect(cell.workRowStatusForTesting.isEmpty)

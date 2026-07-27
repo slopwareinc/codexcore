@@ -53,12 +53,12 @@ struct CodexTranscriptRenderProjectionTests {
         let read = CodexWorkRowV2.command(.init(
             id: "read-skill",
             command: "sed -n '1,320p' /plugins/github/skills/github/SKILL.md",
-            label: "Ran sed",
-            action: .read,
+            label: "Read GitHub skill",
+            action: .loadedTool,
             status: .completed,
             targets: ["GitHub skill"]
         ))
-        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [read]) == "Read GitHub skill")
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [read]) == "Loaded a tool")
 
         let tool = CodexProductToolCallV2(
             id: "issue",
@@ -70,6 +70,35 @@ struct CodexTranscriptRenderProjectionTests {
             success: nil
         )
         #expect(CodexProductToolPresentationV2.label(tool) == "Create issue")
+    }
+
+    @Test func completedActivitySummaryUsesOfficialCategoryOrderAndPhrasing() {
+        func command(
+            _ id: String,
+            _ action: CodexWorkCategoryV2
+        ) -> CodexWorkRowV2 {
+            .command(.init(
+                id: id,
+                command: id,
+                label: id,
+                action: action,
+                status: .completed
+            ))
+        }
+
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [
+            command("search", .search),
+        ]) == "Read files")
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [
+            command("list", .list),
+        ]) == "Read files")
+        #expect(CodexWorkGroupHeaderV2.synthesize(rows: [
+            command("run-1", .run),
+            command("read", .read),
+            .fileChange(.init(id: "edit", files: ["A", "B"], status: .completed)),
+            command("run-2", .run),
+            .webSearch(.init(id: "web", query: "Swift", status: .completed)),
+        ]) == "Edited files, read files, ran commands, searched the web")
     }
 
     @Test func realtimeVoiceTurnUsesNormalMessagesWithoutWorkChromeOrTimestamps() async throws {
@@ -346,7 +375,7 @@ struct CodexTranscriptRenderProjectionTests {
         )
         let summaries = snapshot.itemsByID.values.filter { $0.workRow?.isActivitySummary == true }
         #expect(summaries.count == 1)
-        #expect(summaries.first?.workRow?.label == "Ran a command")
+        #expect(summaries.first?.workRow?.label == "Running tests")
         #expect(summaries.first?.workRow?.status == .inProgress)
         #expect(summaries.first?.workRow?.isActionable == true)
         #expect(!snapshot.itemsByID.values.contains { $0.id.rawValue.contains(":row:") })
@@ -416,7 +445,7 @@ struct CodexTranscriptRenderProjectionTests {
         let read = CodexWorkRowV2.command(.init(
             id: "read",
             command: "sed -n '1,240p' Package.swift",
-            label: "Ran sed",
+            label: "Read Package.swift",
             action: .read,
             status: .completed,
             targets: ["Package.swift"]
@@ -424,7 +453,7 @@ struct CodexTranscriptRenderProjectionTests {
         let run = CodexWorkRowV2.command(.init(
             id: "run",
             command: "swift test",
-            label: "Ran swift test",
+            label: "Running command",
             action: .run,
             status: .inProgress
         ))
@@ -447,11 +476,71 @@ struct CodexTranscriptRenderProjectionTests {
         })
 
         #expect(firstSummary.id == secondSummary.id)
-        #expect(firstSummary.workRow?.label == "Read Package.swift")
-        #expect(secondSummary.workRow?.label == "Read Package.swift, ran a command")
+        #expect(firstSummary.workRow?.label == "Read files")
+        #expect(secondSummary.workRow?.label == "Running command")
         #expect(secondSummary.workRow?.status == .inProgress)
         #expect(second.changedItemIDs == [secondSummary.id])
         #expect(!second.itemsByID.values.contains { $0.id.rawValue.contains(":row:") })
+    }
+
+    @Test func expandedActivityPreservesEverySemanticCommandAction() async throws {
+        let rows: [CodexWorkRowV2] = [
+            .command(.init(
+                id: "exec:0",
+                command: "sed App.swift",
+                label: "Read App.swift",
+                action: .read,
+                status: .completed
+            )),
+            .command(.init(
+                id: "exec:1",
+                command: "sed Model.swift",
+                label: "Read Model.swift",
+                action: .read,
+                status: .completed
+            )),
+            .command(.init(
+                id: "exec:2",
+                command: "rg liveTail Sources",
+                label: "Searched for liveTail in Sources",
+                action: .search,
+                status: .completed
+            )),
+        ]
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(
+                id: "group",
+                header: "Read files",
+                rows: rows,
+                isLive: false
+            ))],
+            status: .done(durationMs: 1_000)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: ["turn"],
+                expandedRowIDs: ["group"]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+        let actionRows = snapshot.itemsByID.values
+            .filter { $0.id.rawValue.contains(":row:exec:") }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+
+        #expect(actionRows.map(\.workRow?.label) == [
+            "Read App.swift",
+            "Read Model.swift",
+            "Searched for liveTail in Sources",
+        ])
+        #expect(actionRows.map(\.workRow?.systemImage) == [
+            "book",
+            "book",
+            "magnifyingglass",
+        ])
     }
 
     @Test func markdownLinksNestedListsAndCompletedCodeCarryExplicitStyling() async throws {

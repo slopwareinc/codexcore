@@ -155,6 +155,186 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(projected.finalAnswer?.isStreaming == true)
     }
 
+    @Test func commandExecutionProjectsEverySemanticActionWithStableOfficialIDs() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let command = item(threadID, turnID, "exec-multi", .commandExecution, [
+            "command": .string("sed App.swift && sed Model.swift && rg liveTail Sources"),
+            "status": .string("completed"),
+            "exitCode": .int(0),
+            "aggregatedOutput": .string("matches"),
+            "commandActions": .array([
+                .dictionary([
+                    "type": .string("read"),
+                    "command": .string("sed App.swift"),
+                    "name": .string("App.swift"),
+                    "path": .string("App.swift"),
+                ]),
+                .dictionary([
+                    "type": .string("read"),
+                    "command": .string("sed Model.swift"),
+                    "name": .string("Model.swift"),
+                    "path": .string("Model.swift"),
+                ]),
+                .dictionary([
+                    "type": .string("search"),
+                    "command": .string("rg liveTail Sources"),
+                    "query": .string("liveTail"),
+                    "path": .string("Sources"),
+                ]),
+            ]),
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(
+                turnID,
+                threadID: threadID,
+                itemIDs: ["exec-multi"],
+                revision: 1
+            )],
+            items: [command]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        let rows = projected.narrative.flatMap(\.workRows)
+        #expect(rows.map(\.id) == ["exec-multi:0", "exec-multi:1", "exec-multi:2"])
+
+        let commands = rows.compactMap { row -> CodexCommandRowV2? in
+            guard case .command(let command) = row else { return nil }
+            return command
+        }
+        #expect(commands.map(\.command) == [
+            "sed App.swift",
+            "sed Model.swift",
+            "rg liveTail Sources",
+        ])
+        #expect(commands.map(\.label) == [
+            "Read App.swift",
+            "Read Model.swift",
+            "Searched for liveTail in Sources",
+        ])
+        #expect(commands.map(\.action) == [.read, .read, .search])
+        #expect(commands.allSatisfy { $0.output == "matches" })
+        #expect(projected.narrative.compactMap(\.workGroup).first?.header == "Read files")
+    }
+
+    @Test func skillReadsBecomeLoadedToolsAndUnknownCommandsUseFallback() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let skill = item(threadID, turnID, "skill", .commandExecution, [
+            "command": .string("cat /plugins/github/skills/github/SKILL.md"),
+            "status": .string("completed"),
+            "commandActions": .array([.dictionary([
+                "type": .string("read"),
+                "command": .string("cat /plugins/github/skills/github/SKILL.md"),
+                "name": .string("SKILL.md"),
+                "path": .string("/plugins/github/skills/github/SKILL.md"),
+            ])]),
+        ])
+        let fallback = item(threadID, turnID, "fallback", .commandExecution, [
+            "command": .string("swift test"),
+            "status": .string("completed"),
+            "commandActions": .array([]),
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(
+                turnID,
+                threadID: threadID,
+                itemIDs: ["skill", "fallback"],
+                revision: 1
+            )],
+            items: [skill, fallback]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        let commands = projected.narrative.flatMap(\.workRows).compactMap { row -> CodexCommandRowV2? in
+            guard case .command(let command) = row else { return nil }
+            return command
+        }
+        #expect(commands.map(\.action) == [.loadedTool, .run])
+        #expect(commands.map(\.label) == ["Read GitHub skill", "Ran swift test"])
+        #expect(projected.narrative.compactMap(\.workGroup).first?.header == "Loaded a tool, ran a command")
+    }
+
+    @Test func modelReasoningSummaryIsTheOnlySeparateLiveTail() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let reasoning = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "reasoning"),
+            kind: .reasoning,
+            payload: [:],
+            authority: .started,
+            liveOverlay: .init(reasoningSummary: [
+                0: .init(chunks: ["**Evaluating uncommitted partial modifications**"]),
+            ]),
+            lastChangedRevision: StateRevision(2)
+        )
+        let command = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "command"),
+            kind: .commandExecution,
+            payload: [
+                "command": .string("swift test"),
+                "status": .string("inProgress"),
+                "commandActions": .array([.dictionary([
+                    "type": .string("unknown"),
+                    "command": .string("swift test"),
+                ])]),
+            ],
+            authority: .started,
+            lastChangedRevision: StateRevision(2)
+        )
+        let liveTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .inProgress,
+            itemOrder: ["reasoning", "command"],
+            itemsCoverage: .full,
+            lastChangedRevision: StateRevision(2)
+        )
+        let snapshot = state(
+            revision: 2,
+            threadID: threadID,
+            turns: [liveTurn],
+            items: [reasoning, command]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        #expect(projected.liveTail == "**Evaluating uncommitted partial modifications**")
+
+        let withoutReasoning = state(
+            revision: 3,
+            threadID: threadID,
+            turns: [.init(
+                key: liveTurn.key,
+                status: .inProgress,
+                itemOrder: ["command"],
+                itemsCoverage: .full,
+                lastChangedRevision: StateRevision(3)
+            )],
+            items: [command]
+        )
+        let commandOnly = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: withoutReasoning, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        #expect(commandOnly.liveTail == nil)
+    }
+
     @Test func hostPolicyCoalescesSuccessiveItemsIntoOneSemanticActivity() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"
@@ -851,5 +1031,9 @@ private extension CodexCanonicalTranscriptProjectorTests {
 private extension CodexNarrativeEntry {
     var workRows: [CodexWorkRowV2] {
         if case .workGroup(let group) = self { group.rows } else { [] }
+    }
+
+    var workGroup: CodexWorkGroupV2? {
+        if case .workGroup(let group) = self { group } else { nil }
     }
 }

@@ -511,7 +511,7 @@ actor CodexTranscriptRenderProjector {
                             status: groupStatus,
                             systemImage: CodexWorkGroupPresentationV2.systemImage(rows: rows),
                             isActivitySummary: true,
-                            showsDisclosure: false,
+                            showsDisclosure: true,
                             durationMs: nil,
                             isExpanded: groupIsExpanded,
                             hasDetail: true,
@@ -567,6 +567,7 @@ actor CodexTranscriptRenderProjector {
                                 kind: Self.kind(for: row),
                                 label: Self.label(for: row, diffFiles: diffFiles),
                                 status: Self.status(for: row),
+                                systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
                                 isExpanded: presentation.expandedRowIDs.contains(rowID),
                                 hasDetail: detail != nil,
@@ -1794,7 +1795,7 @@ private extension CodexTranscriptRenderProjector {
     static func label(for row: CodexWorkRowV2, diffFiles: [CodexDiffFile]? = nil) -> String {
         switch row {
         case .command(let value):
-            return (value.status == .inProgress ? "Running " : "Ran ") + value.command.codexAppKitDisplayPrefix(limit: 280)
+            return value.label.codexAppKitDisplayPrefix(limit: 280)
         case .fileChange(let value):
             guard let diffFiles else { return "Edited " + value.files.joined(separator: " · ") }
             let added = diffFiles.reduce(0) { $0 + $1.added }
@@ -1808,6 +1809,17 @@ private extension CodexTranscriptRenderProjector {
         case .webSearch(let value): return "Searched \(value.query)"
         case .collabAgent(let value): return value.label
         case .other(let value): return value.label
+        }
+    }
+
+    static func systemImage(for row: CodexWorkRowV2) -> String? {
+        guard case .command(let value) = row else { return nil }
+        return switch value.action {
+        case .read: "book"
+        case .loadedTool: "book.closed"
+        case .list: "list.bullet.rectangle"
+        case .search: "magnifyingglass"
+        default: nil
         }
     }
 

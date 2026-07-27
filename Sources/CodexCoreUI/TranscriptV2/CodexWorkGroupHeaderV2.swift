@@ -2,16 +2,11 @@ import Foundation
 
 public enum CodexWorkGroupHeaderV2 {
     public static func synthesize(rows: [CodexWorkRowV2]) -> String {
-        var order: [CodexWorkCategoryV2] = []
         var counts: [CodexWorkCategoryV2: Int] = [:]
         for row in rows {
             let categories: [(CodexWorkCategoryV2, Int)]
             switch row {
-            case .command(let value):
-                categories = [(
-                    value.action,
-                    value.action == .read ? max(1, value.targets.count) : 1
-                )]
+            case .command(let value): categories = [(value.action, 1)]
             case .fileChange(let value): categories = [(.edit, max(1, value.files.count))]
             case .mcpToolCall(let value): categories = [(.mcp(value.appName), 1)]
             case .webSearch: categories = [(.webSearch, 1)]
@@ -27,53 +22,76 @@ public enum CodexWorkGroupHeaderV2 {
                 categories = value.label == "Generating an image" ? [(.imageGeneration, 1)] : []
             }
             for (category, count) in categories {
-                if counts[category] == nil { order.append(category) }
                 counts[category, default: 0] += count
             }
         }
-        guard !order.isEmpty else { return "" }
-        // The app treats read + search as one discovery phrase, even when run
-        // commands arrived between them on the wire.
-        if let read = order.firstIndex(of: .read), let search = order.firstIndex(of: .search), search > read + 1 {
-            order.remove(at: search)
-            order.insert(.search, at: read + 1)
+
+        var phrases: [String] = []
+
+        // Official completed summaries use a fixed semantic order rather than
+        // event arrival order. Named sources lead, followed by loaded tools,
+        // edits, exploration, commands, and web search.
+        let mcpApps = rows.compactMap { row -> String? in
+            guard case .mcpToolCall(let value) = row else { return nil }
+            return value.appName.isEmpty ? value.server : value.appName
         }
-        let phrases = order.map {
-            phrase($0, count: counts[$0, default: 0], rows: rows)
+        .reduce(into: [String]()) { result, app in
+            if !result.contains(app) { result.append(app) }
         }
-        var result = phrases[0].prefix(1).uppercased() + phrases[0].dropFirst()
-        if phrases.count > 1 {
-            for index in 1..<phrases.count {
-                let previous = order[index - 1], current = order[index]
-                let separator = (previous == .read && current == .search) ? " and " : ", "
-                result += separator + phrases[index]
-            }
+        if !mcpApps.isEmpty {
+            phrases.append("used \(mcpApps.joined(separator: " and "))")
         }
-        return result
+
+        appendPhrase(.loadedTool, counts: counts, to: &phrases)
+        appendPhrase(.edit, counts: counts, to: &phrases)
+
+        let explorationCount = counts[.read, default: 0]
+            + counts[.search, default: 0]
+            + counts[.list, default: 0]
+        if explorationCount > 0 {
+            phrases.append("read files")
+        }
+
+        appendPhrase(.run, counts: counts, to: &phrases)
+        appendPhrase(.webSearch, counts: counts, to: &phrases)
+        appendPhrase(.collabCreated, counts: counts, to: &phrases)
+        appendPhrase(.collabClosed, counts: counts, to: &phrases)
+        appendPhrase(.collabWait, counts: counts, to: &phrases)
+        appendPhrase(.collabWorked, counts: counts, to: &phrases)
+        appendPhrase(.imageGeneration, counts: counts, to: &phrases)
+
+        guard let first = phrases.first else { return "" }
+        return (first.prefix(1).uppercased() + first.dropFirst())
+            + phrases.dropFirst().map { ", \($0)" }.joined()
+    }
+
+    private static func appendPhrase(
+        _ category: CodexWorkCategoryV2,
+        counts: [CodexWorkCategoryV2: Int],
+        to phrases: inout [String]
+    ) {
+        let count = counts[category, default: 0]
+        if count > 0 {
+            phrases.append(phrase(category, count: count))
+        }
     }
 
     private static func phrase(
         _ category: CodexWorkCategoryV2,
-        count: Int,
-        rows: [CodexWorkRowV2]
+        count: Int
     ) -> String {
         switch category {
-        case .read:
-            let targets = rows.compactMap { row -> [String]? in
-                guard case .command(let command) = row, command.action == .read else { return nil }
-                return command.targets
-            }.flatMap { $0 }
-            return count == 1 ? "read \(targets.first ?? "a file")" : "read \(count) files"
-        case .list: return "listed files"
-        case .search, .webSearch: return "searched"
-        case .run: return count == 1 ? "ran a command" : "ran \(count) commands"
-        case .edit: return count == 1 ? "edited a file" : "edited \(count) files"
-        case .mcp(let app): return count == 1 ? "called \(app)" : "called \(app) \(count) times"
+        case .loadedTool: return count == 1 ? "loaded a tool" : "loaded tools"
+        case .run: return count == 1 ? "ran a command" : "ran commands"
+        case .edit: return count == 1 ? "edited a file" : "edited files"
+        case .webSearch: return "searched the web"
         case .collabCreated: return count == 1 ? "created an agent" : "created \(count) agents"
         case .collabClosed: return count == 1 ? "closed an agent" : "closed \(count) agents"
         case .collabWait: return "working"
         case .collabWorked: return count == 1 ? "worked with an agent" : "worked with \(count) agents"
         case .imageGeneration: return count == 1 ? "generated an image" : "generated \(count) images"
+        case .read, .list, .search: return "read files"
+        case .mcp(let app): return "used \(app)"
         }
     }
 }
@@ -81,6 +99,10 @@ public enum CodexWorkGroupHeaderV2 {
 enum CodexWorkGroupPresentationV2 {
     static func header(_ group: CodexWorkGroupV2, rows: [CodexWorkRowV2]? = nil) -> String {
         let visibleRows = rows ?? group.rows
+        if group.isLive,
+           let active = visibleRows.last(where: \.isInProgress) {
+            return activeLabel(active)
+        }
         if rows == nil, !group.header.isEmpty { return group.header }
         return CodexWorkGroupHeaderV2.synthesize(rows: visibleRows)
     }
@@ -101,6 +123,30 @@ enum CodexWorkGroupPresentationV2 {
         if rows.contains(where: isDiscovery) { return "doc.text.magnifyingglass" }
         if rows.contains(where: isImageGeneration) { return "photo.badge.plus" }
         return "terminal"
+    }
+
+    private static func activeLabel(_ row: CodexWorkRowV2) -> String {
+        switch row {
+        case .command(let value):
+            return value.label
+        case .fileChange:
+            return "Editing files"
+        case .mcpToolCall(let value):
+            let app = value.appName.isEmpty ? value.server : value.appName
+            return "Using \(app)"
+        case .webSearch:
+            return "Searching the web"
+        case .collabAgent(let value):
+            switch value.action {
+            case .created, .started: return "Creating an agent"
+            case .sentInput, .interacted: return "Messaging an agent"
+            case .waited: return "Waiting for agents"
+            case .closed: return "Closing agents"
+            case .interrupted: return "Interrupting an agent"
+            }
+        case .other(let value):
+            return value.label
+        }
     }
 
     private static func isFailed(_ row: CodexWorkRowV2) -> Bool {

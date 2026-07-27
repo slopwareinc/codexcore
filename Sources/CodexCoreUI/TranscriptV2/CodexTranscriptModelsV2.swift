@@ -284,7 +284,8 @@ public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
     public init(id: String, message: String) { self.id = id; self.message = message }
 }
 
- public enum CodexWorkCategoryV2: Sendable, Hashable {
-    case read, list, search, webSearch, run, edit, mcp(String)
+/// The semantic activity category used to summarize and render a work row.
+public enum CodexWorkCategoryV2: Sendable, Hashable {
+    case read, list, search, loadedTool, webSearch, run, edit, mcp(String)
     case collabCreated, collabClosed, collabWait, collabWorked, imageGeneration
- }
+}

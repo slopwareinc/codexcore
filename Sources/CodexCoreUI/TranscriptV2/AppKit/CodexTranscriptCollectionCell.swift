@@ -896,14 +896,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipBackground.frame = contentFrame
             let rowMidY = contentFrame.height / 2
             let disclosureWidth: CGFloat = row.showsDisclosure ? 14 : 0
-            chipDisclosureView.frame = NSRect(
-                x: 0,
-                y: rowMidY - 7,
-                width: disclosureWidth,
-                height: 14
-            )
             let iconSize: CGFloat = 15
-            let iconX = disclosureWidth > 0 ? disclosureWidth + 6 : 0
+            let disclosureLeadsRow = row.showsDisclosure && !row.isActivitySummary
+            let iconX = disclosureLeadsRow ? disclosureWidth + 6 : 0
             chipIconView.frame = NSRect(x: iconX, y: rowMidY - iconSize / 2, width: iconSize, height: iconSize)
 
             chipStatusLabel.sizeToFit()
@@ -913,13 +908,25 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
             let copyReserve: CGFloat = copyControlInstalled && !copyButton.isHidden ? 34 : 0
             let labelX = iconX + iconSize + 8
-            let trailingWidth = statusWidth + (durationWidth > 0 ? durationWidth + 10 : 0) + copyReserve
+            let summaryDisclosureReserve = row.isActivitySummary && row.showsDisclosure
+                ? disclosureWidth + 8
+                : 0
+            let trailingWidth = statusWidth
+                + (durationWidth > 0 ? durationWidth + 10 : 0)
+                + copyReserve
+                + summaryDisclosureReserve
             let naturalLabelWidth = ceil(chipLabel.cell?.cellSize.width ?? 20)
             let labelWidth = min(
                 naturalLabelWidth,
                 max(20, contentFrame.width - labelX - trailingWidth - 20)
             )
             chipLabel.frame = NSRect(x: labelX, y: rowMidY - 10, width: labelWidth, height: 20)
+            chipDisclosureView.frame = NSRect(
+                x: row.isActivitySummary ? chipLabel.frame.maxX + 6 : 0,
+                y: rowMidY - 7,
+                width: disclosureWidth,
+                height: 14
+            )
             chipDurationLabel.frame = NSRect(
                 x: chipLabel.frame.maxX + (durationWidth > 0 ? 10 : 0),
                 y: rowMidY - 9,
