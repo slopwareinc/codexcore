@@ -389,6 +389,69 @@ struct CodexTranscriptAppKitIntegrationTests {
         })
     }
 
+    @Test func standaloneTranscriptRefreshDoesNotCollapseExpandedActivity() async throws {
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 700)
+        )
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        coordinator.attach(to: container)
+        let rowID = "turn:inline-activity:research"
+
+        func presentation(label: String, expanded: Bool) -> CodexThreadUIPresentation {
+            .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.inlineActivity(.init(
+                        id: "research",
+                        label: label,
+                        systemImage: "book.pages",
+                        detail: "○ Draft the lessons",
+                        status: .inProgress
+                    ))],
+                    status: .working(since: 1)
+                )]),
+                expandedRowIDs: expanded ? [rowID] : []
+            )
+        }
+
+        coordinator.update(
+            presentation: presentation(label: "Drafting lessons", expanded: true),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.renderedItemIDsForTesting.contains {
+            $0.rawValue.hasSuffix(":inline-activity:research:detail")
+        })
+
+        // The transcript-only initializer creates a fresh presentation for
+        // every streamed update. That refresh must not erase live UI state.
+        coordinator.update(
+            presentation: presentation(label: "Checking lessons", expanded: false),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.renderedItemIDsForTesting.contains {
+            $0.rawValue.hasSuffix(":inline-activity:research:detail")
+        })
+    }
+
     @Test func singleLineAssistantRepliesFitTheirNativeTextLayout() async throws {
         let replies = [
             "Hello world! 👋",

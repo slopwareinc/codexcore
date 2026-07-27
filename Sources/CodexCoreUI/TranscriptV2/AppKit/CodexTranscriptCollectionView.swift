@@ -195,6 +195,21 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onProjectionError: @escaping (String?) -> Void = { _ in }
         ) {
             guard let container else { return }
+            var presentation = presentation
+            if presentationStore == nil,
+               let currentPresentation,
+               currentPresentation.threadID == presentation.threadID {
+                // The standalone transcript initializer is fed a fresh
+                // presentation value on every streamed update. Preserve the
+                // coordinator-owned interaction state instead of treating the
+                // refresh as a request to collapse the user's open rows.
+                presentation.rawScrollOffset = currentPresentation.rawScrollOffset
+                presentation.isPinnedToBottom = currentPresentation.isPinnedToBottom
+                presentation.expandedWorkTurnIDs = currentPresentation.expandedWorkTurnIDs
+                presentation.expandedRowIDs = currentPresentation.expandedRowIDs
+                presentation.selectedDiffFileIndexByRowID =
+                    currentPresentation.selectedDiffFileIndexByRowID
+            }
             let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme)
             if appKitTheme?.fingerprint != nextTheme.fingerprint
                 || self.contentHorizontalOffset != contentHorizontalOffset {
