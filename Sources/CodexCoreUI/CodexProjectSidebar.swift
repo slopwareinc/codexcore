@@ -1144,19 +1144,10 @@ private struct SidebarSelectionBackground: View {
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
-        shape
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
             .fill(
                 theme.colors.textPrimary.opacity(
-                    controlActiveState == .key ? 0.09 : 0.055
-                )
-            )
-            .overlay(
-                shape.stroke(
-                    theme.colors.textPrimary.opacity(
-                        controlActiveState == .key ? 0.045 : 0.025
-                    ),
-                    lineWidth: 0.5
+                    controlActiveState == .key ? 0.055 : 0.03
                 )
             )
     }
