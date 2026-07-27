@@ -102,7 +102,7 @@ public enum CodexWorkRowV2: Identifiable, Sendable, Equatable {
     case mcpToolCall(...)    // appName ?? server, tool, status, durationMs, error first line, args/result (expandable)
     case webSearch(...)      // query
     case collabAgent(...)    // created/waited/closed, agent names, instructions
-    case other(...)          // imageView, sleep, etc. — muted one-liner
+    case other(...)          // sleep and other muted one-line activities
 }
 ```
 

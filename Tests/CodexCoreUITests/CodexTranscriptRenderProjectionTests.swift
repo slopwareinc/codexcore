@@ -425,6 +425,57 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(second.changedItemIDs.contains(secondRow.id))
     }
 
+    @Test func viewedImageActivityExpandsToInlinePreview() async throws {
+        let activity = CodexNarrativeEntry.inlineActivity(.init(
+            id: "view",
+            label: "Viewed an image",
+            systemImage: "photo.on.rectangle.angled",
+            imagePath: "/tmp/reference.png",
+            status: .completed
+        ))
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [activity],
+            status: .done(durationMs: 1_000)
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+
+        let collapsed = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: ["turn"]
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let row = try #require(collapsed.itemsByID.values.first {
+            $0.workRow?.style == .inlineActivity
+        })
+        #expect(row.workRow?.label == "Viewed an image")
+        #expect(row.action == .toggleRow(rowID: "turn:inline-activity:view"))
+
+        let expanded = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: ["turn"],
+                expandedRowIDs: ["turn:inline-activity:view"]
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let preview = try #require(expanded.itemsByID.values.first {
+            $0.id.rawValue.hasSuffix(":inline-activity:view:image")
+        })
+        #expect(preview.agentChips.count == 1)
+        #expect(preview.agentChips.first?.taskSummary == "/tmp/reference.png")
+        #expect(preview.agentChips.first?.attachmentKind == .image)
+        #expect(preview.agentChips.first?.imagePreviewSize == 160)
+        #expect(preview.intrinsicContentWidth == 160)
+    }
+
     @Test func defaultActivitySummaryUpdatesOneStableRowAsWorkAccumulates() async throws {
         let projector = CodexTranscriptRenderProjector()
         func presentation(rows: [CodexWorkRowV2]) -> CodexThreadUIPresentation {

@@ -260,6 +260,8 @@ public struct CodexInlineActivityV2: Identifiable, Sendable, Equatable {
     public var systemImage: String?
     /// Optional learner-facing detail revealed from the compact activity row.
     public var detail: String?
+    /// Optional local image displayed inline when the activity is expanded.
+    public var imagePath: String?
     public var status: CodexWorkItemStatusV2
 
     public init(
@@ -267,12 +269,14 @@ public struct CodexInlineActivityV2: Identifiable, Sendable, Equatable {
         label: String,
         systemImage: String? = nil,
         detail: String? = nil,
+        imagePath: String? = nil,
         status: CodexWorkItemStatusV2
     ) {
         self.id = id
         self.label = label
         self.systemImage = systemImage
         self.detail = detail
+        self.imagePath = imagePath
         self.status = status
     }
 }

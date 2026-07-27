@@ -1,5 +1,4 @@
 import AppKit
-import ImageIO
 import QuickLookUI
 import SwiftUI
 
@@ -1544,7 +1543,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         theme: CodexTranscriptAppKitTheme
     ) {
         agentChipContainer.frame = contentFrame
-        let height: CGFloat = chips.contains(where: { $0.attachmentKind == .image }) ? 64 : 26
+        let height = max(26, chips.compactMap {
+            $0.attachmentKind == .image ? $0.imagePreviewSize : nil
+        }.max() ?? 0)
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var y = contentFrame.height - height
@@ -1552,7 +1553,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(Self.agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: theme.captionFont]).width)
             let isImage = chip.attachmentKind == .image
-            let width = isImage ? 64 : min(contentFrame.width, max(74, labelWidth + 28))
+            let width = isImage
+                ? chip.imagePreviewSize
+                : min(contentFrame.width, max(74, labelWidth + 28))
             if x > 0, x + width > contentFrame.width {
                 x = 0
                 y -= height + gap
@@ -1937,7 +1940,11 @@ private struct CodexTranscriptAgentPill: View {
         HStack(spacing: 5) {
             if imageAttachment {
                 if let path = chip.taskSummary {
-                    CodexTranscriptAttachmentThumbnail(path: path, label: chip.label)
+                    CodexTranscriptImageThumbnail(
+                        path: path,
+                        label: chip.label,
+                        side: chip.imagePreviewSize
+                    )
                 } else {
                     VStack(spacing: 3) {
                         Image(systemName: "photo")
@@ -1950,7 +1957,7 @@ private struct CodexTranscriptAgentPill: View {
                             .multilineTextAlignment(.center)
                     }
                     .padding(5)
-                    .frame(width: 64, height: 64)
+                    .frame(width: chip.imagePreviewSize, height: chip.imagePreviewSize)
                     .background(theme.colors.surface.opacity(0.7))
                 }
             } else if chip.threadID == nil {
@@ -1974,7 +1981,7 @@ private struct CodexTranscriptAgentPill: View {
         .font(theme.fonts.caption)
         .lineLimit(imageAttachment ? 2 : 1)
         .padding(.horizontal, imageAttachment ? 0 : 8)
-        .frame(height: imageAttachment ? 64 : 26)
+        .frame(height: imageAttachment ? chip.imagePreviewSize : 26)
         .contentShape(Capsule())
         .codexGlass(imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule()), tint: chip.threadID == nil ? theme.colors.surfaceElevated.opacity(0.45) : statusColor.opacity(0.055), interactive: chip.threadID != nil || isAttachment)
         .overlay { (imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule())).stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1) }
@@ -2003,98 +2010,6 @@ private struct CodexTranscriptAgentPill: View {
         case .done: theme.colors.success
         case .failed: theme.colors.danger
         case .closed: theme.colors.textTertiary
-        }
-    }
-}
-
-struct CodexTranscriptDecodedThumbnail: @unchecked Sendable {
-    let image: CGImage
-    let decodedOnMainThread: Bool
-}
-
-actor CodexTranscriptAttachmentThumbnailLoader {
-    static let shared = CodexTranscriptAttachmentThumbnailLoader()
-
-    private let cache: NSCache<NSString, CGImage> = {
-        let cache = NSCache<NSString, CGImage>()
-        cache.countLimit = 32
-        return cache
-    }()
-    private var inFlight: [String: Task<CodexTranscriptDecodedThumbnail?, Never>] = [:]
-
-    func thumbnail(at path: String) async -> CodexTranscriptDecodedThumbnail? {
-        let key = path as NSString
-        if let cached = cache.object(forKey: key) {
-            return CodexTranscriptDecodedThumbnail(image: cached, decodedOnMainThread: false)
-        }
-        if let task = inFlight[path] { return await task.value }
-        let task = Task.detached(priority: .utility) {
-            Self.downsample(path: path, maxPixelSize: 128)
-        }
-        inFlight[path] = task
-        let decoded = await task.value
-        inFlight[path] = nil
-        guard let decoded else { return nil }
-        cache.setObject(decoded.image, forKey: key)
-        return decoded
-    }
-
-    nonisolated private static func downsample(
-        path: String,
-        maxPixelSize: Int
-    ) -> CodexTranscriptDecodedThumbnail? {
-        let url = URL(fileURLWithPath: path) as CFURL
-        guard let source = CGImageSourceCreateWithURL(url, [
-            kCGImageSourceShouldCache: false,
-        ] as CFDictionary) else { return nil }
-        let options = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ] as CFDictionary
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-        return CodexTranscriptDecodedThumbnail(
-            image: image,
-            decodedOnMainThread: Thread.isMainThread
-        )
-    }
-}
-
-private struct CodexTranscriptAttachmentThumbnail: View {
-    @Environment(\.codexAgentTheme) private var theme
-    let path: String
-    let label: String
-    @State private var image: NSImage?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                VStack(spacing: 3) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(theme.colors.textSecondary)
-                    Text(label)
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(5)
-                .background(theme.colors.surface.opacity(0.7))
-            }
-        }
-        .frame(width: 64, height: 64)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .task(id: path) {
-            image = nil
-            guard let thumbnail = await CodexTranscriptAttachmentThumbnailLoader.shared.thumbnail(at: path),
-                  !Task.isCancelled else { return }
-            image = NSImage(cgImage: thumbnail.image, size: .zero)
         }
     }
 }

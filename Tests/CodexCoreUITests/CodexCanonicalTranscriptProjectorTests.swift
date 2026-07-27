@@ -335,6 +335,36 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(commandOnly.liveTail == nil)
     }
 
+    @Test func imageViewProjectsAsExpandableInlineImageActivity() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let image = item(threadID, turnID, "view", .imageView, [
+            "path": .string("/tmp/reference.png")
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["view"], revision: 1)],
+            items: [image]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        let activity = try #require(projected.narrative.compactMap { entry -> CodexInlineActivityV2? in
+            guard case .inlineActivity(let activity) = entry else { return nil }
+            return activity
+        }.first)
+
+        #expect(activity.id == "view")
+        #expect(activity.label == "Viewed an image")
+        #expect(activity.systemImage == "photo.on.rectangle.angled")
+        #expect(activity.imagePath == "/tmp/reference.png")
+        #expect(activity.status == .completed)
+    }
+
     @Test func hostPolicyCoalescesSuccessiveItemsIntoOneSemanticActivity() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

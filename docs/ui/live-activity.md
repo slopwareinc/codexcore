@@ -105,6 +105,10 @@ Omit `detail` for a label-only activity; label-only activities never display a
 dead chevron. Detail should explain domain progress, not dump protocol payloads
 or duplicate the transcript.
 
+Set `imagePath` to a local image when expansion should reveal an inline
+160-point preview. Canonical `imageView` items use this path automatically and
+render as `Viewed an image`; selecting the preview opens the original image.
+
 The activity ID is scoped by transcript turn. Include a domain identifier only
 when one turn can contain multiple concurrent activities.
 

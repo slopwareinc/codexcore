@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct CodexInlineActivityViewV2: View {
@@ -10,7 +11,7 @@ struct CodexInlineActivityViewV2: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if detail != nil {
+            if hasExpandableContent {
                 Button {
                     withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
                         isExpanded.toggle()
@@ -25,13 +26,24 @@ struct CodexInlineActivityViewV2: View {
                     .accessibilityValue(accessibilityStatus)
             }
 
-            if isExpanded, let detail {
-                Text(detail)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 22)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let imagePath {
+                        CodexTranscriptImageThumbnail(
+                            path: imagePath,
+                            label: URL(fileURLWithPath: imagePath).lastPathComponent,
+                            side: 160
+                        )
+                    }
+                    if let detail {
+                        Text(detail)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.leading, 22)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .task(id: isAnimating) {
@@ -54,7 +66,7 @@ struct CodexInlineActivityViewV2: View {
             }
             Text(activity.label)
                 .lineLimit(2)
-            if detail != nil {
+            if hasExpandableContent {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(theme.fonts.micro)
             }
@@ -69,6 +81,15 @@ struct CodexInlineActivityViewV2: View {
     private var detail: String? {
         let value = activity.detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         return value?.isEmpty == false ? value : nil
+    }
+
+    private var imagePath: String? {
+        let value = activity.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
+    }
+
+    private var hasExpandableContent: Bool {
+        detail != nil || imagePath != nil
     }
 
     private var isAnimating: Bool {

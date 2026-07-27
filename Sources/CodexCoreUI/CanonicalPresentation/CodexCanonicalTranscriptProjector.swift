@@ -402,7 +402,22 @@ private extension CodexCanonicalTranscriptProjector {
             case .contextCompaction:
                 hasContextCompaction = true
             case .imageView:
-                appendNotice(id: item.key.itemID, message: "Viewed an image", to: &turn)
+                if let path = item.payload.string("path")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !path.isEmpty {
+                    appendInlineActivity(
+                        .init(
+                            id: item.key.itemID.rawValue,
+                            label: "Viewed an image",
+                            systemImage: "photo.on.rectangle.angled",
+                            imagePath: path,
+                            status: workStatus(item, completed: completed)
+                        ),
+                        segments: &conversationSegments,
+                        to: &turn
+                    )
+                } else {
+                    appendNotice(id: item.key.itemID, message: "Viewed an image", to: &turn)
+                }
             case .sleep:
                 appendNotice(id: item.key.itemID, message: "Waiting", to: &turn)
             case .commandExecution, .fileChange, .mcpToolCall, .collabAgentToolCall,

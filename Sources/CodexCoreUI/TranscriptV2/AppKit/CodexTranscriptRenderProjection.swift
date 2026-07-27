@@ -133,6 +133,7 @@ struct CodexTranscriptAgentChipRender: Sendable, Equatable {
     var taskSummary: String?
     var latestUpdate: String?
     var attachmentKind: CodexReferencedFile.Kind? = nil
+    var imagePreviewSize: CGFloat = 64
 }
 
 struct CodexTranscriptDiffPanelRender: Sendable, Equatable {
@@ -652,6 +653,10 @@ actor CodexTranscriptRenderProjector {
                         let detail = activity.detail?
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                             .codexAppKitNilIfEmpty
+                        let imagePath = activity.imagePath?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .codexAppKitNilIfEmpty
+                        let hasExpandableContent = detail != nil || imagePath != nil
                         let rowID = "\(turn.id):inline-activity:\(activity.id)"
                         let isExpanded = presentation.expandedRowIDs.contains(rowID)
                         let rowRender = CodexTranscriptWorkRowRender(
@@ -662,14 +667,14 @@ actor CodexTranscriptRenderProjector {
                             style: .inlineActivity,
                             durationMs: nil,
                             isExpanded: isExpanded,
-                            hasDetail: detail != nil,
+                            hasDetail: hasExpandableContent,
                             isSubagentLink: false
                         )
                         append(ItemDraft(
                             id: "\(sectionID):inline-activity:\(activity.id)",
                             fingerprint: "inline-activity:\(String(describing: activity))",
                             workRow: rowRender,
-                            action: detail == nil ? nil : .toggleRow(rowID: rowID),
+                            action: hasExpandableContent ? .toggleRow(rowID: rowID) : nil,
                             copyText: detail,
                             accessibilityLabel: Self.inlineActivityAccessibilityLabel(
                                 activity,
@@ -681,6 +686,30 @@ actor CodexTranscriptRenderProjector {
                                 ? 2
                                 : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
+                        if isExpanded, let imagePath {
+                            let label = URL(fileURLWithPath: imagePath).lastPathComponent
+                            append(ItemDraft(
+                                id: "\(sectionID):inline-activity:\(activity.id):image",
+                                fingerprint: "inline-activity-image:\(imagePath)",
+                                agentChips: [.init(
+                                    id: "\(activity.id):image",
+                                    label: label,
+                                    status: .done,
+                                    threadID: nil,
+                                    taskSummary: imagePath,
+                                    latestUpdate: nil,
+                                    attachmentKind: .image,
+                                    imagePreviewSize: 160
+                                )],
+                                accessibilityLabel: "Viewed image: \(label)",
+                                indentation: 22,
+                                maxWidthKind: .card,
+                                intrinsicContentWidth: 160,
+                                bottomSpacing: detail == nil
+                                    ? CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                                    : 2
+                            ))
+                        }
                         if isExpanded, let detail {
                             let bounded = Self.bounded(detail, limit: 20_000)
                             append(ItemDraft(
@@ -1316,7 +1345,7 @@ private extension CodexTranscriptRenderProjector {
                 userMaxWidth,
                 attachmentChips.reduce(CGFloat.zero) { total, chip in
                     let width = chip.attachmentKind == .image
-                        ? 64
+                        ? chip.imagePreviewSize
                         : ceil((chip.label as NSString).size(
                             withAttributes: [.font: theme.captionFont]
                         ).width) + 34
@@ -1444,7 +1473,9 @@ private extension CodexTranscriptRenderProjector {
         width: CGFloat,
         font: NSFont
     ) -> CGFloat {
-        let height: CGFloat = chips.contains(where: { $0.attachmentKind == .image }) ? 64 : 26
+        let height = max(26, chips.compactMap {
+            $0.attachmentKind == .image ? $0.imagePreviewSize : nil
+        }.max() ?? 0)
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var rows: CGFloat = 1
@@ -1452,7 +1483,9 @@ private extension CodexTranscriptRenderProjector {
             let isAttachmentImage = chip.attachmentKind == .image
             let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
-            let chipWidth = isAttachmentImage ? 64 : min(width, max(74, labelWidth + 28))
+            let chipWidth = isAttachmentImage
+                ? chip.imagePreviewSize
+                : min(width, max(74, labelWidth + 28))
             if x > 0, x + chipWidth > width {
                 rows += 1
                 x = 0
@@ -1926,9 +1959,11 @@ private extension CodexTranscriptRenderProjector {
         case .completed: "completed"
         case .failed: "failed"
         }
-        let disclosure = activity.detail?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty == false
+        let hasExpandableContent = activity.detail?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || activity.imagePath?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let disclosure = hasExpandableContent
             ? ", \(isExpanded ? "details shown" : "details hidden")"
             : ""
         return "\(activity.label), \(state)\(disclosure)"
