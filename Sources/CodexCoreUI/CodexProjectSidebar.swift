@@ -5,6 +5,7 @@ import AppKit
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var showsOlderProjects = false
     @State private var isPinnedSectionExpanded = true
     @State private var isChatsSectionExpanded = true
@@ -113,8 +114,15 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                Rectangle().fill(
+                    theme.colors.surface.opacity(controlActiveState == .inactive ? 0.34 : 0.22)
+                )
+            }
+        }
         .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.18))
-        .background(theme.colors.surface.opacity(0.26))
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.colors.border.opacity(0.45))
@@ -779,17 +787,6 @@ private struct ProjectSidebarGroupView: View {
         }
         .padding(.leading, 18)
         .padding(.trailing, 2)
-        .background(
-            LinearGradient(
-                colors: [
-                    theme.colors.surface.opacity(0),
-                    theme.colors.surface.opacity(0.96),
-                    theme.colors.surface.opacity(0.96),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
     }
 
     @ViewBuilder
@@ -798,11 +795,7 @@ private struct ProjectSidebarGroupView: View {
         if isDropTargeted {
             shape.fill(theme.colors.accent.opacity(0.16))
         } else if group.isSelected && !hasSelectedThread {
-            Color.clear.codexGlass(
-                shape,
-                tint: theme.colors.accent.opacity(0.08),
-                interactive: true
-            )
+            SidebarSelectionBackground()
         } else if isHovered {
             shape.fill(theme.colors.surfaceElevated.opacity(0.18))
         }
@@ -912,11 +905,7 @@ private struct SidebarChatRowContent: View {
         .frame(height: theme.fonts.sidebar.chatRowHeight)
         .background {
             if row.isSelected {
-                Color.clear.codexGlass(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous),
-                    tint: theme.colors.accent.opacity(0.08),
-                    interactive: true
-                )
+                SidebarSelectionBackground()
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1147,6 +1136,27 @@ final class SidebarChatRowContainerView: NSView {
         actionBackdrop.layer?.backgroundColor = (isHovered ? hoverColor : baseColor).cgColor
         actionBackdrop.isHidden = !showsActions
         actionsHost.isHidden = !showsActions
+    }
+}
+
+private struct SidebarSelectionBackground: View {
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(selectionColor)
+    }
+
+    private var selectionColor: Color {
+        #if canImport(AppKit)
+        Color(
+            nsColor: controlActiveState == .key
+                ? .selectedContentBackgroundColor
+                : .unemphasizedSelectedContentBackgroundColor
+        )
+        #else
+        Color.accentColor.opacity(controlActiveState == .key ? 0.28 : 0.14)
+        #endif
     }
 }
 

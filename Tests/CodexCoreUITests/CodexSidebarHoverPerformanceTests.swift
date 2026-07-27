@@ -81,7 +81,9 @@ struct CodexSidebarHoverPerformanceTests {
         #expect(session.isPresented)
 
         session.pointerExitedRevealRegion()
-        try await Task.sleep(for: .milliseconds(250))
+        for _ in 0..<100 where session.isPresented {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(!session.isPresented)
     }
 
