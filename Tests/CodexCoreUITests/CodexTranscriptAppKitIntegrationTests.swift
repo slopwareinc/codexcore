@@ -1092,14 +1092,6 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(container.collectionView.layoutSubtreeSettlementCount == 1)
         #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 0)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
-        let applyLabel = String(format: "%.3f", coordinator.diagnostics.lastSnapshotApplyDurationMilliseconds)
-        let maximumApplyLabel = String(format: "%.3f", coordinator.diagnostics.maximumSnapshotApplyDurationMilliseconds)
-        print(
-            "APPKIT_TRANSCRIPT_DIFF items=1085 snapshots=\(coordinator.diagnostics.snapshotApplyCount) "
-                + "targeted=\(coordinator.diagnostics.targetedReconfigurePassCount) "
-                + "reconfigured=\(coordinator.diagnostics.reconfiguredItemCount) broad_reload=\(coordinator.diagnostics.broadReloadCount) "
-                + "last_apply_ms=\(applyLabel) max_apply_ms=\(maximumApplyLabel)"
-        )
         container.jumpButton.performClick(nil)
         #expect(container.jumpButton.isHidden)
         #expect(container.scrollView.contentView.bounds.origin.y > 250)

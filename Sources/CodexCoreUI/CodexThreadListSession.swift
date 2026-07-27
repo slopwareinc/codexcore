@@ -82,55 +82,25 @@ public struct CodexThreadListSession: Sendable {
     public mutating func refreshRecentChats(
         using codex: Codex,
         currentWorkspacePath: String,
-        trace: CodexPerformanceTrace? = nil,
         errorMessage: (Error) -> String
     ) async -> CodexThreadListActivity? {
-        let totalSpan = trace?.begin("threadList.refreshRecent.total")
         do {
-            let currentSpan = trace?.begin("threadList.currentWorkspace.read", metadata: ["limit": "50"])
-            let currentRaw: CodexJSONValue
-            do {
-                currentRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
-                    archived: false,
-                    cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
-                    limit: 50,
-                    sortDirection: .desc,
-                    sortKey: .recencyAt
-                ))))
-                currentSpan?.end(metadata: ["outcome": "success"])
-            } catch {
-                currentSpan?.end(metadata: ["outcome": "failure", "error": Self.errorType(error)])
-                throw error
-            }
-
-            let allSpan = trace?.begin("threadList.all.read", metadata: ["limit": "100"])
-            let allRaw: CodexJSONValue
-            do {
-                allRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
-                    archived: false,
-                    limit: 100,
-                    sortDirection: .desc,
-                    sortKey: .recencyAt
-                ))))
-                allSpan?.end(metadata: ["outcome": "success"])
-            } catch {
-                allSpan?.end(metadata: ["outcome": "failure", "error": Self.errorType(error)])
-                throw error
-            }
-
-            let applySpan = trace?.begin("threadList.apply")
+            let currentRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
+                archived: false,
+                cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
+                limit: 50,
+                sortDirection: .desc,
+                sortKey: .recencyAt
+            ))))
+            let allRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
+                archived: false,
+                limit: 100,
+                sortDirection: .desc,
+                sortKey: .recencyAt
+            ))))
             applyThreadList(currentRaw: currentRaw, allRaw: allRaw, currentWorkspacePath: currentWorkspacePath)
-            let metadata = [
-                "currentWorkspaceChatCount": "\(recentChats.count)",
-                "allChatCount": "\(allChats.count)",
-                "projectCount": "\(recentProjects.count)",
-                "outcome": "success"
-            ]
-            applySpan?.end(metadata: metadata)
-            totalSpan?.end(metadata: metadata)
             return nil
         } catch {
-            totalSpan?.end(metadata: ["outcome": "failure", "error": Self.errorType(error)])
             applyThreadListFailure(currentWorkspacePath: currentWorkspacePath)
             return CodexThreadListActivity(title: "Chat list unavailable", detail: errorMessage(error))
         }
@@ -208,9 +178,6 @@ public struct CodexThreadListSession: Sendable {
         return merged
     }
 
-    private static func errorType(_ error: Error) -> String {
-        String(describing: type(of: error))
-    }
 }
 
 private extension Array where Element == CodexThreadSummary {

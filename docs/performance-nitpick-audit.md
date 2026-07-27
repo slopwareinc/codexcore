@@ -216,14 +216,12 @@ Evidence labels:
 - **Evidence / verify:** a 20 ms synthetic loader produced about 30/124/241 ms for 1/5/10 children. Add gated tests for parent-first display and bounded maxInFlight, then measure real multi-agent histories.
 - **Overlap:** H1 and O1 multiply once per child; fix them independently.
 
-### 18 / O1 — Buffer performance tracing instead of synchronously writing every event
+### 18 / O1 — Remove synchronous performance tracing — resolved
 
-- **Anchor:** [CodexPerformanceTrace.emit](../Sources/CodexCore/Telemetry/CodexPerformanceTrace.swift#L30), file append lines 66–87, and main-actor chat-load spans in [CodexCoreAppModel](../Sources/CodexCoreApp/CodexCoreAppModel.swift#L721).
-- **Behavior and context:** each trace event prints, logs, enters a serial queue synchronously, creates/checks a directory, creates a formatter, opens, seeks, writes, and closes the trace file. Normal chat resume emits many events; each child adds more.
-- **Impact:** diagnostics block the UI and contaminate the latency being measured. Filesystem wakeups and energy grow with child count.
-- **Fix / risk:** use a bounded async writer with one formatter and persistent handle, batch flushes, or gate file tracing to diagnostics. Explicit close/flush is required; crash-tail loss and ordering are the tradeoffs.
-- **Evidence / verify:** 50 begin/end pairs measured 31.9–49.6 ms in isolation. Emit 1,000/10,000 events from MainActor with a 60 Hz heartbeat and compare p99, missed beats, syscalls, ordering, and end-to-end restore.
-- **Overlap:** benchmark H1/H2 after removing or separately accounting for tracing.
+- **Historical behavior:** each chat-load trace event printed, entered unified logging, and synchronously appended to a file.
+- **Impact:** diagnostics blocked the UI, contaminated the latency being measured, and created persistent console/file noise.
+- **Resolution:** the one-off tracer and its chat-load/thread-list instrumentation were removed. Performance tests retain structured in-memory counters without printing benchmark traces.
+- **Historical evidence:** 50 begin/end pairs measured 31.9–49.6 ms in isolation.
 
 ### 19 / H3 — Make history-cache capacity apply to protected entries
 

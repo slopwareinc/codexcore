@@ -133,24 +133,21 @@ public struct CodexFileDropTargetModifier: ViewModifier {
                     }
                     .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $isTargeted) { providers in
                         guard !providers.isEmpty else { return false }
-                        print("[DEBUG-FILE-DROP] accepted providers=\(providers.count)")
                         let batch = CodexFileDropBatch(count: providers.count, completion: onDrop)
                         for (index, provider) in providers.enumerated() {
                             let registeredTypes = provider.registeredTypeIdentifiers
-                            print("[DEBUG-FILE-DROP] provider index=\(index) suggestedName=\(provider.suggestedName ?? "nil") registeredTypes=\(registeredTypes) hasFileURL=\(provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)) hasImage=\(provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)) canLoadNSURL=\(provider.canLoadObject(ofClass: NSURL.self)) canLoadNSImage=\(provider.canLoadObject(ofClass: NSImage.self))")
                             let hasFileURL = provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
                             let suggestedName = provider.suggestedName
                             let imageType = registeredTypes.first { UTType($0)?.conforms(to: .image) == true }
                             let type = hasFileURL ? UTType.fileURL.identifier : imageType
                             guard let type else { batch.finish(index: index, url: nil); continue }
                             if hasFileURL {
-                                provider.loadObject(ofClass: NSURL.self) { object, error in
+                                provider.loadObject(ofClass: NSURL.self) { object, _ in
                                     let originalURL: URL? = if let nsURL = object as? NSURL, nsURL.isFileURL, let path = nsURL.path {
                                         URL(fileURLWithPath: path)
                                     } else {
                                         nil
                                     }
-                                    print("[DEBUG-FILE-DROP] original file URL index=\(index) url=\(originalURL?.path ?? "nil") error=\(error.map { String(describing: $0) } ?? "nil")")
                                     if let originalURL {
                                         batch.finish(index: index, url: originalURL)
                                     } else {
@@ -159,13 +156,12 @@ public struct CodexFileDropTargetModifier: ViewModifier {
                                 }
                                 continue
                             }
-                            provider.loadInPlaceFileRepresentation(forTypeIdentifier: type) { url, isInPlace, error in
-                                print("[DEBUG-FILE-DROP] representation index=\(index) type=\(type) url=\(url?.path ?? "nil") isInPlace=\(isInPlace) error=\(error.map { String(describing: $0) } ?? "nil")")
+                            provider.loadInPlaceFileRepresentation(forTypeIdentifier: type) { url, isInPlace, _ in
                                 if let url {
                                     let stableURL = isInPlace ? url : CodexDroppedFileMaterializer.materialize(url, suggestedName: suggestedName ?? url.lastPathComponent, typeIdentifier: type)
                                     batch.finish(index: index, url: stableURL)
                                 } else {
-                                    provider.loadDataRepresentation(forTypeIdentifier: type) { data, dataError in
+                                    provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
                                         let stableURL: URL?
                                         if type == UTType.fileURL.identifier, let data,
                                            let fileURL = URL(dataRepresentation: data, relativeTo: nil) {
@@ -173,7 +169,6 @@ public struct CodexFileDropTargetModifier: ViewModifier {
                                         } else {
                                             stableURL = data.flatMap { CodexDroppedFileMaterializer.materialize($0, suggestedName: suggestedName, typeIdentifier: type) }
                                         }
-                                        print("[DEBUG-FILE-DROP] data fallback index=\(index) bytes=\(data?.count ?? 0) url=\(stableURL?.path ?? "nil") error=\(dataError.map { String(describing: $0) } ?? "nil")")
                                         batch.finish(index: index, url: stableURL)
                                     }
                                 }
@@ -194,10 +189,8 @@ enum CodexDroppedFileMaterializer {
         do {
             try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: source, to: destination)
-            print("[DEBUG-FILE-DROP] materialized source=\(source.path) destination=\(destination.path)")
             return destination
         } catch {
-            print("[DEBUG-FILE-DROP] materialization failed source=\(source.path) destination=\(destination.path) error=\(error)")
             return nil
         }
     }
@@ -207,10 +200,8 @@ enum CodexDroppedFileMaterializer {
         do {
             try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: destination, options: .atomic)
-            print("[DEBUG-FILE-DROP] materialized data bytes=\(data.count) destination=\(destination.path)")
             return destination
         } catch {
-            print("[DEBUG-FILE-DROP] data materialization failed destination=\(destination.path) error=\(error)")
             return nil
         }
     }
@@ -245,15 +236,11 @@ final class CodexFileDropBatch: @unchecked Sendable {
             urlsByIndex[index] = url
         }
         remaining -= 1
-        let remainingAfter = remaining
         let result = remaining == 0 ? urlsByIndex.compactMap { $0 } : nil
         lock.unlock()
 
-        print("[DEBUG-FILE-DROP] batch finish index=\(index) url=\(url?.path ?? "nil") remaining=\(remainingAfter) completedURLs=\(result?.count ?? -1)")
-
         guard let result else { return }
         Task { @MainActor in
-            print("[DEBUG-FILE-DROP] invoking onDrop urls=\(result.map(\.path))")
             completion(result)
         }
     }
