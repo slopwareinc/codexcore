@@ -900,14 +900,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 width: min(contentFrame.width, titleWidth + (actionButton.image == nil ? 8 : 24)),
                 height: contentFrame.height
             )
-        } else if let row = item.workRow {
+        } else if item.workRow != nil {
             let isActionable = item.action != nil
             chipBackground.frame = contentFrame
             let rowMidY = contentFrame.height / 2
             let disclosureWidth: CGFloat = isActionable ? 14 : 0
             let iconSize: CGFloat = 15
-            let disclosureLeadsRow = isActionable && row.style != .activitySummary
-            let iconX = disclosureLeadsRow ? disclosureWidth + 6 : 0
+            let iconX: CGFloat = 0
             chipIconView.frame = NSRect(x: iconX, y: rowMidY - iconSize / 2, width: iconSize, height: iconSize)
 
             chipStatusLabel.sizeToFit()
@@ -917,39 +916,38 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
             let copyReserve: CGFloat = copyControlInstalled && !copyButton.isHidden ? 34 : 0
             let labelX = iconX + iconSize + 8
-            let summaryDisclosureReserve = row.style == .activitySummary && isActionable
-                ? disclosureWidth + 8
-                : 0
+            let disclosureReserve = isActionable ? disclosureWidth + 8 : 0
             let trailingWidth = statusWidth
                 + (durationWidth > 0 ? durationWidth + 10 : 0)
                 + copyReserve
-                + summaryDisclosureReserve
+                + disclosureReserve
             let naturalLabelWidth = ceil(chipLabel.cell?.cellSize.width ?? 20)
             let labelWidth = min(
                 naturalLabelWidth,
                 max(20, contentFrame.width - labelX - trailingWidth - 20)
             )
             chipLabel.frame = NSRect(x: labelX, y: rowMidY - 10, width: labelWidth, height: 20)
-            let summaryDisclosureX = min(
+            let disclosureX = min(
                 visibleChipLabelMaxX + 6,
                 chipLabel.frame.maxX + 6
             )
             chipDisclosureView.frame = NSRect(
-                x: row.style == .activitySummary ? summaryDisclosureX : 0,
-                // SF Symbol chevrons sit optically low when mathematically
-                // centered in an image view; lift them to the text's cap line.
-                y: rowMidY - 9,
+                x: disclosureX,
+                y: rowMidY - disclosureWidth / 2,
                 width: disclosureWidth,
-                height: 14
+                height: disclosureWidth
             )
+            let labelTrailingX = isActionable
+                ? chipDisclosureView.frame.maxX
+                : visibleChipLabelMaxX
             chipDurationLabel.frame = NSRect(
-                x: chipLabel.frame.maxX + (durationWidth > 0 ? 10 : 0),
+                x: labelTrailingX + (durationWidth > 0 ? 10 : 0),
                 y: rowMidY - 9,
                 width: durationWidth,
                 height: 18
             )
             chipStatusLabel.frame = NSRect(
-                x: (durationWidth > 0 ? chipDurationLabel.frame.maxX : chipLabel.frame.maxX) + 10,
+                x: (durationWidth > 0 ? chipDurationLabel.frame.maxX : labelTrailingX) + 10,
                 y: rowMidY - 10,
                 width: statusWidth,
                 height: 20

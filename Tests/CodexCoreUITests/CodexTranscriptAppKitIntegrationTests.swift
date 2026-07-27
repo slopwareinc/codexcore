@@ -226,7 +226,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let disclosureGap = try #require(cell.workRowTitleAndDisclosureGapForTesting)
         #expect(abs(disclosureGap - 6) <= 1)
         let disclosureOffset = try #require(cell.workRowDisclosureVerticalOffsetForTesting)
-        #expect(abs(disclosureOffset + 2) <= 0.5)
+        #expect(abs(disclosureOffset) <= 0.5)
         #expect(cell.chipIconDescriptionForTesting == "In progress")
         #expect(cell.workRowStatusForTesting.isEmpty)
         #expect(row.indentation == 0)
@@ -378,7 +378,12 @@ struct CodexTranscriptAppKitIntegrationTests {
             forkChat: nil,
             selectionChanged: { _, _ in }
         )
+        cell.view.layoutSubtreeIfNeeded()
         #expect(cell.chipIsActionableForTesting)
+        let disclosureGap = try #require(cell.workRowTitleAndDisclosureGapForTesting)
+        #expect(abs(disclosureGap - 6) <= 1)
+        let disclosureOffset = try #require(cell.workRowDisclosureVerticalOffsetForTesting)
+        #expect(abs(disclosureOffset) <= 0.5)
 
         let expanded = try await projector.project(
             presentation: .init(
