@@ -12,9 +12,7 @@ struct CodexSidebarHoverPerformanceTests {
         view.configure(
             content: AnyView(Text("Task")),
             actions: AnyView(Text("Actions")),
-            isSelected: false,
             baseColor: .black,
-            selectedColor: .darkGray,
             hoverColor: .gray
         )
         let contentIdentity = view.contentHostIdentityForTesting
@@ -28,22 +26,44 @@ struct CodexSidebarHoverPerformanceTests {
         #expect(view.contentHostIdentityForTesting == contentIdentity)
     }
 
-    @Test func selectedRowsKeepActionsHiddenUntilHovered() {
+    @Test func rowsKeepActionsHiddenUntilHovered() {
         let view = SidebarChatRowContainerView(
             frame: NSRect(x: 0, y: 0, width: 260, height: 31)
         )
         view.configure(
             content: AnyView(Text("Selected task")),
             actions: AnyView(Text("Actions")),
-            isSelected: true,
             baseColor: .black,
-            selectedColor: .darkGray,
             hoverColor: .gray
         )
 
         #expect(!view.actionControlsAreVisibleForTesting)
         view.setHoveredForTesting(true)
         #expect(view.actionControlsAreVisibleForTesting)
+    }
+
+    @Test func idleRowsDoNotReserveTrailingStatusWidth() {
+        #expect(
+            !SidebarChatRowLayout.hasTrailingStatus(
+                attentionState: .idle,
+                showsRecency: false,
+                recencyLabel: ""
+            )
+        )
+        #expect(
+            SidebarChatRowLayout.hasTrailingStatus(
+                attentionState: .running,
+                showsRecency: false,
+                recencyLabel: ""
+            )
+        )
+        #expect(
+            SidebarChatRowLayout.hasTrailingStatus(
+                attentionState: .idle,
+                showsRecency: true,
+                recencyLabel: "2m"
+            )
+        )
     }
 
     @Test func hiddenSidebarOverlayDismissesOnlyAfterPointerLeavesItsRevealRegion() async throws {
