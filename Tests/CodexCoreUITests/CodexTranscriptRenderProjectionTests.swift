@@ -55,8 +55,7 @@ struct CodexTranscriptRenderProjectionTests {
             command: "sed -n '1,320p' /plugins/github/skills/github/SKILL.md",
             label: "Read GitHub skill",
             action: .loadedTool,
-            status: .completed,
-            targets: ["GitHub skill"]
+            status: .completed
         ))
         #expect(CodexWorkGroupHeaderV2.synthesize(rows: [read]) == "Loaded a tool")
 
@@ -373,11 +372,11 @@ struct CodexTranscriptRenderProjectionTests {
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark)
         )
-        let summaries = snapshot.itemsByID.values.filter { $0.workRow?.isActivitySummary == true }
+        let summaries = snapshot.itemsByID.values.filter { $0.workRow?.style == .activitySummary }
         #expect(summaries.count == 1)
         #expect(summaries.first?.workRow?.label == "Running tests")
         #expect(summaries.first?.workRow?.status == .inProgress)
-        #expect(summaries.first?.workRow?.isActionable == true)
+        #expect(summaries.first?.action != nil)
         #expect(!snapshot.itemsByID.values.contains { $0.id.rawValue.contains(":row:") })
         #expect(snapshot.itemsByID.values.contains { $0.textRole == .finalAnswer })
     }
@@ -412,8 +411,8 @@ struct CodexTranscriptRenderProjectionTests {
             availableWidth: 860,
             theme: theme
         )
-        let firstRow = try #require(first.itemsByID.values.first { $0.workRow?.isInlineActivity == true })
-        let secondRow = try #require(second.itemsByID.values.first { $0.workRow?.isInlineActivity == true })
+        let firstRow = try #require(first.itemsByID.values.first { $0.workRow?.style == .inlineActivity })
+        let secondRow = try #require(second.itemsByID.values.first { $0.workRow?.style == .inlineActivity })
 
         #expect(firstRow.id == secondRow.id)
         #expect(secondRow.id.rawValue.hasSuffix(":inline-activity:lesson-authoring"))
@@ -421,7 +420,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(secondRow.workRow?.systemImage == "book.pages")
         #expect(secondRow.workRow?.status == .inProgress)
         #expect(secondRow.workRow?.durationMs == nil)
-        #expect(secondRow.workRow?.isActionable == false)
+        #expect(secondRow.action == nil)
         #expect(secondRow.accessibilityLabel == "Drafting 3 lessons, in progress")
         #expect(second.changedItemIDs.contains(secondRow.id))
     }
@@ -447,8 +446,7 @@ struct CodexTranscriptRenderProjectionTests {
             command: "sed -n '1,240p' Package.swift",
             label: "Read Package.swift",
             action: .read,
-            status: .completed,
-            targets: ["Package.swift"]
+            status: .completed
         ))
         let run = CodexWorkRowV2.command(.init(
             id: "run",
@@ -469,10 +467,10 @@ struct CodexTranscriptRenderProjectionTests {
             theme: theme
         )
         let firstSummary = try #require(first.itemsByID.values.first {
-            $0.workRow?.isActivitySummary == true
+            $0.workRow?.style == .activitySummary
         })
         let secondSummary = try #require(second.itemsByID.values.first {
-            $0.workRow?.isActivitySummary == true
+            $0.workRow?.style == .activitySummary
         })
 
         #expect(firstSummary.id == secondSummary.id)

@@ -105,19 +105,24 @@ struct CodexTranscriptWorkHeaderRender: Sendable, Equatable {
     var state: State
 }
 
+enum CodexTranscriptWorkRowStyle: Sendable, Equatable {
+    case standard
+    case inlineActivity
+    case activitySummary
+
+    var isSemanticActivity: Bool { self != .standard }
+}
+
 struct CodexTranscriptWorkRowRender: Sendable, Equatable {
     var kind: CodexWorkRowKind
     var label: String
     var status: CodexWorkItemStatusV2
     var systemImage: String? = nil
-    var isInlineActivity = false
-    var isActivitySummary = false
-    var showsDisclosure = true
+    var style: CodexTranscriptWorkRowStyle = .standard
     var durationMs: Int?
     var isExpanded: Bool
     var hasDetail: Bool
     var isSubagentLink: Bool
-    var isActionable: Bool
 }
 
 struct CodexTranscriptAgentChipRender: Sendable, Equatable {
@@ -510,13 +515,11 @@ actor CodexTranscriptRenderProjector {
                             label: groupHeader,
                             status: groupStatus,
                             systemImage: CodexWorkGroupPresentationV2.systemImage(rows: rows),
-                            isActivitySummary: true,
-                            showsDisclosure: true,
+                            style: .activitySummary,
                             durationMs: nil,
                             isExpanded: groupIsExpanded,
                             hasDetail: true,
-                            isSubagentLink: false,
-                            isActionable: true
+                            isSubagentLink: false
                         )
                         append(ItemDraft(
                             id: "\(sectionID):group:\(group.id):summary",
@@ -571,8 +574,7 @@ actor CodexTranscriptRenderProjector {
                                 durationMs: Self.duration(for: row),
                                 isExpanded: presentation.expandedRowIDs.contains(rowID),
                                 hasDetail: detail != nil,
-                                isSubagentLink: subagentThreadID != nil,
-                                isActionable: subagentThreadID != nil || detail != nil
+                                isSubagentLink: subagentThreadID != nil
                             )
                             append(ItemDraft(
                                 id: "\(sectionID):row:\(rowID)",
@@ -657,13 +659,11 @@ actor CodexTranscriptRenderProjector {
                             label: activity.label,
                             status: activity.status,
                             systemImage: activity.systemImage,
-                            isInlineActivity: true,
-                            showsDisclosure: detail != nil,
+                            style: .inlineActivity,
                             durationMs: nil,
                             isExpanded: isExpanded,
                             hasDetail: detail != nil,
-                            isSubagentLink: false,
-                            isActionable: detail != nil
+                            isSubagentLink: false
                         )
                         append(ItemDraft(
                             id: "\(sectionID):inline-activity:\(activity.id)",

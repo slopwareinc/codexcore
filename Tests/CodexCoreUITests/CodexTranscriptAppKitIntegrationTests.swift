@@ -228,7 +228,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(row.indentation == 0)
         #expect(!cell.workRowBackgroundIsVisibleForTesting)
         #expect(cell.chipIsActionableForTesting)
-        #expect(row.workRow?.isActivitySummary == true)
+        #expect(row.workRow?.style == .activitySummary)
         #expect(!snapshot.itemsByID.values.contains { $0.id.rawValue.contains(":row:command") })
         #expect(row.bottomSpacing == 8)
     }
@@ -267,7 +267,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 theme: theme
             )
             return try #require(snapshot.itemsByID.values.first {
-                $0.workRow?.isActivitySummary == true
+                $0.workRow?.style == .activitySummary
             })
         }
 
@@ -315,10 +315,9 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
 
         let item = try #require(snapshot.itemsByID.values.first {
-            $0.workRow?.isInlineActivity == true
+            $0.workRow?.style == .inlineActivity
         })
         #expect(item.workRow?.hasDetail == false)
-        #expect(item.workRow?.showsDisclosure == false)
         #expect(item.action == nil)
     }
 
@@ -347,10 +346,10 @@ struct CodexTranscriptAppKitIntegrationTests {
             theme: theme
         )
         let collapsedItem = try #require(collapsed.itemsByID.values.first {
-            $0.workRow?.isInlineActivity == true
+            $0.workRow?.style == .inlineActivity
         })
         #expect(collapsedItem.workRow?.hasDetail == true)
-        #expect(collapsedItem.workRow?.showsDisclosure == true)
+        #expect(collapsedItem.action != nil)
         #expect(collapsedItem.action == .toggleRow(
             rowID: "turn:inline-activity:research"
         ))

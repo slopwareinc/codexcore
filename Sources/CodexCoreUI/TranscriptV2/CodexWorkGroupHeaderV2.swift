@@ -2,96 +2,91 @@ import Foundation
 
 public enum CodexWorkGroupHeaderV2 {
     public static func synthesize(rows: [CodexWorkRowV2]) -> String {
-        var counts: [CodexWorkCategoryV2: Int] = [:]
-        for row in rows {
-            let categories: [(CodexWorkCategoryV2, Int)]
-            switch row {
-            case .command(let value): categories = [(value.action, 1)]
-            case .fileChange(let value): categories = [(.edit, max(1, value.files.count))]
-            case .mcpToolCall(let value): categories = [(.mcp(value.appName), 1)]
-            case .webSearch: categories = [(.webSearch, 1)]
-            case .collabAgent(let value):
-                switch value.action {
-                case .created: categories = [(.collabCreated, max(1, value.agentNames.count))]
-                case .closed: categories = [(.collabClosed, max(1, value.agentNames.count))]
-                case .waited: categories = [(.collabWait, max(1, value.agentNames.count))]
-                case .sentInput, .started, .interacted, .interrupted:
-                    categories = [(.collabWorked, max(1, value.agentNames.count))]
-                }
-            case .other(let value):
-                categories = value.label == "Generating an image" ? [(.imageGeneration, 1)] : []
-            }
-            for (category, count) in categories {
-                counts[category, default: 0] += count
-            }
-        }
-
+        let summary = Summary(rows: rows)
         var phrases: [String] = []
 
         // Official completed summaries use a fixed semantic order rather than
         // event arrival order. Named sources lead, followed by loaded tools,
         // edits, exploration, commands, and web search.
-        let mcpApps = rows.compactMap { row -> String? in
-            guard case .mcpToolCall(let value) = row else { return nil }
-            return value.appName.isEmpty ? value.server : value.appName
-        }
-        .reduce(into: [String]()) { result, app in
-            if !result.contains(app) { result.append(app) }
-        }
-        if !mcpApps.isEmpty {
-            phrases.append("used \(mcpApps.joined(separator: " and "))")
-        }
-
-        appendPhrase(.loadedTool, counts: counts, to: &phrases)
-        appendPhrase(.edit, counts: counts, to: &phrases)
-
-        let explorationCount = counts[.read, default: 0]
-            + counts[.search, default: 0]
-            + counts[.list, default: 0]
-        if explorationCount > 0 {
-            phrases.append("read files")
-        }
-
-        appendPhrase(.run, counts: counts, to: &phrases)
-        appendPhrase(.webSearch, counts: counts, to: &phrases)
-        appendPhrase(.collabCreated, counts: counts, to: &phrases)
-        appendPhrase(.collabClosed, counts: counts, to: &phrases)
-        appendPhrase(.collabWait, counts: counts, to: &phrases)
-        appendPhrase(.collabWorked, counts: counts, to: &phrases)
-        appendPhrase(.imageGeneration, counts: counts, to: &phrases)
+        append(summary.mcpApps.isEmpty ? nil : "used \(summary.mcpApps.joined(separator: " and "))", to: &phrases)
+        append(counted(summary.loadedTools, singular: "loaded a tool", plural: "loaded tools"), to: &phrases)
+        append(counted(summary.editedFiles, singular: "edited a file", plural: "edited files"), to: &phrases)
+        append(summary.exploration > 0 ? "read files" : nil, to: &phrases)
+        append(counted(summary.commands, singular: "ran a command", plural: "ran commands"), to: &phrases)
+        append(summary.webSearches > 0 ? "searched the web" : nil, to: &phrases)
+        append(counted(summary.createdAgents, singular: "created an agent", plural: "created \(summary.createdAgents) agents"), to: &phrases)
+        append(counted(summary.closedAgents, singular: "closed an agent", plural: "closed \(summary.closedAgents) agents"), to: &phrases)
+        append(summary.waits > 0 ? "working" : nil, to: &phrases)
+        append(counted(summary.workedAgents, singular: "worked with an agent", plural: "worked with \(summary.workedAgents) agents"), to: &phrases)
+        append(counted(summary.generatedImages, singular: "generated an image", plural: "generated \(summary.generatedImages) images"), to: &phrases)
 
         guard let first = phrases.first else { return "" }
         return (first.prefix(1).uppercased() + first.dropFirst())
             + phrases.dropFirst().map { ", \($0)" }.joined()
     }
 
-    private static func appendPhrase(
-        _ category: CodexWorkCategoryV2,
-        counts: [CodexWorkCategoryV2: Int],
-        to phrases: inout [String]
-    ) {
-        let count = counts[category, default: 0]
-        if count > 0 {
-            phrases.append(phrase(category, count: count))
-        }
+    private static func append(_ phrase: String?, to phrases: inout [String]) {
+        if let phrase { phrases.append(phrase) }
     }
 
-    private static func phrase(
-        _ category: CodexWorkCategoryV2,
-        count: Int
-    ) -> String {
-        switch category {
-        case .loadedTool: return count == 1 ? "loaded a tool" : "loaded tools"
-        case .run: return count == 1 ? "ran a command" : "ran commands"
-        case .edit: return count == 1 ? "edited a file" : "edited files"
-        case .webSearch: return "searched the web"
-        case .collabCreated: return count == 1 ? "created an agent" : "created \(count) agents"
-        case .collabClosed: return count == 1 ? "closed an agent" : "closed \(count) agents"
-        case .collabWait: return "working"
-        case .collabWorked: return count == 1 ? "worked with an agent" : "worked with \(count) agents"
-        case .imageGeneration: return count == 1 ? "generated an image" : "generated \(count) images"
-        case .read, .list, .search: return "read files"
-        case .mcp(let app): return "used \(app)"
+    private static func counted(_ count: Int, singular: String, plural: String) -> String? {
+        count == 0 ? nil : (count == 1 ? singular : plural)
+    }
+
+    private struct Summary {
+        var mcpApps: [String] = []
+        var loadedTools = 0
+        var editedFiles = 0
+        var exploration = 0
+        var commands = 0
+        var webSearches = 0
+        var createdAgents = 0
+        var closedAgents = 0
+        var waits = 0
+        var workedAgents = 0
+        var generatedImages = 0
+
+        init(rows: [CodexWorkRowV2]) {
+            for row in rows { add(row) }
+        }
+
+        mutating func add(_ row: CodexWorkRowV2) {
+            switch row {
+            case .command(let value):
+                switch value.action {
+                case .loadedTool: loadedTools += 1
+                case .read, .list, .search: exploration += 1
+                case .run: commands += 1
+                case .webSearch: webSearches += 1
+                case .edit: editedFiles += 1
+                case .mcp(let app): appendUnique(app, to: &mcpApps)
+                case .collabCreated: createdAgents += 1
+                case .collabClosed: closedAgents += 1
+                case .collabWait: waits += 1
+                case .collabWorked: workedAgents += 1
+                case .imageGeneration: generatedImages += 1
+                }
+            case .fileChange(let value):
+                editedFiles += max(1, value.files.count)
+            case .mcpToolCall(let value):
+                appendUnique(value.appName.isEmpty ? value.server : value.appName, to: &mcpApps)
+            case .webSearch:
+                webSearches += 1
+            case .collabAgent(let value):
+                let count = max(1, value.agentNames.count)
+                switch value.action {
+                case .created: createdAgents += count
+                case .closed: closedAgents += count
+                case .waited: waits += count
+                case .sentInput, .started, .interacted, .interrupted: workedAgents += count
+                }
+            case .other(let value):
+                if value.label == "Generating an image" { generatedImages += 1 }
+            }
+        }
+
+        private func appendUnique(_ value: String, to values: inout [String]) {
+            if !values.contains(value) { values.append(value) }
         }
     }
 }

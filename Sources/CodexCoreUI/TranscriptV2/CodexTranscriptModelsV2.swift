@@ -148,11 +148,9 @@ public enum CodexAgentDisplayStatusV2: Sendable, Equatable {
 public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var command: String; public var label: String
     public var action: CodexWorkCategoryV2; public var status: CodexWorkItemStatusV2
-    public var targets: [String]
     public var exitCode: Int?; public var durationMs: Int?; public var output: String?
-    public init(id: String, command: String, label: String, action: CodexWorkCategoryV2, status: CodexWorkItemStatusV2, targets: [String] = [], exitCode: Int? = nil, durationMs: Int? = nil, output: String? = nil) {
+    public init(id: String, command: String, label: String, action: CodexWorkCategoryV2, status: CodexWorkItemStatusV2, exitCode: Int? = nil, durationMs: Int? = nil, output: String? = nil) {
         self.id = id; self.command = command; self.label = label; self.action = action; self.status = status
-        self.targets = targets
         self.exitCode = exitCode; self.durationMs = durationMs; self.output = output
     }
 }

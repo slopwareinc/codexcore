@@ -741,6 +741,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
             if case .working = header.state { actionButton.startShimmer() }
         } else if let row = item.workRow {
+            let isActionable = item.action != nil
             ensureChipControls()
             chipBackground.isHidden = false
             chipBackground.layer?.cornerRadius = 0
@@ -750,7 +751,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 Self.chipIconName(row),
                 accessibilityDescription: Self.chipIconAccessibilityDescription(row)
             )
-            chipIconView.contentTintColor = row.isInlineActivity || row.isActivitySummary
+            chipIconView.contentTintColor = row.style.isSemanticActivity
                 ? appKitTheme.textTertiary
                 : Self.statusColor(row.status, theme: appKitTheme)
             chipLabel.stringValue = row.label
@@ -760,12 +761,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipDurationLabel.stringValue = row.durationMs.map(CodexWorkBlockViewV2.duration) ?? ""
             chipDurationLabel.font = appKitTheme.microFont
             chipDurationLabel.textColor = appKitTheme.textTertiary
-            chipStatusLabel.stringValue = row.isInlineActivity || row.isActivitySummary
+            chipStatusLabel.stringValue = row.style.isSemanticActivity
                 ? ""
                 : Self.workStatusTitle(row.status)
             chipStatusLabel.font = appKitTheme.captionFont
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
-            chipDisclosureView.image = Self.chipDisclosureImage(row)
+            chipDisclosureView.image = Self.chipDisclosureImage(row, isActionable: isActionable)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
             if row.isExpanded && item.copyText != nil {
                 ensureCopyControl()
@@ -773,14 +774,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 copyButton.toolTip = "Copy output"
                 copyButton.setAccessibilityLabel("Copy output")
             }
-            if row.isActionable {
+            if isActionable {
                 ensureActionControl()
                 actionButton.isHidden = false
                 actionButton.isEnabled = true
                 actionButton.title = ""
                 actionButton.setAccessibilityLabel(item.accessibilityLabel)
             }
-            (view as? CodexTranscriptHoverView)?.usesPointingHand = row.isActionable
+            (view as? CodexTranscriptHoverView)?.usesPointingHand = isActionable
         } else if let productTool = item.productTool {
             if let rendered = productToolRenderer?.render(productTool) {
                 let hosting = NSHostingView(rootView: AnyView(rendered.codexAgentTheme(swiftUITheme)))
@@ -893,11 +894,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 height: contentFrame.height
             )
         } else if let row = item.workRow {
+            let isActionable = item.action != nil
             chipBackground.frame = contentFrame
             let rowMidY = contentFrame.height / 2
-            let disclosureWidth: CGFloat = row.showsDisclosure ? 14 : 0
+            let disclosureWidth: CGFloat = isActionable ? 14 : 0
             let iconSize: CGFloat = 15
-            let disclosureLeadsRow = row.showsDisclosure && !row.isActivitySummary
+            let disclosureLeadsRow = isActionable && row.style != .activitySummary
             let iconX = disclosureLeadsRow ? disclosureWidth + 6 : 0
             chipIconView.frame = NSRect(x: iconX, y: rowMidY - iconSize / 2, width: iconSize, height: iconSize)
 
@@ -908,7 +910,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
             let copyReserve: CGFloat = copyControlInstalled && !copyButton.isHidden ? 34 : 0
             let labelX = iconX + iconSize + 8
-            let summaryDisclosureReserve = row.isActivitySummary && row.showsDisclosure
+            let summaryDisclosureReserve = row.style == .activitySummary && isActionable
                 ? disclosureWidth + 8
                 : 0
             let trailingWidth = statusWidth
@@ -922,7 +924,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             )
             chipLabel.frame = NSRect(x: labelX, y: rowMidY - 10, width: labelWidth, height: 20)
             chipDisclosureView.frame = NSRect(
-                x: row.isActivitySummary ? chipLabel.frame.maxX + 6 : 0,
+                x: row.style == .activitySummary ? chipLabel.frame.maxX + 6 : 0,
                 y: rowMidY - 7,
                 width: disclosureWidth,
                 height: 14
@@ -1810,8 +1812,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
     }
 
-    private static func chipDisclosureImage(_ row: CodexTranscriptWorkRowRender) -> NSImage? {
-        guard row.showsDisclosure else { return nil }
+    private static func chipDisclosureImage(
+        _ row: CodexTranscriptWorkRowRender,
+        isActionable: Bool
+    ) -> NSImage? {
+        guard isActionable else { return nil }
         let name = row.isSubagentLink ? "arrow.up.right" : (row.isExpanded ? "chevron.down" : "chevron.right")
         return symbolImage(
             name,
