@@ -90,6 +90,28 @@ actor CodexTranscriptAttachmentThumbnailLoader {
 }
 
 enum CodexTranscriptImageSource {
+    static func aspectRatio(_ source: String) -> CGFloat? {
+        let imageSource: CGImageSource?
+        if let data = inlineData(source) {
+            imageSource = CGImageSourceCreateWithData(data as CFData, nil)
+        } else if let path = localFilePath(source) {
+            imageSource = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil)
+        } else {
+            imageSource = nil
+        }
+        guard let imageSource,
+              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+              width > 0,
+              height > 0
+        else { return nil }
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        return orientation >= 5 && orientation <= 8
+            ? CGFloat(height / width)
+            : CGFloat(width / height)
+    }
+
     static func localFilePath(_ source: String) -> String? {
         let value = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
@@ -119,19 +141,22 @@ struct CodexTranscriptImageThumbnail: View {
     let source: String
     let label: String
     var side: CGFloat = 64
+    var aspectRatio: CGFloat = 1
 
     @State private var image: NSImage?
 
-    init(path: String, label: String, side: CGFloat = 64) {
+    init(path: String, label: String, side: CGFloat = 64, aspectRatio: CGFloat = 1) {
         self.source = path
         self.label = label
         self.side = side
+        self.aspectRatio = aspectRatio
     }
 
-    init(source: String, label: String, side: CGFloat = 64) {
+    init(source: String, label: String, side: CGFloat = 64, aspectRatio: CGFloat = 1) {
         self.source = source
         self.label = label
         self.side = side
+        self.aspectRatio = aspectRatio
     }
 
     var body: some View {
@@ -139,7 +164,7 @@ struct CodexTranscriptImageThumbnail: View {
             if let image {
                 Image(nsImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: side > 64 ? .fit : .fill)
+                    .scaledToFit()
             } else {
                 VStack(spacing: 3) {
                     Image(systemName: "photo")
@@ -155,8 +180,7 @@ struct CodexTranscriptImageThumbnail: View {
                 .background(theme.colors.surface.opacity(0.7))
             }
         }
-        .frame(width: side, height: side)
-        .background(theme.colors.surface.opacity(0.35))
+        .frame(width: side, height: previewHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .task(id: source) {
             image = nil
@@ -166,5 +190,9 @@ struct CodexTranscriptImageThumbnail: View {
             ), !Task.isCancelled else { return }
             image = NSImage(cgImage: thumbnail.image, size: .zero)
         }
+    }
+
+    private var previewHeight: CGFloat {
+        side / max(0.01, aspectRatio)
     }
 }

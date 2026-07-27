@@ -134,6 +134,11 @@ struct CodexTranscriptAgentChipRender: Sendable, Equatable {
     var latestUpdate: String?
     var attachmentKind: CodexReferencedFile.Kind? = nil
     var imagePreviewSize: CGFloat = 64
+    var imagePreviewAspectRatio: CGFloat = 1
+
+    var imagePreviewHeight: CGFloat {
+        imagePreviewSize / max(0.01, imagePreviewAspectRatio)
+    }
 }
 
 struct CodexTranscriptDiffPanelRender: Sendable, Equatable {
@@ -328,6 +333,7 @@ actor CodexTranscriptRenderProjector {
     private var heightByKey: [HeightKey: CGFloat] = [:]
     private var preparedTextByKey: [String: CodexPreparedTranscriptText] = [:]
     private var preparedTextInsertionOrder: [String] = []
+    private var imageAspectRatioBySource: [String: CGFloat] = [:]
     private var projectionCount = 0
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
 
@@ -699,7 +705,8 @@ actor CodexTranscriptRenderProjector {
                                     taskSummary: imagePath,
                                     latestUpdate: nil,
                                     attachmentKind: .image,
-                                    imagePreviewSize: 160
+                                    imagePreviewSize: 160,
+                                    imagePreviewAspectRatio: imageAspectRatio(for: imagePath)
                                 )],
                                 accessibilityLabel: "Viewed image: \(label)",
                                 indentation: 22,
@@ -796,7 +803,8 @@ actor CodexTranscriptRenderProjector {
                         taskSummary: image.source,
                         latestUpdate: image.revisedPrompt,
                         attachmentKind: .image,
-                        imagePreviewSize: 360
+                        imagePreviewSize: 360,
+                        imagePreviewAspectRatio: imageAspectRatio(for: image.source)
                     )],
                     accessibilityLabel: "Generated image",
                     maxWidthKind: .card,
@@ -1499,7 +1507,7 @@ private extension CodexTranscriptRenderProjector {
         font: NSFont
     ) -> CGFloat {
         let height = max(26, chips.compactMap {
-            $0.attachmentKind == .image ? $0.imagePreviewSize : nil
+            $0.attachmentKind == .image ? $0.imagePreviewHeight : nil
         }.max() ?? 0)
         let gap: CGFloat = 6
         var x: CGFloat = 0
@@ -1524,6 +1532,13 @@ private extension CodexTranscriptRenderProjector {
         guard let raw = agent.agentNames.first, !raw.isEmpty else { return "Agent" }
         let leaf = raw.split(separator: "/").last.map(String.init) ?? raw
         return leaf.capitalized
+    }
+
+    private func imageAspectRatio(for source: String) -> CGFloat {
+        if let cached = imageAspectRatioBySource[source] { return cached }
+        let ratio = CodexTranscriptImageSource.aspectRatio(source) ?? 1
+        imageAspectRatioBySource[source] = ratio
+        return ratio
     }
 
     static func agentClusterAccessibilityLabel(

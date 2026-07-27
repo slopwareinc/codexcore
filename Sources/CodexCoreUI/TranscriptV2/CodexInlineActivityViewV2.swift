@@ -32,7 +32,8 @@ struct CodexInlineActivityViewV2: View {
                         CodexTranscriptImageThumbnail(
                             path: imagePath,
                             label: URL(fileURLWithPath: imagePath).lastPathComponent,
-                            side: 160
+                            side: 160,
+                            aspectRatio: CodexTranscriptImageSource.aspectRatio(imagePath) ?? 1
                         )
                     }
                     if let detail {

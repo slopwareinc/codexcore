@@ -523,6 +523,28 @@ struct CodexTranscriptRenderProjectionTests {
         })
     }
 
+    @Test func generatedImagePreviewUsesNativeAspectRatio() async throws {
+        let source = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAAqADAAQAAAABAAAAAQAAAACJcORAAAAADklEQVQIHWP4z8DwHwQBEPgD/dkGjrgAAAAASUVORK5CYII="
+        let turn = CodexTurnV2(
+            id: "turn",
+            generatedImages: [.init(id: "wide", source: source)],
+            status: .done(durationMs: 1_000)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+
+        let preview = try #require(snapshot.itemsByID.values.first {
+            $0.id.rawValue.hasSuffix(":generated-image:wide")
+        })
+        let chip = try #require(preview.agentChips.first)
+        #expect(chip.imagePreviewAspectRatio == 2)
+        #expect(chip.imagePreviewHeight == 180)
+        #expect(preview.measuredHeight == 188)
+    }
+
     @Test func defaultActivitySummaryUpdatesOneStableRowAsWorkAccumulates() async throws {
         let projector = CodexTranscriptRenderProjector()
         func presentation(rows: [CodexWorkRowV2]) -> CodexThreadUIPresentation {

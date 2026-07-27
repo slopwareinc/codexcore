@@ -1544,7 +1544,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     ) {
         agentChipContainer.frame = contentFrame
         let height = max(26, chips.compactMap {
-            $0.attachmentKind == .image ? $0.imagePreviewSize : nil
+            $0.attachmentKind == .image ? $0.imagePreviewHeight : nil
         }.max() ?? 0)
         let gap: CGFloat = 6
         var x: CGFloat = 0
@@ -1944,7 +1944,8 @@ private struct CodexTranscriptAgentPill: View {
                     CodexTranscriptImageThumbnail(
                         source: source,
                         label: chip.label,
-                        side: chip.imagePreviewSize
+                        side: chip.imagePreviewSize,
+                        aspectRatio: chip.imagePreviewAspectRatio
                     )
                 } else {
                     VStack(spacing: 3) {
@@ -1958,7 +1959,7 @@ private struct CodexTranscriptAgentPill: View {
                             .multilineTextAlignment(.center)
                     }
                     .padding(5)
-                    .frame(width: chip.imagePreviewSize, height: chip.imagePreviewSize)
+                    .frame(width: chip.imagePreviewSize, height: chip.imagePreviewHeight)
                     .background(theme.colors.surface.opacity(0.7))
                 }
             } else if chip.threadID == nil {
@@ -1982,10 +1983,15 @@ private struct CodexTranscriptAgentPill: View {
         .font(theme.fonts.caption)
         .lineLimit(imageAttachment ? 2 : 1)
         .padding(.horizontal, imageAttachment ? 0 : 8)
-        .frame(height: imageAttachment ? chip.imagePreviewSize : 26)
+        .frame(height: imageAttachment ? chip.imagePreviewHeight : 26)
         .contentShape(Capsule())
-        .codexGlass(imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule()), tint: chip.threadID == nil ? theme.colors.surfaceElevated.opacity(0.45) : statusColor.opacity(0.055), interactive: chip.threadID != nil || canOpenAttachment)
-        .overlay { (imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule())).stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1) }
+        .modifier(CodexTranscriptAgentPillChrome(
+            isImageAttachment: imageAttachment,
+            tint: chip.threadID == nil
+                ? theme.colors.surfaceElevated.opacity(0.45)
+                : statusColor.opacity(0.055),
+            isInteractive: chip.threadID != nil || canOpenAttachment
+        ))
         .onTapGesture(perform: onOpen)
         .onHover(perform: onHover)
         .help(chip.threadID == nil ? chip.label : "\(chip.label) — \(statusTitle)")
@@ -2011,6 +2017,32 @@ private struct CodexTranscriptAgentPill: View {
         case .done: theme.colors.success
         case .failed: theme.colors.danger
         case .closed: theme.colors.textTertiary
+        }
+    }
+}
+
+private struct CodexTranscriptAgentPillChrome: ViewModifier {
+    let isImageAttachment: Bool
+    let tint: Color
+    let isInteractive: Bool
+
+    @Environment(\.codexAgentTheme) private var theme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isImageAttachment {
+            content
+        } else {
+            content
+                .codexGlass(
+                    AnyShape(Capsule()),
+                    tint: tint,
+                    interactive: isInteractive
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1)
+                }
         }
     }
 }

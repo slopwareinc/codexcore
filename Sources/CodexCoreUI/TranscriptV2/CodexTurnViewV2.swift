@@ -86,7 +86,8 @@ private struct CodexGeneratedImageViewV2: View {
         CodexTranscriptImageThumbnail(
             source: image.source,
             label: "Generated image",
-            side: 360
+            side: 360,
+            aspectRatio: CodexTranscriptImageSource.aspectRatio(image.source) ?? 1
         )
     }
 }
