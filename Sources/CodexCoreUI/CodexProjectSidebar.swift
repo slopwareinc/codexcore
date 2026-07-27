@@ -1140,23 +1140,25 @@ final class SidebarChatRowContainerView: NSView {
 }
 
 private struct SidebarSelectionBackground: View {
+    @Environment(\.codexAgentTheme) private var theme
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .fill(selectionColor)
-    }
-
-    private var selectionColor: Color {
-        #if canImport(AppKit)
-        Color(
-            nsColor: controlActiveState == .key
-                ? .selectedContentBackgroundColor
-                : .unemphasizedSelectedContentBackgroundColor
-        )
-        #else
-        Color.accentColor.opacity(controlActiveState == .key ? 0.28 : 0.14)
-        #endif
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        shape
+            .fill(
+                theme.colors.textPrimary.opacity(
+                    controlActiveState == .key ? 0.09 : 0.055
+                )
+            )
+            .overlay(
+                shape.stroke(
+                    theme.colors.textPrimary.opacity(
+                        controlActiveState == .key ? 0.045 : 0.025
+                    ),
+                    lineWidth: 0.5
+                )
+            )
     }
 }
 
