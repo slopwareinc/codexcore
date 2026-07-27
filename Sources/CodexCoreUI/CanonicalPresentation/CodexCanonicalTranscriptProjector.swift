@@ -7,7 +7,13 @@ import Foundation
 /// presentation and pass it back for incremental work, or omit it to rebuild the
 /// exact same presentation from canonical state.
 public struct CodexCanonicalTranscriptProjector: Sendable {
-    public init() {}
+    private let itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2?
+
+    public init(
+        itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil
+    ) {
+        self.itemPresentationPolicy = itemPresentationPolicy
+    }
 
     public func rebuild(
         snapshot: CanonicalStateSnapshot,
@@ -338,6 +344,29 @@ private extension CodexCanonicalTranscriptProjector {
 
         for item in items {
             let completed = item.authority == .completed || canonical?.status.isTerminal == true
+            if let itemPresentationPolicy {
+                let context = CodexTranscriptItemContextV2(
+                    threadID: item.key.threadID,
+                    turnID: item.key.turnID,
+                    itemID: item.key.itemID,
+                    kind: item.kind,
+                    payload: item.payload,
+                    status: workStatus(item, completed: completed)
+                )
+                switch itemPresentationPolicy.presentation(for: context) {
+                case .standard:
+                    break
+                case .hidden:
+                    continue
+                case .inlineActivity(let activity):
+                    appendInlineActivity(
+                        activity,
+                        segments: &conversationSegments,
+                        to: &turn
+                    )
+                    continue
+                }
+            }
             switch item.kind {
             case .userMessage:
                 guard let message = userMessage(item) else { continue }
@@ -373,11 +402,44 @@ private extension CodexCanonicalTranscriptProjector {
             case .contextCompaction:
                 hasContextCompaction = true
             case .imageView:
-                appendNotice(id: item.key.itemID, message: "Viewed an image", to: &turn)
+                if let path = item.payload.string("path")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !path.isEmpty {
+                    appendInlineActivity(
+                        .init(
+                            id: item.key.itemID.rawValue,
+                            label: "Viewed an image",
+                            systemImage: "photo.on.rectangle.angled",
+                            imagePath: path,
+                            status: workStatus(item, completed: completed)
+                        ),
+                        segments: &conversationSegments,
+                        to: &turn
+                    )
+                } else {
+                    appendNotice(id: item.key.itemID, message: "Viewed an image", to: &turn)
+                }
             case .sleep:
                 appendNotice(id: item.key.itemID, message: "Waiting", to: &turn)
+            case .imageGeneration:
+                for row in makeWorkRows(item, completed: completed) {
+                    appendWorkRow(row, to: &turn)
+                }
+                if completed,
+                   workStatus(item, completed: true) == .completed,
+                   let source = generatedImageSource(item) {
+                    let image = CodexGeneratedImageV2(
+                        id: item.key.itemID.rawValue,
+                        source: source,
+                        revisedPrompt: item.payload.string("revisedPrompt")
+                    )
+                    if let index = turn.generatedImages.firstIndex(where: { $0.id == image.id }) {
+                        turn.generatedImages[index] = image
+                    } else {
+                        turn.generatedImages.append(image)
+                    }
+                }
             case .commandExecution, .fileChange, .mcpToolCall, .collabAgentToolCall,
-                    .subAgentActivity, .webSearch, .imageGeneration:
+                    .subAgentActivity, .webSearch:
                 for row in makeWorkRows(item, completed: completed) {
                     appendWorkRow(row, to: &turn)
                 }
@@ -430,7 +492,11 @@ private extension CodexCanonicalTranscriptProjector {
         } else if let reasoning = activeReasoning.last {
             turn.liveTail = reasoning.text
         } else {
-            turn.liveTail = activeTail(turn)
+            // Tool activity already owns one stable row inside the narrative.
+            // A second derived tail duplicates the same work and diverges from
+            // the official presentation. Only model-authored reasoning
+            // summaries use the separate quiet live-tail line.
+            turn.liveTail = nil
         }
         return turn
     }
@@ -590,6 +656,21 @@ private extension CodexCanonicalTranscriptProjector {
         upsertNarrative(.notice(.init(id: id.rawValue, message: message)), to: &turn)
     }
 
+    func appendInlineActivity(
+        _ activity: CodexInlineActivityV2,
+        segments: inout [CodexTurnConversationSegmentV2],
+        to turn: inout CodexTurnV2
+    ) {
+        closeWorkGroup(&turn)
+        for index in segments.indices {
+            segments[index].narrative.removeAll { entry in
+                guard case .inlineActivity(let existing) = entry else { return false }
+                return existing.id == activity.id
+            }
+        }
+        upsertNarrative(.inlineActivity(activity), to: &turn)
+    }
+
     func upsertNarrative(_ entry: CodexNarrativeEntry, to turn: inout CodexTurnV2) {
         if let index = turn.narrative.firstIndex(where: { $0.id == entry.id }) {
             turn.narrative[index] = entry
@@ -616,25 +697,17 @@ private extension CodexCanonicalTranscriptProjector {
             case .workGroup(var group):
                 group.isLive = false
                 narrative[index] = .workGroup(group)
+            case .inlineActivity(var activity):
+                if activity.status == .inProgress {
+                    activity.status = .completed
+                    narrative[index] = .inlineActivity(activity)
+                }
             case .productToolCall, .notice:
                 break
             }
         }
     }
 
-    func activeTail(_ turn: CodexTurnV2) -> String? {
-        for entry in turn.narrative.reversed() {
-            switch entry {
-            case .productToolCall(let value) where value.status == .inProgress:
-                return "Using \(value.tool)"
-            case .workGroup(let group):
-                if let row = group.rows.last(where: \.isInProgress) { return tail(row) }
-            default:
-                break
-            }
-        }
-        return nil
-    }
 }
 
 // MARK: - Work grammar
@@ -645,19 +718,25 @@ private extension CodexCanonicalTranscriptProjector {
         let state = workStatus(item, completed: completed)
         switch item.kind {
         case .commandExecution:
-            let command = item.payload.string("command") ?? "Command"
+            let parentCommand = item.payload.string("command") ?? "Command"
             let baseOutput = item.payload.string("aggregatedOutput") ?? ""
             let output = completed ? baseOutput : baseOutput + item.liveOverlay.commandOutput.joined()
-            return [.command(.init(
-                id: id,
-                command: command,
-                label: "Ran `\(shortCommand(command))`",
-                action: commandCategory(item.payload),
-                status: state,
-                exitCode: item.payload.int("exitCode"),
-                durationMs: itemDuration(item),
-                output: output.isEmpty ? nil : output
-            ))]
+            let actions = CodexCommandActionPresentation.project(
+                (item.payload.array("commandActions") ?? []).compactMap(\.object),
+                fallbackCommand: parentCommand
+            )
+            return actions.enumerated().map { index, action in
+                .command(.init(
+                    id: actions.count > 1 ? "\(id):\(index)" : id,
+                    command: action.command,
+                    label: action.label(inProgress: state == .inProgress),
+                    action: action.category,
+                    status: state,
+                    exitCode: item.payload.int("exitCode"),
+                    durationMs: itemDuration(item),
+                    output: output.isEmpty ? nil : output
+                ))
+            }
         case .fileChange:
             let files = item.payload.array("changes")?.compactMap { $0.object?.string("path") } ?? []
             return [.fileChange(.init(
@@ -706,16 +785,15 @@ private extension CodexCanonicalTranscriptProjector {
         return completed ? .completed : .inProgress
     }
 
-    func commandCategory(_ item: [String: CodexJSONValue]) -> CodexWorkCategoryV2 {
-        guard let action = item.array("commandActions")?.first?.object?.string("type")?.lowercased() else {
-            return .run
+    /// The official renderer prefers the durable saved path but accepts the
+    /// image payload itself when app-server did not persist a local file.
+    func generatedImageSource(_ item: CanonicalItem) -> String? {
+        for key in ["savedPath", "result"] {
+            let value = item.payload.string(key)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let value, !value.isEmpty { return value }
         }
-        switch action {
-        case "read", "fileread": return .read
-        case "listfiles", "list": return .list
-        case "search", "searchfiles": return .search
-        default: return .run
-        }
+        return nil
     }
 
     func collabToolRows(
@@ -889,29 +967,6 @@ private extension CodexCanonicalTranscriptProjector {
     func orderedUnion(_ lhs: [String], _ rhs: [String]) -> [String] {
         var seen: Set<String> = []
         return (lhs + rhs).filter { seen.insert($0).inserted }
-    }
-
-    func tail(_ row: CodexWorkRowV2) -> String {
-        switch row {
-        case .command(let value): "Running \(shortCommand(value.command))"
-        case .mcpToolCall(let value): "Asking \(value.appName)"
-        case .fileChange: "Editing files"
-        case .webSearch: "Searching"
-        case .collabAgent(let value):
-            switch value.action {
-            case .created: "Creating an agent"
-            case .sentInput: "Messaging an agent"
-            case .waited: "Waiting for agents"
-            default: "Working with agents"
-            }
-        case .other(let value): value.label
-        }
-    }
-
-    func shortCommand(_ command: String) -> String {
-        guard let range = command.range(of: "-lc ") else { return command }
-        return String(command[range.upperBound...])
-            .trimmingCharacters(in: CharacterSet(charactersIn: " '\"") )
     }
 
     func shortAgentName(_ threadID: String) -> String {

@@ -202,7 +202,6 @@ final class CodexCoreAppModel {
             var shouldContinue = true
             do {
                 let account = try await codex.perform(CodexRequest.accountRead(.init(refreshToken: false)))
-                print("[codextrace] account/read \(CodexAccountDetailLog.json(from: account))")
                 accountMenuSummary = CodexAccountMenuSummary(
                     account: account.account,
                     displayName: accountPreferredDisplayName,
@@ -733,15 +732,12 @@ final class CodexCoreAppModel {
     }
 
     func addReferencedFileURLs(_ urls: [URL], to threadID: String?) {
-        print("[DEBUG-FILE-DROP] model add urls=\(urls.map(\.path)) destinationThread=\(threadID ?? "nil") currentThread=\(currentThreadID ?? "nil")")
         let references = urls.compactMap(CodexReferencedFile.fromDroppedURL)
-        print("[DEBUG-FILE-DROP] model validated references=\(references.map { "\($0.displayName):\($0.kind.rawValue)" })")
         guard !references.isEmpty else {
             appendActivity(.notice, title: "Files unavailable", detail: "The selected items could not be referenced.")
             return
         }
         composerSession.addReferencedFiles(references, for: threadID)
-        print("[DEBUG-FILE-DROP] model state referencesForDestination=\(composerSession.referencedFiles(for: threadID).map(\.path))")
     }
 
     private func presentFilePicker() {
@@ -1163,15 +1159,13 @@ final class CodexCoreAppModel {
         await refreshRecentChats(using: codex)
     }
 
-    private func refreshRecentChats(using codex: Codex, trace: CodexPerformanceTrace? = nil) async {
+    private func refreshRecentChats(using codex: Codex) async {
         var session = threadListSession
         let activity = await session.refreshRecentChats(
             using: codex,
             currentWorkspacePath: workspacePath,
-            trace: trace,
             errorMessage: CodexErrorFormat.localizedDescription
         )
-        let applySpan = trace?.begin("threadList.model.apply")
         threadListSession = session
 
         if !hasStoredExpandedProjectState {
@@ -1184,11 +1178,6 @@ final class CodexCoreAppModel {
         if let activity {
             appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
-        applySpan?.end(metadata: [
-            "currentWorkspaceChatCount": "\(session.recentChats.count)",
-            "allChatCount": "\(session.allChats.count)",
-            "projectCount": "\(session.recentProjects.count)"
-        ])
     }
 
     func selectAppRoute(_ route: CodexAppRoute) {
@@ -1595,39 +1584,19 @@ final class CodexCoreAppModel {
         applyPreferredModel(for: threadID)
         chatSelectionGeneration += 1
         let selectionGeneration = chatSelectionGeneration
-        let trace = CodexPerformanceTrace(label: "chatLoad")
-        let totalSpan = trace.begin("chatLoad.total", metadata: ["threadID": threadID])
-        var totalOutcome = "success"
-        defer {
-            totalSpan.end(metadata: ["threadID": threadID, "outcome": totalOutcome])
-        }
-
-        let clearSpan = trace.begin("chatLoad.clearThreadState", metadata: ["threadID": threadID])
         clearThreadState(preserveActiveTranscript: true)
-        clearSpan.end(metadata: ["threadID": threadID])
         do {
-            let resumeSpan = trace.begin("chatLoad.threadResume", metadata: ["threadID": threadID])
-            let lease: CodexThreadLease
-            do {
-                lease = try await codex.resumeThread(
-                    threadResumeParametersForCurrentContext(threadID: threadID)
-                )
-                resumeSpan.end(metadata: ["threadID": lease.id.rawValue, "outcome": "success"])
-            } catch {
-                resumeSpan.end(metadata: ["threadID": threadID, "outcome": "failure", "error": errorType(error)])
-                throw error
-            }
+            let lease = try await codex.resumeThread(
+                threadResumeParametersForCurrentContext(threadID: threadID)
+            )
             guard chatSelectionGeneration == selectionGeneration else {
-                totalOutcome = "superseded"
-                trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
                 await lease.close()
                 return
             }
             await activateThread(lease)
             await attachResumedTurnIfNeeded(
                 lease,
-                selectionGeneration: selectionGeneration,
-                trace: trace
+                selectionGeneration: selectionGeneration
             )
             applyPreferredModel(for: threadID)
             syncComposerThreadID()
@@ -1635,13 +1604,10 @@ final class CodexCoreAppModel {
                 threadID: threadID
             )))
             guard chatSelectionGeneration == selectionGeneration else {
-                totalOutcome = "superseded"
-                trace.event("chatLoad.superseded", metadata: ["threadID": threadID])
                 return
             }
             goalPursuitEnabled = goalResponse?.goal != nil
 
-            let sidebarSpan = trace.begin("chatLoad.sidebarSelect", metadata: ["threadID": lease.id.rawValue])
             if isProjectlessDraft {
                 sidebarNavigationSession.selectProjectlessChat(lease.id.rawValue)
             } else {
@@ -1650,12 +1616,9 @@ final class CodexCoreAppModel {
                     workspacePath: workspacePath
                 )
             }
-            sidebarSpan.end(metadata: ["threadID": lease.id.rawValue])
             appendActivity(.notice, title: "Resumed chat", detail: lease.id.rawValue)
             flushQueuedFollowUps()
         } catch {
-            totalOutcome = "failure"
-            trace.event("chatLoad.error", metadata: ["threadID": threadID, "error": errorType(error)])
             appendActivity(.notice, title: "Resume failed", detail: friendlyError(error))
         }
     }
@@ -2079,8 +2042,7 @@ final class CodexCoreAppModel {
     /// keeps steer, interrupt, and terminal waiting on the thread lease.
     private func attachResumedTurnIfNeeded(
         _ thread: CodexThreadLease,
-        selectionGeneration: Int,
-        trace: CodexPerformanceTrace
+        selectionGeneration: Int
     ) async {
         do {
             let snapshot = try await thread.snapshot(fields: [
@@ -2101,18 +2063,10 @@ final class CodexCoreAppModel {
             activeTurnLease = lease
             runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
             monitorMainTurn(lease)
-            trace.event("chatLoad.activeTurnAttached", metadata: [
-                "threadID": lease.key.threadID.rawValue,
-                "turnID": lease.key.turnID.rawValue,
-            ])
         } catch {
             guard chatSelectionGeneration == selectionGeneration,
                   currentThreadLease === thread
             else { return }
-            trace.event("chatLoad.activeTurnAttachFailed", metadata: [
-                "threadID": thread.id.rawValue,
-                "error": errorType(error),
-            ])
             appendActivity(
                 .notice,
                 title: "Active turn controls unavailable",
@@ -2433,10 +2387,6 @@ final class CodexCoreAppModel {
 
     private func friendlyError(_ error: Error) -> String {
         CodexErrorFormat.localizedDescription(error)
-    }
-
-    private func errorType(_ error: Error) -> String {
-        String(describing: type(of: error))
     }
 
     private func applyFastCommand() {

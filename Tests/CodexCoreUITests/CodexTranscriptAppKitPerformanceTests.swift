@@ -39,8 +39,6 @@ struct CodexTranscriptAppKitPerformanceTests {
         #expect(initial.orderedItemIDs.count == 1_085)
         #expect(initial.diagnostics.heightCacheMissCount == 1_085)
 
-        var totalProjectionMilliseconds = 0.0
-        var maximumProjectionMilliseconds = 0.0
         var totalChangedItems = 0
         var totalHeightMisses = 0
         var totalPreparedTextMisses = 0
@@ -51,11 +49,6 @@ struct CodexTranscriptAppKitPerformanceTests {
                 availableWidth: 1_000,
                 theme: theme
             )
-            totalProjectionMilliseconds += snapshot.diagnostics.projectionDurationMilliseconds
-            maximumProjectionMilliseconds = max(
-                maximumProjectionMilliseconds,
-                snapshot.diagnostics.projectionDurationMilliseconds
-            )
             totalChangedItems += snapshot.changedItemIDs.count
             totalHeightMisses += snapshot.diagnostics.heightCacheMissCount
             totalPreparedTextMisses += snapshot.diagnostics.preparedTextCacheMissCount
@@ -63,14 +56,6 @@ struct CodexTranscriptAppKitPerformanceTests {
             #expect(snapshot.changedItemIDs.count == 1)
         }
 
-        let average = totalProjectionMilliseconds / 120
-        let averageLabel = String(format: "%.3f", average)
-        let maximumLabel = String(format: "%.3f", maximumProjectionMilliseconds)
-        print(
-            "APPKIT_TRANSCRIPT_PERF items=1085 frames=120 changed=\(totalChangedItems) "
-                + "height_misses=\(totalHeightMisses) prepared_misses=\(totalPreparedTextMisses) "
-                + "avg_ms=\(averageLabel) max_ms=\(maximumLabel)"
-        )
         #expect(totalChangedItems == 120)
         #expect(totalHeightMisses == 120)
         #expect(totalPreparedTextMisses == 120)

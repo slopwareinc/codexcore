@@ -222,11 +222,7 @@ public struct CodexComposerBar: View {
             )
         }
         .onAppear {
-            print("[DEBUG-FILE-DROP] composer appear files=\(referencedFiles.map(\.path))")
             reconcilePaletteSelections()
-        }
-        .onChange(of: referencedFiles) { _, files in
-            print("[DEBUG-FILE-DROP] composer files changed count=\(files.count) paths=\(files.map(\.path))")
         }
         .onChange(of: draft) { _, _ in
             if activeCommandSelector != nil, !draft.isEmpty {

@@ -289,9 +289,6 @@ public actor CodexStdioTransport: CodexFrameTransport {
         stderrHandle.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
-            if let text = String(data: chunk, encoding: .utf8) {
-                print("[Codex app-server stderr]: \(text.trimmingCharacters(in: .whitespacesAndNewlines))")
-            }
         }
     }
 

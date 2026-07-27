@@ -31,14 +31,21 @@ public struct CodexTurnViewV2: View {
                 onOpenSubagent: onOpenSubagent
             )
 
-            if let answer = turn.finalAnswer, !answer.text.isEmpty {
+            if turn.finalAnswer?.text.isEmpty == false || !turn.generatedImages.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    CodexAssistantContentView(
-                        text: answer.text,
-                        isStreaming: answer.isStreaming,
-                        cacheNamespace: "transcript-v2-final-\(answer.id)"
-                    )
-                    timestamp(alignment: .leading)
+                    if let answer = turn.finalAnswer, !answer.text.isEmpty {
+                        CodexAssistantContentView(
+                            text: answer.text,
+                            isStreaming: answer.isStreaming,
+                            cacheNamespace: "transcript-v2-final-\(answer.id)"
+                        )
+                    }
+                    ForEach(turn.generatedImages) { image in
+                        CodexGeneratedImageViewV2(image: image)
+                    }
+                    if turn.finalAnswer?.text.isEmpty == false {
+                        timestamp(alignment: .leading)
+                    }
                 }
                 .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
             }
@@ -51,6 +58,37 @@ public struct CodexTurnViewV2: View {
             .font(theme.fonts.micro)
             .foregroundStyle(theme.colors.textTertiary)
             .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: alignment)
+    }
+}
+
+private struct CodexGeneratedImageViewV2: View {
+    @Environment(\.openURL) private var openURL
+    let image: CodexGeneratedImageV2
+
+    var body: some View {
+        Group {
+            if let path = CodexTranscriptImageSource.localFilePath(image.source) {
+                Button {
+                    openURL(URL(fileURLWithPath: path))
+                } label: {
+                    preview
+                }
+                .buttonStyle(.plain)
+                .help("Open generated image")
+            } else {
+                preview
+            }
+        }
+        .accessibilityLabel("Generated image")
+    }
+
+    private var preview: some View {
+        CodexTranscriptImageThumbnail(
+            source: image.source,
+            label: "Generated image",
+            side: 360,
+            aspectRatio: CodexTranscriptImageSource.aspectRatio(image.source) ?? 1
+        )
     }
 }
 

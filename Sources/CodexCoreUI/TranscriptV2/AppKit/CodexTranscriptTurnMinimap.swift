@@ -51,7 +51,9 @@ enum CodexTranscriptTurnMinimapProjection {
                     return notice.message
                 case .workGroup(let group) where !group.header.isEmpty:
                     return group.header
-                case .productToolCall, .prose, .notice, .workGroup:
+                case .inlineActivity(let activity) where !activity.label.isEmpty:
+                    return activity.label
+                case .productToolCall, .inlineActivity, .prose, .notice, .workGroup:
                     continue
                 }
             }

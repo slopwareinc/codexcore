@@ -179,7 +179,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(!cell.approvalButtonsVisibleForTesting)
     }
 
-    @Test func collapsedWorkRowsUsePlainTextWithSemanticStatus() async throws {
+    @Test func defaultWorkGroupUsesOneCompactSemanticSummary() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)
         let presentation = CodexThreadUIPresentation(
@@ -219,14 +219,247 @@ struct CodexTranscriptAppKitIntegrationTests {
             forkChat: nil,
             selectionChanged: { _, _ in }
         )
+        cell.view.layoutSubtreeIfNeeded()
 
-        #expect(cell.chipLabelForTesting.contains("Running swift test"))
+        #expect(cell.chipLabelForTesting == "Running tests")
+        #expect(cell.workRowLabelFitsForTesting)
+        let disclosureGap = try #require(cell.workRowTitleAndDisclosureGapForTesting)
+        #expect(abs(disclosureGap - 6) <= 1)
+        let disclosureOffset = try #require(cell.workRowDisclosureVerticalOffsetForTesting)
+        #expect(abs(disclosureOffset) <= 0.5)
         #expect(cell.chipIconDescriptionForTesting == "In progress")
-        #expect(cell.workRowStatusForTesting == "running")
+        #expect(cell.workRowStatusForTesting.isEmpty)
         #expect(row.indentation == 0)
         #expect(!cell.workRowBackgroundIsVisibleForTesting)
-        #expect(!cell.chipIsActionableForTesting)
+        #expect(cell.chipIsActionableForTesting)
+        #expect(row.workRow?.style == .activitySummary)
+        #expect(!snapshot.itemsByID.values.contains { $0.id.rawValue.contains(":row:command") })
         #expect(row.bottomSpacing == 8)
+    }
+
+    @Test func compactActivityShimmersOnlyWhileActiveAndStopsOnReuse() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+
+        func summary(
+            status: CodexWorkItemStatusV2,
+            isLive: Bool
+        ) async throws -> CodexTranscriptRenderItem {
+            let group = CodexWorkGroupV2(
+                id: "group",
+                rows: [.command(.init(
+                    id: "command",
+                    command: "swift test",
+                    label: "Ran swift test",
+                    action: .run,
+                    status: status
+                ))],
+                isLive: isLive
+            )
+            let snapshot = try await projector.project(
+                presentation: .init(
+                    threadID: "thread",
+                    transcript: .init(turns: [.init(
+                        id: "turn",
+                        narrative: [.workGroup(group)],
+                        status: .working(since: 1)
+                    )])
+                ),
+                availableWidth: 860,
+                theme: theme
+            )
+            return try #require(snapshot.itemsByID.values.first {
+                $0.workRow?.style == .activitySummary
+            })
+        }
+
+        func configure(_ item: CodexTranscriptRenderItem) {
+            cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: item.measuredHeight)
+            cell.configure(
+                item: item,
+                appKitTheme: theme,
+                swiftUITheme: .officialDark,
+                contentHorizontalOffset: 0,
+                productToolRenderer: nil,
+                performAction: { _ in },
+                copy: { _ in },
+                editUserMessage: { _ in },
+                forkChat: nil,
+                selectionChanged: { _, _ in }
+            )
+        }
+
+        configure(try await summary(status: .inProgress, isLive: true))
+        #expect(cell.workRowShimmerIsActiveForTesting)
+        configure(try await summary(status: .completed, isLive: false))
+        #expect(!cell.workRowShimmerIsActiveForTesting)
+        configure(try await summary(status: .inProgress, isLive: true))
+        #expect(cell.workRowShimmerIsActiveForTesting)
+    }
+
+    @Test func inlineActivityWithoutDetailsDoesNotShowADeadDisclosure() async throws {
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.inlineActivity(.init(
+                        id: "research",
+                        label: "Drafting three lessons",
+                        systemImage: "book.pages",
+                        status: .inProgress
+                    ))],
+                    status: .working(since: 1)
+                )])
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+
+        let item = try #require(snapshot.itemsByID.values.first {
+            $0.workRow?.style == .inlineActivity
+        })
+        #expect(item.workRow?.hasDetail == false)
+        #expect(item.action == nil)
+    }
+
+    @Test func inlineActivityWithDetailsExpandsInline() async throws {
+        let activity = CodexInlineActivityV2(
+            id: "research",
+            label: "Drafting three lessons",
+            systemImage: "book.pages",
+            detail: "◌ Map the first musical win\n○ Draft the checkpoints",
+            status: .inProgress
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.inlineActivity(activity)],
+            status: .working(since: 1)
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+
+        let collapsed = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn])
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let collapsedItem = try #require(collapsed.itemsByID.values.first {
+            $0.workRow?.style == .inlineActivity
+        })
+        #expect(collapsedItem.workRow?.hasDetail == true)
+        #expect(collapsedItem.action != nil)
+        #expect(collapsedItem.action == .toggleRow(
+            rowID: "turn:inline-activity:research"
+        ))
+
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 860,
+            height: collapsedItem.measuredHeight
+        )
+        cell.configure(
+            item: collapsedItem,
+            appKitTheme: theme,
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+        #expect(cell.chipIsActionableForTesting)
+        let disclosureGap = try #require(cell.workRowTitleAndDisclosureGapForTesting)
+        #expect(abs(disclosureGap - 6) <= 1)
+        let disclosureOffset = try #require(cell.workRowDisclosureVerticalOffsetForTesting)
+        #expect(abs(disclosureOffset) <= 0.5)
+
+        let expanded = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedRowIDs: ["turn:inline-activity:research"]
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        #expect(expanded.itemsByID.values.contains {
+            $0.copyText == activity.detail && $0.textRole == .notice
+        })
+    }
+
+    @Test func standaloneTranscriptRefreshDoesNotCollapseExpandedActivity() async throws {
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 700)
+        )
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        coordinator.attach(to: container)
+        let rowID = "turn:inline-activity:research"
+
+        func presentation(label: String, expanded: Bool) -> CodexThreadUIPresentation {
+            .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.inlineActivity(.init(
+                        id: "research",
+                        label: label,
+                        systemImage: "book.pages",
+                        detail: "○ Draft the lessons",
+                        status: .inProgress
+                    ))],
+                    status: .working(since: 1)
+                )]),
+                expandedRowIDs: expanded ? [rowID] : []
+            )
+        }
+
+        coordinator.update(
+            presentation: presentation(label: "Drafting lessons", expanded: true),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.renderedItemIDsForTesting.contains {
+            $0.rawValue.hasSuffix(":inline-activity:research:detail")
+        })
+
+        // The transcript-only initializer creates a fresh presentation for
+        // every streamed update. That refresh must not erase live UI state.
+        coordinator.update(
+            presentation: presentation(label: "Checking lessons", expanded: false),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.renderedItemIDsForTesting.contains {
+            $0.rawValue.hasSuffix(":inline-activity:research:detail")
+        })
     }
 
     @Test func singleLineAssistantRepliesFitTheirNativeTextLayout() async throws {
@@ -285,7 +518,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 threadID: "thread",
                 transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
-                expandedRowIDs: ["command"]
+                expandedRowIDs: ["group", "command"]
             ),
             availableWidth: 860,
             theme: theme
@@ -344,6 +577,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             presentation: .init(
                 threadID: "thread", transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
+                expandedRowIDs: ["agents"],
                 agentDisplayNameByThreadID: ["thread-2": "Ramanujan"]
             ),
             availableWidth: 860,
@@ -403,6 +637,14 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(!thumbnail.decodedOnMainThread)
         #expect(max(thumbnail.image.width, thumbnail.image.height) <= 128)
+
+        let inlineThumbnail = try #require(
+            await CodexTranscriptAttachmentThumbnailLoader().thumbnail(
+                source: "data:image/png;base64,\(png.base64EncodedString())"
+            )
+        )
+        #expect(!inlineThumbnail.decodedOnMainThread)
+        #expect(max(inlineThumbnail.image.width, inlineThumbnail.image.height) <= 128)
     }
 
     @Test func expandedDiffUsesOneGlassPanelAndRoutesTabSelection() async throws {
@@ -429,7 +671,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "thread", transcript: .init(turns: [turn]),
-                expandedWorkTurnIDs: [turn.id], expandedRowIDs: ["files"]
+                expandedWorkTurnIDs: [turn.id], expandedRowIDs: ["work", "files"]
             ),
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark)
@@ -850,14 +1092,6 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(container.collectionView.layoutSubtreeSettlementCount == 1)
         #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 0)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
-        let applyLabel = String(format: "%.3f", coordinator.diagnostics.lastSnapshotApplyDurationMilliseconds)
-        let maximumApplyLabel = String(format: "%.3f", coordinator.diagnostics.maximumSnapshotApplyDurationMilliseconds)
-        print(
-            "APPKIT_TRANSCRIPT_DIFF items=1085 snapshots=\(coordinator.diagnostics.snapshotApplyCount) "
-                + "targeted=\(coordinator.diagnostics.targetedReconfigurePassCount) "
-                + "reconfigured=\(coordinator.diagnostics.reconfiguredItemCount) broad_reload=\(coordinator.diagnostics.broadReloadCount) "
-                + "last_apply_ms=\(applyLabel) max_apply_ms=\(maximumApplyLabel)"
-        )
         container.jumpButton.performClick(nil)
         #expect(container.jumpButton.isHidden)
         #expect(container.scrollView.contentView.bounds.origin.y > 250)
@@ -1215,6 +1449,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 threadID: "thread",
                 transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
+                expandedRowIDs: ["group"],
                 presentedAtByTurnID: [turn.id: Date(timeIntervalSince1970: 100)]
             ),
             availableWidth: 860,

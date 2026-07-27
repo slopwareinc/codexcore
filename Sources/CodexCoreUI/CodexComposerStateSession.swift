@@ -153,7 +153,6 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
     public mutating func setReferencedFiles(_ files: [CodexReferencedFile], for threadID: String?) {
         let key = Self.draftKey(for: threadID)
-        print("[DEBUG-FILE-DROP] state set key=\(key) incoming=\(files.map(\.path))")
         let deduplicated = files.reduce(into: [CodexReferencedFile]()) { result, file in
             guard !result.contains(where: { $0.path == file.path }) else { return }
             result.append(file)
@@ -163,7 +162,6 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         } else {
             referencedFilesByThreadID[key] = deduplicated
         }
-        print("[DEBUG-FILE-DROP] state stored key=\(key) files=\(referencedFilesByThreadID[key]?.map(\.path) ?? [])")
     }
 
     @discardableResult
@@ -204,7 +202,9 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         case .steer:
             return canSendFollowUp ? "↩ steers the current turn\(queuedSuffix)" : nil
         case .queue:
-            return canSendFollowUp ? "↩ queues for the next turn\(queuedSuffix)" : nil
+            return canSendFollowUp && !queuedFollowUps.isEmpty
+                ? "\(queuedFollowUps.count) queued"
+                : nil
         }
     }
 

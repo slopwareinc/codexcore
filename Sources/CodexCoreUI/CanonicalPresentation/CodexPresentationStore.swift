@@ -137,7 +137,7 @@ public final class CodexPresentationStore {
 
     @ObservationIgnored private let coalescingInterval: Duration
     @ObservationIgnored private let now: @Sendable () -> Date
-    @ObservationIgnored private let projector = CodexCanonicalTranscriptProjector()
+    @ObservationIgnored private let projector: CodexCanonicalTranscriptProjector
     @ObservationIgnored private var adapter: CodexPresentationStateAdapter?
     @ObservationIgnored private var localStateByThreadID: [ThreadID: CodexThreadPresentationLocalState] = [:]
     @ObservationIgnored private var presentationCacheByThreadID: [ThreadID: CachedThreadPresentation] = [:]
@@ -166,10 +166,14 @@ public final class CodexPresentationStore {
 
     public init(
         adapter: CodexPresentationStateAdapter? = nil,
+        itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil,
         coalescingInterval: Duration = .milliseconds(17),
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.adapter = adapter
+        self.projector = CodexCanonicalTranscriptProjector(
+            itemPresentationPolicy: itemPresentationPolicy
+        )
         self.coalescingInterval = coalescingInterval
         self.now = now
     }

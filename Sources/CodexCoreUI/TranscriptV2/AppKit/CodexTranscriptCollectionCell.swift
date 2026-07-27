@@ -1,5 +1,4 @@
 import AppKit
-import ImageIO
 import QuickLookUI
 import SwiftUI
 
@@ -88,6 +87,10 @@ private final class CodexShimmerTextField: NSTextField {
     func stopShimmer() {
         shimmerLayer.removeAllAnimations()
         layer?.mask = nil
+    }
+
+    var isShimmering: Bool {
+        shimmerLayer.animation(forKey: "codex-shimmer") != nil
     }
 }
 
@@ -281,6 +284,18 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         footerActionControlsInstalled ? footerCopyTurnButton.image?.accessibilityDescription : nil
     }
     var chipLabelForTesting: String { chipControlsInstalled ? chipLabel.stringValue : "" }
+    var workRowLabelFitsForTesting: Bool {
+        guard chipControlsInstalled, let cell = chipLabel.cell else { return false }
+        return chipLabel.frame.width + 0.5 >= cell.cellSize.width
+    }
+    var workRowTitleAndDisclosureGapForTesting: CGFloat? {
+        guard chipControlsInstalled, chipDisclosureView.image != nil else { return nil }
+        return chipDisclosureView.frame.minX - visibleChipLabelMaxX
+    }
+    var workRowDisclosureVerticalOffsetForTesting: CGFloat? {
+        guard chipControlsInstalled, chipDisclosureView.image != nil else { return nil }
+        return chipDisclosureView.frame.midY - chipLabel.frame.midY
+    }
     var chipIconDescriptionForTesting: String? {
         chipControlsInstalled ? chipIconView.image?.accessibilityDescription : nil
     }
@@ -328,6 +343,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         return imageRect.minX - titleRect.maxX
     }
     var workHeaderShimmerIsActiveForTesting: Bool { actionButton.isShimmering }
+    var workRowShimmerIsActiveForTesting: Bool { chipLabel.isShimmering }
     var workHeaderWidthForTesting: CGFloat { actionControlInstalled ? actionButton.frame.width : 0 }
     var textUsedHeightForTesting: CGFloat {
         guard textControlsInstalled,
@@ -732,6 +748,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             actionButton.setAccessibilityLabel(item.accessibilityLabel)
             if case .working = header.state { actionButton.startShimmer() }
         } else if let row = item.workRow {
+            let isActionable = item.action != nil
             ensureChipControls()
             chipBackground.isHidden = false
             chipBackground.layer?.cornerRadius = 0
@@ -741,7 +758,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 Self.chipIconName(row),
                 accessibilityDescription: Self.chipIconAccessibilityDescription(row)
             )
-            chipIconView.contentTintColor = Self.statusColor(row.status, theme: appKitTheme)
+            chipIconView.contentTintColor = row.style.isSemanticActivity
+                ? appKitTheme.textTertiary
+                : Self.statusColor(row.status, theme: appKitTheme)
             chipLabel.stringValue = row.label
             chipLabel.font = appKitTheme.captionFont
             chipLabel.textColor = appKitTheme.textTertiary
@@ -749,10 +768,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipDurationLabel.stringValue = row.durationMs.map(CodexWorkBlockViewV2.duration) ?? ""
             chipDurationLabel.font = appKitTheme.microFont
             chipDurationLabel.textColor = appKitTheme.textTertiary
-            chipStatusLabel.stringValue = Self.workStatusTitle(row.status)
+            chipStatusLabel.stringValue = row.style.isSemanticActivity
+                ? ""
+                : Self.workStatusTitle(row.status)
             chipStatusLabel.font = appKitTheme.captionFont
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
-            chipDisclosureView.image = Self.chipDisclosureImage(row)
+            chipDisclosureView.image = Self.chipDisclosureImage(row, isActionable: isActionable)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
             if row.isExpanded && item.copyText != nil {
                 ensureCopyControl()
@@ -760,14 +781,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 copyButton.toolTip = "Copy output"
                 copyButton.setAccessibilityLabel("Copy output")
             }
-            if row.isActionable {
+            if isActionable {
                 ensureActionControl()
                 actionButton.isHidden = false
                 actionButton.isEnabled = true
                 actionButton.title = ""
                 actionButton.setAccessibilityLabel(item.accessibilityLabel)
             }
-            (view as? CodexTranscriptHoverView)?.usesPointingHand = row.isActionable
+            (view as? CodexTranscriptHoverView)?.usesPointingHand = isActionable
         } else if let productTool = item.productTool {
             if let rendered = productToolRenderer?.render(productTool) {
                 let hosting = NSHostingView(rootView: AnyView(rendered.codexAgentTheme(swiftUITheme)))
@@ -779,11 +800,17 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 actionButton.isHidden = false
                 actionButton.isEnabled = false
                 actionButton.font = appKitTheme.captionFont
-                actionButton.contentTintColor = appKitTheme.textSecondary
-                actionButton.title = codexStatusGlyphV2(productTool.status) + " "
-                    + [productTool.namespace, productTool.tool].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+                actionButton.contentTintColor = appKitTheme.textTertiary
+                actionButton.title = CodexProductToolPresentationV2.label(productTool)
+                actionButton.image = Self.symbolImage(
+                    CodexProductToolPresentationV2.systemImage(productTool),
+                    accessibilityDescription: item.accessibilityLabel
+                )
+                actionButton.imagePosition = .imageLeading
+                actionButton.imageScaling = .scaleProportionallyDown
+                actionButton.imageHugsTitle = true
+                if productTool.status == .inProgress { actionButton.startShimmer() }
                 actionButton.setAccessibilityLabel(item.accessibilityLabel)
-                backgroundView.isHidden = false
             }
         }
 
@@ -873,18 +900,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 width: min(contentFrame.width, titleWidth + (actionButton.image == nil ? 8 : 24)),
                 height: contentFrame.height
             )
-        } else if let row = item.workRow {
+        } else if item.workRow != nil {
+            let isActionable = item.action != nil
             chipBackground.frame = contentFrame
             let rowMidY = contentFrame.height / 2
-            let disclosureWidth: CGFloat = row.isActionable ? 14 : 0
-            chipDisclosureView.frame = NSRect(
-                x: 0,
-                y: rowMidY - 7,
-                width: disclosureWidth,
-                height: 14
-            )
+            let disclosureWidth: CGFloat = isActionable ? 14 : 0
             let iconSize: CGFloat = 15
-            let iconX = disclosureWidth > 0 ? disclosureWidth + 6 : 0
+            let iconX: CGFloat = 0
             chipIconView.frame = NSRect(x: iconX, y: rowMidY - iconSize / 2, width: iconSize, height: iconSize)
 
             chipStatusLabel.sizeToFit()
@@ -894,23 +916,38 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
             let copyReserve: CGFloat = copyControlInstalled && !copyButton.isHidden ? 34 : 0
             let labelX = iconX + iconSize + 8
-            let trailingWidth = statusWidth + (durationWidth > 0 ? durationWidth + 10 : 0) + copyReserve
-            let naturalLabelWidth = ceil((chipLabel.stringValue as NSString).size(
-                withAttributes: [.font: chipLabel.font ?? theme.captionFont]
-            ).width)
+            let disclosureReserve = isActionable ? disclosureWidth + 8 : 0
+            let trailingWidth = statusWidth
+                + (durationWidth > 0 ? durationWidth + 10 : 0)
+                + copyReserve
+                + disclosureReserve
+            let naturalLabelWidth = ceil(chipLabel.cell?.cellSize.width ?? 20)
             let labelWidth = min(
                 naturalLabelWidth,
                 max(20, contentFrame.width - labelX - trailingWidth - 20)
             )
             chipLabel.frame = NSRect(x: labelX, y: rowMidY - 10, width: labelWidth, height: 20)
+            let disclosureX = min(
+                visibleChipLabelMaxX + 6,
+                chipLabel.frame.maxX + 6
+            )
+            chipDisclosureView.frame = NSRect(
+                x: disclosureX,
+                y: rowMidY - disclosureWidth / 2,
+                width: disclosureWidth,
+                height: disclosureWidth
+            )
+            let labelTrailingX = isActionable
+                ? chipDisclosureView.frame.maxX
+                : visibleChipLabelMaxX
             chipDurationLabel.frame = NSRect(
-                x: chipLabel.frame.maxX + (durationWidth > 0 ? 10 : 0),
+                x: labelTrailingX + (durationWidth > 0 ? 10 : 0),
                 y: rowMidY - 9,
                 width: durationWidth,
                 height: 18
             )
             chipStatusLabel.frame = NSRect(
-                x: (durationWidth > 0 ? chipDurationLabel.frame.maxX : chipLabel.frame.maxX) + 10,
+                x: (durationWidth > 0 ? chipDurationLabel.frame.maxX : labelTrailingX) + 10,
                 y: rowMidY - 10,
                 width: statusWidth,
                 height: 20
@@ -1478,7 +1515,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 self?.setAgentPreviewHover(hovered, index: index)
             },
             onOpen: { [weak self] in
-                if let path = chip.taskSummary, isAttachment {
+                if let source = chip.taskSummary,
+                   let path = CodexTranscriptImageSource.localFilePath(source),
+                   isAttachment {
                     CodexTranscriptQuickLookController.shared.present(URL(fileURLWithPath: path))
                 } else if let threadID = chip.threadID {
                     self?.performAction?(.openSubagent(threadID: threadID))
@@ -1504,7 +1543,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         theme: CodexTranscriptAppKitTheme
     ) {
         agentChipContainer.frame = contentFrame
-        let height: CGFloat = chips.contains(where: { $0.attachmentKind == .image }) ? 64 : 26
+        let height = max(26, chips.compactMap {
+            $0.attachmentKind == .image ? $0.imagePreviewHeight : nil
+        }.max() ?? 0)
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var y = contentFrame.height - height
@@ -1512,7 +1553,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(Self.agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: theme.captionFont]).width)
             let isImage = chip.attachmentKind == .image
-            let width = isImage ? 64 : min(contentFrame.width, max(74, labelWidth + 28))
+            let width = isImage
+                ? chip.imagePreviewSize
+                : min(contentFrame.width, max(74, labelWidth + 28))
             if x > 0, x + width > contentFrame.width {
                 x = 0
                 y -= height + gap
@@ -1766,6 +1809,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private static func chipIconName(_ row: CodexTranscriptWorkRowRender) -> String {
+        if let systemImage = row.systemImage, !systemImage.isEmpty { return systemImage }
         if row.status == .failed { return "exclamationmark.triangle" }
         return switch row.kind {
         case .command: "terminal"
@@ -1785,13 +1829,24 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
     }
 
-    private static func chipDisclosureImage(_ row: CodexTranscriptWorkRowRender) -> NSImage? {
-        guard row.isActionable else { return nil }
+    private static func chipDisclosureImage(
+        _ row: CodexTranscriptWorkRowRender,
+        isActionable: Bool
+    ) -> NSImage? {
+        guard isActionable else { return nil }
         let name = row.isSubagentLink ? "arrow.up.right" : (row.isExpanded ? "chevron.down" : "chevron.right")
         return symbolImage(
             name,
             accessibilityDescription: row.isSubagentLink ? "Open agent" : "Show details"
         )
+    }
+
+    private var visibleChipLabelMaxX: CGFloat {
+        let font = chipLabel.font ?? appKitTheme?.captionFont ?? NSFont.systemFont(ofSize: 12)
+        let width = ceil((chipLabel.stringValue as NSString).size(
+            withAttributes: [.font: font]
+        ).width)
+        return chipLabel.frame.minX + min(width, chipLabel.frame.width)
     }
 
     private static func statusColor(
@@ -1881,11 +1936,17 @@ private struct CodexTranscriptAgentPill: View {
 
     var body: some View {
         let imageAttachment = chip.attachmentKind == .image
-        let isAttachment = chip.threadID == nil && chip.taskSummary != nil
+        let canOpenAttachment = chip.taskSummary
+            .flatMap(CodexTranscriptImageSource.localFilePath) != nil
         HStack(spacing: 5) {
             if imageAttachment {
-                if let path = chip.taskSummary {
-                    CodexTranscriptAttachmentThumbnail(path: path, label: chip.label)
+                if let source = chip.taskSummary {
+                    CodexTranscriptImageThumbnail(
+                        source: source,
+                        label: chip.label,
+                        side: chip.imagePreviewSize,
+                        aspectRatio: chip.imagePreviewAspectRatio
+                    )
                 } else {
                     VStack(spacing: 3) {
                         Image(systemName: "photo")
@@ -1898,7 +1959,7 @@ private struct CodexTranscriptAgentPill: View {
                             .multilineTextAlignment(.center)
                     }
                     .padding(5)
-                    .frame(width: 64, height: 64)
+                    .frame(width: chip.imagePreviewSize, height: chip.imagePreviewHeight)
                     .background(theme.colors.surface.opacity(0.7))
                 }
             } else if chip.threadID == nil {
@@ -1922,16 +1983,21 @@ private struct CodexTranscriptAgentPill: View {
         .font(theme.fonts.caption)
         .lineLimit(imageAttachment ? 2 : 1)
         .padding(.horizontal, imageAttachment ? 0 : 8)
-        .frame(height: imageAttachment ? 64 : 26)
+        .frame(height: imageAttachment ? chip.imagePreviewHeight : 26)
         .contentShape(Capsule())
-        .codexGlass(imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule()), tint: chip.threadID == nil ? theme.colors.surfaceElevated.opacity(0.45) : statusColor.opacity(0.055), interactive: chip.threadID != nil || isAttachment)
-        .overlay { (imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule())).stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1) }
+        .modifier(CodexTranscriptAgentPillChrome(
+            isImageAttachment: imageAttachment,
+            tint: chip.threadID == nil
+                ? theme.colors.surfaceElevated.opacity(0.45)
+                : statusColor.opacity(0.055),
+            isInteractive: chip.threadID != nil || canOpenAttachment
+        ))
         .onTapGesture(perform: onOpen)
         .onHover(perform: onHover)
         .help(chip.threadID == nil ? chip.label : "\(chip.label) — \(statusTitle)")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(chip.label), \(statusTitle)")
-        .accessibilityAddTraits(chip.threadID == nil && !isAttachment ? [] : .isButton)
+        .accessibilityAddTraits(chip.threadID != nil || canOpenAttachment ? .isButton : [])
     }
 
     private var statusTitle: String {
@@ -1955,94 +2021,28 @@ private struct CodexTranscriptAgentPill: View {
     }
 }
 
-struct CodexTranscriptDecodedThumbnail: @unchecked Sendable {
-    let image: CGImage
-    let decodedOnMainThread: Bool
-}
+private struct CodexTranscriptAgentPillChrome: ViewModifier {
+    let isImageAttachment: Bool
+    let tint: Color
+    let isInteractive: Bool
 
-actor CodexTranscriptAttachmentThumbnailLoader {
-    static let shared = CodexTranscriptAttachmentThumbnailLoader()
-
-    private let cache: NSCache<NSString, CGImage> = {
-        let cache = NSCache<NSString, CGImage>()
-        cache.countLimit = 32
-        return cache
-    }()
-    private var inFlight: [String: Task<CodexTranscriptDecodedThumbnail?, Never>] = [:]
-
-    func thumbnail(at path: String) async -> CodexTranscriptDecodedThumbnail? {
-        let key = path as NSString
-        if let cached = cache.object(forKey: key) {
-            return CodexTranscriptDecodedThumbnail(image: cached, decodedOnMainThread: false)
-        }
-        if let task = inFlight[path] { return await task.value }
-        let task = Task.detached(priority: .utility) {
-            Self.downsample(path: path, maxPixelSize: 128)
-        }
-        inFlight[path] = task
-        let decoded = await task.value
-        inFlight[path] = nil
-        guard let decoded else { return nil }
-        cache.setObject(decoded.image, forKey: key)
-        return decoded
-    }
-
-    nonisolated private static func downsample(
-        path: String,
-        maxPixelSize: Int
-    ) -> CodexTranscriptDecodedThumbnail? {
-        let url = URL(fileURLWithPath: path) as CFURL
-        guard let source = CGImageSourceCreateWithURL(url, [
-            kCGImageSourceShouldCache: false,
-        ] as CFDictionary) else { return nil }
-        let options = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ] as CFDictionary
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-        return CodexTranscriptDecodedThumbnail(
-            image: image,
-            decodedOnMainThread: Thread.isMainThread
-        )
-    }
-}
-
-private struct CodexTranscriptAttachmentThumbnail: View {
     @Environment(\.codexAgentTheme) private var theme
-    let path: String
-    let label: String
-    @State private var image: NSImage?
 
-    var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                VStack(spacing: 3) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(theme.colors.textSecondary)
-                    Text(label)
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isImageAttachment {
+            content
+        } else {
+            content
+                .codexGlass(
+                    AnyShape(Capsule()),
+                    tint: tint,
+                    interactive: isInteractive
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1)
                 }
-                .padding(5)
-                .background(theme.colors.surface.opacity(0.7))
-            }
-        }
-        .frame(width: 64, height: 64)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .task(id: path) {
-            image = nil
-            guard let thumbnail = await CodexTranscriptAttachmentThumbnailLoader.shared.thumbnail(at: path),
-                  !Task.isCancelled else { return }
-            image = NSImage(cgImage: thumbnail.image, size: .zero)
         }
     }
 }

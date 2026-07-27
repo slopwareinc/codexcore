@@ -2,6 +2,14 @@
 
 Use a product renderer for non-blocking dynamic-tool progress. MCP calls use their generic presentation; blocking questions belong in the server-request prompt flow.
 
+CodexCoreUI already renders unowned dynamic tools as compact, humanized activity
+rows. Use a product renderer only when the tool needs a richer interactive
+surface. For an activity line that evolves across multiple tool calls, or when
+the host must suppress the default item renderer, use
+[activity presentation](live-activity.md). A product tool renderer only changes
+the view for one dynamic-tool item; it does not coalesce different canonical
+item identities.
+
 ```swift
 let renderer = CodexProductToolRendererV2 { call in
     guard call.namespace == "catalog" else { return nil }

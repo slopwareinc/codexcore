@@ -5,6 +5,7 @@ import AppKit
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var showsOlderProjects = false
     @State private var isPinnedSectionExpanded = true
     @State private var isChatsSectionExpanded = true
@@ -113,8 +114,15 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                Rectangle().fill(
+                    theme.colors.surface.opacity(controlActiveState == .inactive ? 0.34 : 0.22)
+                )
+            }
+        }
         .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.18))
-        .background(theme.colors.surface.opacity(0.26))
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.colors.border.opacity(0.45))
@@ -626,6 +634,8 @@ private struct ProjectSidebarGroupView: View {
                                 .font(theme.fonts.sidebar.projectTitle.font)
                                 .foregroundStyle(group.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(1)
                             Spacer(minLength: 0)
                             if !group.isExpanded {
                                 SidebarAttentionIndicator(
@@ -643,74 +653,15 @@ private struct ProjectSidebarGroupView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(CodexSidebarAccessibility.projectDisclosureLabel(projectTitle: group.project.displayName, isExpanded: group.isExpanded))
                 .help(group.project.displayName)
-                if !isCollapsed {
-                    Menu {
-                        Button {
-                            onToggleProjectPin(group.project.workspacePath)
-                        } label: {
-                            Label(
-                                group.isPinned ? "Unpin project" : "Pin project",
-                                systemImage: group.isPinned ? "pin.slash" : "pin"
-                            )
-                        }
-                        Button {
-                            onRevealProject(group.project.workspacePath)
-                        } label: {
-                            Label("Reveal in Finder", systemImage: "folder")
-                        }
-                        Button {
-                            onRenameProject(group.project)
-                        } label: {
-                            Label("Rename project", systemImage: "pencil")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            isArchiveConfirmationPresented = true
-                        } label: {
-                            Label("Archive chats", systemImage: "archivebox")
-                        }
-                        Button(role: .destructive) {
-                            onRemoveProject(group.project.workspacePath)
-                        } label: {
-                            Label("Remove", systemImage: "xmark")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(theme.colors.textSecondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("Project actions")
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-
-                    if group.canStartNewChat {
-                        Button {
-                            onStartProjectChat(group.project.workspacePath)
-                        } label: {
-                            Image(systemName: "square.and.pencil")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(theme.colors.textSecondary)
-                                .frame(width: 24, height: 24)
-                                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .help("New chat in \(group.project.displayName)")
-                        .opacity(isHovered ? 1 : 0)
-                        .allowsHitTesting(isHovered)
-                    }
-                }
             }
             .padding(.horizontal, isCollapsed ? 0 : 2)
             .contentShape(Rectangle())
-            .background(
-                isDropTargeted ? theme.colors.accent.opacity(0.16) : projectRowFill,
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
+            .background { projectRowBackground }
+            .overlay(alignment: .trailing) {
+                if !isCollapsed && isHovered {
+                    projectActionControls
+                }
+            }
             .onHover { isHovered = $0 }
             .animation(.easeOut(duration: 0.12), value: isHovered)
             .draggable(group.project.workspacePath) {
@@ -776,14 +727,78 @@ private struct ProjectSidebarGroupView: View {
         group.rows.contains { $0.isSelected }
     }
 
-    private var projectRowFill: Color {
-        if group.isSelected && !hasSelectedThread {
-            return theme.colors.surfaceElevated.opacity(0.36)
+    private var projectActionControls: some View {
+        HStack(spacing: 2) {
+            Menu {
+                Button {
+                    onToggleProjectPin(group.project.workspacePath)
+                } label: {
+                    Label(
+                        group.isPinned ? "Unpin project" : "Pin project",
+                        systemImage: group.isPinned ? "pin.slash" : "pin"
+                    )
+                }
+                Button {
+                    onRevealProject(group.project.workspacePath)
+                } label: {
+                    Label("Reveal in Finder", systemImage: "folder")
+                }
+                Button {
+                    onRenameProject(group.project)
+                } label: {
+                    Label("Rename project", systemImage: "pencil")
+                }
+                Divider()
+                Button(role: .destructive) {
+                    isArchiveConfirmationPresented = true
+                } label: {
+                    Label("Archive chats", systemImage: "archivebox")
+                }
+                Button(role: .destructive) {
+                    onRemoveProject(group.project.workspacePath)
+                } label: {
+                    Label("Remove", systemImage: "xmark")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Project actions")
+
+            if group.canStartNewChat {
+                Button {
+                    onStartProjectChat(group.project.workspacePath)
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help("New chat in \(group.project.displayName)")
+            }
         }
-        if isHovered {
-            return theme.colors.surfaceElevated.opacity(0.18)
+        .padding(.leading, 18)
+        .padding(.trailing, 2)
+    }
+
+    @ViewBuilder
+    private var projectRowBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        if isDropTargeted {
+            shape.fill(theme.colors.accent.opacity(0.16))
+        } else if group.isSelected && !hasSelectedThread {
+            SidebarSelectionBackground()
+        } else if isHovered {
+            shape.fill(theme.colors.surfaceElevated.opacity(0.18))
         }
-        return .clear
     }
 }
 
@@ -834,7 +849,6 @@ private struct SidebarChatRowHost: NSViewRepresentable {
     private func update(_ container: SidebarChatRowContainerView) {
         let base = NSColor(theme.colors.canvas)
         let elevated = NSColor(theme.colors.surfaceElevated)
-        let selected = base.blended(withFraction: 0.50, of: elevated) ?? elevated
         let hovered = base.blended(withFraction: 0.22, of: elevated) ?? elevated
         container.configure(
             content: AnyView(
@@ -857,9 +871,7 @@ private struct SidebarChatRowHost: NSViewRepresentable {
                 .codexAgentTheme(theme)
                 .accessibilityHidden(true)
             ),
-            isSelected: row.isSelected,
             baseColor: base,
-            selectedColor: selected,
             hoverColor: hovered
         )
     }
@@ -881,12 +893,21 @@ private struct SidebarChatRowContent: View {
                 .font(theme.fonts.sidebar.chatTitle.font)
                 .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                 .lineLimit(1)
-            Spacer(minLength: 0)
-            trailingStatus
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            if hasTrailingStatus {
+                Spacer(minLength: 0)
+                trailingStatus
+            }
         }
         .padding(.leading, 6 + indentation)
         .padding(.trailing, 8)
         .frame(height: theme.fonts.sidebar.chatRowHeight)
+        .background {
+            if row.isSelected {
+                SidebarSelectionBackground()
+            }
+        }
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
@@ -921,27 +942,34 @@ private struct SidebarChatRowContent: View {
 
     private var trailingStatus: some View {
         HStack(spacing: 0) {
-            switch CodexSidebarAttentionState.resolve(
-                liveStatus: row.liveStatus,
-                hasUnreadWhileInactive: row.hasUnreadWhileInactive
-            ) {
+            switch attentionState {
             case .running, .failed, .unread:
-                SidebarAttentionIndicator(
-                    state: CodexSidebarAttentionState.resolve(
-                        liveStatus: row.liveStatus,
-                        hasUnreadWhileInactive: row.hasUnreadWhileInactive
-                    )
-                )
+                SidebarAttentionIndicator(state: attentionState)
             case .idle:
                 if showsRecency {
-                Text(recencyLabel)
-                    .font(theme.fonts.sidebar.chatRecency.font)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(1)
+                    Text(recencyLabel)
+                        .font(theme.fonts.sidebar.chatRecency.font)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .lineLimit(1)
                 }
             }
         }
         .frame(width: 42, alignment: .trailing)
+    }
+
+    private var attentionState: CodexSidebarAttentionState {
+        CodexSidebarAttentionState.resolve(
+            liveStatus: row.liveStatus,
+            hasUnreadWhileInactive: row.hasUnreadWhileInactive
+        )
+    }
+
+    private var hasTrailingStatus: Bool {
+        SidebarChatRowLayout.hasTrailingStatus(
+            attentionState: attentionState,
+            showsRecency: showsRecency,
+            recencyLabel: recencyLabel
+        )
     }
 
     private var recencyLabel: String {
@@ -1020,9 +1048,7 @@ final class SidebarChatRowContainerView: NSView {
     private let actionsHost = NSHostingView(rootView: AnyView(EmptyView()))
     private var trackingAreaReference: NSTrackingArea?
     private var isHovered = false
-    private var isSelected = false
     private var baseColor = NSColor.clear
-    private var selectedColor = NSColor.clear
     private var hoverColor = NSColor.clear
 
     override init(frame frameRect: NSRect) {
@@ -1047,16 +1073,12 @@ final class SidebarChatRowContainerView: NSView {
     func configure(
         content: AnyView,
         actions: AnyView,
-        isSelected: Bool,
         baseColor: NSColor,
-        selectedColor: NSColor,
         hoverColor: NSColor
     ) {
         contentHost.rootView = content
         actionsHost.rootView = actions
-        self.isSelected = isSelected
         self.baseColor = baseColor
-        self.selectedColor = selectedColor
         self.hoverColor = hoverColor
         updateChrome()
         needsLayout = true
@@ -1109,11 +1131,35 @@ final class SidebarChatRowContainerView: NSView {
 
     private func updateChrome() {
         let showsActions = isHovered
-        let background = isSelected ? selectedColor : (isHovered ? hoverColor : NSColor.clear)
+        let background = isHovered ? hoverColor : NSColor.clear
         layer?.backgroundColor = background.cgColor
         actionBackdrop.layer?.backgroundColor = (isHovered ? hoverColor : baseColor).cgColor
         actionBackdrop.isHidden = !showsActions
         actionsHost.isHidden = !showsActions
+    }
+}
+
+private struct SidebarSelectionBackground: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(
+                theme.colors.textPrimary.opacity(
+                    controlActiveState == .key ? 0.055 : 0.03
+                )
+            )
+    }
+}
+
+enum SidebarChatRowLayout {
+    static func hasTrailingStatus(
+        attentionState: CodexSidebarAttentionState,
+        showsRecency: Bool,
+        recencyLabel: String
+    ) -> Bool {
+        attentionState != .idle || (showsRecency && !recencyLabel.isEmpty)
     }
 }
 

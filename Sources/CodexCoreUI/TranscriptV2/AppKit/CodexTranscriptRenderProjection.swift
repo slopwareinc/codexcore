@@ -105,15 +105,24 @@ struct CodexTranscriptWorkHeaderRender: Sendable, Equatable {
     var state: State
 }
 
+enum CodexTranscriptWorkRowStyle: Sendable, Equatable {
+    case standard
+    case inlineActivity
+    case activitySummary
+
+    var isSemanticActivity: Bool { self != .standard }
+}
+
 struct CodexTranscriptWorkRowRender: Sendable, Equatable {
     var kind: CodexWorkRowKind
     var label: String
     var status: CodexWorkItemStatusV2
+    var systemImage: String? = nil
+    var style: CodexTranscriptWorkRowStyle = .standard
     var durationMs: Int?
     var isExpanded: Bool
     var hasDetail: Bool
     var isSubagentLink: Bool
-    var isActionable: Bool
 }
 
 struct CodexTranscriptAgentChipRender: Sendable, Equatable {
@@ -124,6 +133,12 @@ struct CodexTranscriptAgentChipRender: Sendable, Equatable {
     var taskSummary: String?
     var latestUpdate: String?
     var attachmentKind: CodexReferencedFile.Kind? = nil
+    var imagePreviewSize: CGFloat = 64
+    var imagePreviewAspectRatio: CGFloat = 1
+
+    var imagePreviewHeight: CGFloat {
+        imagePreviewSize / max(0.01, imagePreviewAspectRatio)
+    }
 }
 
 struct CodexTranscriptDiffPanelRender: Sendable, Equatable {
@@ -318,6 +333,7 @@ actor CodexTranscriptRenderProjector {
     private var heightByKey: [HeightKey: CGFloat] = [:]
     private var preparedTextByKey: [String: CodexPreparedTranscriptText] = [:]
     private var preparedTextInsertionOrder: [String] = []
+    private var imageAspectRatioBySource: [String: CGFloat] = [:]
     private var projectionCount = 0
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
 
@@ -492,17 +508,37 @@ actor CodexTranscriptRenderProjector {
                     case .workGroup(let group):
                         let rows = tailMode ? group.rows.filter(\.isInProgress) : group.rows
                         if rows.isEmpty { continue }
-                        let groupHeader = tailMode ? CodexWorkGroupHeaderV2.synthesize(rows: rows) : group.header
-                        let headerText = Self.preparePlain(groupHeader, font: theme.captionFont, color: theme.textSecondary, theme: theme)
+                        let groupHeader = CodexWorkGroupPresentationV2.header(
+                            group,
+                            rows: tailMode ? rows : nil
+                        )
+                        let groupIsExpanded = presentation.expandedRowIDs.contains(group.id)
+                        let groupStatus = CodexWorkGroupPresentationV2.status(
+                            rows: rows,
+                            isLive: tailMode || group.isLive
+                        )
+                        let summaryRender = CodexTranscriptWorkRowRender(
+                            kind: .other,
+                            label: groupHeader,
+                            status: groupStatus,
+                            systemImage: CodexWorkGroupPresentationV2.systemImage(rows: rows),
+                            style: .activitySummary,
+                            durationMs: nil,
+                            isExpanded: groupIsExpanded,
+                            hasDetail: true,
+                            isSubagentLink: false
+                        )
                         append(ItemDraft(
-                            id: "\(sectionID):group:\(group.id):header",
-                            fingerprint: "group-header:\(groupHeader)",
-                            textRole: .commentary,
-                            preparedText: headerText,
-                            accessibilityLabel: groupHeader,
+                            id: "\(sectionID):group:\(group.id):summary",
+                            fingerprint: "group-summary:\(String(describing: summaryRender))",
+                            workRow: summaryRender,
+                            action: .toggleRow(rowID: group.id),
+                            accessibilityLabel: "\(groupHeader), \(groupIsExpanded ? "details shown" : "details hidden")",
                             maxWidthKind: .card,
-                            fixedHeight: 24
+                            fixedHeight: 30,
+                            bottomSpacing: groupIsExpanded ? 2 : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
+                        if !groupIsExpanded { continue }
                         let agentChips = rows.compactMap { row -> CodexTranscriptAgentChipRender? in
                             guard case .collabAgent(let agent) = row else { return nil }
                             let threadID = agent.agentThreadIDs.first
@@ -541,11 +577,11 @@ actor CodexTranscriptRenderProjector {
                                 kind: Self.kind(for: row),
                                 label: Self.label(for: row, diffFiles: diffFiles),
                                 status: Self.status(for: row),
+                                systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
                                 isExpanded: presentation.expandedRowIDs.contains(rowID),
                                 hasDetail: detail != nil,
-                                isSubagentLink: subagentThreadID != nil,
-                                isActionable: subagentThreadID != nil || detail != nil
+                                isSubagentLink: subagentThreadID != nil
                             )
                             append(ItemDraft(
                                 id: "\(sectionID):row:\(rowID)",
@@ -615,8 +651,91 @@ actor CodexTranscriptRenderProjector {
                             productTool: call,
                             accessibilityLabel: "Tool \([call.namespace, call.tool].compactMap { $0 }.joined(separator: " "))",
                             maxWidthKind: .card,
-                            fixedHeight: 44
+                            fixedHeight: 30,
+                            bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
+                    case .inlineActivity(let activity):
+                        if tailMode, activity.status != .inProgress { continue }
+                        let detail = activity.detail?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .codexAppKitNilIfEmpty
+                        let imagePath = activity.imagePath?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .codexAppKitNilIfEmpty
+                        let hasExpandableContent = detail != nil || imagePath != nil
+                        let rowID = "\(turn.id):inline-activity:\(activity.id)"
+                        let isExpanded = presentation.expandedRowIDs.contains(rowID)
+                        let rowRender = CodexTranscriptWorkRowRender(
+                            kind: .other,
+                            label: activity.label,
+                            status: activity.status,
+                            systemImage: activity.systemImage,
+                            style: .inlineActivity,
+                            durationMs: nil,
+                            isExpanded: isExpanded,
+                            hasDetail: hasExpandableContent,
+                            isSubagentLink: false
+                        )
+                        append(ItemDraft(
+                            id: "\(sectionID):inline-activity:\(activity.id)",
+                            fingerprint: "inline-activity:\(String(describing: activity))",
+                            workRow: rowRender,
+                            action: hasExpandableContent ? .toggleRow(rowID: rowID) : nil,
+                            copyText: detail,
+                            accessibilityLabel: Self.inlineActivityAccessibilityLabel(
+                                activity,
+                                isExpanded: isExpanded
+                            ),
+                            maxWidthKind: .card,
+                            fixedHeight: 30,
+                            bottomSpacing: isExpanded
+                                ? 2
+                                : CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                        ))
+                        if isExpanded, let imagePath {
+                            let label = URL(fileURLWithPath: imagePath).lastPathComponent
+                            append(ItemDraft(
+                                id: "\(sectionID):inline-activity:\(activity.id):image",
+                                fingerprint: "inline-activity-image:\(imagePath)",
+                                agentChips: [.init(
+                                    id: "\(activity.id):image",
+                                    label: label,
+                                    status: .done,
+                                    threadID: nil,
+                                    taskSummary: imagePath,
+                                    latestUpdate: nil,
+                                    attachmentKind: .image,
+                                    imagePreviewSize: 160,
+                                    imagePreviewAspectRatio: imageAspectRatio(for: imagePath)
+                                )],
+                                accessibilityLabel: "Viewed image: \(label)",
+                                indentation: 22,
+                                maxWidthKind: .card,
+                                intrinsicContentWidth: 160,
+                                bottomSpacing: detail == nil
+                                    ? CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                                    : 2
+                            ))
+                        }
+                        if isExpanded, let detail {
+                            let bounded = Self.bounded(detail, limit: 20_000)
+                            append(ItemDraft(
+                                id: "\(sectionID):inline-activity:\(activity.id):detail",
+                                fingerprint: "inline-activity-detail:\(bounded)",
+                                textRole: .notice,
+                                preparedText: Self.preparePlain(
+                                    bounded,
+                                    font: theme.bodyFont,
+                                    color: theme.textSecondary,
+                                    theme: theme
+                                ),
+                                copyText: detail,
+                                accessibilityLabel: "Activity details: \(bounded)",
+                                indentation: 22,
+                                maxWidthKind: .card,
+                                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                            ))
+                        }
                     case .notice(let notice):
                         if tailMode { continue }
                         append(ItemDraft(
@@ -668,6 +787,32 @@ actor CodexTranscriptRenderProjector {
                     role: .finalAnswer, theme: theme, cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                 ) { append(draft) }
+            }
+            for image in turn.generatedImages {
+                let label = CodexTranscriptImageSource.localFilePath(image.source)
+                    .map { URL(fileURLWithPath: $0).lastPathComponent }
+                    ?? "Generated image"
+                append(ItemDraft(
+                    id: "\(sectionID):generated-image:\(image.id)",
+                    fingerprint: "generated-image:\(image.source)",
+                    agentChips: [.init(
+                        id: image.id,
+                        label: label,
+                        status: .done,
+                        threadID: nil,
+                        taskSummary: image.source,
+                        latestUpdate: image.revisedPrompt,
+                        attachmentKind: .image,
+                        imagePreviewSize: 360,
+                        imagePreviewAspectRatio: imageAspectRatio(for: image.source)
+                    )],
+                    accessibilityLabel: "Generated image",
+                    maxWidthKind: .card,
+                    intrinsicContentWidth: 360,
+                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                ))
+            }
+            if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 if turn.presentationStyle != .realtimeVoice {
                     append(timestampDraft(
                         id: "\(sectionID):final-timestamp",
@@ -1233,7 +1378,7 @@ private extension CodexTranscriptRenderProjector {
                 userMaxWidth,
                 attachmentChips.reduce(CGFloat.zero) { total, chip in
                     let width = chip.attachmentKind == .image
-                        ? 64
+                        ? chip.imagePreviewSize
                         : ceil((chip.label as NSString).size(
                             withAttributes: [.font: theme.captionFont]
                         ).width) + 34
@@ -1361,7 +1506,9 @@ private extension CodexTranscriptRenderProjector {
         width: CGFloat,
         font: NSFont
     ) -> CGFloat {
-        let height: CGFloat = chips.contains(where: { $0.attachmentKind == .image }) ? 64 : 26
+        let height = max(26, chips.compactMap {
+            $0.attachmentKind == .image ? $0.imagePreviewHeight : nil
+        }.max() ?? 0)
         let gap: CGFloat = 6
         var x: CGFloat = 0
         var rows: CGFloat = 1
@@ -1369,7 +1516,9 @@ private extension CodexTranscriptRenderProjector {
             let isAttachmentImage = chip.attachmentKind == .image
             let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
-            let chipWidth = isAttachmentImage ? 64 : min(width, max(74, labelWidth + 28))
+            let chipWidth = isAttachmentImage
+                ? chip.imagePreviewSize
+                : min(width, max(74, labelWidth + 28))
             if x > 0, x + chipWidth > width {
                 rows += 1
                 x = 0
@@ -1383,6 +1532,13 @@ private extension CodexTranscriptRenderProjector {
         guard let raw = agent.agentNames.first, !raw.isEmpty else { return "Agent" }
         let leaf = raw.split(separator: "/").last.map(String.init) ?? raw
         return leaf.capitalized
+    }
+
+    private func imageAspectRatio(for source: String) -> CGFloat {
+        if let cached = imageAspectRatioBySource[source] { return cached }
+        let ratio = CodexTranscriptImageSource.aspectRatio(source) ?? 1
+        imageAspectRatioBySource[source] = ratio
+        return ratio
     }
 
     static func agentClusterAccessibilityLabel(
@@ -1655,6 +1811,7 @@ private extension CodexTranscriptRenderProjector {
             switch entry {
             case .workGroup(let group): group.rows.contains(where: \.isInProgress)
             case .productToolCall(let call): call.status == .inProgress
+            case .inlineActivity(let activity): activity.status == .inProgress
             default: false
             }
         }
@@ -1711,7 +1868,7 @@ private extension CodexTranscriptRenderProjector {
     static func label(for row: CodexWorkRowV2, diffFiles: [CodexDiffFile]? = nil) -> String {
         switch row {
         case .command(let value):
-            return (value.status == .inProgress ? "Running " : "Ran ") + value.command.codexAppKitDisplayPrefix(limit: 280)
+            return value.label.codexAppKitDisplayPrefix(limit: 280)
         case .fileChange(let value):
             guard let diffFiles else { return "Edited " + value.files.joined(separator: " · ") }
             let added = diffFiles.reduce(0) { $0 + $1.added }
@@ -1725,6 +1882,17 @@ private extension CodexTranscriptRenderProjector {
         case .webSearch(let value): return "Searched \(value.query)"
         case .collabAgent(let value): return value.label
         case .other(let value): return value.label
+        }
+    }
+
+    static func systemImage(for row: CodexWorkRowV2) -> String? {
+        guard case .command(let value) = row else { return nil }
+        return switch value.action {
+        case .read: "book"
+        case .loadedTool: "book.closed"
+        case .list: "list.bullet.rectangle"
+        case .search: "magnifyingglass"
+        default: nil
         }
     }
 
@@ -1822,6 +1990,25 @@ private extension CodexTranscriptRenderProjector {
         return "\(render.label), \(state)"
     }
 
+    static func inlineActivityAccessibilityLabel(
+        _ activity: CodexInlineActivityV2,
+        isExpanded: Bool = false
+    ) -> String {
+        let state = switch activity.status {
+        case .inProgress: "in progress"
+        case .completed: "completed"
+        case .failed: "failed"
+        }
+        let hasExpandableContent = activity.detail?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || activity.imagePath?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let disclosure = hasExpandableContent
+            ? ", \(isExpanded ? "details shown" : "details hidden")"
+            : ""
+        return "\(activity.label), \(state)\(disclosure)"
+    }
+
     static func bounded(_ text: String, limit: Int) -> String {
         text.codexAppKitDisplayPrefix(limit: limit)
     }
@@ -1854,6 +2041,7 @@ private extension CodexTranscriptRenderProjector {
                         .compactMap { $0 }
                         .joined(separator: "\n")
                     work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
+                case .inlineActivity(let activity): work.append(activity.label)
                 case .notice(let notice): work.append(notice.message)
                 }
             }

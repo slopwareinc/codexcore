@@ -102,9 +102,15 @@ public enum CodexWorkRowV2: Identifiable, Sendable, Equatable {
     case mcpToolCall(...)    // appName ?? server, tool, status, durationMs, error first line, args/result (expandable)
     case webSearch(...)      // query
     case collabAgent(...)    // created/waited/closed, agent names, instructions
-    case other(...)          // imageView, sleep, etc. — muted one-liner
+    case other(...)          // sleep and other muted one-line activities
 }
 ```
+
+Completed `imageGeneration` items also project to
+`CodexTurnV2.generatedImages`. These are persistent assistant-turn media, not
+work-row details: they remain visible when the completed work disclosure is
+collapsed. CodexCoreUI prefers app-server's `savedPath` and falls back to the
+`result` image payload, matching the official desktop projection.
 
 Notes:
 - Keep names/structure idiomatic; the shapes above are the contract, not

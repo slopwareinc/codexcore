@@ -22,11 +22,13 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var conversationSegments: [CodexTurnConversationSegmentV2]
     public var narrative: [CodexNarrativeEntry]
     public var finalAnswer: CodexAssistantTextV2?
+    /// Completed image-generation outputs displayed as persistent turn media.
+    public var generatedImages: [CodexGeneratedImageV2]
     public var liveTail: String?
     public var status: CodexTurnStatusV2
     public var presentationStyle: CodexTurnPresentationStyleV2
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
+    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, generatedImages: [CodexGeneratedImageV2] = [], liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
         self.id = id; self.userMessage = userMessage; self.steeredMessages = steeredMessages; self.narrative = narrative
         self.conversationSegments = conversationSegments ?? [
             CodexTurnConversationSegmentV2(id: "\(id):initial", narrative: narrative)
@@ -36,7 +38,8 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
                 steeredMessage: $0
             )
         }
-        self.finalAnswer = finalAnswer; self.liveTail = liveTail; self.status = status
+        self.finalAnswer = finalAnswer; self.generatedImages = generatedImages
+        self.liveTail = liveTail; self.status = status
         self.presentationStyle = presentationStyle
     }
 }
@@ -98,6 +101,21 @@ public struct CodexAssistantTextV2: Identifiable, Sendable, Equatable {
     }
 }
 
+/// A completed image-generation output that remains visible with the assistant
+/// response independently of the collapsible work transcript.
+public struct CodexGeneratedImageV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    /// A local path, file/data/HTTP URL, or raw base64 image payload.
+    public var source: String
+    public var revisedPrompt: String?
+
+    public init(id: String, source: String, revisedPrompt: String? = nil) {
+        self.id = id
+        self.source = source
+        self.revisedPrompt = revisedPrompt
+    }
+}
+
 public enum CodexTurnStatusV2: Sendable, Equatable {
     case working(since: Int64?)
     case done(durationMs: Int?)
@@ -108,6 +126,7 @@ public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
     case prose(CodexAssistantTextV2)
     case workGroup(CodexWorkGroupV2)
     case productToolCall(CodexProductToolCallV2)
+    case inlineActivity(CodexInlineActivityV2)
     case notice(CodexTurnNoticeV2)
 
     public var id: String {
@@ -115,6 +134,7 @@ public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
         case .prose(let value): value.id
         case .workGroup(let value): value.id
         case .productToolCall(let value): value.id
+        case .inlineActivity(let value): value.id
         case .notice(let value): value.id
         }
     }
@@ -246,12 +266,46 @@ public struct CodexProductToolCallV2: Identifiable, Sendable, Equatable {
     public var arguments: CodexJSONValue?; public var status: CodexWorkItemStatusV2
     public var contentItems: [CodexJSONValue]; public var success: Bool?
 }
+
+/// One compact, semantic activity line embedded in the current assistant turn.
+///
+/// Hosts should reuse `id` for successive canonical items that represent the
+/// same logical activity. Projection then replaces the existing line in place
+/// instead of appending another transcript row.
+public struct CodexInlineActivityV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var label: String
+    public var systemImage: String?
+    /// Optional learner-facing detail revealed from the compact activity row.
+    public var detail: String?
+    /// Optional local image displayed inline when the activity is expanded.
+    public var imagePath: String?
+    public var status: CodexWorkItemStatusV2
+
+    public init(
+        id: String,
+        label: String,
+        systemImage: String? = nil,
+        detail: String? = nil,
+        imagePath: String? = nil,
+        status: CodexWorkItemStatusV2
+    ) {
+        self.id = id
+        self.label = label
+        self.systemImage = systemImage
+        self.detail = detail
+        self.imagePath = imagePath
+        self.status = status
+    }
+}
+
 public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
     public var id: String; public var message: String
     public init(id: String, message: String) { self.id = id; self.message = message }
 }
 
- public enum CodexWorkCategoryV2: Sendable, Hashable {
-    case read, list, search, webSearch, run, edit, mcp(String)
+/// The semantic activity category used to summarize and render a work row.
+public enum CodexWorkCategoryV2: Sendable, Hashable {
+    case read, list, search, loadedTool, webSearch, run, edit, mcp(String)
     case collabCreated, collabClosed, collabWait, collabWorked, imageGeneration
- }
+}
