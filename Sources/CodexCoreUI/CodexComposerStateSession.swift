@@ -204,7 +204,9 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         case .steer:
             return canSendFollowUp ? "↩ steers the current turn\(queuedSuffix)" : nil
         case .queue:
-            return canSendFollowUp ? "↩ queues for the next turn\(queuedSuffix)" : nil
+            return canSendFollowUp && !queuedFollowUps.isEmpty
+                ? "\(queuedFollowUps.count) queued"
+                : nil
         }
     }
 

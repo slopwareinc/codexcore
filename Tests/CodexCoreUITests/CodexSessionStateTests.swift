@@ -417,6 +417,8 @@ final class CodexSessionStateTests: XCTestCase {
         session.enqueueFollowUp("first")
         session.enqueueFollowUp("second")
         XCTAssertEqual(session.followUpHint(isSending: false, canSendFollowUp: false), "2 queued")
+        session.followUpBehavior = .queue
+        XCTAssertEqual(session.followUpHint(isSending: true, canSendFollowUp: true), "2 queued")
         let second = try XCTUnwrap(session.queuedFollowUpSubmissions(for: nil).last)
         XCTAssertEqual(session.takeQueuedFollowUpSubmission(clientID: second.clientID)?.prompt, "second")
         XCTAssertEqual(session.queuedFollowUps, ["first"])
@@ -424,6 +426,11 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(session.dequeueQueuedFollowUp(isSending: false), "first")
         session.requeueFollowUp("retry")
         XCTAssertEqual(session.dequeueQueuedFollowUp(isSending: false), "retry")
+
+        XCTAssertNil(CodexComposerStateSession(followUpBehavior: .queue).followUpHint(
+            isSending: true,
+            canSendFollowUp: true
+        ))
 
         let skillRoute = session.routeSlashCommand(skill)
         XCTAssertEqual(skillRoute.activities.map(\.title), ["Skill attached"])
