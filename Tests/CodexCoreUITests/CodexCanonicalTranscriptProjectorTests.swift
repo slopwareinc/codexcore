@@ -365,6 +365,61 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(activity.status == .completed)
     }
 
+    @Test func completedImageGenerationProjectsPersistentTurnMedia() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let generation = item(threadID, turnID, "generation", .imageGeneration, [
+            "status": .string("completed"),
+            "savedPath": .string("/tmp/generated.png"),
+            "result": .string("fallback-base64"),
+            "revisedPrompt": .string("A precise native developer workspace"),
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["generation"], revision: 1)],
+            items: [generation]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+
+        #expect(projected.generatedImages == [
+            .init(
+                id: "generation",
+                source: "/tmp/generated.png",
+                revisedPrompt: "A precise native developer workspace"
+            )
+        ])
+        #expect(projected.narrative.flatMap(\.workRows).contains { $0.id == "generation" })
+    }
+
+    @Test func generatedImageFallsBackToResultPayloadWithoutSavedPath() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let generation = item(threadID, turnID, "generation", .imageGeneration, [
+            "status": .string("completed"),
+            "result": .string("data:image/png;base64,aW1hZ2U="),
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["generation"], revision: 1)],
+            items: [generation]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+
+        #expect(projected.generatedImages.first?.source == "data:image/png;base64,aW1hZ2U=")
+    }
+
     @Test func hostPolicyCoalescesSuccessiveItemsIntoOneSemanticActivity() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

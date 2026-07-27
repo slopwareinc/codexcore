@@ -420,8 +420,26 @@ private extension CodexCanonicalTranscriptProjector {
                 }
             case .sleep:
                 appendNotice(id: item.key.itemID, message: "Waiting", to: &turn)
+            case .imageGeneration:
+                for row in makeWorkRows(item, completed: completed) {
+                    appendWorkRow(row, to: &turn)
+                }
+                if completed,
+                   workStatus(item, completed: true) == .completed,
+                   let source = generatedImageSource(item) {
+                    let image = CodexGeneratedImageV2(
+                        id: item.key.itemID.rawValue,
+                        source: source,
+                        revisedPrompt: item.payload.string("revisedPrompt")
+                    )
+                    if let index = turn.generatedImages.firstIndex(where: { $0.id == image.id }) {
+                        turn.generatedImages[index] = image
+                    } else {
+                        turn.generatedImages.append(image)
+                    }
+                }
             case .commandExecution, .fileChange, .mcpToolCall, .collabAgentToolCall,
-                    .subAgentActivity, .webSearch, .imageGeneration:
+                    .subAgentActivity, .webSearch:
                 for row in makeWorkRows(item, completed: completed) {
                     appendWorkRow(row, to: &turn)
                 }
@@ -765,6 +783,17 @@ private extension CodexCanonicalTranscriptProjector {
             return .failed
         }
         return completed ? .completed : .inProgress
+    }
+
+    /// The official renderer prefers the durable saved path but accepts the
+    /// image payload itself when app-server did not persist a local file.
+    func generatedImageSource(_ item: CanonicalItem) -> String? {
+        for key in ["savedPath", "result"] {
+            let value = item.payload.string(key)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let value, !value.isEmpty { return value }
+        }
+        return nil
     }
 
     func collabToolRows(

@@ -106,6 +106,12 @@ public enum CodexWorkRowV2: Identifiable, Sendable, Equatable {
 }
 ```
 
+Completed `imageGeneration` items also project to
+`CodexTurnV2.generatedImages`. These are persistent assistant-turn media, not
+work-row details: they remain visible when the completed work disclosure is
+collapsed. CodexCoreUI prefers app-server's `savedPath` and falls back to the
+`result` image payload, matching the official desktop projection.
+
 Notes:
 - Keep names/structure idiomatic; the shapes above are the contract, not
   the literal field lists. Fill in fields from the v2 `ThreadItem` schema

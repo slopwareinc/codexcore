@@ -22,11 +22,13 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var conversationSegments: [CodexTurnConversationSegmentV2]
     public var narrative: [CodexNarrativeEntry]
     public var finalAnswer: CodexAssistantTextV2?
+    /// Completed image-generation outputs displayed as persistent turn media.
+    public var generatedImages: [CodexGeneratedImageV2]
     public var liveTail: String?
     public var status: CodexTurnStatusV2
     public var presentationStyle: CodexTurnPresentationStyleV2
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
+    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, generatedImages: [CodexGeneratedImageV2] = [], liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
         self.id = id; self.userMessage = userMessage; self.steeredMessages = steeredMessages; self.narrative = narrative
         self.conversationSegments = conversationSegments ?? [
             CodexTurnConversationSegmentV2(id: "\(id):initial", narrative: narrative)
@@ -36,7 +38,8 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
                 steeredMessage: $0
             )
         }
-        self.finalAnswer = finalAnswer; self.liveTail = liveTail; self.status = status
+        self.finalAnswer = finalAnswer; self.generatedImages = generatedImages
+        self.liveTail = liveTail; self.status = status
         self.presentationStyle = presentationStyle
     }
 }
@@ -95,6 +98,21 @@ public struct CodexAssistantTextV2: Identifiable, Sendable, Equatable {
     public var isStreaming: Bool
     public init(id: String, text: String = "", isStreaming: Bool = true) {
         self.id = id; self.text = text; self.isStreaming = isStreaming
+    }
+}
+
+/// A completed image-generation output that remains visible with the assistant
+/// response independently of the collapsible work transcript.
+public struct CodexGeneratedImageV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    /// A local path, file/data/HTTP URL, or raw base64 image payload.
+    public var source: String
+    public var revisedPrompt: String?
+
+    public init(id: String, source: String, revisedPrompt: String? = nil) {
+        self.id = id
+        self.source = source
+        self.revisedPrompt = revisedPrompt
     }
 }
 

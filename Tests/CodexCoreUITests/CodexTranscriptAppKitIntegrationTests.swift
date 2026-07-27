@@ -632,6 +632,14 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(!thumbnail.decodedOnMainThread)
         #expect(max(thumbnail.image.width, thumbnail.image.height) <= 128)
+
+        let inlineThumbnail = try #require(
+            await CodexTranscriptAttachmentThumbnailLoader().thumbnail(
+                source: "data:image/png;base64,\(png.base64EncodedString())"
+            )
+        )
+        #expect(!inlineThumbnail.decodedOnMainThread)
+        #expect(max(inlineThumbnail.image.width, inlineThumbnail.image.height) <= 128)
     }
 
     @Test func expandedDiffUsesOneGlassPanelAndRoutesTabSelection() async throws {

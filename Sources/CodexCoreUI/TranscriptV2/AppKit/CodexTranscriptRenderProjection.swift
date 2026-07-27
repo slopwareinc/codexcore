@@ -780,6 +780,31 @@ actor CodexTranscriptRenderProjector {
                     role: .finalAnswer, theme: theme, cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                 ) { append(draft) }
+            }
+            for image in turn.generatedImages {
+                let label = CodexTranscriptImageSource.localFilePath(image.source)
+                    .map { URL(fileURLWithPath: $0).lastPathComponent }
+                    ?? "Generated image"
+                append(ItemDraft(
+                    id: "\(sectionID):generated-image:\(image.id)",
+                    fingerprint: "generated-image:\(image.source)",
+                    agentChips: [.init(
+                        id: image.id,
+                        label: label,
+                        status: .done,
+                        threadID: nil,
+                        taskSummary: image.source,
+                        latestUpdate: image.revisedPrompt,
+                        attachmentKind: .image,
+                        imagePreviewSize: 360
+                    )],
+                    accessibilityLabel: "Generated image",
+                    maxWidthKind: .card,
+                    intrinsicContentWidth: 360,
+                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                ))
+            }
+            if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 if turn.presentationStyle != .realtimeVoice {
                     append(timestampDraft(
                         id: "\(sectionID):final-timestamp",

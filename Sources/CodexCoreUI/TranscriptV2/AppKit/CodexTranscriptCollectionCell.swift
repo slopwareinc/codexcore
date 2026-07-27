@@ -1517,7 +1517,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 self?.setAgentPreviewHover(hovered, index: index)
             },
             onOpen: { [weak self] in
-                if let path = chip.taskSummary, isAttachment {
+                if let source = chip.taskSummary,
+                   let path = CodexTranscriptImageSource.localFilePath(source),
+                   isAttachment {
                     CodexTranscriptQuickLookController.shared.present(URL(fileURLWithPath: path))
                 } else if let threadID = chip.threadID {
                     self?.performAction?(.openSubagent(threadID: threadID))
@@ -1936,12 +1938,13 @@ private struct CodexTranscriptAgentPill: View {
 
     var body: some View {
         let imageAttachment = chip.attachmentKind == .image
-        let isAttachment = chip.threadID == nil && chip.taskSummary != nil
+        let canOpenAttachment = chip.taskSummary
+            .flatMap(CodexTranscriptImageSource.localFilePath) != nil
         HStack(spacing: 5) {
             if imageAttachment {
-                if let path = chip.taskSummary {
+                if let source = chip.taskSummary {
                     CodexTranscriptImageThumbnail(
-                        path: path,
+                        source: source,
                         label: chip.label,
                         side: chip.imagePreviewSize
                     )
@@ -1983,14 +1986,14 @@ private struct CodexTranscriptAgentPill: View {
         .padding(.horizontal, imageAttachment ? 0 : 8)
         .frame(height: imageAttachment ? chip.imagePreviewSize : 26)
         .contentShape(Capsule())
-        .codexGlass(imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule()), tint: chip.threadID == nil ? theme.colors.surfaceElevated.opacity(0.45) : statusColor.opacity(0.055), interactive: chip.threadID != nil || isAttachment)
+        .codexGlass(imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule()), tint: chip.threadID == nil ? theme.colors.surfaceElevated.opacity(0.45) : statusColor.opacity(0.055), interactive: chip.threadID != nil || canOpenAttachment)
         .overlay { (imageAttachment ? AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) : AnyShape(Capsule())).stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1) }
         .onTapGesture(perform: onOpen)
         .onHover(perform: onHover)
         .help(chip.threadID == nil ? chip.label : "\(chip.label) — \(statusTitle)")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(chip.label), \(statusTitle)")
-        .accessibilityAddTraits(chip.threadID == nil && !isAttachment ? [] : .isButton)
+        .accessibilityAddTraits(chip.threadID != nil || canOpenAttachment ? .isButton : [])
     }
 
     private var statusTitle: String {

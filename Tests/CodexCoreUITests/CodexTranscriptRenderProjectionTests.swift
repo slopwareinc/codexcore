@@ -476,6 +476,53 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(preview.intrinsicContentWidth == 160)
     }
 
+    @Test func generatedImageRemainsVisibleWhenCompletedWorkIsCollapsed() async throws {
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [
+                .workGroup(.init(
+                    id: "group",
+                    rows: [.other(.init(
+                        id: "generation",
+                        label: "Generating an image",
+                        status: .completed
+                    ))],
+                    isLive: false
+                ))
+            ],
+            finalAnswer: .init(id: "answer", text: "Here is the image.", isStreaming: false),
+            generatedImages: [.init(
+                id: "generation",
+                source: "/tmp/generated.png",
+                revisedPrompt: "A precise native developer workspace"
+            )],
+            status: .done(durationMs: 1_000)
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let snapshot = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn])
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+
+        let preview = try #require(snapshot.itemsByID.values.first {
+            $0.id.rawValue.hasSuffix(":generated-image:generation")
+        })
+        #expect(preview.agentChips.first?.taskSummary == "/tmp/generated.png")
+        #expect(preview.agentChips.first?.attachmentKind == .image)
+        #expect(preview.agentChips.first?.imagePreviewSize == 360)
+        #expect(preview.intrinsicContentWidth == 360)
+        #expect(snapshot.itemsByID.values.contains {
+            $0.workHeader != nil && $0.action == .toggleWork(turnID: "turn")
+        })
+        #expect(snapshot.itemsByID.values.allSatisfy {
+            $0.id.rawValue.contains(":group:group:summary") == false
+        })
+    }
+
     @Test func defaultActivitySummaryUpdatesOneStableRowAsWorkAccumulates() async throws {
         let projector = CodexTranscriptRenderProjector()
         func presentation(rows: [CodexWorkRowV2]) -> CodexThreadUIPresentation {
