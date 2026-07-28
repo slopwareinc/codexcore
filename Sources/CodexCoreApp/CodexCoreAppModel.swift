@@ -2075,36 +2075,16 @@ final class CodexCoreAppModel {
         }
     }
 
-    var protocolApprovalPolicy: CodexSchemaAskForApproval? {
-        if case .string(let raw)? = configurationSession.turnParameterOverrides["approvalPolicy"] {
-            return CodexSchemaAskForApproval(.string(raw))
-        }
-        return approvalSelection.approvalMode.settings.approvalPolicy.map {
-            CodexSchemaAskForApproval(.string($0.rawValue))
-        }
-    }
-
-    var protocolApprovalsReviewer: CodexSchemaApprovalsReviewer? {
-        let raw: String?
-        if case .string(let override)? = configurationSession.turnParameterOverrides["approvalsReviewer"] {
-            raw = override
-        } else {
-            raw = approvalSelection.approvalMode.settings.approvalsReviewer?.rawValue
-        }
-        return raw.flatMap(CodexSchemaApprovalsReviewer.init(rawValue:))
-    }
-
     private func threadStartParameters() -> CodexSchemaThreadStartParams {
-        CodexSchemaThreadStartParams(
-            approvalPolicy: protocolApprovalPolicy,
-            approvalsReviewer: protocolApprovalsReviewer,
+        var parameters = CodexSchemaThreadStartParams(
             cwd: workspacePath,
             dynamicTools: Self.voiceTaskToolSpecs,
             historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
             model: modelSelection.modelIdentifier,
-            runtimeWorkspaceRoots: protocolWorkspaceRoots,
-            sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue)
+            runtimeWorkspaceRoots: protocolWorkspaceRoots
         )
+        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
+        return parameters
     }
 
     private func threadStartParametersForCurrentDraft() throws -> CodexSchemaThreadStartParams {
@@ -2126,16 +2106,11 @@ final class CodexCoreAppModel {
         var parameters: CodexSchemaThreadResumeParams
         if isProjectlessDraft, let paths = projectlessDraftPaths {
             parameters = CodexSchemaThreadResumeParams(
-                approvalPolicy: protocolApprovalPolicy,
-                approvalsReviewer: protocolApprovalsReviewer,
                 cwd: paths.cwd,
                 model: modelSelection.modelIdentifier,
                 runtimeWorkspaceRoots: [
                     CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
                 ],
-                sandbox: CodexSchemaSandboxMode(
-                    rawValue: approvalSelection.sandbox.threadMode.rawValue
-                ),
                 threadID: threadID
             )
         } else {
@@ -2145,6 +2120,7 @@ final class CodexCoreAppModel {
             .threadSource == "realtime_voice" {
             parameters.config = Self.realtimeVoiceFeatureConfig
         }
+        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
         return parameters
     }
 
@@ -2159,15 +2135,14 @@ final class CodexCoreAppModel {
     }
 
     private func threadResumeParameters(threadID: String) -> CodexSchemaThreadResumeParams {
-        CodexSchemaThreadResumeParams(
-            approvalPolicy: protocolApprovalPolicy,
-            approvalsReviewer: protocolApprovalsReviewer,
+        var parameters = CodexSchemaThreadResumeParams(
             cwd: workspacePath,
             model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: protocolWorkspaceRoots,
-            sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue),
             threadID: threadID
         )
+        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
+        return parameters
     }
 
     private func threadForkParameters(
@@ -2180,16 +2155,15 @@ final class CodexCoreAppModel {
         } else {
             protocolWorkspaceRoots
         }
-        return CodexSchemaThreadForkParams(
-            approvalPolicy: protocolApprovalPolicy,
-            approvalsReviewer: protocolApprovalsReviewer,
+        var parameters = CodexSchemaThreadForkParams(
             cwd: cwd,
             ephemeral: ephemeral,
             model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: roots,
-            sandbox: CodexSchemaSandboxMode(rawValue: approvalSelection.sandbox.threadMode.rawValue),
             threadID: threadID
         )
+        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
+        return parameters
     }
 
     private func turnStartParameters(
@@ -2207,9 +2181,7 @@ final class CodexCoreAppModel {
         } else {
             protocolWorkspaceRoots
         }
-        return CodexSchemaTurnStartParams(
-            approvalPolicy: protocolApprovalPolicy,
-            approvalsReviewer: protocolApprovalsReviewer,
+        var parameters = CodexSchemaTurnStartParams(
             clientUserMessageID: clientUserMessageID,
             collaborationMode: collaborationMode,
             cwd: cwd,
@@ -2217,9 +2189,10 @@ final class CodexCoreAppModel {
             input: input.map { CodexSchemaUserInput($0.jsonValue) },
             model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: roots,
-            sandboxPolicy: CodexSchemaSandboxPolicy(approvalSelection.sandbox.turnPolicy),
             threadID: threadID.rawValue
         )
+        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
+        return parameters
     }
 
     @discardableResult

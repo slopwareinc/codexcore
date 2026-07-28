@@ -32,3 +32,17 @@ Resolution order is explicit `codexBinaryPath`, `[codexcore].codex_binary_path` 
 Do not set `CODEX_HOME` expecting it to replace `CodexConfig.codexHome`; the SDK injects the selected home deliberately.
 
 `TRACE_DURATION` is a developer `just trace` option, not an SDK runtime-discovery variable. `launchArgumentsOverride` replaces normal app-server arguments but does not bypass the forced credential-store isolation override.
+
+## Composer permission profiles
+
+The reference app sends the selected app-server permission profile through the
+generated `permissions` field on thread start, resume, fork, and turn start.
+Read only, workspace, and full access use the corresponding built-in profile
+IDs. “Ask for approval” additionally supplies the user-review legacy override
+that distinguishes it from automatic review of the same workspace profile.
+Custom omits profile, approval, reviewer, and sandbox overrides so the
+authoritative `config.toml` values apply.
+
+Permission profile selection is resolved from in-memory composer state with a
+fixed constant-time mapping. Submitting a prompt does not refresh or decode the
+profile catalog and does not add an app-server request.

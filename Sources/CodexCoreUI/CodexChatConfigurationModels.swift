@@ -92,6 +92,32 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         }
     }
 
+    /// The authoritative app-server permission profile plus only the legacy
+    /// overrides needed to distinguish a user-reviewed workspace profile.
+    ///
+    /// Profile lookup is a fixed switch so prompt submission performs no
+    /// catalog scan or app-server request.
+    public var permissionProfileWireConfiguration: CodexPermissionProfileWireConfiguration {
+        switch self {
+        case .askForApproval:
+            return CodexPermissionProfileWireConfiguration(
+                permissions: permissionProfileID,
+                approvalPolicy: CodexSchemaAskForApproval(
+                    .string(AskForApproval.onRequest.rawValue)
+                ),
+                approvalsReviewer: CodexSchemaApprovalsReviewer(
+                    rawValue: ApprovalsReviewer.user.rawValue
+                )
+            )
+        case .readOnly, .approveForMe, .fullAccess:
+            return CodexPermissionProfileWireConfiguration(
+                permissions: permissionProfileID
+            )
+        case .custom:
+            return CodexPermissionProfileWireConfiguration(permissions: nil)
+        }
+    }
+
     public static let defaultOptions: [CodexApprovalSelection] = [
         .askForApproval,
         .approveForMe,
@@ -116,6 +142,55 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
 
         options.append(.custom)
         return options.isEmpty ? defaultOptions : options
+    }
+}
+
+/// Applies one composer permission selection to every request path that can
+/// establish or change an app-server permission profile.
+///
+/// Applying the configuration deliberately clears handwritten sandbox values.
+/// The selected profile (or config.toml for Custom) remains authoritative.
+public struct CodexPermissionProfileWireConfiguration: Equatable, Sendable {
+    public let permissions: String?
+    public let approvalPolicy: CodexSchemaAskForApproval?
+    public let approvalsReviewer: CodexSchemaApprovalsReviewer?
+
+    public init(
+        permissions: String?,
+        approvalPolicy: CodexSchemaAskForApproval? = nil,
+        approvalsReviewer: CodexSchemaApprovalsReviewer? = nil
+    ) {
+        self.permissions = permissions
+        self.approvalPolicy = approvalPolicy
+        self.approvalsReviewer = approvalsReviewer
+    }
+
+    public func apply(to parameters: inout CodexSchemaThreadStartParams) {
+        parameters.permissions = permissions
+        parameters.approvalPolicy = approvalPolicy
+        parameters.approvalsReviewer = approvalsReviewer
+        parameters.sandbox = nil
+    }
+
+    public func apply(to parameters: inout CodexSchemaThreadResumeParams) {
+        parameters.permissions = permissions
+        parameters.approvalPolicy = approvalPolicy
+        parameters.approvalsReviewer = approvalsReviewer
+        parameters.sandbox = nil
+    }
+
+    public func apply(to parameters: inout CodexSchemaThreadForkParams) {
+        parameters.permissions = permissions
+        parameters.approvalPolicy = approvalPolicy
+        parameters.approvalsReviewer = approvalsReviewer
+        parameters.sandbox = nil
+    }
+
+    public func apply(to parameters: inout CodexSchemaTurnStartParams) {
+        parameters.permissions = permissions
+        parameters.approvalPolicy = approvalPolicy
+        parameters.approvalsReviewer = approvalsReviewer
+        parameters.sandboxPolicy = nil
     }
 }
 
