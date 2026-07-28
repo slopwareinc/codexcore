@@ -19,7 +19,12 @@ public struct CodexSubagentPresentationDiagnostics: Sendable, Equatable {
 private struct CodexCompletedChildProjection: Sendable {
     var result: CodexCanonicalTranscriptProjectionResult
     var transcript: CodexTranscriptV2
-    var retainedPreparedUTF8ByteCount: Int
+    var retentionMetrics: CodexCanonicalTranscriptRetentionMetrics
+}
+
+private struct CodexPendingChildProjection: Sendable {
+    var snapshot: CanonicalStateSnapshot
+    var summary: CodexSubagentChildSnapshotSummary
 }
 
 /// Canonical coordinator for direct child-agent presentation.
@@ -71,7 +76,7 @@ public final class CodexSubagentPresentationCoordinator {
         var projectionTask: Task<Void, Never>?
         var projectionID: UInt64?
         var latestSnapshotRevision: StateRevision?
-        var pendingSnapshot: CanonicalStateSnapshot?
+        var pendingProjection: CodexPendingChildProjection?
     }
 
     public init(
@@ -157,8 +162,8 @@ public final class CodexSubagentPresentationCoordinator {
         store.agent(threadID: threadID.rawValue)
     }
 
-    public var retainedProjectionPreparedUTF8ByteCount: Int {
-        store.retainedPreparedUTF8ByteCount
+    public var retainedProjectionEstimatedByteCount: Int {
+        store.retainedProjectionEstimatedByteCount
     }
 
     /// Returns the currently cached child transcript and marks it most recent.
@@ -343,7 +348,7 @@ private extension CodexSubagentPresentationCoordinator {
             projectionTask: nil,
             projectionID: nil,
             latestSnapshotRevision: nil,
-            pendingSnapshot: nil
+            pendingProjection: nil
         )
     }
 
@@ -370,22 +375,25 @@ private extension CodexSubagentPresentationCoordinator {
               isCurrent(generation, parentThreadID: parentThreadID),
               var runtime = childRuntimes[threadID],
               runtime.generation == generation,
-              snapshot.threads[threadID] != nil
+              let summary = CodexSubagentChildSnapshotSummary(
+                  snapshot: snapshot,
+                  threadID: threadID
+              )
         else {
             return
         }
         if let latest = runtime.latestSnapshotRevision, snapshot.revision < latest {
             return
         }
-        guard store.applyChildSnapshotMetadata(snapshot, threadID: threadID) else {
+        guard store.applyChildSnapshotMetadata(summary) else {
             return
         }
 
-        if runtime.projectionTask != nil || runtime.pendingSnapshot != nil {
+        if runtime.projectionTask != nil || runtime.pendingProjection != nil {
             diagnostics.childSnapshotCoalescingCount += 1
         }
         runtime.latestSnapshotRevision = snapshot.revision
-        runtime.pendingSnapshot = snapshot
+        runtime.pendingProjection = .init(snapshot: snapshot, summary: summary)
         childRuntimes[threadID] = runtime
         launchChildProjectionIfNeeded(
             threadID,
@@ -403,29 +411,32 @@ private extension CodexSubagentPresentationCoordinator {
               var runtime = childRuntimes[threadID],
               runtime.generation == generation,
               runtime.projectionTask == nil,
-              let snapshot = runtime.pendingSnapshot
+              let pending = runtime.pendingProjection
         else {
             return
         }
 
-        runtime.pendingSnapshot = nil
+        runtime.pendingProjection = nil
         nextProjectionID &+= 1
         let projectionID = nextProjectionID
         let previous = store.canonicalPresentation(threadID: threadID)
+        let previousMetrics = store.retentionMetrics(threadID: threadID)
         let operation = projectionOperation
         let projectionTask = Task { [weak self] in
             let completed = await Task.detached(priority: .userInitiated) {
-                let result = operation(snapshot, threadID, previous)
+                let result = operation(pending.snapshot, threadID, previous)
                 return CodexCompletedChildProjection(
                     result: result,
                     transcript: result.presentation.transcript,
-                    retainedPreparedUTF8ByteCount:
-                        result.presentation.retainedPreparedUTF8ByteCount
+                    retentionMetrics: result.presentation.retentionMetrics(
+                        previous: previousMetrics,
+                        update: result.update
+                    )
                 )
             }.value
             self?.finishChildProjection(
                 completed,
-                snapshot: snapshot,
+                pending: pending,
                 threadID: threadID,
                 parentThreadID: parentThreadID,
                 generation: generation,
@@ -440,7 +451,7 @@ private extension CodexSubagentPresentationCoordinator {
 
     func finishChildProjection(
         _ completed: CodexCompletedChildProjection,
-        snapshot: CanonicalStateSnapshot,
+        pending: CodexPendingChildProjection,
         threadID: ThreadID,
         parentThreadID: ThreadID,
         generation: UInt64,
@@ -456,8 +467,8 @@ private extension CodexSubagentPresentationCoordinator {
 
         runtime.projectionTask = nil
         runtime.projectionID = nil
-        let hasNewerSnapshot = runtime.pendingSnapshot != nil
-            || runtime.latestSnapshotRevision != snapshot.revision
+        let hasNewerSnapshot = runtime.pendingProjection != nil
+            || runtime.latestSnapshotRevision != pending.snapshot.revision
         childRuntimes[threadID] = runtime
         let result = completed.result
 
@@ -465,14 +476,13 @@ private extension CodexSubagentPresentationCoordinator {
               desiredChildIDs.contains(threadID),
               !hasNewerSnapshot,
               result.presentation.threadID == threadID,
-              result.presentation.sourceRevision == snapshot.revision,
+              result.presentation.sourceRevision == pending.snapshot.revision,
               store.applyChildProjection(
                   result,
                   threadID: threadID,
-                  expectedRevision: snapshot.revision,
+                  expectedRevision: pending.snapshot.revision,
                   transcript: completed.transcript,
-                  retainedPreparedUTF8ByteCount:
-                    completed.retainedPreparedUTF8ByteCount
+                  retentionMetrics: completed.retentionMetrics
               )
         else {
             diagnostics.childProjectionDiscardCount += 1
@@ -486,7 +496,7 @@ private extension CodexSubagentPresentationCoordinator {
 
         diagnostics.childProjectionCount += 1
         touchProjection(threadID)
-        if Self.isTerminalAndHydrated(snapshot, threadID: threadID) {
+        if pending.summary.isTerminalAndHydrated {
             terminalChildIDs.insert(threadID)
             releaseChildLease(threadID, retainProjection: true)
         }
@@ -528,21 +538,6 @@ private extension CodexSubagentPresentationCoordinator {
         evictProjectionOverflow()
     }
 
-    static func isTerminalAndHydrated(
-        _ snapshot: CanonicalStateSnapshot,
-        threadID: ThreadID
-    ) -> Bool {
-        guard let thread = snapshot.threads[threadID] else { return false }
-        let turns = snapshot.turns(in: threadID)
-        guard let latest = turns.last, latest.status.isTerminal else { return false }
-        if thread.history.turnsCoverage == .full,
-           turns.allSatisfy({ $0.itemsCoverage == .full }) {
-            return true
-        }
-        // Live child threads can be complete before they have ever needed a
-        // history resume. An authoritative terminal turn is already sufficient.
-        return latest.itemsConsistency == .authoritative && latest.itemsCoverage == .full
-    }
 }
 
 // MARK: - Projection retention and publication
@@ -562,9 +557,9 @@ private extension CodexSubagentPresentationCoordinator {
     func evictProjectionOverflow(protecting protectedThreadID: ThreadID? = nil) -> Bool {
         var didEvict = false
         while projectionLRU.count > projectionCapacity
-            || store.retainedPreparedUTF8ByteCount > projectionByteCapacity {
+            || store.retainedProjectionEstimatedByteCount > projectionByteCapacity {
             guard let candidate = projectionLRU.first(where: {
-                $0 != protectedThreadID && childRuntimes[$0] == nil
+                $0 != protectedThreadID
             }) else { return didEvict }
             projectionLRU.removeAll { $0 == candidate }
             store.evictTranscript(threadID: candidate)
@@ -575,18 +570,19 @@ private extension CodexSubagentPresentationCoordinator {
     }
 
     func refreshMapperAndPublish() {
+        let projectedAgents = store.agents
         if let latestParentSnapshot, let parentThreadID {
             _ = mapper.applyCanonicalSnapshot(
                 latestParentSnapshot,
                 parentThreadID: parentThreadID,
-                projectedChildren: store.agents
+                projectedChildren: projectedAgents
             )
         }
-        publish()
+        publish(projectedAgents)
     }
 
-    func publish() {
-        agents = store.agents
+    func publish(_ projectedAgents: [CodexSubagentV2]? = nil) {
+        agents = projectedAgents ?? store.agents
         panelSubagents = mapper.subagents
         lifecycleEvents = mapper.lifecycleEvents
         changeRevision &+= 1

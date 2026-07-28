@@ -91,6 +91,66 @@ public struct CodexSubagentDiscoveryV2: Sendable, Equatable {
     }
 }
 
+/// The small child-thread slice needed by MainActor lifecycle presentation.
+///
+/// The latest turn follows canonical `turnOrder` exactly and is resolved with
+/// one dictionary lookup. Transcript projection still receives the full
+/// immutable snapshot off-main.
+struct CodexSubagentChildSnapshotSummary: Sendable, Equatable {
+    var threadID: ThreadID
+    var metadata: CanonicalThreadMetadata
+    var threadStatus: CanonicalThreadStatus
+    var latestTurn: CanonicalTurn?
+    var isTerminalAndHydrated: Bool
+
+    init?(
+        snapshot: CanonicalStateSnapshot,
+        threadID: ThreadID
+    ) {
+        guard let thread = snapshot.threads[threadID] else { return nil }
+        let latestTurn = thread.turnOrder.last.flatMap { turnID in
+            snapshot.turns[TurnKey(threadID: threadID, turnID: turnID)]
+        }
+
+        self.threadID = threadID
+        self.metadata = thread.metadata
+        self.threadStatus = thread.status
+        self.latestTurn = latestTurn
+        self.isTerminalAndHydrated = Self.isTerminalAndHydrated(
+            thread: thread,
+            latestTurn: latestTurn,
+            turnsByKey: snapshot.turns
+        )
+    }
+
+    private static func isTerminalAndHydrated(
+        thread: CanonicalThread,
+        latestTurn: CanonicalTurn?,
+        turnsByKey: [TurnKey: CanonicalTurn]
+    ) -> Bool {
+        guard let latestTurn, latestTurn.status.isTerminal else { return false }
+        if thread.history.turnsCoverage == .full {
+            let earlierMaterializedTurnsAreFull = thread.turnOrder.dropLast().allSatisfy {
+                guard let turn = turnsByKey[
+                    TurnKey(threadID: thread.id, turnID: $0)
+                ] else {
+                    // `CanonicalStateSnapshot.turns(in:)` omitted absent turns;
+                    // keep that established hydration behavior without building
+                    // an intermediate array on MainActor.
+                    return true
+                }
+                return turn.itemsCoverage == .full
+            }
+            return earlierMaterializedTurnsAreFull
+                && latestTurn.itemsCoverage == .full
+        }
+        // Live child threads can be complete before they have ever needed a
+        // history resume. An authoritative terminal turn is already sufficient.
+        return latestTurn.itemsConsistency == .authoritative
+            && latestTurn.itemsCoverage == .full
+    }
+}
+
 /// A rebuildable child-thread projection cache.
 ///
 /// Parent snapshots only discover children and update collaboration lifecycle.
@@ -103,8 +163,11 @@ public struct CodexSubagentStoreV2: Sendable {
     private var canonicalPresentationsByID: [
         String: CodexCanonicalTranscriptPresentation
     ] = [:]
-    private var retainedPreparedByteCountByID: [String: Int] = [:]
-    private var retainedPreparedByteCount = 0
+    private var retentionMetricsByID: [
+        String: CodexCanonicalTranscriptRetentionMetrics
+    ] = [:]
+    private var retainedProjectionByteCountByID: [String: Int] = [:]
+    private var retainedProjectionByteCount = 0
 
     public init() {}
 
@@ -132,12 +195,18 @@ public struct CodexSubagentStoreV2: Sendable {
     public func agent(threadID: String) -> CodexSubagentV2? { agentsByID[threadID] }
     public func contains(threadID: String) -> Bool { agentsByID[threadID] != nil }
 
-    var retainedPreparedUTF8ByteCount: Int {
-        retainedPreparedByteCount
+    var retainedProjectionEstimatedByteCount: Int {
+        retainedProjectionByteCount
     }
 
-    func retainedPreparedUTF8ByteCount(threadID: ThreadID) -> Int {
-        retainedPreparedByteCountByID[threadID.rawValue] ?? 0
+    func retainedProjectionEstimatedByteCount(threadID: ThreadID) -> Int {
+        retainedProjectionByteCountByID[threadID.rawValue] ?? 0
+    }
+
+    func retentionMetrics(
+        threadID: ThreadID
+    ) -> CodexCanonicalTranscriptRetentionMetrics? {
+        retentionMetricsByID[threadID.rawValue]
     }
 
     /// Discovers direct children from parent collaboration items. This works at
@@ -233,20 +302,29 @@ public struct CodexSubagentStoreV2: Sendable {
         _ snapshot: CanonicalStateSnapshot,
         threadID: ThreadID
     ) -> Bool {
-        guard applyChildSnapshotMetadata(snapshot, threadID: threadID) else {
+        guard let summary = CodexSubagentChildSnapshotSummary(
+            snapshot: snapshot,
+            threadID: threadID
+        ), applyChildSnapshotMetadata(summary) else {
             return false
         }
+        let previousMetrics = retentionMetrics(threadID: threadID)
         let result = Self.projectChildSnapshot(
             snapshot,
             threadID: threadID,
             previous: canonicalPresentation(threadID: threadID)
         )
+        let transcript = result.presentation.transcript
+        let metrics = result.presentation.retentionMetrics(
+            previous: previousMetrics,
+            update: result.update
+        )
         return applyChildProjection(
             result,
             threadID: threadID,
             expectedRevision: snapshot.revision,
-            transcript: result.presentation.transcript,
-            retainedPreparedUTF8ByteCount: result.presentation.retainedPreparedUTF8ByteCount
+            transcript: transcript,
+            retentionMetrics: metrics
         )
     }
 
@@ -255,36 +333,36 @@ public struct CodexSubagentStoreV2: Sendable {
     /// commits it through `applyChildProjection`.
     @discardableResult
     mutating func applyChildSnapshotMetadata(
-        _ snapshot: CanonicalStateSnapshot,
-        threadID: ThreadID
+        _ summary: CodexSubagentChildSnapshotSummary
     ) -> Bool {
+        let threadID = summary.threadID
         let id = threadID.rawValue
-        guard let thread = snapshot.threads[threadID] else { return false }
         if agentsByID[id] == nil {
             _ = register(.init(
                 threadID: id,
-                parentThreadID: thread.metadata.parentThreadID?.rawValue,
-                agentPath: thread.metadata.path
+                parentThreadID: summary.metadata.parentThreadID?.rawValue,
+                agentPath: summary.metadata.path
             ))
         }
         guard var agent = agentsByID[id] else { return false }
 
-        agent.nickname = thread.metadata.agentNickname ?? agent.nickname
-        agent.role = thread.metadata.agentRole ?? agent.role
-        agent.agentPath = thread.metadata.path ?? agent.agentPath
-        agent.parentThreadID = thread.metadata.parentThreadID?.rawValue ?? agent.parentThreadID
+        agent.nickname = summary.metadata.agentNickname ?? agent.nickname
+        agent.role = summary.metadata.agentRole ?? agent.role
+        agent.agentPath = summary.metadata.path ?? agent.agentPath
+        agent.parentThreadID =
+            summary.metadata.parentThreadID?.rawValue ?? agent.parentThreadID
         agent.depth = agent.agentPath.map(Self.depth) ?? agent.depth
         if !Self.isClosed(agent.status) {
             agent.status = Self.status(
-                thread: thread,
-                turns: snapshot.turns(in: threadID),
+                threadStatus: summary.threadStatus,
+                latestTurn: summary.latestTurn,
                 fallback: agent.status
             )
         }
-        if let createdAt = thread.metadata.createdAt?.rawValue {
+        if let createdAt = summary.metadata.createdAt?.rawValue {
             agent.createdAt = Date(timeIntervalSince1970: TimeInterval(createdAt))
         }
-        agent.completedAt = snapshot.turns(in: threadID).last?.completedAt.map {
+        agent.completedAt = summary.latestTurn?.completedAt.map {
             Date(timeIntervalSince1970: TimeInterval($0.rawValue))
         }
         agentsByID[id] = agent
@@ -320,7 +398,8 @@ public struct CodexSubagentStoreV2: Sendable {
         threadID: ThreadID,
         expectedRevision: StateRevision,
         transcript: CodexTranscriptV2? = nil,
-        retainedPreparedUTF8ByteCount: Int? = nil
+        retentionMetrics suppliedMetrics:
+            CodexCanonicalTranscriptRetentionMetrics? = nil
     ) -> Bool {
         let id = threadID.rawValue
         guard var agent = agentsByID[id],
@@ -333,16 +412,27 @@ public struct CodexSubagentStoreV2: Sendable {
             return false
         }
 
+        if let suppliedMetrics {
+            guard suppliedMetrics.threadID == threadID,
+                  suppliedMetrics.sourceRevision == expectedRevision
+            else {
+                return false
+            }
+        }
+        let committedTranscript = transcript ?? result.presentation.transcript
+        let metrics = suppliedMetrics ?? result.presentation.retentionMetrics(
+            previous: retentionMetricsByID[id],
+            update: result.update
+        )
         replaceCanonicalPresentation(
             result.presentation,
             threadID: id,
-            retainedPreparedUTF8ByteCount: max(
-                0,
-                retainedPreparedUTF8ByteCount
-                    ?? result.presentation.retainedPreparedUTF8ByteCount
+            retentionMetrics: metrics,
+            estimatedRetainedByteCount: metrics.estimatedProjectionByteCount(
+                transcriptTurnCount: committedTranscript.turns.count
             )
         )
-        agent.transcript = transcript ?? result.presentation.transcript
+        agent.transcript = committedTranscript
         agentsByID[id] = agent
         return true
     }
@@ -371,8 +461,9 @@ public struct CodexSubagentStoreV2: Sendable {
         agentsByID.removeAll(keepingCapacity: false)
         discoveriesByID.removeAll(keepingCapacity: false)
         canonicalPresentationsByID.removeAll(keepingCapacity: false)
-        retainedPreparedByteCountByID.removeAll(keepingCapacity: false)
-        retainedPreparedByteCount = 0
+        retentionMetricsByID.removeAll(keepingCapacity: false)
+        retainedProjectionByteCountByID.removeAll(keepingCapacity: false)
+        retainedProjectionByteCount = 0
     }
 
     public mutating func updateMetadata(
@@ -406,31 +497,34 @@ private extension CodexSubagentStoreV2 {
     mutating func replaceCanonicalPresentation(
         _ presentation: CodexCanonicalTranscriptPresentation,
         threadID: String,
-        retainedPreparedUTF8ByteCount: Int
+        retentionMetrics: CodexCanonicalTranscriptRetentionMetrics,
+        estimatedRetainedByteCount: Int
     ) {
         canonicalPresentationsByID[threadID] = presentation
-        if let previous = retainedPreparedByteCountByID.updateValue(
-            retainedPreparedUTF8ByteCount,
+        retentionMetricsByID[threadID] = retentionMetrics
+        if let previous = retainedProjectionByteCountByID.updateValue(
+            estimatedRetainedByteCount,
             forKey: threadID
         ) {
-            retainedPreparedByteCount = max(
+            retainedProjectionByteCount = max(
                 0,
-                retainedPreparedByteCount - previous
+                retainedProjectionByteCount - previous
             )
         }
-        let (sum, overflow) = retainedPreparedByteCount.addingReportingOverflow(
-            retainedPreparedUTF8ByteCount
+        let (sum, overflow) = retainedProjectionByteCount.addingReportingOverflow(
+            estimatedRetainedByteCount
         )
-        retainedPreparedByteCount = overflow ? .max : sum
+        retainedProjectionByteCount = overflow ? .max : sum
     }
 
     mutating func removeCanonicalPresentation(threadID: String) {
         canonicalPresentationsByID.removeValue(forKey: threadID)
-        guard let previous = retainedPreparedByteCountByID.removeValue(forKey: threadID)
+        retentionMetricsByID.removeValue(forKey: threadID)
+        guard let previous = retainedProjectionByteCountByID.removeValue(forKey: threadID)
         else { return }
-        retainedPreparedByteCount = max(
+        retainedProjectionByteCount = max(
             0,
-            retainedPreparedByteCount - previous
+            retainedProjectionByteCount - previous
         )
     }
 
@@ -510,12 +604,12 @@ private extension CodexSubagentStoreV2 {
     }
 
     static func status(
-        thread: CanonicalThread,
-        turns: [CanonicalTurn],
+        threadStatus: CanonicalThreadStatus,
+        latestTurn: CanonicalTurn?,
         fallback: CodexSubagentLiveStatusV2
     ) -> CodexSubagentLiveStatusV2 {
-        guard let turn = turns.last else {
-            return thread.status.isActive ? .working(since: nil) : fallback
+        guard let turn = latestTurn else {
+            return threadStatus.isActive ? .working(since: nil) : fallback
         }
         switch turn.status {
         case .inProgress:
@@ -527,7 +621,7 @@ private extension CodexSubagentStoreV2 {
         case .interrupted:
             return .failed(message: turn.error?.message ?? "Subagent interrupted")
         case .unknown:
-            return thread.status.isActive ? .working(since: turn.startedAt?.rawValue) : fallback
+            return threadStatus.isActive ? .working(since: turn.startedAt?.rawValue) : fallback
         }
     }
 

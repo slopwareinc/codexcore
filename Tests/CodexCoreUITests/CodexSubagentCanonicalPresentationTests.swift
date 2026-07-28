@@ -58,25 +58,128 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(duration == 2_000)
     }
 
+    @Test func childMetadataSummaryUsesExactOrderedLatestTurn() throws {
+        let threadID: ThreadID = "child"
+        let olderTurnID: TurnID = "older"
+        let missingLatestTurnID: TurnID = "latest"
+        let olderTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: olderTurnID),
+            status: .completed,
+            completedAt: ProtocolSeconds(123),
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(1)
+        )
+        let snapshot = CanonicalStateSnapshot(
+            revision: StateRevision(2),
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
+                id: threadID,
+                status: .active(flags: []),
+                turnOrder: [olderTurnID, missingLatestTurnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: StateRevision(2)
+            )],
+            turns: [olderTurn.key: olderTurn]
+        )
+
+        let summary = try #require(CodexSubagentChildSnapshotSummary(
+            snapshot: snapshot,
+            threadID: threadID
+        ))
+        #expect(summary.latestTurn == nil)
+        #expect(!summary.isTerminalAndHydrated)
+
+        var store = CodexSubagentStoreV2()
+        #expect(store.applyChildSnapshotMetadata(summary))
+        let child = try #require(store.agent(threadID: threadID.rawValue))
+        guard case .working = child.status else {
+            Issue.record("Missing ordered latest turn must not reuse an older terminal turn")
+            return
+        }
+        #expect(child.completedAt == nil)
+    }
+
+    @Test func childMetadataSummaryPreservesFullHistoryHydrationCheck() throws {
+        let threadID: ThreadID = "child"
+        let olderTurnID: TurnID = "older"
+        let latestTurnID: TurnID = "latest"
+        let olderTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: olderTurnID),
+            status: .completed,
+            itemsCoverage: .summary,
+            itemsConsistency: .partial,
+            lastChangedRevision: StateRevision(1)
+        )
+        let latestTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: latestTurnID),
+            status: .completed,
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(2)
+        )
+        let snapshot = CanonicalStateSnapshot(
+            revision: StateRevision(2),
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
+                id: threadID,
+                status: .idle,
+                turnOrder: [olderTurnID, latestTurnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: StateRevision(2)
+            )],
+            turns: [
+                olderTurn.key: olderTurn,
+                latestTurn.key: latestTurn,
+            ]
+        )
+
+        let summary = try #require(CodexSubagentChildSnapshotSummary(
+            snapshot: snapshot,
+            threadID: threadID
+        ))
+        #expect(summary.latestTurn?.key.turnID == latestTurnID)
+        #expect(!summary.isTerminalAndHydrated)
+    }
+
     @Test func childProjectionRetainsPreviousPresentationUntilTranscriptEviction() throws {
         var store = CodexSubagentStoreV2()
         let snapshot = childFileChangeSnapshot()
 
         let applied = store.applyChildSnapshot(snapshot, threadID: "child")
         #expect(applied)
-        let retainedBytes = store.retainedPreparedUTF8ByteCount(threadID: "child")
+        let retainedBytes = store.retainedProjectionEstimatedByteCount(threadID: "child")
         #expect(retainedBytes > 0)
-        #expect(store.retainedPreparedUTF8ByteCount == retainedBytes)
+        #expect(store.retainedProjectionEstimatedByteCount == retainedBytes)
 
         // The same canonical revision is accepted through the incremental
         // projection seam and leaves one retained preparation, not another copy.
         let reapplied = store.applyChildSnapshot(snapshot, threadID: "child")
         #expect(reapplied)
-        #expect(store.retainedPreparedUTF8ByteCount == retainedBytes)
+        #expect(store.retainedProjectionEstimatedByteCount == retainedBytes)
 
         store.evictTranscript(threadID: "child")
         #expect(store.agent(threadID: "child")?.transcript.turns.isEmpty == true)
-        #expect(store.retainedPreparedUTF8ByteCount == 0)
+        #expect(store.retainedProjectionEstimatedByteCount == 0)
+    }
+
+    @Test func childProjectionAccountingIncludesNonDiffTranscriptContent() throws {
+        var store = CodexSubagentStoreV2()
+        let snapshot = childSnapshot()
+
+        #expect(store.applyChildSnapshot(snapshot, threadID: "child"))
+        let answer = try #require(
+            store.agent(threadID: "child")?.transcript.turns.first?.finalAnswer?.text
+        )
+        #expect(!answer.isEmpty)
+        #expect(
+            store.retainedProjectionEstimatedByteCount(threadID: "child")
+                > answer.utf8.count
+        )
     }
 
     @Test func childProjectionCommitRejectsStaleOrMismatchedResults() throws {
@@ -84,7 +187,7 @@ struct CodexSubagentCanonicalPresentationTests {
         let current = childFileChangeSnapshot(revision: 4)
         #expect(store.applyChildSnapshot(current, threadID: "child"))
         let expectedTranscript = try #require(store.agent(threadID: "child")?.transcript)
-        let expectedBytes = store.retainedPreparedUTF8ByteCount
+        let expectedBytes = store.retainedProjectionEstimatedByteCount
 
         let stale = childFileChangeSnapshot(revision: 3)
         let staleResult = CodexSubagentStoreV2.projectChildSnapshot(
@@ -119,7 +222,7 @@ struct CodexSubagentCanonicalPresentationTests {
         ))
 
         #expect(store.agent(threadID: "child")?.transcript == expectedTranscript)
-        #expect(store.retainedPreparedUTF8ByteCount == expectedBytes)
+        #expect(store.retainedProjectionEstimatedByteCount == expectedBytes)
     }
 
     @Test func mapperUsesCanonicalCompositeIdentityAcrossRefreshes() throws {
