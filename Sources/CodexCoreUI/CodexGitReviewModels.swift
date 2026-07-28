@@ -219,7 +219,10 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         pullRequestExists: Bool = false
     ) -> CodexGitReviewSnapshot? {
         guard let turnDiff = turnDiff?.nilIfBlank else { return nil }
-        let parsed = CodexUnifiedDiffParser.parseMetadataBounded(turnDiff)
+        let parsed = CodexUnifiedDiffParser.parseMetadataBounded(
+            turnDiff,
+            checkpoint: {}
+        )
         guard !parsed.didTruncateFileRecords else { return nil }
         let files = parsed.files.map { file in
             CodexGitReviewFileChange(

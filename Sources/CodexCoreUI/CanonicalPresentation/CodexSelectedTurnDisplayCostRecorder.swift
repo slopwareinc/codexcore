@@ -70,6 +70,10 @@ enum CodexSelectedTurnDisplayCostRecorder {
         private var exceededBounds = false
         let limit: Int
 
+        init(limit: Int) {
+            self.limit = limit
+        }
+
         var exceedsLimit: Bool {
             exceededBounds || total > limit
         }

@@ -107,7 +107,7 @@ public final class CodexSubagentPresentationCoordinator {
         self.projectionOperation = projectionOperation
     }
 
-    deinit {
+    isolated deinit {
         parentObservationTask?.cancel()
         indexObservationTask?.cancel()
         selectedProjection?.observationTask?.cancel()

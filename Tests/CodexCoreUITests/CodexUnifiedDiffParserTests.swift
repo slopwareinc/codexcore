@@ -71,7 +71,8 @@ struct CodexUnifiedDiffParserTests {
         let parsed = CodexUnifiedDiffParser.parseBounded(
             diff,
             maximumRetainedUTF8Bytes: 1_024,
-            maximumRetainedLineCount: 8
+            maximumRetainedLineCount: 8,
+            checkpoint: {}
         )
         let file = try #require(parsed.files.first)
         var expectedFingerprint = CodexStableFingerprint()
@@ -123,7 +124,8 @@ struct CodexUnifiedDiffParserTests {
         let parsed = CodexUnifiedDiffParser.parseBounded(
             diff,
             maximumRetainedUTF8Bytes: 32,
-            maximumRetainedLineCount: 32
+            maximumRetainedLineCount: 32,
+            checkpoint: {}
         )
 
         #expect(diff.utf8.count == 1_024 * 1_024)
@@ -215,7 +217,8 @@ struct CodexUnifiedDiffParserTests {
         let parsed = CodexUnifiedDiffParser.parseBounded(
             diff,
             maximumRetainedUTF8Bytes: 1_024,
-            maximumRetainedLineCount: 32
+            maximumRetainedLineCount: 32,
+            checkpoint: {}
         )
         let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: [],
@@ -442,7 +445,10 @@ struct CodexUnifiedDiffParserTests {
         +new
         """
 
-        let parsed = CodexUnifiedDiffParser.parseMetadataBounded(diff)
+        let parsed = CodexUnifiedDiffParser.parseMetadataBounded(
+            diff,
+            checkpoint: {}
+        )
 
         #expect(parsed.files.count == 1)
         #expect(parsed.files[0].path == "Sources/New.swift")
