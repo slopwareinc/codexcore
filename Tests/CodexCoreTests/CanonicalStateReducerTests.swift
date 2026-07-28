@@ -361,7 +361,7 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(partial.payload["status"], .string("completed"))
     }
 
-    func testNonArrayLiveFileChangesCannotMaskPartialPayloadRevision() throws {
+    func testNonArrayLiveFileChangesCannotMaskPartialPayload() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()
         let key = itemKey(item: "patch")
@@ -386,11 +386,7 @@ final class CanonicalStateReducerTests: XCTestCase {
             key: "fileChanges",
             value: .dictionary(["malformed": .bool(true)])
         ), to: &graph)
-        let priorContentRevision = try XCTUnwrap(
-            graph.items[key]?.fileChangeContentRevision
-        )
-
-        let completion = try XCTUnwrap(reducer.apply(.turnSnapshot(
+        _ = try XCTUnwrap(reducer.apply(.turnSnapshot(
             CanonicalTurn(
                 key: key.turnKey,
                 status: .completed,
@@ -413,8 +409,6 @@ final class CanonicalStateReducerTests: XCTestCase {
 
         let completed = try XCTUnwrap(graph.items[key])
         XCTAssertEqual(completed.payload["changes"], newChanges)
-        XCTAssertGreaterThan(completed.fileChangeContentRevision, priorContentRevision)
-        XCTAssertEqual(completed.fileChangeContentRevision, completion.revision)
     }
 
     func testCoverageNeverRegressesAndPartialEmptySnapshotDoesNotEraseItems() throws {

@@ -958,7 +958,7 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(row.hasPreparedDetail)
     }
 
-    @Test func statusOnlyFileRevisionReusesPreparationAndContentRevisionInvalidates() throws {
+    @Test func fileItemRevisionInvalidatesPreparationButSiblingRevisionDoesNot() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"
         let probe = FilePreparationProbe()
@@ -974,7 +974,7 @@ struct CodexCanonicalTranscriptProjectorTests {
             }
         )
         let firstFile = item(threadID, turnID, "patch", .fileChange, [
-            "status": .string("completed"),
+            "status": .string("inProgress"),
             "changes": .array([
                 fileUpdate(
                     path: "Sources/Stable.swift",
@@ -1006,10 +1006,10 @@ struct CodexCanonicalTranscriptProjectorTests {
                 .compactMap(\.fileChange).first
         )
 
-        let statusOnlyFileRevision = item(threadID, turnID, "patch", .fileChange, [
-            "status": .string("completed"),
-            "changes": firstFile.payload["changes"] ?? .array([]),
-        ], revision: 4, fileChangeContentRevision: 3)
+        let siblingMessage = item(threadID, turnID, "message", .agentMessage, [
+            "phase": .string("commentary"),
+            "text": .string("two"),
+        ], revision: 4)
         let siblingChanged = state(
             revision: 4,
             threadID: threadID,
@@ -1020,11 +1020,8 @@ struct CodexCanonicalTranscriptProjectorTests {
                 revision: 4
             )],
             items: [
-                statusOnlyFileRevision,
-                item(threadID, turnID, "message", .agentMessage, [
-                    "phase": .string("commentary"),
-                    "text": .string("two"),
-                ], revision: 4),
+                firstFile,
+                siblingMessage,
             ]
         )
         let secondResult = try projector.project(
@@ -1040,25 +1037,11 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(probe.count == 1)
         #expect(firstRow.preparedFileChanges === secondRow.preparedFileChanges)
 
-        let contentChanged = item(
-            threadID,
-            turnID,
-            "patch",
-            .fileChange,
-            [
-                "status": .string("completed"),
-                "changes": .array([
-                    fileUpdate(
-                        path: "Sources/Stable.swift",
-                        kind: "update",
-                        diff: "@@ -1 +1 @@\n-old\n+newer"
-                    ),
-                ]),
-            ],
-            revision: 5,
-            fileChangeContentRevision: 5
-        )
-        let third = state(
+        let lifecycleChanged = item(threadID, turnID, "patch", .fileChange, [
+            "status": .string("completed"),
+            "changes": firstFile.payload["changes"] ?? .array([]),
+        ], revision: 5)
+        let lifecycleSnapshot = state(
             revision: 5,
             threadID: threadID,
             turns: [turn(
@@ -1067,27 +1050,22 @@ struct CodexCanonicalTranscriptProjectorTests {
                 itemIDs: ["patch", "message"],
                 revision: 5
             )],
-            items: [
-                contentChanged,
-                siblingChanged.items[.init(
-                    threadID: threadID,
-                    turnID: turnID,
-                    itemID: "message"
-                )]!,
-            ]
+            items: [lifecycleChanged, siblingMessage]
         )
-        let thirdResult = try projector.project(
-            snapshot: third,
+        let lifecycleResult = try projector.project(
+            snapshot: lifecycleSnapshot,
             threadID: threadID,
             previous: secondResult.presentation
         )
-        let thirdRow = try #require(
-            thirdResult.presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
-                .compactMap(\.fileChange).first
+        let lifecycleRow = try #require(
+            lifecycleResult.presentation.transcript.turns.first?.narrative
+                .flatMap(\.workRows)
+                .compactMap(\.fileChange)
+                .first
         )
 
         #expect(probe.count == 2)
-        #expect(thirdRow.preparedFileChanges !== secondRow.preparedFileChanges)
+        #expect(lifecycleRow.preparedFileChanges !== secondRow.preparedFileChanges)
     }
 
     @Test func duplicatePathIDsRemainUniqueAndFollowContentAcrossReordering() throws {
@@ -1330,7 +1308,6 @@ struct CodexCanonicalTranscriptProjectorTests {
             liveResult.presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
                 .compactMap(\.fileChange).first
         )
-        let liveContentRevision = graph.items[itemKey]?.fileChangeContentRevision
         #expect(liveRow.changes.map(\.path) == [
             "Sources/Valid.swift",
             "Sources/Future.swift",
@@ -1354,7 +1331,6 @@ struct CodexCanonicalTranscriptProjectorTests {
             ]
         )
         _ = reducer.apply(completion.mutations, to: &graph)
-        #expect(graph.items[itemKey]?.fileChangeContentRevision == liveContentRevision)
         let completedResult = try projector.project(
             snapshot: graph.snapshot(),
             threadID: threadID,
@@ -1375,7 +1351,6 @@ struct CodexCanonicalTranscriptProjectorTests {
             hydratedRow.preparedChanges.map(\.removed)
                 == liveRow.preparedChanges.map(\.removed)
         )
-        #expect(hydratedRow.preparedFileChanges === liveRow.preparedFileChanges)
     }
 
     @Test func liveCompactionExtensionAndHydratedItemProjectIdentically() {
@@ -1889,8 +1864,7 @@ private extension CodexCanonicalTranscriptProjectorTests {
         _ itemID: ItemID,
         _ kind: ThreadItemKind,
         _ payload: [String: CodexJSONValue] = [:],
-        revision: UInt64 = 8,
-        fileChangeContentRevision: UInt64? = nil
+        revision: UInt64 = 8
     ) -> CanonicalItem {
         .init(
             key: .init(threadID: threadID, turnID: turnID, itemID: itemID),
@@ -1898,8 +1872,7 @@ private extension CodexCanonicalTranscriptProjectorTests {
             payload: payload,
             authority: .completed,
             consistency: .authoritative,
-            lastChangedRevision: StateRevision(revision),
-            fileChangeContentRevision: fileChangeContentRevision.map(StateRevision.init)
+            lastChangedRevision: StateRevision(revision)
         )
     }
 

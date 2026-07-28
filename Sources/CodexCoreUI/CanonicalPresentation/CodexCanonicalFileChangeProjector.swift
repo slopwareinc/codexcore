@@ -21,7 +21,7 @@ struct CodexCanonicalFileChangeProjector: Sendable {
     ) -> CodexFileChangeRowV2 {
         let key = CodexFileChangePreparationKey(
             itemKey: item.key,
-            sourceRevision: item.fileChangeContentRevision,
+            sourceRevision: item.lastChangedRevision,
             contentFingerprint: 0
         )
         if let previous, previous.preparationKey == key {

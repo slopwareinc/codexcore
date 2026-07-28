@@ -869,10 +869,6 @@ public struct CanonicalItem: Sendable, Equatable, Identifiable {
     public internal(set) var clientUserMessageID: SubmissionIntentID?
     public internal(set) var consistency: StateConsistency
     public internal(set) var lastChangedRevision: StateRevision
-    /// Revision of the effective file-change payload. Lifecycle-only item
-    /// updates deliberately leave this unchanged so expensive diff projection
-    /// can be reused without scanning the raw patches.
-    public internal(set) var fileChangeContentRevision: StateRevision
 
     public init(
         key: ItemKey,
@@ -885,8 +881,7 @@ public struct CanonicalItem: Sendable, Equatable, Identifiable {
         liveFields: [String: CodexJSONValue] = [:],
         clientUserMessageID: SubmissionIntentID? = nil,
         consistency: StateConsistency = .partial,
-        lastChangedRevision: StateRevision = .zero,
-        fileChangeContentRevision: StateRevision? = nil
+        lastChangedRevision: StateRevision = .zero
     ) {
         self.key = key
         self.kind = kind
@@ -899,8 +894,6 @@ public struct CanonicalItem: Sendable, Equatable, Identifiable {
         self.clientUserMessageID = clientUserMessageID
         self.consistency = consistency
         self.lastChangedRevision = lastChangedRevision
-        self.fileChangeContentRevision = fileChangeContentRevision
-            ?? (kind == .fileChange ? lastChangedRevision : .zero)
     }
 }
 
