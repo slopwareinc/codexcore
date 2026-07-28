@@ -556,6 +556,9 @@ internal struct CanonicalStateReducer: Sendable {
             } else {
                 item.liveFields.removeValue(forKey: fieldKey)
             }
+            if fieldKey == "fileChanges" {
+                item.fileChangeContentRevision = revision
+            }
             item.lastChangedRevision = revision
             graph.items[itemKey] = item
             changes.append(.itemLiveFieldReplaced(itemKey))
@@ -1147,6 +1150,7 @@ private extension CanonicalStateReducer {
             guard var current = graph.items[incoming.key] else {
                 var inserted = incoming
                 inserted.lastChangedRevision = revision
+                markInitialFileChangeContentRevision(&inserted, revision: revision)
                 graph.items[incoming.key] = inserted
                 changes.append(.itemInserted(incoming.key))
                 return
@@ -1159,6 +1163,11 @@ private extension CanonicalStateReducer {
             current.clientUserMessageID = incoming.clientUserMessageID ?? current.clientUserMessageID
             current.consistency = mergeConsistency(current.consistency, incoming.consistency)
             guard current != original else { return }
+            preserveOrAdvanceFileChangeContentRevision(
+                &current,
+                previous: original,
+                revision: revision
+            )
             current.lastChangedRevision = revision
             graph.items[incoming.key] = current
             changes.append(.itemUpdated(incoming.key))
@@ -1200,6 +1209,11 @@ private extension CanonicalStateReducer {
                 }
             }
             guard current != original else { return }
+            preserveOrAdvanceFileChangeContentRevision(
+                &current,
+                previous: original,
+                revision: revision
+            )
             current.lastChangedRevision = revision
             graph.items[incoming.key] = current
             changes.append(.itemStarted(incoming.key))
@@ -1215,6 +1229,7 @@ private extension CanonicalStateReducer {
             }
         }
         inserted.lastChangedRevision = revision
+        markInitialFileChangeContentRevision(&inserted, revision: revision)
         graph.items[incoming.key] = inserted
         changes.append(.itemInserted(incoming.key))
         changes.append(.itemStarted(incoming.key))
@@ -1278,6 +1293,15 @@ private extension CanonicalStateReducer {
         discardOrphans(for: incoming.key)
 
         completed.lastChangedRevision = previous?.lastChangedRevision ?? .zero
+        if let previous {
+            preserveOrAdvanceFileChangeContentRevision(
+                &completed,
+                previous: previous,
+                revision: revision
+            )
+        } else {
+            markInitialFileChangeContentRevision(&completed, revision: revision)
+        }
         guard previous != completed else { return }
         completed.lastChangedRevision = revision
         graph.items[incoming.key] = completed
@@ -1286,6 +1310,31 @@ private extension CanonicalStateReducer {
         }
         changes.append(.itemCompleted(incoming.key))
         reconcileSubmissionIntent(for: completed, revision: revision, graph: &graph, changes: &changes)
+    }
+
+    func effectiveFileChangePayload(_ item: CanonicalItem) -> CodexJSONValue? {
+        guard item.kind == .fileChange else { return nil }
+        return item.liveFields["fileChanges"] ?? item.payload["changes"]
+    }
+
+    func preserveOrAdvanceFileChangeContentRevision(
+        _ item: inout CanonicalItem,
+        previous: CanonicalItem,
+        revision: StateRevision
+    ) {
+        guard item.kind == .fileChange || previous.kind == .fileChange else { return }
+        item.fileChangeContentRevision =
+            effectiveFileChangePayload(item) == effectiveFileChangePayload(previous)
+            ? previous.fileChangeContentRevision
+            : revision
+    }
+
+    func markInitialFileChangeContentRevision(
+        _ item: inout CanonicalItem,
+        revision: StateRevision
+    ) {
+        guard item.kind == .fileChange else { return }
+        item.fileChangeContentRevision = revision
     }
 
     mutating func replaceItemsAuthoritatively(

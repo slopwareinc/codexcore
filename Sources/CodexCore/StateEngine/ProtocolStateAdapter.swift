@@ -273,7 +273,11 @@ private extension ProtocolStateAdapter {
 
         case .turnStarted:
             let value: CodexSchemaTurnStartedNotification = try decodeNotification(method, params)
-            let converted = try canonicalTurn(value.turn, threadID: .init(value.threadID))
+            let converted = try canonicalTurn(
+                value.turn,
+                threadID: .init(value.threadID),
+                rawTurn: params.object(at: "turn")
+            )
             return .state([.turnStarted(converted.turn, items: converted.items)])
 
         case .hookStarted:
@@ -296,7 +300,11 @@ private extension ProtocolStateAdapter {
 
         case .turnCompleted:
             let value: CodexSchemaTurnCompletedNotification = try decodeNotification(method, params)
-            let converted = try canonicalTurn(value.turn, threadID: .init(value.threadID))
+            let converted = try canonicalTurn(
+                value.turn,
+                threadID: .init(value.threadID),
+                rawTurn: params.object(at: "turn")
+            )
             let policy: CanonicalItemCollectionMergePolicy = converted.turn.itemsCoverage == .full
                 ? .authoritativeReplacement
                 : .mergePreservingExistingOrder
@@ -333,7 +341,8 @@ private extension ProtocolStateAdapter {
                 threadID: .init(value.threadID),
                 turnID: .init(value.turnID),
                 authority: .started,
-                startedAt: .init(Int64(value.startedAtMs))
+                startedAt: .init(Int64(value.startedAtMs)),
+                rawOverride: params.object(at: "item")
             ))])
 
         case .itemAutoApprovalReviewStarted:
@@ -361,7 +370,8 @@ private extension ProtocolStateAdapter {
                 threadID: .init(value.threadID),
                 turnID: .init(value.turnID),
                 authority: .completed,
-                completedAt: .init(Int64(value.completedAtMs))
+                completedAt: .init(Int64(value.completedAtMs)),
+                rawOverride: params.object(at: "item")
             ))])
 
         case .itemAgentMessageDelta:
@@ -634,7 +644,14 @@ private extension ProtocolStateAdapter {
         as type: Value.Type = Value.self
     ) throws -> Value {
         do {
-            return try CodexJSONValue.dictionary(params).decode(type)
+            let raw = CodexJSONValue.dictionary(params)
+            let decodable: CodexJSONValue = switch method {
+            case .threadStarted, .turnStarted, .turnCompleted, .itemStarted, .itemCompleted:
+                ProtocolFileChangeSanitizer.sanitize(raw)
+            default:
+                raw
+            }
+            return try decodable.decode(type)
         } catch {
             throw ProtocolStateAdapterError.malformedNotification(
                 method: method.rawValue,
@@ -1421,7 +1438,11 @@ private extension ProtocolStateAdapter {
         case .turnStart:
             let value: CodexSchemaTurnStartResponse = try decodeResponse(context, result)
             let threadID = try requestThreadID(context)
-            let converted = try canonicalTurn(value.turn, threadID: threadID)
+            let converted = try canonicalTurn(
+                value.turn,
+                threadID: threadID,
+                rawTurn: result.object(at: "turn")
+            )
             return .state([.turnStarted(converted.turn, items: converted.items)])
 
         case .threadGoalSet:
@@ -1547,7 +1568,15 @@ private extension ProtocolStateAdapter {
         as type: Value.Type = Value.self
     ) throws -> Value {
         do {
-            return try result.decode(type)
+            let decodable: CodexJSONValue = switch context.method {
+            case .threadStart, .threadResume, .threadFork, .threadUnarchive,
+                 .threadRollback, .threadMetadataUpdate, .threadRead, .threadList,
+                 .threadSearch, .threadTurnsList, .threadItemsList, .turnStart:
+                ProtocolFileChangeSanitizer.sanitize(result)
+            default:
+                result
+            }
+            return try decodable.decode(type)
         } catch {
             throw ProtocolStateAdapterError.malformedResponse(
                 method: context.method.rawValue,

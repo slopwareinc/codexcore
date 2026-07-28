@@ -8,13 +8,13 @@ import Foundation
 /// exact same presentation from canonical state.
 public struct CodexCanonicalTranscriptProjector: Sendable {
     private let itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2?
-    private let fileChangeDiffPreparer: CodexFileChangeDiffPreparer
+    private let fileChangeProjector: CodexCanonicalFileChangeProjector
 
     public init(
         itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil
     ) {
         self.itemPresentationPolicy = itemPresentationPolicy
-        self.fileChangeDiffPreparer = .init()
+        self.fileChangeProjector = .init()
     }
 
     init(
@@ -22,7 +22,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         fileChangeDiffPreparer: CodexFileChangeDiffPreparer
     ) {
         self.itemPresentationPolicy = itemPresentationPolicy
-        self.fileChangeDiffPreparer = fileChangeDiffPreparer
+        self.fileChangeProjector = .init(diffPreparer: fileChangeDiffPreparer)
     }
 
     public func rebuild(
@@ -776,24 +776,11 @@ private extension CodexCanonicalTranscriptProjector {
                 ))
             }
         case .fileChange:
-            let changes = fileChanges(item, status: state)
-            let key = fileChangePreparationKey(item: item, changes: changes)
-            let prepared: CodexPreparedFileChangeSetV2
-            if previousFileRow?.preparationKey == key {
-                prepared = previousFileRow?.preparedFileChanges ?? .empty
-            } else {
-                prepared = fileChangeDiffPreparer.prepare(
-                    changes: changes,
-                    legacyDiff: nil
-                )
-            }
-            return [.fileChange(.init(
-                id: id,
-                changes: changes,
+            return [.fileChange(fileChangeProjector.project(
+                item: item,
                 status: state,
                 durationMs: itemDuration(item),
-                preparationKey: key,
-                preparedFileChanges: prepared
+                previous: previousFileRow
             ))]
         case .mcpToolCall:
             let app = item.payload.object("appContext")?.string("appName")
@@ -826,127 +813,6 @@ private extension CodexCanonicalTranscriptProjector {
         }
     }
 
-    func fileChanges(
-        _ item: CanonicalItem,
-        status: CodexWorkItemStatusV2
-    ) -> [CodexFileChangeV2] {
-        let rawChanges: [CodexJSONValue]
-        if case .array(let liveChanges) = item.liveFields["fileChanges"] {
-            rawChanges = liveChanges
-        } else {
-            rawChanges = item.payload.array("changes") ?? []
-        }
-
-        struct Draft {
-            var path: String
-            var destinationPath: String?
-            var kind: CodexFileChangeKindV2
-            var diff: String
-            var isMalformed: Bool
-            var wireValue: CodexJSONValue
-            var identityFingerprint: UInt64
-            var contentFingerprint: UInt64
-        }
-
-        let drafts: [Draft] = rawChanges.compactMap { rawChange in
-            guard let change = rawChange.object,
-                  let path = change.string("path"),
-                  !path.isEmpty else {
-                return nil
-            }
-            let kindPayload = change.object("kind")
-            let rawKind = kindPayload?.string("type") ?? change.string("kind")
-            let destinationPath = kindPayload?.string("move_path")
-                ?? kindPayload?.string("movePath")
-            let kindValue = change["kind"]
-            let kindIsMalformed: Bool = {
-                guard let kindValue else { return true }
-                if kindValue.stringValue != nil { return false }
-                guard let object = kindValue.object else { return true }
-                return object.string("type") == nil
-            }()
-            let movePathIsMalformed: Bool = {
-                guard let kindPayload else { return false }
-                for key in ["move_path", "movePath"] {
-                    guard let value = kindPayload[key] else { continue }
-                    if value.stringValue == nil { return true }
-                }
-                return false
-            }()
-            let kind: CodexFileChangeKindV2 = switch rawKind {
-            case "add": .added
-            case "delete": .deleted
-            case "update" where destinationPath != nil: .renamed
-            case "update": .modified
-            case .some(let value): .unknown(value)
-            case nil: .unknown("unknown")
-            }
-            let diff = change.string("diff") ?? ""
-            let diffIsMalformed = change["diff"].map { $0.stringValue == nil } ?? false
-            var identityHasher = CodexStableFingerprint()
-            identityHasher.combine(path)
-            identityHasher.combine(destinationPath ?? "")
-            identityHasher.combine(kind.stableValue)
-            var contentHasher = identityHasher
-            contentHasher.combine(diff)
-            return Draft(
-                path: path,
-                destinationPath: destinationPath,
-                kind: kind,
-                diff: diff,
-                isMalformed: kindIsMalformed || movePathIsMalformed || diffIsMalformed,
-                wireValue: rawChange,
-                identityFingerprint: identityHasher.value,
-                contentFingerprint: contentHasher.value
-            )
-        }
-
-        let identityCounts = Dictionary(grouping: drafts, by: \.identityFingerprint)
-            .mapValues(\.count)
-        var exactOccurrences: [UInt64: Int] = [:]
-        return drafts.map { draft in
-            let fingerprint: UInt64
-            if identityCounts[draft.identityFingerprint] == 1 {
-                fingerprint = draft.identityFingerprint
-            } else {
-                fingerprint = draft.contentFingerprint
-            }
-            let occurrence = exactOccurrences[fingerprint, default: 0]
-            exactOccurrences[fingerprint] = occurrence + 1
-            let suffix = occurrence == 0 ? "" : ":\(occurrence)"
-            return CodexFileChangeV2(
-                id: "\(item.key.itemID.rawValue):file:\(String(fingerprint, radix: 16))\(suffix)",
-                path: draft.path,
-                destinationPath: draft.destinationPath,
-                kind: draft.kind,
-                status: status,
-                diff: draft.diff,
-                isMalformed: draft.isMalformed,
-                wireValue: draft.wireValue
-            )
-        }
-    }
-
-    func fileChangePreparationKey(
-        item: CanonicalItem,
-        changes: [CodexFileChangeV2]
-    ) -> CodexFileChangePreparationKey {
-        var hasher = CodexStableFingerprint()
-        for change in changes {
-            hasher.combine(change.id)
-            hasher.combine(change.path)
-            hasher.combine(change.destinationPath ?? "")
-            hasher.combine(change.kind.stableValue)
-            hasher.combine(change.diff)
-            hasher.combine(change.isMalformed ? "malformed" : "valid")
-        }
-        return .init(
-            itemKey: item.key,
-            sourceRevision: item.lastChangedRevision,
-            contentFingerprint: hasher.value
-        )
-    }
-
     func workStatus(_ item: CanonicalItem, completed: Bool) -> CodexWorkItemStatusV2 {
         if item.payload.int("exitCode").map({ $0 != 0 }) == true {
             return .failed
@@ -956,7 +822,7 @@ private extension CodexCanonicalTranscriptProjector {
         }
         switch rawStatus {
         case "inProgress":
-            return completed ? .completed : .inProgress
+            return .inProgress
         case "completed":
             return .completed
         case "failed":
