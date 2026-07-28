@@ -96,8 +96,41 @@ struct CodexSubagentPresentationCoordinatorTests {
         }
 
         #expect(coordinator.agents.isEmpty)
-        #expect(coordinator.retainedProjectionPreparedUTF8ByteCount == 0)
+        #expect(coordinator.retainedProjectionEstimatedByteCount == 0)
         #expect(coordinator.diagnostics.childProjectionCount == 0)
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
+    @Test func activeChildProjectionCannotExceedEstimatedByteCapacity() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-byte-cap-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(
+            codex: codex,
+            projectionByteCapacity: 1
+        )
+        coordinator.selectParent("parent")
+
+        await transport.sendParentDiscovery()
+        try await eventually {
+            coordinator.diagnostics.childProjectionCount >= 1
+                && coordinator.diagnostics.projectionEvictionCount >= 1
+        }
+
+        #expect(coordinator.agents.count == 1)
+        #expect(coordinator.agents[0].transcript.turns.isEmpty)
+        #expect(coordinator.retainedProjectionEstimatedByteCount == 0)
 
         await coordinator.disconnect()
         await codex.close()
