@@ -83,12 +83,18 @@ public struct CodexSubagentState: Identifiable, Equatable, Sendable {
         case failed
     }
 
+    enum TranscriptAvailability: Equatable, Sendable {
+        case available
+        case exceedsDisplayLimit
+    }
+
     public let id: String
     public var name: String
     public var title: String
     public var prompt: String
     public var status: Status
     public var transcript: CodexTranscriptV2
+    var transcriptAvailability: TranscriptAvailability
     public var createdAt: Date
     public var completedAt: Date?
 
@@ -108,6 +114,7 @@ public struct CodexSubagentState: Identifiable, Equatable, Sendable {
         self.prompt = prompt
         self.status = status
         self.transcript = transcript
+        self.transcriptAvailability = .available
         self.createdAt = createdAt
         self.completedAt = completedAt
     }

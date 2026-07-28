@@ -103,7 +103,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         await codex.close()
     }
 
-    @Test func activeChildProjectionCannotExceedEstimatedByteCapacity() async throws {
+    @Test func overCapacityActiveChildSuppressesProjectionUntilReselected() async throws {
         let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent(
                 "codexcore-subagent-byte-cap-\(UUID().uuidString)",
@@ -126,11 +126,54 @@ struct CodexSubagentPresentationCoordinatorTests {
         try await eventually {
             coordinator.diagnostics.childProjectionCount >= 1
                 && coordinator.diagnostics.projectionEvictionCount >= 1
+                && coordinator.diagnostics.childLeaseReleaseCount >= 1
         }
 
         #expect(coordinator.agents.count == 1)
         #expect(coordinator.agents[0].transcript.turns.isEmpty)
+        #expect(coordinator.agents[0].nickname == "Scout")
         #expect(coordinator.retainedProjectionEstimatedByteCount == 0)
+        let backgroundScheduleCount = coordinator.diagnostics.childProjectionScheduleCount
+        let backgroundProjectionCount = coordinator.diagnostics.childProjectionCount
+        let backgroundEvictionCount = coordinator.diagnostics.projectionEvictionCount
+        let backgroundIndexCount = coordinator.diagnostics.indexSnapshotCount
+
+        await transport.sendChildDelta(" ignored while suppressed")
+        try await eventually {
+            coordinator.diagnostics.indexSnapshotCount > backgroundIndexCount
+        }
+        #expect(coordinator.diagnostics.childProjectionScheduleCount == backgroundScheduleCount)
+        #expect(coordinator.diagnostics.childProjectionCount == backgroundProjectionCount)
+
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.diagnostics.childProjectionScheduleCount > backgroundScheduleCount
+                && coordinator.diagnostics.childProjectionCount > backgroundProjectionCount
+                && coordinator.diagnostics.projectionEvictionCount > backgroundEvictionCount
+                && coordinator.panelSubagents.first?.transcriptAvailability
+                    == .exceedsDisplayLimit
+        }
+        #expect(coordinator.agents[0].transcript.turns.isEmpty)
+        #expect(coordinator.retainedProjectionEstimatedByteCount == 0)
+        let selectedScheduleCount = coordinator.diagnostics.childProjectionScheduleCount
+        let selectedProjectionCount = coordinator.diagnostics.childProjectionCount
+        let selectedEvictionCount = coordinator.diagnostics.projectionEvictionCount
+
+        coordinator.selectTranscript("child")
+        #expect(coordinator.diagnostics.childProjectionScheduleCount == selectedScheduleCount)
+
+        coordinator.selectTranscript(nil)
+        #expect(
+            coordinator.panelSubagents.first?.transcriptAvailability == .available
+        )
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.diagnostics.childProjectionScheduleCount > selectedScheduleCount
+                && coordinator.diagnostics.childProjectionCount > selectedProjectionCount
+                && coordinator.diagnostics.projectionEvictionCount > selectedEvictionCount
+                && coordinator.panelSubagents.first?.transcriptAvailability
+                    == .exceedsDisplayLimit
+        }
 
         await coordinator.disconnect()
         await codex.close()

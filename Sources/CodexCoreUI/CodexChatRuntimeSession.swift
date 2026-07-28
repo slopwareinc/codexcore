@@ -72,6 +72,11 @@ public final class CodexChatRuntimeSession {
         subagentCoordinator?.selectParent(threadID)
     }
 
+    /// Updates the subagent transcript currently visible in the agent panel.
+    public func selectSubagentTranscript(_ threadID: String?) {
+        subagentCoordinator?.selectTranscript(threadID.map { ThreadID($0) })
+    }
+
     /// Connects every runtime projection to one public facade and therefore one
     /// ordered `CodexSession` actor.
     public func connect(to codex: Codex) async {

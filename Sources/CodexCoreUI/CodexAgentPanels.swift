@@ -396,6 +396,7 @@ public struct CodexAgentSidePanel: View {
     private let onCloseFiles: (String) -> Void
     private let onCloseFilePreview: (String) -> Void
     private let onCloseSubagent: (String) -> Void
+    private let onSelectSubagentTranscript: (String?) -> Void
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
     @State private var liveResizeWidth: CGFloat?
@@ -426,6 +427,7 @@ public struct CodexAgentSidePanel: View {
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
+        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -454,6 +456,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
+        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.onClose = onClose
     }
 
@@ -484,6 +487,7 @@ public struct CodexAgentSidePanel: View {
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
+        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -512,6 +516,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
+        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.onClose = onClose
     }
 
@@ -529,8 +534,16 @@ public struct CodexAgentSidePanel: View {
         }
         .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 24, x: -8)
         .animation(nil, value: panelWidth)
-        .onAppear(perform: ensureSelection)
-        .onChange(of: tabs.map(\.id)) { _, _ in ensureSelection() }
+        .onAppear {
+            ensureSelection()
+            publishSelectedSubagent()
+        }
+        .onChange(of: tabs.map(\.id)) { _, _ in
+            ensureSelection()
+            publishSelectedSubagent()
+        }
+        .onChange(of: selectedTabID) { _, _ in publishSelectedSubagent() }
+        .onDisappear { onSelectSubagentTranscript(nil) }
     }
 
     // The deck keeps every recent chat's tool surfaces mounted at once; only the
@@ -655,6 +668,14 @@ public struct CodexAgentSidePanel: View {
         guard selectedTerminalSession == nil, selectedBrowserSession == nil,
               selectedFilesSession == nil, selectedFilePreviewSession == nil else { return nil }
         return tabs.first { $0.id == selectedTabID } ?? tabs.first
+    }
+
+    private func publishSelectedSubagent() {
+        guard case .subagent(let subagent)? = selectedTab else {
+            onSelectSubagentTranscript(nil)
+            return
+        }
+        onSelectSubagentTranscript(subagent.id)
     }
 
     private var selectedTerminalSession: CodexTerminalSession? {
@@ -985,7 +1006,9 @@ private struct CodexAgentPanelContent: View {
                 transcriptPanel(
                     transcript: subagent.transcript,
                     transcriptID: subagent.id,
-                    empty: "No transcript returned yet."
+                    empty: subagent.transcriptAvailability == .exceedsDisplayLimit
+                        ? "This transcript exceeds the in-memory display limit."
+                        : "No transcript returned yet."
                 ) {
                     subagentHeader(subagent)
                 }

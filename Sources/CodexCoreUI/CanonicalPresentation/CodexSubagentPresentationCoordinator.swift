@@ -64,6 +64,8 @@ public final class CodexSubagentPresentationCoordinator {
     @ObservationIgnored private var removedIndexedChildIDs: Set<ThreadID> = []
     @ObservationIgnored private var terminalChildIDs: Set<ThreadID> = []
     @ObservationIgnored private var projectionLRU: [ThreadID] = []
+    @ObservationIgnored private var suppressedProjectionThreadIDs: Set<ThreadID> = []
+    @ObservationIgnored private var demandedProjectionThreadID: ThreadID?
     @ObservationIgnored private var childRuntimes: [ThreadID: ChildRuntime] = [:]
     @ObservationIgnored private var parentObservationTask: Task<Void, Never>?
     @ObservationIgnored private var indexObservationTask: Task<Void, Never>?
@@ -167,14 +169,23 @@ public final class CodexSubagentPresentationCoordinator {
         store.retainedProjectionEstimatedByteCount
     }
 
-    /// Returns the currently cached child transcript and marks it most recent.
-    /// If a terminal projection was evicted, this starts a fresh exact lease so
-    /// the caller eventually receives a complete canonical projection again.
-    public func transcript(threadID: ThreadID) -> CodexTranscriptV2? {
-        guard store.contains(threadID: threadID.rawValue) else { return nil }
-        if touchProjection(threadID, protecting: threadID) {
-            refreshMapperAndPublish()
+    /// Selects the child transcript that is currently visible in the agent panel.
+    ///
+    /// Selection is the only demand signal that can reacquire a projection
+    /// suppressed by the retention limits. Repeating the same selection is a
+    /// no-op so an oversized projection cannot rebuild/evict in a loop.
+    func selectTranscript(_ threadID: ThreadID?) {
+        guard demandedProjectionThreadID != threadID else { return }
+        demandedProjectionThreadID = threadID
+        guard let threadID,
+              store.contains(threadID: threadID.rawValue)
+        else {
+            publish()
+            return
         }
+
+        suppressedProjectionThreadIDs.remove(threadID)
+        let didEvict = touchProjection(threadID, protecting: threadID)
         let transcript = store.agent(threadID: threadID.rawValue)?.transcript
         if transcript?.turns.isEmpty == true,
            childRuntimes[threadID] == nil,
@@ -182,7 +193,18 @@ public final class CodexSubagentPresentationCoordinator {
             terminalChildIDs.remove(threadID)
             acquireChild(threadID, parentThreadID: parentThreadID, generation: generation)
         }
-        return transcript
+        if didEvict {
+            refreshMapperAndPublish()
+        } else {
+            publish()
+        }
+    }
+
+    /// Returns the currently cached child transcript and marks it as selected.
+    public func transcript(threadID: ThreadID) -> CodexTranscriptV2? {
+        guard store.contains(threadID: threadID.rawValue) else { return nil }
+        selectTranscript(threadID)
+        return store.agent(threadID: threadID.rawValue)?.transcript
     }
 }
 
@@ -290,8 +312,15 @@ private extension CodexSubagentPresentationCoordinator {
         for id in store.threadIDs where !desired.contains(id) {
             store.remove(threadID: id)
             projectionLRU.removeAll { $0 == id }
+            suppressedProjectionThreadIDs.remove(id)
+            if demandedProjectionThreadID == id {
+                demandedProjectionThreadID = nil
+            }
         }
-        for id in desired where childRuntimes[id] == nil && !terminalChildIDs.contains(id) {
+        for id in desired
+        where childRuntimes[id] == nil
+            && !terminalChildIDs.contains(id)
+            && !suppressedProjectionThreadIDs.contains(id) {
             acquireChild(id, parentThreadID: parentThreadID, generation: generation)
         }
     }
@@ -500,12 +529,12 @@ private extension CodexSubagentPresentationCoordinator {
         }
 
         diagnostics.childProjectionCount += 1
-        touchProjection(threadID)
+        touchProjection(threadID, protecting: demandedProjectionThreadID)
         if completed.isTerminalAndHydrated {
             terminalChildIDs.insert(threadID)
             releaseChildLease(threadID, retainProjection: true)
         }
-        evictProjectionOverflow()
+        evictProjectionOverflow(protecting: demandedProjectionThreadID)
         refreshMapperAndPublish()
     }
 
@@ -519,6 +548,10 @@ private extension CodexSubagentPresentationCoordinator {
     func releaseAndRemoveChild(_ threadID: ThreadID) {
         releaseChildLease(threadID, retainProjection: false)
         terminalChildIDs.remove(threadID)
+        suppressedProjectionThreadIDs.remove(threadID)
+        if demandedProjectionThreadID == threadID {
+            demandedProjectionThreadID = nil
+        }
         projectionLRU.removeAll { $0 == threadID }
         store.remove(threadID: threadID)
     }
@@ -565,9 +598,18 @@ private extension CodexSubagentPresentationCoordinator {
             || store.retainedProjectionEstimatedByteCount > projectionByteCapacity {
             guard let candidate = projectionLRU.first(where: {
                 $0 != protectedThreadID
-            }) else { return didEvict }
+            }) ?? projectionLRU.first else { return didEvict }
             projectionLRU.removeAll { $0 == candidate }
-            store.evictTranscript(threadID: candidate)
+            let suppressesActiveProjection = childRuntimes[candidate] != nil
+            let exceedsHardLimitWhileDemanded = candidate == protectedThreadID
+            if suppressesActiveProjection || exceedsHardLimitWhileDemanded {
+                suppressedProjectionThreadIDs.insert(candidate)
+            }
+            if suppressesActiveProjection {
+                releaseChildLease(candidate, retainProjection: false)
+            } else {
+                store.evictTranscript(threadID: candidate)
+            }
             diagnostics.projectionEvictionCount += 1
             didEvict = true
         }
@@ -588,7 +630,15 @@ private extension CodexSubagentPresentationCoordinator {
 
     func publish(_ projectedAgents: [CodexSubagentV2]? = nil) {
         agents = projectedAgents ?? store.agents
-        panelSubagents = mapper.subagents
+        panelSubagents = mapper.subagents.map { subagent in
+            var subagent = subagent
+            let threadID = ThreadID(subagent.id)
+            if demandedProjectionThreadID == threadID,
+               suppressedProjectionThreadIDs.contains(threadID) {
+                subagent.transcriptAvailability = .exceedsDisplayLimit
+            }
+            return subagent
+        }
         lifecycleEvents = mapper.lifecycleEvents
         changeRevision &+= 1
     }
@@ -601,6 +651,8 @@ private extension CodexSubagentPresentationCoordinator {
         removedIndexedChildIDs.removeAll(keepingCapacity: false)
         terminalChildIDs.removeAll(keepingCapacity: false)
         projectionLRU.removeAll(keepingCapacity: false)
+        suppressedProjectionThreadIDs.removeAll(keepingCapacity: false)
+        demandedProjectionThreadID = nil
         store.removeAll()
         mapper.reset()
     }

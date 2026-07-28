@@ -436,6 +436,9 @@ struct CodexCoreAppShell: View {
                     model.addReferencedFileURLs(urls, to: threadID)
                 },
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
+                onSelectSubagentTranscript: {
+                    model.runtimeSession.selectSubagentTranscript($0)
+                },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
                 onRefreshMCPServers: { Task { await model.refreshMCPServers() } },
                 onToggleSidebar: collapsePinnedSidebar,

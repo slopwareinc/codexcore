@@ -104,6 +104,7 @@ public struct CodexChatWorkspaceView: View {
     private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
     private let onCloseTranscriptMessage: ((UUID) -> Void)?
+    private let onSelectSubagentTranscript: (String?) -> Void
     private let onOpenMCPDetails: (() -> Void)?
     private let onRefreshMCPServers: (() -> Void)?
     private let onToggleSidebar: () -> Void
@@ -123,6 +124,8 @@ public struct CodexChatWorkspaceView: View {
     @State private var composerOverlayHeight: CGFloat = 170
     @State private var hiddenSubagentTabIDs: Set<String> = []
 
+    /// Creates a workspace and reports the subagent transcript currently visible
+    /// in its side panel through `onSelectSubagentTranscript`.
     public init(
         presentationStore: CodexPresentationStore,
         lifecycleEvents: [CodexAgentLifecycleEvent] = [],
@@ -181,6 +184,7 @@ public struct CodexChatWorkspaceView: View {
         onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
         onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
+        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         onOpenMCPDetails: (() -> Void)? = nil,
         onRefreshMCPServers: (() -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
@@ -251,6 +255,7 @@ public struct CodexChatWorkspaceView: View {
         self.onFilesDropped = onFilesDropped
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onCloseTranscriptMessage = onCloseTranscriptMessage
+        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onRefreshMCPServers = onRefreshMCPServers
         self.onToggleSidebar = onToggleSidebar
@@ -588,6 +593,7 @@ public struct CodexChatWorkspaceView: View {
             onCloseFiles: closeFilesTab,
             onCloseFilePreview: closeFilePreviewTab,
             onCloseSubagent: closeSubagentTab,
+            onSelectSubagentTranscript: onSelectSubagentTranscript,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
         )
     }
