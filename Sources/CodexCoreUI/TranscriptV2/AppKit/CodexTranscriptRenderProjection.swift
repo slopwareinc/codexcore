@@ -180,6 +180,20 @@ final class CodexPreparedTranscriptText: @unchecked Sendable {
     }
 }
 
+enum CodexTranscriptCopyPayload: @unchecked Sendable {
+    case text(String)
+    case exactPatch(CodexExactPatchSliceV2)
+
+    func materialized() -> String {
+        switch self {
+        case .text(let text):
+            text
+        case .exactPatch(let slice):
+            slice.materialized()
+        }
+    }
+}
+
 struct CodexTranscriptRenderItem: @unchecked Sendable {
     var id: CodexTranscriptRenderItemID
     var sectionID: String
@@ -197,7 +211,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var directive: CodexTranscriptDirectiveRender?
     var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
-    var copyText: String?
+    var copyPayload: CodexTranscriptCopyPayload?
     var editUserText: String?
     var copyTurnText: String
     var allowsTextSelection: Bool
@@ -211,6 +225,14 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var measuredHeight: CGFloat
     var bottomSpacing: CGFloat
     var isScrollableOutput: Bool
+
+    /// Compatibility access for callers that explicitly request copy text.
+    /// AppKit visibility paths inspect `copyPayload` and avoid materializing a
+    /// legacy exact-patch slice.
+    var copyText: String? {
+        get { copyPayload?.materialized() }
+        set { copyPayload = newValue.map(CodexTranscriptCopyPayload.text) }
+    }
 }
 
 struct CodexTranscriptRenderDiagnostics: Sendable, Equatable {
@@ -315,6 +337,30 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
 }
 
 actor CodexTranscriptRenderProjector {
+    private static let preparedTextCacheEntryCapacity = 8_192
+
+    private struct PreparedTextCacheEntry {
+        var text: CodexPreparedTranscriptText
+        var estimatedRetainedByteCount: Int
+        var nextKey: String?
+    }
+
+    private struct SaturatingByteEstimate {
+        private(set) var total = 0
+
+        mutating func add(_ value: Int) {
+            guard value > 0, total != .max else { return }
+            let (sum, overflow) = total.addingReportingOverflow(value)
+            total = overflow ? .max : sum
+        }
+
+        mutating func addProduct(_ lhs: Int, _ rhs: Int) {
+            guard lhs > 0, rhs > 0 else { return }
+            let (product, overflow) = lhs.multipliedReportingOverflow(by: rhs)
+            add(overflow ? .max : product)
+        }
+    }
+
     private struct RevisionState {
         var fingerprint: String
         var revision: Int
@@ -331,11 +377,26 @@ actor CodexTranscriptRenderProjector {
     private var sourceTextBySourceID: [String: String] = [:]
     private var revisionByID: [CodexTranscriptRenderItemID: RevisionState] = [:]
     private var heightByKey: [HeightKey: CGFloat] = [:]
-    private var preparedTextByKey: [String: CodexPreparedTranscriptText] = [:]
-    private var preparedTextInsertionOrder: [String] = []
+    private var preparedTextByKey: [String: PreparedTextCacheEntry] = [:]
+    private var oldestPreparedTextKey: String?
+    private var newestPreparedTextKey: String?
+    private var preparedTextEstimatedRetainedByteCount = 0
     private var imageAspectRatioBySource: [String: CGFloat] = [:]
     private var projectionCount = 0
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
+    private let preparedTextCacheByteCapacity: Int
+
+    init(preparedTextCacheByteCapacity: Int = 8 * 1_024 * 1_024) {
+        self.preparedTextCacheByteCapacity = max(0, preparedTextCacheByteCapacity)
+    }
+
+    var preparedTextCacheRetainedByteCount: Int {
+        preparedTextEstimatedRetainedByteCount
+    }
+
+    var preparedTextCacheEntryCount: Int {
+        preparedTextByKey.count
+    }
 
     func project(
         presentation: CodexThreadUIPresentation,
@@ -412,7 +473,7 @@ actor CodexTranscriptRenderProjector {
                     directive: draft.directive,
                     approval: draft.approval,
                     action: draft.action,
-                    copyText: draft.copyText,
+                    copyPayload: draft.copyPayload,
                     editUserText: draft.editUserText,
                     copyTurnText: copyTurnText,
                     allowsTextSelection: allowsTextSelection,
@@ -611,6 +672,7 @@ actor CodexTranscriptRenderProjector {
                                 let displayPatch = selectedPreparedChange.displayPatch
                                 let prepared = cachedPreparedText(
                                     content: displayPatch, style: "diff-file", theme: theme,
+                                    cacheFingerprint: selectedPreparedChange.fingerprint,
                                     cacheHits: &preparedTextCacheHits, cacheMisses: &preparedTextCacheMisses
                                 ) {
                                     Self.prepareDiffFile(
@@ -618,10 +680,16 @@ actor CodexTranscriptRenderProjector {
                                         theme: theme
                                     )
                                 }
-                                let exactCopy: String? = {
-                                    fileChange.exactChange(
+                                let copyPayload: CodexTranscriptCopyPayload? = {
+                                    if let exactChange = fileChange.exactChange(
                                         forPreparedChangeID: selectedPreparedChange.changeID
-                                    )?.diff ?? fileChange.diff
+                                    ) {
+                                        return .text(exactChange.diff)
+                                    }
+                                    if let exactPatch = selectedPreparedChange.exactPatch {
+                                        return .exactPatch(exactPatch)
+                                    }
+                                    return fileChange.diff.map(CodexTranscriptCopyPayload.text)
                                 }()
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):diff-panel",
@@ -632,7 +700,7 @@ actor CodexTranscriptRenderProjector {
                                         files: diffFiles,
                                         selectedFileIndex: selectedIndex
                                     ),
-                                    copyText: exactCopy,
+                                    copyPayload: copyPayload,
                                     accessibilityLabel: "Patch for \(selectedFile.path), \(selectedFile.added) additions and \(selectedFile.removed) removals",
                                     indentation: 0,
                                     maxWidthKind: .card,
@@ -930,7 +998,7 @@ private extension CodexTranscriptRenderProjector {
         var directive: CodexTranscriptDirectiveRender?
         var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
-        var copyText: String?
+        var copyPayload: CodexTranscriptCopyPayload?
         var editUserText: String?
         var accessibilityLabel: String
         var indentation: CGFloat
@@ -957,6 +1025,7 @@ private extension CodexTranscriptRenderProjector {
             approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
             copyText: String? = nil,
+            copyPayload: CodexTranscriptCopyPayload? = nil,
             editUserText: String? = nil,
             accessibilityLabel: String,
             indentation: CGFloat = 0,
@@ -981,7 +1050,8 @@ private extension CodexTranscriptRenderProjector {
             self.directive = directive
             self.approval = approval
             self.action = action
-            self.copyText = copyText
+            self.copyPayload = copyPayload
+                ?? copyText.map(CodexTranscriptCopyPayload.text)
             self.editUserText = editUserText
             self.accessibilityLabel = accessibilityLabel
             self.indentation = indentation
@@ -1438,25 +1508,159 @@ private extension CodexTranscriptRenderProjector {
         content: String,
         style: String,
         theme: CodexTranscriptAppKitTheme,
+        cacheFingerprint: UInt64? = nil,
         cacheHits: inout Int,
         cacheMisses: inout Int,
         make: () -> CodexPreparedTranscriptText
     ) -> CodexPreparedTranscriptText {
-        let key = theme.fingerprint + ":" + style + ":" + CodexBlockDigest.digest(content)
+        let contentKey = cacheFingerprint.map { String($0, radix: 16) }
+            ?? CodexBlockDigest.digest(content)
+        let key = theme.fingerprint + ":" + style + ":" + contentKey
         if let cached = preparedTextByKey[key] {
             cacheHits += 1
-            return cached
+            return cached.text
         }
         let prepared = make()
-        preparedTextByKey[key] = prepared
-        preparedTextInsertionOrder.append(key)
         cacheMisses += 1
-        if preparedTextInsertionOrder.count > 8_192 {
-            let expired = Array(preparedTextInsertionOrder.prefix(1_024))
-            preparedTextInsertionOrder.removeFirst(1_024)
-            for key in expired { preparedTextByKey.removeValue(forKey: key) }
+        guard let estimatedBytes = Self.estimatedPreparedTextCacheByteCount(
+            key: key,
+            content: content,
+            prepared: prepared
+        ), estimatedBytes < .max,
+           estimatedBytes <= preparedTextCacheByteCapacity
+        else {
+            return prepared
         }
+
+        while preparedTextByKey.count >= Self.preparedTextCacheEntryCapacity {
+            guard evictOldestPreparedText() else { return prepared }
+        }
+        let maximumExistingBytes = preparedTextCacheByteCapacity - estimatedBytes
+        while preparedTextEstimatedRetainedByteCount > maximumExistingBytes {
+            guard evictOldestPreparedText() else { return prepared }
+        }
+        if let newestPreparedTextKey {
+            preparedTextByKey[newestPreparedTextKey]?.nextKey = key
+        } else {
+            oldestPreparedTextKey = key
+        }
+        preparedTextByKey[key] = .init(
+            text: prepared,
+            estimatedRetainedByteCount: estimatedBytes,
+            nextKey: nil
+        )
+        newestPreparedTextKey = key
+        let (sum, overflow) = preparedTextEstimatedRetainedByteCount
+            .addingReportingOverflow(estimatedBytes)
+        preparedTextEstimatedRetainedByteCount = overflow ? .max : sum
         return prepared
+    }
+
+    func evictOldestPreparedText() -> Bool {
+        guard let key = oldestPreparedTextKey,
+              let removed = preparedTextByKey.removeValue(forKey: key)
+        else {
+            oldestPreparedTextKey = nil
+            newestPreparedTextKey = nil
+            preparedTextByKey.removeAll(keepingCapacity: false)
+            preparedTextEstimatedRetainedByteCount = 0
+            return false
+        }
+        oldestPreparedTextKey = removed.nextKey
+        if removed.nextKey == nil {
+            newestPreparedTextKey = nil
+            preparedTextByKey.removeAll(keepingCapacity: false)
+        }
+        if removed.estimatedRetainedByteCount >= preparedTextEstimatedRetainedByteCount {
+            preparedTextEstimatedRetainedByteCount = 0
+        } else {
+            preparedTextEstimatedRetainedByteCount -= removed.estimatedRetainedByteCount
+        }
+        return true
+    }
+
+    static func estimatedPreparedTextCacheByteCount(
+        key: String,
+        content: String,
+        prepared: CodexPreparedTranscriptText
+    ) -> Int? {
+        var estimate = SaturatingByteEstimate()
+        estimate.add(content.utf8.count)
+        let attributedString = prepared.attributedString
+        estimate.addProduct(attributedString.length, 8)
+        estimate.add(MemoryLayout<PreparedTextCacheEntry>.stride)
+
+        // Dictionary bucket/key, prepared-text heap roots, and the linked FIFO
+        // order key. Charge key payload twice because order bookkeeping may
+        // retain its own String storage.
+        estimate.add(256)
+        estimate.addProduct(key.utf8.count, 2)
+
+        var supportsCaching = true
+        if attributedString.length > 0 {
+            attributedString.enumerateAttributes(
+                in: NSRange(location: 0, length: attributedString.length)
+            ) { attributes, _, stop in
+                estimate.add(128)
+                estimate.addProduct(attributes.count, 64)
+                for (attributeKey, value) in attributes {
+                    estimate.add(attributeKey.rawValue.utf8.count)
+                    guard addAttributeValue(value, to: &estimate) else {
+                        supportsCaching = false
+                        stop.pointee = true
+                        return
+                    }
+                }
+            }
+        }
+        return supportsCaching ? estimate.total : nil
+    }
+
+    static func addAttributeValue(
+        _ value: Any,
+        to estimate: inout SaturatingByteEstimate
+    ) -> Bool {
+        switch value {
+        case is NSTextAttachment:
+            return false
+        case let url as URL:
+            estimate.add(128)
+            estimate.add(url.absoluteString.utf8.count)
+        case let string as String:
+            estimate.add(64)
+            estimate.add(string.utf8.count)
+        case let paragraphStyle as NSParagraphStyle:
+            estimate.add(256)
+            estimate.addProduct(paragraphStyle.tabStops.count, 128)
+            for tabStop in paragraphStyle.tabStops {
+                estimate.addProduct(tabStop.options.count, 64)
+                for (optionKey, optionValue) in tabStop.options {
+                    estimate.add(String(describing: optionKey).utf8.count)
+                    guard addAttributeValue(optionValue, to: &estimate) else {
+                        return false
+                    }
+                }
+            }
+            estimate.addProduct(paragraphStyle.textLists.count, 192)
+            for textList in paragraphStyle.textLists {
+                estimate.add(String(describing: textList.markerFormat).utf8.count)
+            }
+            estimate.addProduct(paragraphStyle.textBlocks.count, 384)
+            for textBlock in paragraphStyle.textBlocks {
+                estimate.add(textBlock is NSTextTableBlock ? 512 : 192)
+            }
+        case is NSFont, is NSColor:
+            estimate.add(96)
+        case is NSNumber, is NSValue:
+            estimate.add(64)
+        case is NSShadow:
+            estimate.add(160)
+        default:
+            // Unknown attribute objects may retain arbitrary graphs. They are
+            // rendered normally but deliberately excluded from this cache.
+            return false
+        }
+        return true
     }
 
     static func measure(

@@ -333,10 +333,38 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(panel.diffPanel?.files.count == 2)
         #expect(panel.diffPanel?.selectedFileIndex == 1)
         #expect(panel.diffPanel?.selectedFile?.path == "B.swift")
-        #expect(panel.copyText?.contains("B.swift") == true)
+        guard let copyPayload = panel.copyPayload,
+              case .exactPatch = copyPayload
+        else {
+            Issue.record("Expected a lazy legacy exact-patch copy payload")
+            return
+        }
         #expect(panel.isScrollableOutput)
         #expect(panel.measuredHeight == CodexTranscriptColumnMetrics.diffPanelHeight + 8)
         #expect(panel.bottomSpacing == 8)
+
+        var copiedPatch: String?
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: panel.measuredHeight)
+        cell.configure(
+            item: panel,
+            appKitTheme: .init(.officialDark),
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { copiedPatch = $0 },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        #expect(cell.copyButtonIsVisibleForTesting)
+        #expect(copiedPatch == nil)
+        cell.copyItemForTesting()
+        #expect(copiedPatch?.contains("B.swift") == true)
+        #expect(copiedPatch?.contains("A.swift") == false)
+        #expect(copiedPatch?.contains("-old") == false)
     }
 
     @Test func canonicalFileEntriesRenderPreparedPatchWithoutAggregateDiff() async throws {
@@ -347,7 +375,6 @@ struct CodexTranscriptRenderProjectionTests {
                     id: "files:file:Sources/Canonical.swift:0",
                     path: "Sources/Canonical.swift",
                     kind: .modified,
-                    status: .completed,
                     diff: "@@ -1 +1 @@\n-let old = true\n+let new = true"
                 ),
             ],
@@ -377,7 +404,117 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(renderedRow.workRow?.label == "Edited 1 file · +1 −1")
         let panel = try #require(snapshot.itemsByID.values.first { $0.diffPanel != nil })
         #expect(panel.diffPanel?.selectedFile?.path == "Sources/Canonical.swift")
-        #expect(panel.copyText?.contains("let new = true") == true)
+        guard let copyPayload = panel.copyPayload,
+              case .text(let canonicalCopy) = copyPayload
+        else {
+            Issue.record("Expected canonical exact change to stay a String payload")
+            return
+        }
+        #expect(canonicalCopy.contains("let new = true"))
+    }
+
+    @Test func preparedTextCacheEvictsManyShortAttributedRunsByEstimatedBytes() async throws {
+        let capacity = 90_000
+        let projector = CodexTranscriptRenderProjector(
+            preparedTextCacheByteCapacity: capacity
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let shortAlternatingLines = (0..<180).map { index in
+            index.isMultiple(of: 2) ? "+a" : "-b"
+        }.joined(separator: "\n")
+        let patch = "@@ -1,90 +1,90 @@\n\(shortAlternatingLines)"
+
+        for index in 0..<3 {
+            let row = CodexFileChangeRowV2(
+                id: "files-\(index)",
+                changes: [.init(
+                    id: "change-\(index)",
+                    path: "Sources/File\(index).swift",
+                    kind: .modified,
+                    diff: patch
+                )],
+                status: .completed
+            )
+            _ = try await projector.project(
+                presentation: .init(
+                    threadID: "thread-\(index)",
+                    transcript: .init(turns: [.init(
+                        id: "turn-\(index)",
+                        narrative: [.workGroup(.init(
+                            id: "work-\(index)",
+                            rows: [.fileChange(row)]
+                        ))],
+                        status: .done(durationMs: 1)
+                    )]),
+                    expandedWorkTurnIDs: ["turn-\(index)"],
+                    expandedRowIDs: ["work-\(index)", "files-\(index)"]
+                ),
+                availableWidth: 860,
+                theme: theme
+            )
+
+            if index == 0 {
+                let firstEntryBytes = await projector.preparedTextCacheRetainedByteCount
+                let firstEntryCount = await projector.preparedTextCacheEntryCount
+                #expect(firstEntryBytes > patch.utf8.count * 32)
+                #expect(firstEntryCount == 1)
+            }
+        }
+
+        let retainedBytes = await projector.preparedTextCacheRetainedByteCount
+        let retainedEntries = await projector.preparedTextCacheEntryCount
+        #expect(retainedBytes <= capacity)
+        #expect(retainedEntries == 1)
+    }
+
+    @Test func preparedTextCacheRejectsHugeLinkAttributesAndDenseListRuns() async throws {
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let hugeDestination = "https://example.com/"
+            + String(repeating: "a", count: 32_000)
+        let linkProjector = CodexTranscriptRenderProjector(
+            preparedTextCacheByteCapacity: 8_000
+        )
+        _ = try await linkProjector.project(
+            presentation: .init(
+                threadID: "link-thread",
+                transcript: .init(turns: [.init(
+                    id: "link-turn",
+                    finalAnswer: .init(
+                        id: "link-answer",
+                        text: "[x](\(hugeDestination))",
+                        isStreaming: false
+                    ),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let linkEntryCount = await linkProjector.preparedTextCacheEntryCount
+        #expect(linkEntryCount == 0)
+
+        let denseList = (0..<160).map { "- x\($0 % 10)" }.joined(separator: "\n")
+        let listProjector = CodexTranscriptRenderProjector(
+            preparedTextCacheByteCapacity: 25_000
+        )
+        _ = try await listProjector.project(
+            presentation: .init(
+                threadID: "list-thread",
+                transcript: .init(turns: [.init(
+                    id: "list-turn",
+                    finalAnswer: .init(
+                        id: "list-answer",
+                        text: denseList,
+                        isStreaming: false
+                    ),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            availableWidth: 860,
+            theme: theme
+        )
+        let listEntryCount = await listProjector.preparedTextCacheEntryCount
+        #expect(listEntryCount == 0)
     }
 
     @Test func collapsedLargeCanonicalPatchStaysBoundedAndExpandedCopyIsExact() async throws {
@@ -389,7 +526,6 @@ struct CodexTranscriptRenderProjectionTests {
                 id: "change",
                 path: "Sources/Large.swift",
                 kind: .modified,
-                status: .completed,
                 diff: exactDiff
             )],
             status: .completed
@@ -413,7 +549,9 @@ struct CodexTranscriptRenderProjectionTests {
 
         #expect(collapsed.itemsByID.values.allSatisfy { $0.diffPanel == nil })
         #expect(
-            collapsed.itemsByID.values.first { $0.workRow?.kind == .fileChange }?.copyText == nil
+            collapsed.itemsByID.values.first {
+                $0.workRow?.kind == .fileChange
+            }?.copyPayload == nil
         )
         #expect(
             row.retainedPreparedUTF8ByteCount
@@ -433,7 +571,13 @@ struct CodexTranscriptRenderProjectionTests {
         )
         let panel = try #require(expanded.itemsByID.values.first { $0.diffPanel != nil })
 
-        #expect(panel.copyText == exactDiff)
+        guard let copyPayload = panel.copyPayload,
+              case .text(let canonicalCopy) = copyPayload
+        else {
+            Issue.record("Expected canonical exact change to stay a String payload")
+            return
+        }
+        #expect(canonicalCopy == exactDiff)
         #expect(panel.preparedText?.attributedString.length ?? .max < exactDiff.utf8.count)
     }
 

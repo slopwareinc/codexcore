@@ -775,7 +775,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row, isActionable: isActionable)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
-            if row.isExpanded && item.copyText != nil {
+            if row.isExpanded && item.copyPayload != nil {
                 ensureCopyControl()
                 copyButton.isHidden = false
                 copyButton.toolTip = "Copy output"
@@ -1668,7 +1668,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     @objc private func copyItem(_ sender: Any?) {
-        guard let text = item?.copyText else { return }
+        guard let text = item?.copyPayload?.materialized() else { return }
         copy?(text)
         if let button = sender as? NSButton { flashCopyConfirmation(button) }
     }
@@ -1701,7 +1701,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private func makeContextMenu() -> NSMenu? {
         guard let item else { return nil }
         let menu = NSMenu()
-        if item.copyText != nil {
+        if item.copyPayload != nil {
             let title: String = if item.code != nil { "Copy code" }
                 else if item.textRole == .expandedOutput { "Copy output" }
                 else if item.textRole == .finalAnswer || item.footer?.kind == .finalAnswer { "Copy final answer" }
