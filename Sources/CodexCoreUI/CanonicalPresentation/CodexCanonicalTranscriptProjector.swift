@@ -31,6 +31,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         requests: [CodexPendingInteractionSnapshot] = [],
         requestRevision: UInt64 = 0,
         previous: CodexCanonicalTranscriptPresentation?,
+        selectedTurnCostRecording: CodexSelectedTurnDisplayCostRecording? = nil,
         checkpoint: () throws -> Void
     ) rethrows -> CodexCanonicalTranscriptProjectionResult {
         try checkpoint()
@@ -126,8 +127,12 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
                 turnsByID.removeValue(forKey: turnID)
                 continue
             }
+            let displayCost = try selectedTurnCostRecording?.record(
+                turnID, projected: projected, items: items,
+                intents: visibleIntentByTurn[turnID] ?? [], checkpoint: checkpoint)
             turnsByID[turnID] = projected
             upsertedTurns.append(projected)
+            if case .exceedsLimit? = displayCost { break }
         }
 
         // A dirty hint can name a missing turn. Never retain it just because an

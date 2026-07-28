@@ -149,23 +149,15 @@ extension CodexSubagentStoreV2 {
     }
 }
 
-/// A rebuildable child-thread projection cache.
+/// Lightweight child identity and lifecycle state.
 ///
 /// Parent snapshots only discover children and update collaboration lifecycle.
-/// Child transcript content is accepted exclusively from that child's scoped
-/// canonical snapshot, normally while a `CodexThreadLease` is held by
-/// `CodexSubagentPresentationCoordinator`.
+/// The production coordinator overlays its sole selected transcript without
+/// retaining child presentations here. `applyChildSnapshot` remains a standalone
+/// value API for hosts that render `CodexSubagentsPanelV2` directly.
 public struct CodexSubagentStoreV2: Sendable {
     private var agentsByID: [String: CodexSubagentV2] = [:]
     private var discoveriesByID: [String: CodexSubagentDiscoveryV2] = [:]
-    private var canonicalPresentationsByID: [
-        String: CodexCanonicalTranscriptPresentation
-    ] = [:]
-    private var retentionMetricsByID: [
-        String: CodexCanonicalTranscriptRetentionMetrics
-    ] = [:]
-    private var retainedProjectionByteCountByID: [String: Int] = [:]
-    private var retainedProjectionByteCount = 0
 
     public init() {}
 
@@ -192,20 +184,6 @@ public struct CodexSubagentStoreV2: Sendable {
 
     public func agent(threadID: String) -> CodexSubagentV2? { agentsByID[threadID] }
     public func contains(threadID: String) -> Bool { agentsByID[threadID] != nil }
-
-    var retainedProjectionEstimatedByteCount: Int {
-        retainedProjectionByteCount
-    }
-
-    func retainedProjectionEstimatedByteCount(threadID: ThreadID) -> Int {
-        retainedProjectionByteCountByID[threadID.rawValue] ?? 0
-    }
-
-    func retentionMetrics(
-        threadID: ThreadID
-    ) -> CodexCanonicalTranscriptRetentionMetrics? {
-        retentionMetricsByID[threadID.rawValue]
-    }
 
     /// Discovers direct children from parent collaboration items. This works at
     /// the exact frame that announces a child, before thread metadata arrives.
@@ -306,33 +284,35 @@ public struct CodexSubagentStoreV2: Sendable {
         ), applyChildSnapshotMetadata(summary) else {
             return false
         }
-        let previousMetrics = retentionMetrics(threadID: threadID)
-        let result = Self.projectChildSnapshot(
-            snapshot,
-            threadID: threadID,
-            previous: canonicalPresentation(threadID: threadID)
-        )
-        let transcript = result.presentation.transcript
-        let metrics = result.presentation.retentionMetrics(
-            previous: previousMetrics,
-            update: result.update
-        )
-        return applyChildProjection(
-            result,
-            threadID: threadID,
-            expectedRevision: snapshot.revision,
-            transcript: transcript,
-            retentionMetrics: metrics
-        )
+        let result: CodexCanonicalTranscriptProjectionResult
+        do {
+            result = try Self.projectChildSnapshot(
+                snapshot,
+                threadID: threadID,
+                previous: nil
+            )
+        } catch {
+            return false
+        }
+        agentsByID[threadID.rawValue]?.transcript = result.presentation.transcript
+        return true
     }
 
     /// Applies only the inexpensive identity and lifecycle portion of a child
-    /// snapshot. The coordinator performs transcript projection off-main, then
-    /// commits it through `applyChildProjection`.
+    /// snapshot. The coordinator performs transcript projection off-main and
+    /// owns the selected transcript outside this metadata store.
     @discardableResult
     mutating func applyChildSnapshotMetadata(
         _ summary: CodexSubagentChildSnapshotSummary
     ) -> Bool {
+        applyChildSnapshotMetadataReportingChanges(summary) != nil
+    }
+
+    /// Returns nil only when the child cannot be materialized; otherwise the
+    /// value reports whether visible identity or lifecycle metadata changed.
+    mutating func applyChildSnapshotMetadataReportingChanges(
+        _ summary: CodexSubagentChildSnapshotSummary
+    ) -> Bool? {
         let threadID = summary.threadID
         let id = threadID.rawValue
         if agentsByID[id] == nil {
@@ -342,7 +322,8 @@ public struct CodexSubagentStoreV2: Sendable {
                 agentPath: summary.metadata.path
             ))
         }
-        guard var agent = agentsByID[id] else { return false }
+        guard var agent = agentsByID[id] else { return nil }
+        let previous = agent
 
         agent.nickname = summary.metadata.agentNickname ?? agent.nickname
         agent.role = summary.metadata.agentRole ?? agent.role
@@ -364,82 +345,79 @@ public struct CodexSubagentStoreV2: Sendable {
             Date(timeIntervalSince1970: TimeInterval($0.rawValue))
         }
         agentsByID[id] = agent
-        return true
-    }
-
-    func canonicalPresentation(
-        threadID: ThreadID
-    ) -> CodexCanonicalTranscriptPresentation? {
-        canonicalPresentationsByID[threadID.rawValue]
+        return previous.agentPath != agent.agentPath
+            || previous.nickname != agent.nickname
+            || previous.role != agent.role
+            || previous.depth != agent.depth
+            || previous.parentThreadID != agent.parentThreadID
+            || previous.status != agent.status
+            || previous.createdAt != agent.createdAt
+            || previous.completedAt != agent.completedAt
     }
 
     static func projectChildSnapshot(
         _ snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
         previous: CodexCanonicalTranscriptPresentation?
-    ) -> CodexCanonicalTranscriptProjectionResult {
+    ) throws -> CodexCanonicalTranscriptProjectionResult {
         let projector = CodexCanonicalTranscriptProjector()
-        return (
-            try? projector.project(
+        do {
+            return try projector.project(
                 snapshot: snapshot,
                 threadID: threadID,
                 previous: previous
             )
-        ) ?? projector.rebuild(snapshot: snapshot, threadID: threadID)
-    }
-
-    /// Commits a completed pure projection only when it still represents the
-    /// exact scheduled child snapshot and cannot regress the retained cache.
-    @discardableResult
-    mutating func applyChildProjection(
-        _ result: CodexCanonicalTranscriptProjectionResult,
-        threadID: ThreadID,
-        expectedRevision: StateRevision,
-        transcript: CodexTranscriptV2? = nil,
-        retentionMetrics suppliedMetrics:
-            CodexCanonicalTranscriptRetentionMetrics? = nil
-    ) -> Bool {
-        let id = threadID.rawValue
-        guard var agent = agentsByID[id],
-              result.presentation.threadID == threadID,
-              result.presentation.sourceRevision == expectedRevision,
-              canonicalPresentationsByID[id].map({
-                  $0.sourceRevision <= result.presentation.sourceRevision
-              }) ?? true
-        else {
-            return false
-        }
-
-        if let suppliedMetrics {
-            guard suppliedMetrics.threadID == threadID,
-                  suppliedMetrics.sourceRevision == expectedRevision
-            else {
-                return false
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as CodexCanonicalTranscriptProjectionError {
+            switch error {
+            case .staleSourceRevision, .staleRequestRevision:
+                break
             }
-        }
-        let committedTranscript = transcript ?? result.presentation.transcript
-        let metrics = suppliedMetrics ?? result.presentation.retentionMetrics(
-            previous: retentionMetricsByID[id],
-            update: result.update
-        )
-        replaceCanonicalPresentation(
-            result.presentation,
-            threadID: id,
-            retentionMetrics: metrics,
-            estimatedRetainedByteCount: metrics.estimatedProjectionByteCount(
-                transcriptTurnCount: committedTranscript.turns.count
+            try Task.checkCancellation()
+            return try projector.project(
+                snapshot: snapshot,
+                threadID: threadID,
+                previous: nil
             )
-        )
-        agent.transcript = committedTranscript
-        agentsByID[id] = agent
-        return true
+        }
     }
 
-    /// Drops only the heavy transcript projection. Identity and live status stay
-    /// available for the overview and can be rehydrated by reacquiring a lease.
+    static func projectSelectedChildSnapshot(
+        _ snapshot: CanonicalStateSnapshot,
+        threadID: ThreadID,
+        previous: CodexCanonicalTranscriptPresentation?,
+        displayCostLimit: Int
+    ) throws -> CodexSelectedChildProjectionOutput {
+        let projector = CodexCanonicalTranscriptProjector()
+        do {
+            return try projector.projectSelectedChild(
+                snapshot: snapshot,
+                threadID: threadID,
+                previous: previous,
+                displayCostLimit: displayCostLimit
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as CodexCanonicalTranscriptProjectionError {
+            switch error {
+            case .staleSourceRevision, .staleRequestRevision:
+                break
+            }
+            try Task.checkCancellation()
+            return try projector.projectSelectedChild(
+                snapshot: snapshot,
+                threadID: threadID,
+                previous: nil,
+                displayCostLimit: displayCostLimit
+            )
+        }
+    }
+
+    /// Drops only transcript presentation. Identity and lifecycle metadata stay
+    /// available for lightweight panels.
     public mutating func evictTranscript(threadID: ThreadID) {
         agentsByID[threadID.rawValue]?.transcript = .init()
-        removeCanonicalPresentation(threadID: threadID.rawValue)
     }
 
     public mutating func updateStatus(
@@ -452,16 +430,11 @@ public struct CodexSubagentStoreV2: Sendable {
     public mutating func remove(threadID: ThreadID) {
         agentsByID.removeValue(forKey: threadID.rawValue)
         discoveriesByID.removeValue(forKey: threadID.rawValue)
-        removeCanonicalPresentation(threadID: threadID.rawValue)
     }
 
     public mutating func removeAll() {
         agentsByID.removeAll(keepingCapacity: false)
         discoveriesByID.removeAll(keepingCapacity: false)
-        canonicalPresentationsByID.removeAll(keepingCapacity: false)
-        retentionMetricsByID.removeAll(keepingCapacity: false)
-        retainedProjectionByteCountByID.removeAll(keepingCapacity: false)
-        retainedProjectionByteCount = 0
     }
 
     public mutating func updateMetadata(
@@ -492,40 +465,6 @@ public struct CodexSubagentStoreV2: Sendable {
 }
 
 private extension CodexSubagentStoreV2 {
-    mutating func replaceCanonicalPresentation(
-        _ presentation: CodexCanonicalTranscriptPresentation,
-        threadID: String,
-        retentionMetrics: CodexCanonicalTranscriptRetentionMetrics,
-        estimatedRetainedByteCount: Int
-    ) {
-        canonicalPresentationsByID[threadID] = presentation
-        retentionMetricsByID[threadID] = retentionMetrics
-        if let previous = retainedProjectionByteCountByID.updateValue(
-            estimatedRetainedByteCount,
-            forKey: threadID
-        ) {
-            retainedProjectionByteCount = max(
-                0,
-                retainedProjectionByteCount - previous
-            )
-        }
-        let (sum, overflow) = retainedProjectionByteCount.addingReportingOverflow(
-            estimatedRetainedByteCount
-        )
-        retainedProjectionByteCount = overflow ? .max : sum
-    }
-
-    mutating func removeCanonicalPresentation(threadID: String) {
-        canonicalPresentationsByID.removeValue(forKey: threadID)
-        retentionMetricsByID.removeValue(forKey: threadID)
-        guard let previous = retainedProjectionByteCountByID.removeValue(forKey: threadID)
-        else { return }
-        retainedProjectionByteCount = max(
-            0,
-            retainedProjectionByteCount - previous
-        )
-    }
-
     mutating func register(_ discovery: CodexSubagentDiscoveryV2) -> Bool {
         let id = discovery.threadID
         let isNew = agentsByID[id] == nil

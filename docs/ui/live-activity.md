@@ -127,18 +127,25 @@ that initializer prepares its aggregate patch once as well.
 The app-server `changes[].diff` field is kind-dependent: add and delete entries
 carry raw file content, while updates carry a unified diff. Preparation
 normalizes those forms once, preserves exact wire text in `changes`, and exposes
-an ordered prepared entry keyed by the stable change ID. Empty renames still
-produce a prepared zero-line entry. Duplicate paths use kind, destination, and
-content fingerprints so reordering does not move identity between patches.
-Incremental projection reconciles a structurally identical prior entry when a
-live patch evolves, avoiding identity churn for the normal same-file update.
+an ordered prepared entry whose `sourceIndex` resolves back to the exact wire
+change. Empty renames still produce a prepared zero-line entry. Duplicate paths
+remain distinct by source position, while file-change identity uses kind,
+destination, and content fingerprints. Incremental projection reconciles a
+structurally identical prior change when a live patch evolves, avoiding
+identity churn for the normal same-file update.
 
 Prepared display data is capped independently by retained bytes, lines, files,
 and entries while streaming the entire wire value for exact addition/removal
-counts. A file-change content revision reuses immutable preparation across
-lifecycle-only or unrelated turn updates. Warm main and subagent presentation
-caches use inclusive byte estimates; eviction drops only disposable projection
-data, never canonical state or per-thread UI state.
+counts. Canonical item revision reuses immutable preparation across
+lifecycle-only or unrelated turn updates. Only the subagent visible in the side
+panel receives a transcript projection; that projection is byte-bounded and
+discarded when selection ends. Its compact cost ledger reweighs only upserted
+turns, removes deleted turn weights, and keeps bounded structural overhead, so
+streaming the current turn never rescans unchanged history. Selected-child
+projections carry no pending-request payload; an unexpected request fails the
+display-cost check closed. An over-limit selection keeps lightweight lifecycle
+metadata live while showing a display-limit placeholder instead of retaining
+transcript bytes.
 
 File-change lifecycle values preserve `declined` and future status strings as
 non-success states. Do not treat any explicit status other than `completed` as a
