@@ -984,7 +984,7 @@ private extension ProtocolStateAdapter {
     ]
 }
 
-private extension Dictionary where Key == String, Value == CodexJSONValue {
+extension Dictionary where Key == String, Value == CodexJSONValue {
     func string(at key: String) -> String? {
         guard case .string(let value)? = self[key] else { return nil }
         return value
