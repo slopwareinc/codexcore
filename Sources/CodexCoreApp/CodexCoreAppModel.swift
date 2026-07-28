@@ -573,11 +573,17 @@ final class CodexCoreAppModel {
             if submission.threadID == nil {
                 submission.threadID = thread.id.rawValue
             }
+            let permissionConfiguration =
+                approvalSelection.permissionProfileWireConfiguration
             let lease = try await thread.startTurn(turnStartParameters(
                 threadID: thread.id,
                 input: submission.turnInput,
-                clientUserMessageID: submission.clientID
+                clientUserMessageID: submission.clientID,
+                permissionConfiguration: permissionConfiguration
             ))
+            configurationSession.markPermissionProfileActive(
+                permissionConfiguration
+            )
             activeTurnLease = lease
             runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
             monitorMainTurn(lease)
@@ -601,11 +607,17 @@ final class CodexCoreAppModel {
             if submission.threadID == nil {
                 submission.threadID = thread.id.rawValue
             }
+            let permissionConfiguration =
+                approvalSelection.permissionProfileWireConfiguration
             let lease = try await thread.startTurn(turnStartParameters(
                 threadID: thread.id,
                 input: submission.turnInput,
-                clientUserMessageID: submission.clientID
+                clientUserMessageID: submission.clientID,
+                permissionConfiguration: permissionConfiguration
             ))
+            configurationSession.markPermissionProfileActive(
+                permissionConfiguration
+            )
             activeTurnLease = lease
             runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
             monitorMainTurn(lease)
@@ -818,6 +830,11 @@ final class CodexCoreAppModel {
         selectedThreadSessionSnapshot = nil
         goalPursuitEnabled = false
         runtimeSession.selectThread(lease.id.rawValue)
+        if let permissionConfiguration = lease.permissionConfiguration {
+            configurationSession.applyActiveThreadPermissionConfiguration(
+                permissionConfiguration
+            )
+        }
         clearSelectedThreadUnreadIfFocused()
         syncComposerThreadID()
         if let codex {
@@ -2083,7 +2100,9 @@ final class CodexCoreAppModel {
             model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: protocolWorkspaceRoots
         )
-        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
+        configurationSession.newThreadApprovalSelection
+            .permissionProfileWireConfiguration
+            .apply(to: &parameters)
         return parameters
     }
 
@@ -2120,7 +2139,6 @@ final class CodexCoreAppModel {
             .threadSource == "realtime_voice" {
             parameters.config = Self.realtimeVoiceFeatureConfig
         }
-        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
         return parameters
     }
 
@@ -2135,14 +2153,12 @@ final class CodexCoreAppModel {
     }
 
     private func threadResumeParameters(threadID: String) -> CodexSchemaThreadResumeParams {
-        var parameters = CodexSchemaThreadResumeParams(
+        CodexSchemaThreadResumeParams(
             cwd: workspacePath,
             model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: protocolWorkspaceRoots,
             threadID: threadID
         )
-        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
-        return parameters
     }
 
     private func threadForkParameters(
@@ -2169,7 +2185,8 @@ final class CodexCoreAppModel {
     private func turnStartParameters(
         threadID: ThreadID,
         input: [CodexInput],
-        clientUserMessageID: String
+        clientUserMessageID: String,
+        permissionConfiguration: CodexPermissionProfileWireConfiguration
     ) -> CodexSchemaTurnStartParams {
         let overrides = configurationSession.turnParameterOverrides
         let collaborationMode = overrides["collaborationMode"].flatMap {
@@ -2191,7 +2208,7 @@ final class CodexCoreAppModel {
             runtimeWorkspaceRoots: roots,
             threadID: threadID.rawValue
         )
-        approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
+        permissionConfiguration.apply(to: &parameters)
         return parameters
     }
 
@@ -2233,10 +2250,13 @@ final class CodexCoreAppModel {
         }
         do {
             let thread = try await ensureSideChatThread()
+            let permissionConfiguration =
+                approvalSelection.permissionProfileWireConfiguration
             let lease = try await thread.startTurn(turnStartParameters(
                 threadID: thread.id,
                 input: [.text(prompt)],
-                clientUserMessageID: UUID().uuidString
+                clientUserMessageID: UUID().uuidString,
+                permissionConfiguration: permissionConfiguration
             ))
             activeSideChatTurnLease = lease
             runtimeSession.startSideChat(id: lease.key.turnID.rawValue, threadID: thread.id.rawValue)
@@ -2459,6 +2479,7 @@ final class CodexCoreAppModel {
             activeSideChatThreadLease = nil
             selectedThreadID = nil
             selectedThreadSessionSnapshot = nil
+            configurationSession.clearActiveThreadPermissionConfiguration()
             Task {
                 await sideChat?.close()
                 await current?.close()

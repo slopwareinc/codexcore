@@ -142,7 +142,7 @@ public struct CodexSettingsAboutRouteView: View {
         appearanceSettings: Binding<CodexAppearanceSettings>,
         sidebarFontSize: Binding<Double> = .constant(CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize),
         sidebarFontSizeRange: ClosedRange<Double> = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange,
-        approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
+        approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
@@ -819,6 +819,7 @@ public struct CodexSettingsApprovalRow: View {
 
     @Binding var selection: CodexApprovalSelection
     let options: [CodexApprovalSelection]
+    @State private var isFullAccessConfirmationPresented = false
 
     public var body: some View {
         CodexSettingsMenuRow(
@@ -827,9 +828,23 @@ public struct CodexSettingsApprovalRow: View {
             value: selection.displayName
         ) {
             ForEach(options) { option in
-                Button(option.displayName) { selection = option }
+                Button(option.displayName) {
+                    switch CodexPermissionSelectionDecision.resolve(
+                        current: selection,
+                        requested: option
+                    ) {
+                    case .apply(let selection):
+                        self.selection = selection
+                    case .confirmFullAccess:
+                        isFullAccessConfirmationPresented = true
+                    }
+                }
             }
         }
+        .codexFullAccessConfirmation(
+            isPresented: $isFullAccessConfirmationPresented,
+            onConfirm: { selection = .fullAccess }
+        )
     }
 }
 

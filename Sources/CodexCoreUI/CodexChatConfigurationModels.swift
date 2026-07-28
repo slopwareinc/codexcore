@@ -73,12 +73,22 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
 
     public var turnParameterOverrides: [String: CodexJSONValue] {
         switch self {
-        case .askForApproval:
+        case .readOnly, .askForApproval:
             return [
                 "approvalPolicy": .string(AskForApproval.onRequest.rawValue),
                 "approvalsReviewer": .string(ApprovalsReviewer.user.rawValue)
             ]
-        case .readOnly, .approveForMe, .fullAccess, .custom:
+        case .approveForMe:
+            return [
+                "approvalPolicy": .string(AskForApproval.onRequest.rawValue),
+                "approvalsReviewer": .string(ApprovalsReviewer.autoReview.rawValue)
+            ]
+        case .fullAccess:
+            return [
+                "approvalPolicy": .string(AskForApproval.never.rawValue),
+                "approvalsReviewer": .string(ApprovalsReviewer.user.rawValue)
+            ]
+        case .custom:
             return [:]
         }
     }
@@ -97,9 +107,9 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     ///
     /// Profile lookup is a fixed switch so prompt submission performs no
     /// catalog scan or app-server request.
-    public var permissionProfileWireConfiguration: CodexPermissionProfileWireConfiguration {
+    package var permissionProfileWireConfiguration: CodexPermissionProfileWireConfiguration {
         switch self {
-        case .askForApproval:
+        case .readOnly, .askForApproval:
             return CodexPermissionProfileWireConfiguration(
                 permissions: permissionProfileID,
                 approvalPolicy: CodexSchemaAskForApproval(
@@ -109,9 +119,21 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
                     rawValue: ApprovalsReviewer.user.rawValue
                 )
             )
-        case .readOnly, .approveForMe, .fullAccess:
+        case .approveForMe:
             return CodexPermissionProfileWireConfiguration(
-                permissions: permissionProfileID
+                permissions: permissionProfileID,
+                approvalPolicy: CodexSchemaAskForApproval(
+                    .string(AskForApproval.onRequest.rawValue)
+                ),
+                approvalsReviewer: .autoReview
+            )
+        case .fullAccess:
+            return CodexPermissionProfileWireConfiguration(
+                permissions: permissionProfileID,
+                approvalPolicy: CodexSchemaAskForApproval(
+                    .string(AskForApproval.never.rawValue)
+                ),
+                approvalsReviewer: .user
             )
         case .custom:
             return CodexPermissionProfileWireConfiguration(permissions: nil)
@@ -127,7 +149,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
 
     public static func options(from profiles: [CodexPermissionProfileSummary]) -> [CodexApprovalSelection] {
         guard !profiles.isEmpty else { return defaultOptions }
-        let ids = Set(profiles.map(\.id))
+        let ids = Set(profiles.lazy.filter(\.allowed).map(\.id))
         var options: [CodexApprovalSelection] = []
 
         if ids.contains(":read-only") {
@@ -143,6 +165,24 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         options.append(.custom)
         return options.isEmpty ? defaultOptions : options
     }
+
+    package static func selection(
+        profileID: String?,
+        approvalsReviewer: CodexSchemaApprovalsReviewer
+    ) -> CodexApprovalSelection {
+        switch profileID {
+        case ":read-only", "read-only":
+            return .readOnly
+        case ":workspace", "workspace", "workspace-write":
+            return approvalsReviewer == .user ? .askForApproval : .approveForMe
+        case ":danger-full-access", "danger-full-access":
+            return .fullAccess
+        case nil:
+            return .custom
+        default:
+            return .custom
+        }
+    }
 }
 
 /// Applies one composer permission selection to every request path that can
@@ -150,12 +190,12 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
 ///
 /// Applying the configuration deliberately clears handwritten sandbox values.
 /// The selected profile (or config.toml for Custom) remains authoritative.
-public struct CodexPermissionProfileWireConfiguration: Equatable, Sendable {
-    public let permissions: String?
-    public let approvalPolicy: CodexSchemaAskForApproval?
-    public let approvalsReviewer: CodexSchemaApprovalsReviewer?
+package struct CodexPermissionProfileWireConfiguration: Equatable, Sendable {
+    package let permissions: String?
+    package let approvalPolicy: CodexSchemaAskForApproval?
+    package let approvalsReviewer: CodexSchemaApprovalsReviewer?
 
-    public init(
+    package init(
         permissions: String?,
         approvalPolicy: CodexSchemaAskForApproval? = nil,
         approvalsReviewer: CodexSchemaApprovalsReviewer? = nil
@@ -165,28 +205,21 @@ public struct CodexPermissionProfileWireConfiguration: Equatable, Sendable {
         self.approvalsReviewer = approvalsReviewer
     }
 
-    public func apply(to parameters: inout CodexSchemaThreadStartParams) {
+    package func apply(to parameters: inout CodexSchemaThreadStartParams) {
         parameters.permissions = permissions
         parameters.approvalPolicy = approvalPolicy
         parameters.approvalsReviewer = approvalsReviewer
         parameters.sandbox = nil
     }
 
-    public func apply(to parameters: inout CodexSchemaThreadResumeParams) {
+    package func apply(to parameters: inout CodexSchemaThreadForkParams) {
         parameters.permissions = permissions
         parameters.approvalPolicy = approvalPolicy
         parameters.approvalsReviewer = approvalsReviewer
         parameters.sandbox = nil
     }
 
-    public func apply(to parameters: inout CodexSchemaThreadForkParams) {
-        parameters.permissions = permissions
-        parameters.approvalPolicy = approvalPolicy
-        parameters.approvalsReviewer = approvalsReviewer
-        parameters.sandbox = nil
-    }
-
-    public func apply(to parameters: inout CodexSchemaTurnStartParams) {
+    package func apply(to parameters: inout CodexSchemaTurnStartParams) {
         parameters.permissions = permissions
         parameters.approvalPolicy = approvalPolicy
         parameters.approvalsReviewer = approvalsReviewer
@@ -198,12 +231,20 @@ public struct CodexPermissionProfileSummary: Identifiable, Equatable, Sendable {
     public var id: String
     public var displayName: String
     public var detail: String?
+    public var allowed: Bool
     public var raw: CodexJSONValue
 
-    public init(id: String, displayName: String, detail: String? = nil, raw: CodexJSONValue = .dictionary([:])) {
+    public init(
+        id: String,
+        displayName: String,
+        detail: String? = nil,
+        allowed: Bool = true,
+        raw: CodexJSONValue = .dictionary([:])
+    ) {
         self.id = id
         self.displayName = displayName
         self.detail = detail
+        self.allowed = allowed
         self.raw = raw
     }
 
@@ -235,7 +276,14 @@ public struct CodexPermissionProfileSummary: Identifiable, Equatable, Sendable {
             guard let id = string(in: object, keys: ["id", "profileId", "name"]) else { return nil }
             let displayName = string(in: object, keys: ["displayName", "title", "name"]) ?? displayName(for: id)
             let detail = string(in: object, keys: ["description", "detail", "subtitle"])
-            return CodexPermissionProfileSummary(id: id, displayName: displayName, detail: detail, raw: value)
+            let allowed = bool(in: object, key: "allowed") ?? true
+            return CodexPermissionProfileSummary(
+                id: id,
+                displayName: displayName,
+                detail: detail,
+                allowed: allowed,
+                raw: value
+            )
         case .array, .int, .double, .bool, .null:
             return nil
         }
@@ -270,6 +318,11 @@ public struct CodexPermissionProfileSummary: Identifiable, Equatable, Sendable {
             }
         }
         return nil
+    }
+
+    private static func bool(in object: [String: CodexJSONValue], key: String) -> Bool? {
+        guard case .bool(let value)? = object[key] else { return nil }
+        return value
     }
 }
 

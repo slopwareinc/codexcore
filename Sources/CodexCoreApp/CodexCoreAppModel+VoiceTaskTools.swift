@@ -196,6 +196,9 @@ extension CodexCoreAppModel {
                     throw CodexVoiceTaskToolError.unsupportedTarget(targetType)
                 }
 
+                let permissionConfiguration = configurationSession
+                    .newThreadApprovalSelection
+                    .permissionProfileWireConfiguration
                 var startParameters = CodexSchemaThreadStartParams(
                     cwd: cwd,
                     developerInstructions: developerInstructions,
@@ -206,7 +209,7 @@ extension CodexCoreAppModel {
                         CodexSchemaAbsolutePathBuf(.string($0))
                     }
                 )
-                approvalSelection.permissionProfileWireConfiguration.apply(
+                permissionConfiguration.apply(
                     to: &startParameters
                 )
                 let lease = try await codex.startThread(startParameters)
@@ -228,7 +231,7 @@ extension CodexCoreAppModel {
                     },
                     threadID: lease.id.rawValue
                 )
-                approvalSelection.permissionProfileWireConfiguration.apply(
+                permissionConfiguration.apply(
                     to: &turnParameters
                 )
                 let turn = try await lease.startTurn(turnParameters)
@@ -288,7 +291,7 @@ extension CodexCoreAppModel {
                 } else {
                     roots = workspaceRoots(containing: cwd)
                 }
-                var resumeParameters = CodexSchemaThreadResumeParams(
+                let resumeParameters = CodexSchemaThreadResumeParams(
                     cwd: cwd,
                     model: modelSelection.modelIdentifier,
                     runtimeWorkspaceRoots: roots.map {
@@ -296,11 +299,8 @@ extension CodexCoreAppModel {
                     },
                     threadID: threadID
                 )
-                approvalSelection.permissionProfileWireConfiguration.apply(
-                    to: &resumeParameters
-                )
                 let lease = try await codex.resumeThread(resumeParameters)
-                var turnParameters = CodexSchemaTurnStartParams(
+                let turnParameters = CodexSchemaTurnStartParams(
                     clientUserMessageID: UUID().uuidString,
                     cwd: cwd,
                     effort: CodexSchemaReasoningEffort(
@@ -312,9 +312,6 @@ extension CodexCoreAppModel {
                         CodexSchemaAbsolutePathBuf(.string($0))
                     },
                     threadID: threadID
-                )
-                approvalSelection.permissionProfileWireConfiguration.apply(
-                    to: &turnParameters
                 )
                 let turn = try await lease.startTurn(turnParameters)
                 let result: CodexJSONValue = .dictionary([

@@ -29,6 +29,23 @@ public enum CodexLeaseError: Error, Sendable, Equatable, CustomStringConvertible
     }
 }
 
+/// Permission state returned by the app-server when a thread is established.
+package struct CodexThreadPermissionConfiguration: Sendable, Equatable {
+    package let profileID: String?
+    package let approvalPolicy: CodexSchemaAskForApproval
+    package let approvalsReviewer: CodexSchemaApprovalsReviewer
+
+    package init(
+        profileID: String?,
+        approvalPolicy: CodexSchemaAskForApproval,
+        approvalsReviewer: CodexSchemaApprovalsReviewer
+    ) {
+        self.profileID = profileID
+        self.approvalPolicy = approvalPolicy
+        self.approvalsReviewer = approvalsReviewer
+    }
+}
+
 /// A retention lease for one app-server thread.
 ///
 /// The session actor owns subscription state and reconciliation. This class owns
@@ -39,6 +56,7 @@ public final class CodexThreadLease: @unchecked Sendable {
     public let id: ThreadID
     public let startRevision: StateRevision
     public let responseRevision: StateRevision
+    package let permissionConfiguration: CodexThreadPermissionConfiguration?
 
     fileprivate let session: CodexSession
     private let lock = NSLock()
@@ -48,12 +66,14 @@ public final class CodexThreadLease: @unchecked Sendable {
         id: ThreadID,
         startRevision: StateRevision,
         responseRevision: StateRevision,
+        permissionConfiguration: CodexThreadPermissionConfiguration? = nil,
         session: CodexSession,
         token: ThreadLeaseToken
     ) {
         self.id = id
         self.startRevision = startRevision
         self.responseRevision = responseRevision
+        self.permissionConfiguration = permissionConfiguration
         self.session = session
         self.token = token
     }
@@ -364,6 +384,11 @@ public extension CodexSession {
             id: id,
             startRevision: call.startRevision,
             responseRevision: call.responseRevision,
+            permissionConfiguration: .init(
+                profileID: response.activePermissionProfile?.id,
+                approvalPolicy: response.approvalPolicy,
+                approvalsReviewer: response.approvalsReviewer
+            ),
             session: self,
             token: token
         )
@@ -408,6 +433,11 @@ public extension CodexSession {
             id: actual,
             startRevision: call.startRevision,
             responseRevision: call.responseRevision,
+            permissionConfiguration: .init(
+                profileID: response.activePermissionProfile?.id,
+                approvalPolicy: response.approvalPolicy,
+                approvalsReviewer: response.approvalsReviewer
+            ),
             session: self,
             token: token
         )
@@ -433,6 +463,11 @@ public extension CodexSession {
             id: id,
             startRevision: call.startRevision,
             responseRevision: call.responseRevision,
+            permissionConfiguration: .init(
+                profileID: response.activePermissionProfile?.id,
+                approvalPolicy: response.approvalPolicy,
+                approvalsReviewer: response.approvalsReviewer
+            ),
             session: self,
             token: token
         )

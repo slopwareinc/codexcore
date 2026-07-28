@@ -968,7 +968,7 @@ private struct CodexAgentPanelContent: View {
     let onInterruptSideChatMessage: () -> Void
     let modelOptions: [CodexModelSelection]
     @State private var agentDraft = ""
-    @State private var agentApproval = CodexApprovalSelection.fullAccess
+    @State private var agentApproval = CodexApprovalSelection.askForApproval
     @State private var agentModel = CodexModelSelection.appServerDefault
     @State private var agentReasoning = CodexReasoningSelection.medium
 

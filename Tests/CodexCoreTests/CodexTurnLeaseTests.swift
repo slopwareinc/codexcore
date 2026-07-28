@@ -10,9 +10,35 @@ final class CodexTurnLeaseTests: XCTestCase {
         )
         _ = try await session.start()
 
-        let thread = try await session.startThread()
+        let thread = try await session.startThread(.init(
+            approvalPolicy: CodexSchemaAskForApproval(.string("on-request")),
+            approvalsReviewer: .user,
+            permissions: ":workspace"
+        ))
         XCTAssertEqual(thread.id, ThreadID("thread-1"))
         XCTAssertLessThan(thread.startRevision, thread.responseRevision)
+        XCTAssertEqual(
+            thread.permissionConfiguration,
+            .init(
+                profileID: ":workspace",
+                approvalPolicy: CodexSchemaAskForApproval(.string("on-request")),
+                approvalsReviewer: .autoReview
+            )
+        )
+        let maybeThreadStartParams = await transport.latestObjectParams(
+            method: "thread/start"
+        )
+        let threadStartParams = try XCTUnwrap(maybeThreadStartParams)
+        XCTAssertEqual(threadStartParams["permissions"], .string(":workspace"))
+        XCTAssertEqual(
+            threadStartParams["approvalPolicy"],
+            .string("on-request")
+        )
+        XCTAssertEqual(
+            threadStartParams["approvalsReviewer"],
+            .string("user")
+        )
+        XCTAssertNil(threadStartParams["sandbox"])
 
         let input = CodexSchemaUserInput(.dictionary([
             "type": .string("text"),
@@ -74,6 +100,81 @@ final class CodexTurnLeaseTests: XCTestCase {
 
         await thread.close()
         XCTAssertTrue(thread.isClosed)
+        await session.stop()
+    }
+
+    func testResumeLeaseHydratesServerPermissionStateWithoutRequestOverrides() async throws {
+        let transport = CodexSessionLeaseTestTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        let started = try await session.startThread()
+
+        let resumed = try await session.resumeThread(.init(
+            threadID: started.id.rawValue
+        ))
+
+        XCTAssertEqual(
+            resumed.permissionConfiguration,
+            .init(
+                profileID: ":workspace",
+                approvalPolicy: CodexSchemaAskForApproval(.string("on-request")),
+                approvalsReviewer: .autoReview
+            )
+        )
+        let maybeResumeParams = await transport.latestObjectParams(
+            method: "thread/resume"
+        )
+        let resumeParams = try XCTUnwrap(maybeResumeParams)
+        XCTAssertNil(resumeParams["permissions"])
+        XCTAssertNil(resumeParams["approvalPolicy"])
+        XCTAssertNil(resumeParams["approvalsReviewer"])
+        XCTAssertNil(resumeParams["sandbox"])
+
+        await resumed.close()
+        await started.close()
+        await session.stop()
+    }
+
+    func testForkLeaseUsesAuthoritativeResponseAfterForwardingRequestedProfile() async throws {
+        let transport = CodexSessionLeaseTestTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        let started = try await session.startThread()
+
+        let forked = try await started.fork(.init(
+            approvalPolicy: CodexSchemaAskForApproval(.string("never")),
+            approvalsReviewer: .user,
+            permissions: ":danger-full-access",
+            threadID: started.id.rawValue
+        ))
+
+        let maybeForkParams = await transport.latestObjectParams(
+            method: "thread/fork"
+        )
+        let forkParams = try XCTUnwrap(maybeForkParams)
+        XCTAssertEqual(
+            forkParams["permissions"],
+            .string(":danger-full-access")
+        )
+        XCTAssertEqual(forkParams["approvalPolicy"], .string("never"))
+        XCTAssertEqual(forkParams["approvalsReviewer"], .string("user"))
+        XCTAssertEqual(
+            forked.permissionConfiguration,
+            .init(
+                profileID: ":workspace",
+                approvalPolicy: CodexSchemaAskForApproval(.string("on-request")),
+                approvalsReviewer: .autoReview
+            )
+        )
+
+        await forked.close()
+        await started.close()
         await session.stop()
     }
 
@@ -427,6 +528,9 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
 
     private static func threadResult(id: String) -> CodexJSONValue {
         .dictionary([
+            "activePermissionProfile": .dictionary([
+                "id": .string(":workspace"),
+            ]),
             "approvalPolicy": .string("on-request"),
             "approvalsReviewer": .string("auto_review"),
             "cwd": .string("/tmp"),
@@ -439,6 +543,7 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
                 "cwd": .string("/tmp"),
                 "ephemeral": .bool(false),
                 "id": .string(id),
+                "historyMode": .string("legacy"),
                 "modelProvider": .string("openai"),
                 "preview": .string(""),
                 "sessionId": .string("session-\(id)"),
