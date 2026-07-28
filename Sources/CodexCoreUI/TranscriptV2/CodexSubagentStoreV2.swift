@@ -101,7 +101,6 @@ struct CodexSubagentChildSnapshotSummary: Sendable, Equatable {
     var metadata: CanonicalThreadMetadata
     var threadStatus: CanonicalThreadStatus
     var latestTurn: CanonicalTurn?
-    var isTerminalAndHydrated: Bool
 
     init?(
         snapshot: CanonicalStateSnapshot,
@@ -116,27 +115,26 @@ struct CodexSubagentChildSnapshotSummary: Sendable, Equatable {
         self.metadata = thread.metadata
         self.threadStatus = thread.status
         self.latestTurn = latestTurn
-        self.isTerminalAndHydrated = Self.isTerminalAndHydrated(
-            thread: thread,
-            latestTurn: latestTurn,
-            turnsByKey: snapshot.turns
-        )
     }
+}
 
-    private static func isTerminalAndHydrated(
-        thread: CanonicalThread,
-        latestTurn: CanonicalTurn?,
-        turnsByKey: [TurnKey: CanonicalTurn]
+extension CodexSubagentStoreV2 {
+    /// Pure hydration check used from the detached child-projection operation.
+    static func isTerminalAndHydrated(
+        _ snapshot: CanonicalStateSnapshot,
+        summary: CodexSubagentChildSnapshotSummary
     ) -> Bool {
+        guard let thread = snapshot.threads[summary.threadID] else { return false }
+        let latestTurn = summary.latestTurn
         guard let latestTurn, latestTurn.status.isTerminal else { return false }
         if thread.history.turnsCoverage == .full {
             let earlierMaterializedTurnsAreFull = thread.turnOrder.dropLast().allSatisfy {
-                guard let turn = turnsByKey[
+                guard let turn = snapshot.turns[
                     TurnKey(threadID: thread.id, turnID: $0)
                 ] else {
                     // `CanonicalStateSnapshot.turns(in:)` omitted absent turns;
-                    // keep that established hydration behavior without building
-                    // an intermediate array on MainActor.
+                    // keep that established hydration behavior in the detached
+                    // completion calculation.
                     return true
                 }
                 return turn.itemsCoverage == .full

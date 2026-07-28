@@ -20,6 +20,7 @@ private struct CodexCompletedChildProjection: Sendable {
     var result: CodexCanonicalTranscriptProjectionResult
     var transcript: CodexTranscriptV2
     var retentionMetrics: CodexCanonicalTranscriptRetentionMetrics
+    var isTerminalAndHydrated: Bool
 }
 
 private struct CodexPendingChildProjection: Sendable {
@@ -431,6 +432,10 @@ private extension CodexSubagentPresentationCoordinator {
                     retentionMetrics: result.presentation.retentionMetrics(
                         previous: previousMetrics,
                         update: result.update
+                    ),
+                    isTerminalAndHydrated: CodexSubagentStoreV2.isTerminalAndHydrated(
+                        pending.snapshot,
+                        summary: pending.summary
                     )
                 )
             }.value
@@ -496,7 +501,7 @@ private extension CodexSubagentPresentationCoordinator {
 
         diagnostics.childProjectionCount += 1
         touchProjection(threadID)
-        if pending.summary.isTerminalAndHydrated {
+        if completed.isTerminalAndHydrated {
             terminalChildIDs.insert(threadID)
             releaseChildLease(threadID, retainProjection: true)
         }

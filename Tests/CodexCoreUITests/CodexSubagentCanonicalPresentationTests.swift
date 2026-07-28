@@ -90,7 +90,10 @@ struct CodexSubagentCanonicalPresentationTests {
             threadID: threadID
         ))
         #expect(summary.latestTurn == nil)
-        #expect(!summary.isTerminalAndHydrated)
+        #expect(!CodexSubagentStoreV2.isTerminalAndHydrated(
+            snapshot,
+            summary: summary
+        ))
 
         var store = CodexSubagentStoreV2()
         #expect(store.applyChildSnapshotMetadata(summary))
@@ -102,7 +105,7 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(child.completedAt == nil)
     }
 
-    @Test func childMetadataSummaryPreservesFullHistoryHydrationCheck() throws {
+    @Test func detachedChildHydrationPreservesFullHistoryCheck() throws {
         let threadID: ThreadID = "child"
         let olderTurnID: TurnID = "older"
         let latestTurnID: TurnID = "latest"
@@ -143,7 +146,10 @@ struct CodexSubagentCanonicalPresentationTests {
             threadID: threadID
         ))
         #expect(summary.latestTurn?.key.turnID == latestTurnID)
-        #expect(!summary.isTerminalAndHydrated)
+        #expect(!CodexSubagentStoreV2.isTerminalAndHydrated(
+            snapshot,
+            summary: summary
+        ))
     }
 
     @Test func childProjectionRetainsPreviousPresentationUntilTranscriptEviction() throws {
