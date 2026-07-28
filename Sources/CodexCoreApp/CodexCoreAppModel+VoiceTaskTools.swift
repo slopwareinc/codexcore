@@ -145,6 +145,21 @@ extension CodexCoreAppModel {
         return parameters
     }
 
+    func voiceThreadStartParameters(
+        wire: CodexTaskWireSelection,
+        cwd: String,
+        roots: [String],
+        developerInstructions: String?
+    ) -> CodexSchemaThreadStartParams {
+        voiceThreadStartParameters(
+            wire: wire,
+            permissionConfiguration: .init(permissions: nil),
+            cwd: cwd,
+            roots: roots,
+            developerInstructions: developerInstructions
+        )
+    }
+
     func voiceThreadResumeParameters(
         wire: CodexTaskWireSelection,
         cwd: String,
@@ -180,6 +195,25 @@ extension CodexCoreAppModel {
         ))
         permissionConfiguration?.apply(to: &parameters)
         return parameters
+    }
+
+    func voiceTurnStartParameters(
+        wire: CodexTaskWireSelection,
+        cwd: String,
+        roots: [String],
+        prompt: String,
+        threadID: String,
+        clientUserMessageID: String
+    ) -> CodexSchemaTurnStartParams {
+        voiceTurnStartParameters(
+            wire: wire,
+            permissionConfiguration: nil,
+            cwd: cwd,
+            roots: roots,
+            prompt: prompt,
+            threadID: threadID,
+            clientUserMessageID: clientUserMessageID
+        )
     }
 
     func voiceThreadProvenance(
