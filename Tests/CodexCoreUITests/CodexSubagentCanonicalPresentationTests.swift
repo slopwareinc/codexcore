@@ -96,7 +96,8 @@ struct CodexSubagentCanonicalPresentationTests {
         ))
 
         var store = CodexSubagentStoreV2()
-        #expect(store.applyChildSnapshotMetadata(summary))
+        let didApplyMetadata = store.applyChildSnapshotMetadata(summary)
+        #expect(didApplyMetadata)
         let child = try #require(store.agent(threadID: threadID.rawValue))
         guard case .working = child.status else {
             Issue.record("Missing ordered latest turn must not reuse an older terminal turn")

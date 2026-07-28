@@ -205,25 +205,29 @@ struct CodexCanonicalFileChangeProjectorTests {
             item: malformedItem(futureValue: .bool(true)),
             status: .completed,
             durationMs: nil,
-            previous: nil
+            previous: nil,
+            checkpoint: {}
         )
         let second = projector.project(
             item: malformedItem(futureValue: .bool(false)),
             status: .completed,
             durationMs: nil,
-            previous: nil
+            previous: nil,
+            checkpoint: {}
         )
         let missingDiff = projector.project(
             item: malformedItem(futureValue: .bool(true), diff: nil),
             status: .completed,
             durationMs: nil,
-            previous: nil
+            previous: nil,
+            checkpoint: {}
         )
         let emptyDiff = projector.project(
             item: malformedItem(futureValue: .bool(true), diff: .string("")),
             status: .completed,
             durationMs: nil,
-            previous: nil
+            previous: nil,
+            checkpoint: {}
         )
 
         #expect(first != second)
