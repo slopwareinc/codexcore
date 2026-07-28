@@ -115,6 +115,49 @@ struct CodexPresentationStoreTests {
         #expect(store.diagnostics.invalidSnapshotCount == 0)
     }
 
+    @Test func terminalSupersessionCancelsObsoleteProjectionWork() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Obsolete", turnRevision: 1)
+        )
+        let cancellationProbe = PresentationProjectionCancellationProbe()
+        defer { cancellationProbe.release() }
+        let policy = CodexTranscriptItemPresentationPolicyV2 { context in
+            cancellationProbe.presentation(for: context)
+        }
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            itemPresentationPolicy: policy,
+            coalescingInterval: .milliseconds(5)
+        )
+
+        store.select(threadID: "thread")
+        try await eventually { cancellationProbe.didStart }
+        #expect(cancellationProbe.startedOnMainThread == false)
+
+        await source.install(
+            sessionState(
+                revision: 2,
+                text: "Newest",
+                status: .completed,
+                turnRevision: 2
+            ),
+            change: change(revision: 2, fields: .turnStatus)
+        )
+
+        try await eventually { cancellationProbe.didObserveCancellation }
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(2)
+                && store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                    == "Newest"
+        }
+
+        #expect(cancellationProbe.invocationCount == 2)
+        #expect(store.diagnostics.projectionScheduleCount == 2)
+        #expect(store.diagnostics.projectionPublishCount == 1)
+        #expect(store.diagnostics.discardedProjectionCount == 0)
+        #expect(store.diagnostics.terminalFlushCount == 1)
+    }
+
     @Test func coalescesStreamingChangesButFlushesTerminalTurnImmediately() async throws {
         let source = PresentationStateFixture(
             initial: sessionState(revision: 1, text: "A", turnRevision: 1)
@@ -644,6 +687,83 @@ private extension CodexPresentationStoreTests {
 
 private enum PresentationWaitError: Error {
     case timedOut
+}
+
+private final class PresentationProjectionCancellationProbe: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var started = false
+    private var observedCancellation = false
+    private var wasStartedOnMainThread: Bool?
+    private var invocations = 0
+    private var isReleased = false
+
+    var didStart: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return started
+    }
+
+    var didObserveCancellation: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return observedCancellation
+    }
+
+    var startedOnMainThread: Bool? {
+        condition.lock()
+        defer { condition.unlock() }
+        return wasStartedOnMainThread
+    }
+
+    var invocationCount: Int {
+        condition.lock()
+        defer { condition.unlock() }
+        return invocations
+    }
+
+    func presentation(
+        for _: CodexTranscriptItemContextV2
+    ) -> CodexTranscriptItemPresentationV2 {
+        condition.lock()
+        invocations += 1
+        let shouldWait = invocations == 1
+        if shouldWait {
+            started = true
+            wasStartedOnMainThread = Thread.isMainThread
+            condition.broadcast()
+        }
+        condition.unlock()
+        guard shouldWait else { return .standard }
+
+        let deadline = Date().addingTimeInterval(1)
+        while true {
+            if Task.isCancelled {
+                condition.lock()
+                observedCancellation = true
+                condition.broadcast()
+                condition.unlock()
+                return .standard
+            }
+            if Date() >= deadline { return .standard }
+            condition.lock()
+            if !isReleased {
+                _ = condition.wait(until: min(
+                    deadline,
+                    Date().addingTimeInterval(0.005)
+                ))
+            }
+            let released = isReleased
+            condition.unlock()
+            if released { return .standard }
+        }
+    }
+
+    func release() {
+        condition.lock()
+        isReleased = true
+        condition.broadcast()
+        condition.unlock()
+    }
 }
 
 private extension CodexNarrativeEntry {

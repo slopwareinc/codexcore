@@ -34,11 +34,17 @@ extension CodexCanonicalTranscriptProjector {
 
     func echoedIntentIDs(
         snapshot: CanonicalStateSnapshot,
-        threadID: ThreadID
-    ) -> Set<SubmissionIntentID> {
+        threadID: ThreadID,
+        checkpoint: () throws -> Void = {}
+    ) rethrows -> Set<SubmissionIntentID> {
         var result: Set<SubmissionIntentID> = []
-        for turn in snapshot.turns(in: threadID) {
+        for turnID in snapshot.threads[threadID]?.turnOrder ?? [] {
+            try checkpoint()
+            guard let turn = snapshot.turns[
+                TurnKey(threadID: threadID, turnID: turnID)
+            ] else { continue }
             for itemID in turn.itemOrder {
+                try checkpoint()
                 let key = ItemKey(
                     threadID: threadID,
                     turnID: turn.key.turnID,
@@ -59,21 +65,24 @@ extension CodexCanonicalTranscriptProjector {
     func projectedTurnOrder(
         snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
-        intents: [SubmissionIntent]
-    ) -> [TurnID] {
+        intents: [SubmissionIntent],
+        checkpoint: () throws -> Void = {}
+    ) rethrows -> [TurnID] {
         var result: [TurnID] = []
         var seen: Set<TurnID> = []
         if let thread = snapshot.threads[threadID] {
-            for turnID in thread.turnOrder
-            where snapshot.turns[
-                TurnKey(threadID: threadID, turnID: turnID)
-            ] != nil {
+            for turnID in thread.turnOrder {
+                try checkpoint()
+                guard snapshot.turns[
+                    TurnKey(threadID: threadID, turnID: turnID)
+                ] != nil else { continue }
                 if seen.insert(turnID).inserted {
                     result.append(turnID)
                 }
             }
         }
         for intent in intents {
+            try checkpoint()
             let turnID = intent.expectedTurnID ?? provisionalTurnID(intent.id)
             if seen.insert(turnID).inserted {
                 result.append(turnID)
@@ -92,10 +101,12 @@ extension CodexCanonicalTranscriptProjector {
         order: [TurnID],
         intentsByTurn: [TurnID: [SubmissionIntent]],
         recomputing dirtyTurnIDs: Set<TurnID>,
-        previous: [TurnID: StateRevision]
-    ) -> [TurnID: StateRevision] {
+        previous: [TurnID: StateRevision],
+        checkpoint: () throws -> Void = {}
+    ) rethrows -> [TurnID: StateRevision] {
         var result: [TurnID: StateRevision] = [:]
         for turnID in order {
+            try checkpoint()
             if !dirtyTurnIDs.contains(turnID),
                let previousRevision = previous[turnID] {
                 result[turnID] = previousRevision
@@ -105,6 +116,7 @@ extension CodexCanonicalTranscriptProjector {
             var revision = snapshot.turns[turnKey]?.lastChangedRevision ?? .zero
             if let turn = snapshot.turns[turnKey] {
                 for itemID in turn.itemOrder {
+                    try checkpoint()
                     let key = ItemKey(
                         threadID: threadID,
                         turnID: turnID,
@@ -116,9 +128,11 @@ extension CodexCanonicalTranscriptProjector {
                     }
                 }
             }
-            for intent in intentsByTurn[turnID] ?? []
-            where revision < intent.lastChangedRevision {
-                revision = intent.lastChangedRevision
+            for intent in intentsByTurn[turnID] ?? [] {
+                try checkpoint()
+                if revision < intent.lastChangedRevision {
+                    revision = intent.lastChangedRevision
+                }
             }
             result[turnID] = revision
         }

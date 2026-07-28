@@ -25,62 +25,32 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         self.fileChangeProjector = .init(diffPreparer: fileChangeDiffPreparer)
     }
 
-    public func rebuild(
-        snapshot: CanonicalStateSnapshot,
-        threadID: ThreadID,
-        requests: [CodexPendingInteractionSnapshot] = [],
-        requestRevision: UInt64 = 0
-    ) -> CodexCanonicalTranscriptProjectionResult {
-        // A nil previous value cannot produce a stale-revision error.
-        try! project(
-            snapshot: snapshot,
-            threadID: threadID,
-            requests: requests,
-            requestRevision: requestRevision,
-            previous: nil
-        )
-    }
-
-    public func project(
+    func projectCore(
         snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
         requests: [CodexPendingInteractionSnapshot] = [],
         requestRevision: UInt64 = 0,
-        previous: CodexCanonicalTranscriptPresentation?
-    ) throws -> CodexCanonicalTranscriptProjectionResult {
-        // Canonical turn revisions aggregate every projected child item and
-        // submission change. Comparing them with the previous presentation makes
-        // incremental projection independent of retained change-set keys.
-        if let previous,
-           previous.threadID == threadID,
-           snapshot.revision < previous.sourceRevision {
-            throw CodexCanonicalTranscriptProjectionError.staleSourceRevision(
-                previous: previous.sourceRevision,
-                incoming: snapshot.revision
-            )
-        }
-
+        previous: CodexCanonicalTranscriptPresentation?,
+        checkpoint: () throws -> Void
+    ) rethrows -> CodexCanonicalTranscriptProjectionResult {
+        try checkpoint()
         let effectiveRequestRevision = requestRevision
-        if let previous,
-           previous.threadID == threadID,
-           effectiveRequestRevision < previous.requestSourceRevision {
-            throw CodexCanonicalTranscriptProjectionError.staleRequestRevision(
-                previous: previous.requestSourceRevision,
-                incoming: effectiveRequestRevision
-            )
-        }
-
         let fullRebuild = previous?.threadID != threadID
         let old = fullRebuild ? nil : previous
         let intents = unresolvedIntents(snapshot: snapshot, threadID: threadID)
         let intentByTurn = intentsByTurn(intents)
-        let echoedIntentIDs = echoedIntentIDs(snapshot: snapshot, threadID: threadID)
-        let visibleIntents = intents.filter { !echoedIntentIDs.contains($0.id) }
-        let visibleIntentByTurn = intentsByTurn(visibleIntents)
-        let order = projectedTurnOrder(
+        let echoedIntentIDs = try echoedIntentIDs(
             snapshot: snapshot,
             threadID: threadID,
-            intents: visibleIntents
+            checkpoint: checkpoint
+        )
+        let visibleIntents = intents.filter { !echoedIntentIDs.contains($0.id) }
+        let visibleIntentByTurn = intentsByTurn(visibleIntents)
+        let order = try projectedTurnOrder(
+            snapshot: snapshot,
+            threadID: threadID,
+            intents: visibleIntents,
+            checkpoint: checkpoint
         )
         let pendingRequests = requestPresentations(requests, threadID: threadID)
 
@@ -94,6 +64,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         } else {
             dirtyIDs.formUnion(newIDs.subtracting(oldIDs))
             for turnID in order {
+                try checkpoint()
                 let prior = old?.sourceTurnRevisions[turnID] ?? .zero
                 let key = TurnKey(threadID: threadID, turnID: turnID)
                 if let revision = snapshot.turns[key]?.lastChangedRevision, prior < revision {
@@ -108,35 +79,49 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         dirtyIDs.formUnion(requestDirtyTurns(previous: old?.pendingRequests ?? [], current: pendingRequests))
         dirtyIDs.formUnion(removed)
 
-        let sourceRevisions = turnSourceRevisions(
+        let sourceRevisions = try turnSourceRevisions(
             snapshot: snapshot,
             threadID: threadID,
             order: order,
             intentsByTurn: intentByTurn,
             recomputing: dirtyIDs,
-            previous: old?.sourceTurnRevisions ?? [:]
+            previous: old?.sourceTurnRevisions ?? [:],
+            checkpoint: checkpoint
         )
 
         var turnsByID = old?.turnsByID ?? [:]
         for removedID in removed {
+            try checkpoint()
             turnsByID.removeValue(forKey: removedID)
         }
 
         var upsertedTurns: [CodexTurnV2] = []
         for turnID in order where dirtyIDs.contains(turnID) {
+            try checkpoint()
             let key = TurnKey(threadID: threadID, turnID: turnID)
             let turn = snapshot.turns[key]
-            let items = turn.map { canonicalTurn in
-                canonicalTurn.itemOrder.compactMap { itemID in
-                    snapshot.items[ItemKey(threadID: threadID, turnID: turnID, itemID: itemID)]
+            var items: [CanonicalItem] = []
+            if let turn {
+                items.reserveCapacity(turn.itemOrder.count)
+                for itemID in turn.itemOrder {
+                    try checkpoint()
+                    let itemKey = ItemKey(
+                        threadID: threadID,
+                        turnID: turnID,
+                        itemID: itemID
+                    )
+                    if let item = snapshot.items[itemKey] {
+                        items.append(item)
+                    }
                 }
-            } ?? []
-            guard let projected = projectTurn(
+            }
+            guard let projected = try projectTurn(
                 turnID: turnID,
                 canonical: turn,
                 items: items,
                 intents: visibleIntentByTurn[turnID] ?? [],
-                previous: old?.turnsByID[turnID]
+                previous: old?.turnsByID[turnID],
+                checkpoint: checkpoint
             ) else {
                 turnsByID.removeValue(forKey: turnID)
                 continue
@@ -148,6 +133,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         // A dirty hint can name a missing turn. Never retain it just because an
         // earlier presentation happened to contain that identifier.
         for turnID in dirtyIDs where !newIDs.contains(turnID) {
+            try checkpoint()
             turnsByID.removeValue(forKey: turnID)
         }
 
@@ -172,6 +158,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
             pendingRequests: pendingRequests,
             isFullRebuild: fullRebuild
         )
+        try checkpoint()
         return .init(presentation: presentation, update: update)
     }
 }
@@ -184,11 +171,15 @@ private extension CodexCanonicalTranscriptProjector {
         canonical: CanonicalTurn?,
         items: [CanonicalItem],
         intents: [SubmissionIntent],
-        previous: CodexTurnV2?
-    ) -> CodexTurnV2? {
+        previous: CodexTurnV2?,
+        checkpoint: () throws -> Void
+    ) rethrows -> CodexTurnV2? {
         guard canonical != nil || !intents.isEmpty else { return nil }
 
-        let previousFileRows = previousFileRows(in: previous)
+        let previousFileRows = try previousFileRows(
+            in: previous,
+            checkpoint: checkpoint
+        )
         var turn = CodexTurnV2(
             id: turnID.rawValue,
             status: projectStatus(canonical: canonical, fallbackIntent: intents.first)
@@ -199,6 +190,7 @@ private extension CodexCanonicalTranscriptProjector {
         var currentSteeredMessage: CodexUserMessageV2?
 
         for item in items {
+            try checkpoint()
             let completed = item.authority == .completed || canonical?.status.isTerminal == true
             if let itemPresentationPolicy {
                 let context = CodexTranscriptItemContextV2(
@@ -209,7 +201,9 @@ private extension CodexCanonicalTranscriptProjector {
                     payload: item.payload,
                     status: workStatus(item, completed: completed)
                 )
-                switch itemPresentationPolicy.presentation(for: context) {
+                let presentation = itemPresentationPolicy.presentation(for: context)
+                try checkpoint()
+                switch presentation {
                 case .standard:
                     break
                 case .hidden:
@@ -330,6 +324,7 @@ private extension CodexCanonicalTranscriptProjector {
             remainingIntents = remainingIntents.dropFirst()
         }
         for intent in remainingIntents {
+            try checkpoint()
             sealConversationSegment(
                 turn: &turn,
                 steeredMessage: &currentSteeredMessage,
@@ -365,12 +360,17 @@ private extension CodexCanonicalTranscriptProjector {
         return turn
     }
 
-    func previousFileRows(in turn: CodexTurnV2?) -> [String: CodexFileChangeRowV2] {
+    func previousFileRows(
+        in turn: CodexTurnV2?,
+        checkpoint: () throws -> Void
+    ) rethrows -> [String: CodexFileChangeRowV2] {
         guard let turn else { return [:] }
         var result: [String: CodexFileChangeRowV2] = [:]
         for entry in turn.narrative {
+            try checkpoint()
             guard case .workGroup(let group) = entry else { continue }
             for row in group.rows {
+                try checkpoint()
                 guard case .fileChange(let value) = row else { continue }
                 result[value.id] = value
             }

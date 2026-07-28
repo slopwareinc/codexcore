@@ -575,6 +575,11 @@ private extension CodexPresentationStore {
         var previous: CodexCanonicalTranscriptPresentation?
     }
 
+    struct CompletedProjection: Sendable {
+        var result: CodexCanonicalTranscriptProjectionResult
+        var excludesWarmCache: Bool
+    }
+
     func launchProjection(afterCoalescingDelay: Bool) {
         guard projectionTask == nil, pendingSnapshot != nil else { return }
         projectionGeneration &+= 1
@@ -582,38 +587,27 @@ private extension CodexPresentationStore {
         let delay = coalescingInterval
         diagnostics.projectionScheduleCount &+= 1
 
-        projectionTask = Task { [weak self, projector] in
+        projectionTask = Task(priority: .userInitiated) { [weak self, projector] in
             if afterCoalescingDelay {
                 try? await Task.sleep(for: delay)
             }
             guard !Task.isCancelled, let job = self?.takeProjectionJob() else { return }
 
-            let completed = await Task.detached(priority: .userInitiated) {
-                let result: CodexCanonicalTranscriptProjectionResult
-                do {
-                    result = try projector.project(
-                        snapshot: job.snapshot,
-                        threadID: job.threadID,
-                        requests: job.requestBatch.requests,
-                        requestRevision: job.requestBatch.revision.rawValue,
-                        previous: job.previous
-                    )
-                } catch {
-                    result = projector.rebuild(
-                        snapshot: job.snapshot,
-                        threadID: job.threadID,
-                        requests: job.requestBatch.requests,
-                        requestRevision: job.requestBatch.revision.rawValue
-                    )
-                }
-                return (
-                    result: result,
-                    excludesWarmCache: result.update.upsertedTurns.contains {
-                        $0.containsFileChangeRow
-                    }
+            let completed: CompletedProjection
+            do {
+                completed = try await Self.performProjection(
+                    job,
+                    projector: projector
                 )
-            }.value
-
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.abandonProjection(
+                    generation: generation,
+                    threadID: job.threadID
+                )
+                return
+            }
             guard !Task.isCancelled else { return }
             self?.finishProjection(
                 completed.result,
@@ -623,6 +617,46 @@ private extension CodexPresentationStore {
                 threadID: job.threadID
             )
         }
+    }
+
+    @concurrent
+    nonisolated static func performProjection(
+        _ job: ProjectionJob,
+        projector: CodexCanonicalTranscriptProjector
+    ) async throws -> CompletedProjection {
+        try Task.checkCancellation()
+        let result: CodexCanonicalTranscriptProjectionResult
+        do {
+            result = try projector.project(
+                snapshot: job.snapshot,
+                threadID: job.threadID,
+                requests: job.requestBatch.requests,
+                requestRevision: job.requestBatch.revision.rawValue,
+                previous: job.previous
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as CodexCanonicalTranscriptProjectionError {
+            switch error {
+            case .staleSourceRevision, .staleRequestRevision:
+                break
+            }
+            try Task.checkCancellation()
+            result = try projector.project(
+                snapshot: job.snapshot,
+                threadID: job.threadID,
+                requests: job.requestBatch.requests,
+                requestRevision: job.requestBatch.revision.rawValue,
+                previous: nil
+            )
+        }
+        try Task.checkCancellation()
+        return CompletedProjection(
+            result: result,
+            excludesWarmCache: result.update.upsertedTurns.contains {
+                $0.containsFileChangeRow
+            }
+        )
     }
 
     func takeProjectionJob() -> ProjectionJob? {
@@ -662,6 +696,17 @@ private extension CodexPresentationStore {
             )
         }
 
+        if pendingSnapshot != nil {
+            launchProjection(afterCoalescingDelay: true)
+        }
+    }
+
+    func abandonProjection(generation: UInt64, threadID: ThreadID) {
+        guard projectionGeneration == generation, selectedThreadID == threadID else {
+            return
+        }
+        projectionTask = nil
+        diagnostics.discardedProjectionCount &+= 1
         if pendingSnapshot != nil {
             launchProjection(afterCoalescingDelay: true)
         }
