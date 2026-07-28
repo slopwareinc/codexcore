@@ -271,6 +271,37 @@ struct CodexCanonicalTranscriptProjectorTests {
         )
     }
 
+    @Test func liveOrRunningWorkOutranksDeclinedAndUnknownSiblings() {
+        let declined = CodexWorkRowV2.other(.init(
+            id: "declined",
+            label: "Declined",
+            status: .declined
+        ))
+        let unknown = CodexWorkRowV2.other(.init(
+            id: "unknown",
+            label: "Unknown",
+            status: .unknown("awaitingPolicy")
+        ))
+        let running = CodexWorkRowV2.other(.init(
+            id: "running",
+            label: "Running",
+            status: .inProgress
+        ))
+
+        #expect(
+            CodexWorkGroupPresentationV2.status(
+                rows: [declined, unknown, running],
+                isLive: false
+            ) == .inProgress
+        )
+        #expect(
+            CodexWorkGroupPresentationV2.status(
+                rows: [declined, unknown],
+                isLive: true
+            ) == .inProgress
+        )
+    }
+
     @Test func skillReadsBecomeLoadedToolsAndUnknownCommandsUseFallback() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

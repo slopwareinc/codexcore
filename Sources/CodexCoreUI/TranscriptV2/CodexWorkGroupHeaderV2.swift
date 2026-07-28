@@ -106,23 +106,26 @@ enum CodexWorkGroupPresentationV2 {
         rows: [CodexWorkRowV2],
         isLive: Bool
     ) -> CodexWorkItemStatusV2 {
+        var hasInProgress = isLive
         var hasDeclined = false
         var firstUnknown: CodexWorkItemStatusV2?
         for row in rows {
             switch status(of: row) {
             case .failed:
                 return .failed
+            case .inProgress:
+                hasInProgress = true
             case .declined:
                 hasDeclined = true
             case .unknown(let value):
                 if firstUnknown == nil { firstUnknown = .unknown(value) }
-            case .inProgress, .completed:
+            case .completed:
                 break
             }
         }
+        if hasInProgress { return .inProgress }
         if hasDeclined { return .declined }
         if let firstUnknown { return firstUnknown }
-        if isLive || rows.contains(where: \.isInProgress) { return .inProgress }
         return .completed
     }
 
