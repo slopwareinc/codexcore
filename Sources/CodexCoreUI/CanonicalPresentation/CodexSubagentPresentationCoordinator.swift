@@ -3,12 +3,15 @@ import Foundation
 import Observation
 
 public struct CodexSubagentPresentationDiagnostics: Sendable, Equatable {
-    public fileprivate(set) var parentSnapshotCount = 0
-    public fileprivate(set) var indexSnapshotCount = 0
-    public fileprivate(set) var childLeaseAcquisitionCount = 0
-    public fileprivate(set) var childLeaseReleaseCount = 0
-    public fileprivate(set) var childProjectionCount = 0
-    public fileprivate(set) var projectionEvictionCount = 0
+    public internal(set) var parentSnapshotCount = 0
+    public internal(set) var indexSnapshotCount = 0
+    public internal(set) var childLeaseAcquisitionCount = 0
+    public internal(set) var childLeaseReleaseCount = 0
+    public internal(set) var childProjectionCount = 0
+    public internal(set) var childProjectionScheduleCount = 0
+    public internal(set) var childProjectionDiscardCount = 0
+    public internal(set) var childSnapshotCoalescingCount = 0
+    public internal(set) var projectionEvictionCount = 0
 
     public init() {}
 }
@@ -17,54 +20,101 @@ public struct CodexSubagentPresentationDiagnostics: Sendable, Equatable {
 ///
 /// The selected parent is observed only for collaboration items. Direct child
 /// relationships and names also arrive through the lightweight thread index.
-/// Each child receives its own exact retention lease and scoped observation;
-/// no `.all` canonical graph is copied into UI and no notification is replayed.
+/// Only the child transcript visible in the side panel receives an exact
+/// retention lease and scoped projection. Unselected children remain lightweight
+/// metadata derived from the parent and thread index.
 @MainActor
 @Observable
 public final class CodexSubagentPresentationCoordinator {
+    @available(*, deprecated, message: "Only the selected transcript is retained.")
     public static let defaultProjectionCapacity = 8
+    public static let defaultProjectionByteCapacity = 8 * 1_024 * 1_024
 
     public private(set) var parentThreadID: ThreadID?
     public private(set) var agents: [CodexSubagentV2] = []
     public private(set) var panelSubagents: [CodexSubagentState] = []
     public private(set) var lifecycleEvents: [CodexAgentLifecycleEvent] = []
     public private(set) var changeRevision: UInt64 = 0
-    public private(set) var diagnostics = CodexSubagentPresentationDiagnostics()
+    public internal(set) var diagnostics = CodexSubagentPresentationDiagnostics()
 
-    @ObservationIgnored private let codex: Codex
-    @ObservationIgnored private let projectionCapacity: Int
-    @ObservationIgnored private var store = CodexSubagentStoreV2()
+    @ObservationIgnored let codex: Codex
+    @ObservationIgnored let projectionByteCapacity: Int
+    @ObservationIgnored let projectionOperation: @Sendable (
+        CanonicalStateSnapshot,
+        ThreadID,
+        CodexCanonicalTranscriptPresentation?,
+        Int
+    ) throws -> CodexSelectedChildProjectionOutput
+    @ObservationIgnored var store = CodexSubagentStoreV2()
     @ObservationIgnored private var mapper = CodexAgentStateMapper()
     @ObservationIgnored private var latestParentSnapshot: CanonicalStateSnapshot?
-    @ObservationIgnored private var parentDiscoveredIDs: Set<ThreadID> = []
-    @ObservationIgnored private var indexedChildIDs: Set<ThreadID> = []
+    @ObservationIgnored var parentDiscoveredIDs: Set<ThreadID> = []
+    @ObservationIgnored var indexedChildIDs: Set<ThreadID> = []
     @ObservationIgnored private var seenIndexedChildIDs: Set<ThreadID> = []
-    @ObservationIgnored private var removedIndexedChildIDs: Set<ThreadID> = []
-    @ObservationIgnored private var terminalChildIDs: Set<ThreadID> = []
-    @ObservationIgnored private var projectionLRU: [ThreadID] = []
-    @ObservationIgnored private var childRuntimes: [ThreadID: ChildRuntime] = [:]
+    @ObservationIgnored var removedIndexedChildIDs: Set<ThreadID> = []
+    @ObservationIgnored var selectedProjection: CodexSelectedSubagentProjection?
     @ObservationIgnored private var parentObservationTask: Task<Void, Never>?
     @ObservationIgnored private var indexObservationTask: Task<Void, Never>?
     @ObservationIgnored private var generation: UInt64 = 0
+    @ObservationIgnored private var nextSelectionID: UInt64 = 0
+    @ObservationIgnored var nextProjectionID: UInt64 = 0
 
-    private struct ChildRuntime {
-        var generation: UInt64
-        var lease: CodexThreadLease?
-        var task: Task<Void, Never>?
+    public convenience init(codex: Codex) {
+        self.init(
+            codex: codex,
+            projectionByteCapacity: Self.defaultProjectionByteCapacity
+        )
+    }
+
+    @available(*, deprecated, message: "Only the selected transcript is retained.")
+    public convenience init(codex: Codex, projectionCapacity: Int) {
+        self.init(codex: codex)
+        _ = projectionCapacity
+    }
+
+    public convenience init(codex: Codex, projectionByteCapacity: Int) {
+        self.init(
+            codex: codex,
+            projectionCapacity: 8,
+            projectionByteCapacity: projectionByteCapacity
+        )
     }
 
     public init(
         codex: Codex,
-        projectionCapacity: Int = CodexSubagentPresentationCoordinator.defaultProjectionCapacity
+        projectionCapacity: Int,
+        projectionByteCapacity: Int
     ) {
         self.codex = codex
-        self.projectionCapacity = max(1, projectionCapacity)
+        _ = projectionCapacity
+        self.projectionByteCapacity = max(0, projectionByteCapacity)
+        self.projectionOperation = CodexSubagentStoreV2.projectSelectedChildSnapshot
     }
 
-    deinit {
+    init(
+        codex: Codex,
+        projectionByteCapacity: Int =
+            CodexSubagentPresentationCoordinator.defaultProjectionByteCapacity,
+        projectionOperation: @escaping @Sendable (
+            CanonicalStateSnapshot,
+            ThreadID,
+            CodexCanonicalTranscriptPresentation?,
+            Int
+        ) throws -> CodexSelectedChildProjectionOutput
+    ) {
+        self.codex = codex
+        self.projectionByteCapacity = max(0, projectionByteCapacity)
+        self.projectionOperation = projectionOperation
+    }
+
+    isolated deinit {
         parentObservationTask?.cancel()
         indexObservationTask?.cancel()
-        for runtime in childRuntimes.values { runtime.task?.cancel() }
+        selectedProjection?.observationTask?.cancel()
+        selectedProjection?.projectionTask?.cancel()
+        if let lease = selectedProjection?.lease {
+            Task { await lease.close() }
+        }
     }
 
     /// Switches the direct-parent scope. Old child tasks are cancelled
@@ -72,17 +122,13 @@ public final class CodexSubagentPresentationCoordinator {
     public func selectParent(_ threadID: ThreadID?) {
         guard parentThreadID != threadID else { return }
         generation &+= 1
-        let outgoing = Array(childRuntimes.values.compactMap(\.lease))
-        cancelObservationTasks()
-        childRuntimes.removeAll(keepingCapacity: false)
+        let outgoing = stopSelectedProjection(discardContent: true)
+        cancelParentObservationTasks()
         clearProjectionState()
         parentThreadID = threadID
 
-        if !outgoing.isEmpty {
-            diagnostics.childLeaseReleaseCount += outgoing.count
-            Task {
-                for lease in outgoing { await lease.close() }
-            }
+        if let outgoing {
+            Task { await outgoing.close() }
         }
         guard let threadID else {
             publish()
@@ -96,11 +142,9 @@ public final class CodexSubagentPresentationCoordinator {
     public func disconnect() async {
         generation &+= 1
         parentThreadID = nil
-        cancelObservationTasks()
-        let leases = Array(childRuntimes.values.compactMap(\.lease))
-        childRuntimes.removeAll(keepingCapacity: false)
-        diagnostics.childLeaseReleaseCount += leases.count
-        for lease in leases { await lease.close() }
+        cancelParentObservationTasks()
+        let lease = stopSelectedProjection(discardContent: true)
+        if let lease { await lease.close() }
         clearProjectionState()
         publish()
     }
@@ -111,23 +155,46 @@ public final class CodexSubagentPresentationCoordinator {
     }
 
     public func agent(threadID: ThreadID) -> CodexSubagentV2? {
-        store.agent(threadID: threadID.rawValue)
+        guard var agent = store.agent(threadID: threadID.rawValue) else {
+            return nil
+        }
+        if selectedProjection?.threadID == threadID {
+            agent.transcript = selectedProjection?.transcript ?? .init()
+        }
+        return agent
     }
 
-    /// Returns the currently cached child transcript and marks it most recent.
-    /// If a terminal projection was evicted, this starts a fresh exact lease so
-    /// the caller eventually receives a complete canonical projection again.
+    public var retainedProjectionEstimatedByteCount: Int {
+        selectedProjection?.estimatedByteCount ?? 0
+    }
+
+    /// Selects the child transcript that is currently visible in the agent panel.
+    func selectTranscript(_ threadID: ThreadID?) {
+        guard selectedProjection?.threadID != threadID else { return }
+        closeSelectedProjection(discardContent: true)
+        guard let threadID,
+              store.contains(threadID: threadID.rawValue),
+              let parentThreadID
+        else {
+            refreshMapperAndPublish()
+            return
+        }
+
+        nextSelectionID &+= 1
+        selectedProjection = CodexSelectedSubagentProjection(
+            threadID: threadID,
+            selectionID: nextSelectionID
+        )
+        startSelectedChild(parentThreadID: parentThreadID)
+        refreshMapperAndPublish()
+    }
+
+    /// Returns the selected child's current disposable transcript projection.
     public func transcript(threadID: ThreadID) -> CodexTranscriptV2? {
         guard store.contains(threadID: threadID.rawValue) else { return nil }
-        touchProjection(threadID)
-        let transcript = store.agent(threadID: threadID.rawValue)?.transcript
-        if transcript?.turns.isEmpty == true,
-           childRuntimes[threadID] == nil,
-           let parentThreadID {
-            terminalChildIDs.remove(threadID)
-            acquireChild(threadID, parentThreadID: parentThreadID, generation: generation)
-        }
-        return transcript
+        selectTranscript(threadID)
+        guard selectedProjection?.threadID == threadID else { return .init() }
+        return selectedProjection?.transcript ?? .init()
     }
 }
 
@@ -151,16 +218,17 @@ private extension CodexSubagentPresentationCoordinator {
             defer {
                 Task { await codex.session.cancelObservation(observation.id) }
             }
-            guard let self, self.isCurrent(generation, parentThreadID: threadID) else { return }
-            self.applyParentSnapshot(observation.seed.canonical, parentThreadID: threadID)
+            guard self?.isCurrent(generation, parentThreadID: threadID) == true else { return }
+            self?.applyParentSnapshot(observation.seed.canonical, parentThreadID: threadID)
 
             for await _ in observation.signals {
                 guard !Task.isCancelled,
-                      self.isCurrent(generation, parentThreadID: threadID) else { return }
+                      self?.isCurrent(generation, parentThreadID: threadID) == true
+                else { return }
                 let snapshot = await codex.session.canonicalSnapshot(
                     scope: .thread(threadID, fields: fields)
                 )
-                self.applyParentSnapshot(snapshot, parentThreadID: threadID)
+                self?.applyParentSnapshot(snapshot, parentThreadID: threadID)
             }
         }
     }
@@ -172,13 +240,15 @@ private extension CodexSubagentPresentationCoordinator {
             defer {
                 Task { await codex.session.cancelObservation(observation.id) }
             }
-            guard let self, self.isCurrent(generation, parentThreadID: parentThreadID) else { return }
-            self.applyThreadIndex(observation.seed, parentThreadID: parentThreadID)
+            guard self?.isCurrent(generation, parentThreadID: parentThreadID) == true
+            else { return }
+            self?.applyThreadIndex(observation.seed, parentThreadID: parentThreadID)
 
             for await _ in observation.signals {
                 guard !Task.isCancelled,
-                      self.isCurrent(generation, parentThreadID: parentThreadID) else { return }
-                self.applyThreadIndex(
+                      self?.isCurrent(generation, parentThreadID: parentThreadID) == true
+                else { return }
+                self?.applyThreadIndex(
                     await codex.session.threadIndexSnapshot(),
                     parentThreadID: parentThreadID
                 )
@@ -191,12 +261,13 @@ private extension CodexSubagentPresentationCoordinator {
         parentThreadID: ThreadID
     ) {
         guard isCurrent(generation, parentThreadID: parentThreadID) else { return }
+        let previousStatus = selectedStatus
         latestParentSnapshot = snapshot
         let discoveries = store.applyParentSnapshot(snapshot, parentThreadID: parentThreadID)
         parentDiscoveredIDs = Set(discoveries.map { ThreadID($0.threadID) })
         diagnostics.parentSnapshotCount += 1
-        reconcileChildren(parentThreadID: parentThreadID)
-        releaseClosedChildren()
+        reconcileChildren()
+        reconcileSelectedLifecycle(from: previousStatus)
         refreshMapperAndPublish()
     }
 
@@ -205,210 +276,43 @@ private extension CodexSubagentPresentationCoordinator {
         parentThreadID: ThreadID
     ) {
         guard isCurrent(generation, parentThreadID: parentThreadID) else { return }
+        let previousStatus = selectedStatus
         let discoveries = store.applyThreadIndex(index, parentThreadID: parentThreadID)
         indexedChildIDs = Set(discoveries.map { ThreadID($0.threadID) })
         seenIndexedChildIDs.formUnion(indexedChildIDs)
         removedIndexedChildIDs = seenIndexedChildIDs.subtracting(indexedChildIDs)
-        for summary in index.threads where summary.parentThreadID == parentThreadID {
-            if summary.status.isActive || summary.latestTurnStatus == .inProgress {
-                terminalChildIDs.remove(summary.id)
-            }
-        }
         diagnostics.indexSnapshotCount += 1
-        reconcileChildren(parentThreadID: parentThreadID)
+        reconcileChildren()
+        reconcileSelectedLifecycle(from: previousStatus)
         refreshMapperAndPublish()
     }
 }
 
-// MARK: - Exact child leases and scoped projections
+// MARK: - Publication
 
-private extension CodexSubagentPresentationCoordinator {
-    var desiredChildIDs: Set<ThreadID> {
-        parentDiscoveredIDs.subtracting(removedIndexedChildIDs).union(indexedChildIDs)
-    }
-
-    func reconcileChildren(parentThreadID: ThreadID) {
-        let desired = desiredChildIDs
-        for id in Array(childRuntimes.keys) where !desired.contains(id) {
-            releaseAndRemoveChild(id)
-        }
-        for id in store.threadIDs where !desired.contains(id) {
-            store.remove(threadID: id)
-            projectionLRU.removeAll { $0 == id }
-        }
-        for id in desired where childRuntimes[id] == nil && !terminalChildIDs.contains(id) {
-            acquireChild(id, parentThreadID: parentThreadID, generation: generation)
-        }
-    }
-
-    func acquireChild(
-        _ threadID: ThreadID,
-        parentThreadID: ThreadID,
-        generation: UInt64
-    ) {
-        guard childRuntimes[threadID] == nil else { return }
-        let codex = self.codex
-        let task = Task { [weak self] in
-            let lease = await codex.retainThread(
-                threadID,
-                reason: .subagentObserver(parentThreadID)
-            )
-            guard let self,
-                  self.isCurrent(generation, parentThreadID: parentThreadID),
-                  self.desiredChildIDs.contains(threadID)
-            else {
-                await lease.close()
-                return
-            }
-            self.installLease(lease, threadID: threadID, generation: generation)
-
-            do {
-                let observation = try await lease.observe(fields: .all)
-                defer { Task { await lease.cancel(observation) } }
-                self.applyChildSnapshot(
-                    observation.seed,
-                    threadID: threadID,
-                    generation: generation
-                )
-                for await _ in observation.signals {
-                    guard !Task.isCancelled,
-                          self.isCurrent(generation, parentThreadID: parentThreadID),
-                          self.childRuntimes[threadID]?.lease === lease else { return }
-                    self.applyChildSnapshot(
-                        try await lease.snapshot(fields: .all),
-                        threadID: threadID,
-                        generation: generation
-                    )
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                guard self.isCurrent(generation, parentThreadID: parentThreadID) else { return }
-                self.markChildFailure(threadID, message: String(describing: error))
-            }
-        }
-        childRuntimes[threadID] = ChildRuntime(
-            generation: generation,
-            lease: nil,
-            task: task
-        )
-    }
-
-    func installLease(
-        _ lease: CodexThreadLease,
-        threadID: ThreadID,
-        generation: UInt64
-    ) {
-        guard var runtime = childRuntimes[threadID], runtime.generation == generation else {
-            Task { await lease.close() }
-            return
-        }
-        runtime.lease = lease
-        childRuntimes[threadID] = runtime
-        diagnostics.childLeaseAcquisitionCount += 1
-    }
-
-    func applyChildSnapshot(
-        _ snapshot: CanonicalStateSnapshot,
-        threadID: ThreadID,
-        generation: UInt64
-    ) {
-        guard childRuntimes[threadID]?.generation == generation else { return }
-        guard store.applyChildSnapshot(snapshot, threadID: threadID) else { return }
-        diagnostics.childProjectionCount += 1
-        touchProjection(threadID)
-        refreshMapperAndPublish()
-
-        if Self.isTerminalAndHydrated(snapshot, threadID: threadID) {
-            terminalChildIDs.insert(threadID)
-            releaseChildLease(threadID, retainProjection: true)
-        } else {
-            evictProjectionOverflow()
-        }
-    }
-
-    func markChildFailure(_ threadID: ThreadID, message: String) {
-        store.updateStatus(threadID: threadID, status: .failed(message: message))
-        releaseChildLease(threadID, retainProjection: true)
-        refreshMapperAndPublish()
-    }
-
-    func releaseAndRemoveChild(_ threadID: ThreadID) {
-        releaseChildLease(threadID, retainProjection: false)
-        terminalChildIDs.remove(threadID)
-        projectionLRU.removeAll { $0 == threadID }
-        store.remove(threadID: threadID)
-    }
-
-    func releaseChildLease(_ threadID: ThreadID, retainProjection: Bool) {
-        guard let runtime = childRuntimes.removeValue(forKey: threadID) else { return }
-        runtime.task?.cancel()
-        if let lease = runtime.lease {
-            diagnostics.childLeaseReleaseCount += 1
-            Task { await lease.close() }
-        }
-        if !retainProjection { store.evictTranscript(threadID: threadID) }
-    }
-
-    func releaseClosedChildren() {
-        for id in desiredChildIDs {
-            guard case .closed? = store.agent(threadID: id.rawValue)?.status else { continue }
-            terminalChildIDs.insert(id)
-            releaseChildLease(id, retainProjection: true)
-        }
-    }
-
-    static func isTerminalAndHydrated(
-        _ snapshot: CanonicalStateSnapshot,
-        threadID: ThreadID
-    ) -> Bool {
-        guard let thread = snapshot.threads[threadID] else { return false }
-        let turns = snapshot.turns(in: threadID)
-        guard let latest = turns.last, latest.status.isTerminal else { return false }
-        if thread.history.turnsCoverage == .full,
-           turns.allSatisfy({ $0.itemsCoverage == .full }) {
-            return true
-        }
-        // Live child threads can be complete before they have ever needed a
-        // history resume. An authoritative terminal turn is already sufficient.
-        return latest.itemsConsistency == .authoritative && latest.itemsCoverage == .full
-    }
-}
-
-// MARK: - Projection retention and publication
-
-private extension CodexSubagentPresentationCoordinator {
-    func touchProjection(_ threadID: ThreadID) {
-        projectionLRU.removeAll { $0 == threadID }
-        projectionLRU.append(threadID)
-        evictProjectionOverflow()
-    }
-
-    func evictProjectionOverflow() {
-        while projectionLRU.count > projectionCapacity {
-            guard let candidate = projectionLRU.first(where: {
-                childRuntimes[$0] == nil
-            }) else { return }
-            projectionLRU.removeAll { $0 == candidate }
-            store.evictTranscript(threadID: candidate)
-            diagnostics.projectionEvictionCount += 1
-        }
-    }
-
+extension CodexSubagentPresentationCoordinator {
     func refreshMapperAndPublish() {
+        let projectedChildren = projectedAgents()
         if let latestParentSnapshot, let parentThreadID {
             _ = mapper.applyCanonicalSnapshot(
                 latestParentSnapshot,
                 parentThreadID: parentThreadID,
-                projectedChildren: store.agents
+                projectedChildren: projectedChildren
             )
         }
-        publish()
+        publish(projectedChildren)
     }
 
-    func publish() {
-        agents = store.agents
-        panelSubagents = mapper.subagents
+    func publish(_ projectedAgents: [CodexSubagentV2]? = nil) {
+        agents = projectedAgents ?? self.projectedAgents()
+        panelSubagents = mapper.subagents.map { subagent in
+            var subagent = subagent
+            if subagent.id == selectedProjection?.threadID.rawValue,
+               selectedProjection?.isSuppressed == true {
+                subagent.transcriptAvailability = .exceedsDisplayLimit
+            }
+            return subagent
+        }
         lifecycleEvents = mapper.lifecycleEvents
         changeRevision &+= 1
     }
@@ -419,18 +323,16 @@ private extension CodexSubagentPresentationCoordinator {
         indexedChildIDs.removeAll(keepingCapacity: false)
         seenIndexedChildIDs.removeAll(keepingCapacity: false)
         removedIndexedChildIDs.removeAll(keepingCapacity: false)
-        terminalChildIDs.removeAll(keepingCapacity: false)
-        projectionLRU.removeAll(keepingCapacity: false)
+        selectedProjection = nil
         store.removeAll()
         mapper.reset()
     }
 
-    func cancelObservationTasks() {
+    func cancelParentObservationTasks() {
         parentObservationTask?.cancel()
         parentObservationTask = nil
         indexObservationTask?.cancel()
         indexObservationTask = nil
-        for runtime in childRuntimes.values { runtime.task?.cancel() }
     }
 
     func isCurrent(_ generation: UInt64, parentThreadID: ThreadID) -> Bool {

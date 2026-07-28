@@ -297,48 +297,37 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(content[2].preparedText?.attributedString.string.contains("After the handoff") == true)
     }
 
-    @Test func expandedFileChangeProjectsOneTabbedColoredPatchPanel() async throws {
-        let diff = """
-        diff --git a/A.swift b/A.swift
-        --- a/A.swift
-        +++ b/A.swift
-        @@ -1 +1 @@
-        -old
-        +new
-        diff --git a/B.swift b/B.swift
-        --- a/B.swift
-        +++ b/B.swift
-        @@ -0,0 +1 @@
-        +added
-        """
-        let turn = CodexTurnV2(
-            id: "turn",
-            narrative: [.workGroup(.init(id: "work", rows: [.fileChange(.init(
-                id: "files", files: ["A.swift", "B.swift"], status: .completed, diff: diff
-            ))]))],
-            status: .done(durationMs: 1)
+    @Test func identicalOrdinaryMarkdownIsRetainedAndHitsPreparedTextCache() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let presentation = CodexThreadUIPresentation(
+            threadID: "markdown-thread",
+            transcript: .init(turns: [.init(
+                id: "markdown-turn",
+                finalAnswer: .init(
+                    id: "markdown-answer",
+                    text: "Read **the docs** at [OpenAI](https://openai.com).",
+                    isStreaming: false
+                ),
+                status: .done(durationMs: 1)
+            )])
         )
-        let snapshot = try await CodexTranscriptRenderProjector().project(
-            presentation: .init(
-                threadID: "thread", transcript: .init(turns: [turn]),
-                expandedWorkTurnIDs: ["turn"], expandedRowIDs: ["work", "files"],
-                selectedDiffFileIndexByRowID: ["files": 1]
-            ),
-            availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
-        )
-        let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange })
-        #expect(row.workRow?.label == "Edited 2 files · +2 −1")
-        let panel = try #require(snapshot.itemsByID.values.first { $0.diffPanel != nil })
-        #expect(panel.diffPanel?.files.count == 2)
-        #expect(panel.diffPanel?.selectedFileIndex == 1)
-        #expect(panel.diffPanel?.selectedFile?.path == "B.swift")
-        #expect(panel.copyText?.contains("B.swift") == true)
-        #expect(panel.isScrollableOutput)
-        #expect(panel.measuredHeight == CodexTranscriptColumnMetrics.diffPanelHeight + 8)
-        #expect(panel.bottomSpacing == 8)
-    }
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
 
+        let first = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let second = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+
+        #expect(first.diagnostics.preparedTextCacheMissCount == 1)
+        #expect(second.diagnostics.preparedTextCacheHitCount == 1)
+        #expect(second.diagnostics.preparedTextCacheMissCount == 0)
+    }
 
     @Test func streamingAnswerKeepsOnlyCompactLiveActivityVisible() async throws {
         let projector = CodexTranscriptRenderProjector()

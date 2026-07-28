@@ -775,7 +775,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row, isActionable: isActionable)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
-            if row.isExpanded && item.copyText != nil {
+            if row.isExpanded && item.copyPayload != nil {
                 ensureCopyControl()
                 copyButton.isHidden = false
                 copyButton.toolTip = "Copy output"
@@ -1668,7 +1668,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     @objc private func copyItem(_ sender: Any?) {
-        guard let text = item?.copyText else { return }
+        guard let text = item?.copyPayload?.materialized() else { return }
         copy?(text)
         if let button = sender as? NSButton { flashCopyConfirmation(button) }
     }
@@ -1701,7 +1701,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private func makeContextMenu() -> NSMenu? {
         guard let item else { return nil }
         let menu = NSMenu()
-        if item.copyText != nil {
+        if item.copyPayload != nil {
             let title: String = if item.code != nil { "Copy code" }
                 else if item.textRole == .expandedOutput { "Copy output" }
                 else if item.textRole == .finalAnswer || item.footer?.kind == .finalAnswer { "Copy final answer" }
@@ -1810,7 +1810,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
     private static func chipIconName(_ row: CodexTranscriptWorkRowRender) -> String {
         if let systemImage = row.systemImage, !systemImage.isEmpty { return systemImage }
-        if row.status == .failed { return "exclamationmark.triangle" }
+        switch row.status {
+        case .failed, .declined, .unknown:
+            return "exclamationmark.triangle"
+        case .inProgress, .completed:
+            break
+        }
         return switch row.kind {
         case .command: "terminal"
         case .fileChange: "doc.text"
@@ -1826,6 +1831,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .inProgress: "In progress"
         case .completed: "Completed"
         case .failed: "Failed"
+        case .declined: "Declined"
+        case .unknown: "Unknown status"
         }
     }
 
@@ -1857,6 +1864,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .inProgress: theme.running
         case .completed: theme.success
         case .failed: theme.danger
+        case .declined, .unknown: theme.warning
         }
     }
 
@@ -1865,6 +1873,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .inProgress: "running"
         case .completed: "finished"
         case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "status unknown"
         }
     }
 

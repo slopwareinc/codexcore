@@ -204,6 +204,50 @@ final class CodexGitReviewModelTests: XCTestCase {
         XCTAssertNil(CodexGitReviewSnapshot.fromTurnDiff(branchName: "main", turnDiff: " "))
     }
 
+    func testTurnDiffUsesCanonicalStatusesAndHunkHeaderPrecedence() throws {
+        let diff = """
+        diff --git a/Sources/New.swift b/Sources/New.swift
+        new file mode 100644
+        --- /dev/null
+        +++ b/Sources/New.swift
+        @@ -0,0 +1 @@
+        +++source text
+        diff --git a/Sources/Old.swift b/Sources/Renamed.swift
+        similarity index 100%
+        rename from Sources/Old.swift
+        rename to Sources/Renamed.swift
+        """
+
+        let snapshot = try XCTUnwrap(CodexGitReviewSnapshot.fromTurnDiff(
+            branchName: "codex/review-panel",
+            turnDiff: diff
+        ))
+
+        XCTAssertEqual(snapshot.files.map(\.status), [.added, .renamed])
+        XCTAssertEqual(snapshot.files.map(\.path), [
+            "Sources/New.swift",
+            "Sources/Renamed.swift",
+        ])
+        XCTAssertEqual(snapshot.files.first?.addedLines, 1)
+    }
+
+    func testTurnDiffFailsClosedWhenFileRecordCapIsExceeded() {
+        let diff = (0...CodexUnifiedDiffParser.defaultMaximumRetainedFileCount)
+            .map { index in
+                """
+                diff --git a/File\(index).swift b/File\(index).swift
+                @@ -0,0 +1 @@
+                +value
+                """
+            }
+            .joined(separator: "\n")
+
+        XCTAssertNil(CodexGitReviewSnapshot.fromTurnDiff(
+            branchName: "codex/review-panel",
+            turnDiff: diff
+        ))
+    }
+
     private func dirtySnapshot() -> CodexGitReviewSnapshot {
         CodexGitReviewSnapshot(
             branchName: "codex/review-panel",

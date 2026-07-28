@@ -1,6 +1,7 @@
 import CodexCore
 @testable import CodexCoreUI
 import Foundation
+import Observation
 import Testing
 
 @MainActor
@@ -36,7 +37,14 @@ struct CodexSubagentPresentationCoordinatorTests {
         try await eventually {
             coordinator.agents.count == 1
                 && coordinator.agents[0].threadID == "child"
-                && !coordinator.agents[0].transcript.turns.isEmpty
+        }
+        #expect(coordinator.agents[0].transcript.turns.isEmpty)
+        #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 0)
+        #expect(coordinator.diagnostics.childProjectionScheduleCount == 0)
+
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.agents.first?.transcript.turns.isEmpty == false
         }
         #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 1)
         #expect(coordinator.agents[0].transcript.turns[0].narrative.contains { !$0.id.isEmpty })
@@ -57,6 +65,394 @@ struct CodexSubagentPresentationCoordinatorTests {
         await coordinator.disconnect()
         await codex.close()
     }
+
+    @Test func childProjectionRunsOffMainAndOldParentResultIsDiscarded() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-off-main-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let gate = CoordinatorProjectionGate()
+        defer { gate.releaseFirstProjection() }
+        let coordinator = CodexSubagentPresentationCoordinator(
+            codex: codex,
+            projectionOperation: { snapshot, threadID, previous, limit in
+                try gate.project(
+                    snapshot: snapshot,
+                    threadID: threadID,
+                    previous: previous,
+                    displayCostLimit: limit
+                )
+            }
+        )
+        coordinator.selectParent("parent")
+
+        await transport.sendParentDiscovery()
+        try await eventually { coordinator.agents.count == 1 }
+        #expect(coordinator.agents.first?.nickname == nil)
+        #expect(coordinator.agents.first?.status == .pending)
+        coordinator.selectTranscript("child")
+        let revisionBeforeChildMetadata = coordinator.changeRevision
+        try await eventually { gate.invocationCount == 1 }
+        #expect(gate.firstProjectionWasOnMainThread == false)
+        try await eventually {
+            guard let agent = coordinator.agents.first,
+                  case .working = agent.status
+            else { return false }
+            return agent.nickname == "Scout"
+                && agent.transcript.turns.isEmpty
+                && coordinator.diagnostics.childProjectionCount == 0
+                && coordinator.changeRevision > revisionBeforeChildMetadata
+        }
+
+        coordinator.selectParent(nil)
+        gate.releaseFirstProjection()
+        try await eventually {
+            coordinator.diagnostics.childProjectionDiscardCount == 1
+        }
+
+        #expect(coordinator.agents.isEmpty)
+        #expect(coordinator.diagnostics.childProjectionCount == 0)
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
+    @Test func onlySelectedChildAcquiresLeaseAndProjectsTranscript() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-selected-only-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+        coordinator.selectParent("parent")
+
+        await transport.sendParentDiscovery(childIDs: ["child", "other"])
+        try await eventually {
+            coordinator.agents.count == 2
+        }
+
+        #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 0)
+        #expect(coordinator.diagnostics.childProjectionScheduleCount == 0)
+        #expect(coordinator.agents.allSatisfy { $0.transcript.turns.isEmpty })
+
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.agent(threadID: "child")?.transcript.turns.isEmpty == false
+        }
+        #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 1)
+        #expect(coordinator.agent(threadID: "other")?.transcript.turns.isEmpty == true)
+        let resumedThreadIDs = await transport.resumedThreadIDs()
+        #expect(resumedThreadIDs == ["child"])
+
+        let duplicateSnapshot = await codex.session.canonicalSnapshot(
+            scope: .thread("child", fields: .all)
+        )
+        let selectionID = try #require(coordinator.selectedProjection?.selectionID)
+        let scheduleCount = coordinator.diagnostics.childProjectionScheduleCount
+        coordinator.applyChildSnapshot(duplicateSnapshot, "child", selectionID)
+        coordinator.applyChildSnapshot(
+            CanonicalStateSnapshot(
+                revision: .zero,
+                threadOrder: ["child"],
+                threads: ["child": CanonicalThread(
+                    id: "child",
+                    status: .active(flags: []),
+                    isLoaded: true,
+                    consistency: .authoritative
+                )]
+            ),
+            "child",
+            selectionID
+        )
+        #expect(coordinator.diagnostics.childProjectionScheduleCount == scheduleCount)
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
+    @Test func oversizedSelectionShowsPlaceholderWithoutReleasingMetadataLease() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-byte-cap-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(
+            codex: codex,
+            projectionByteCapacity: 1
+        )
+        coordinator.selectParent("parent")
+        await transport.sendParentDiscovery()
+        try await eventually { coordinator.agents.count == 1 }
+
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.diagnostics.projectionEvictionCount == 1
+                && coordinator.panelSubagents.first?.transcriptAvailability
+                    == .exceedsDisplayLimit
+        }
+        #expect(coordinator.agents[0].nickname == "Scout")
+        #expect(coordinator.agents[0].transcript.turns.isEmpty)
+        #expect(coordinator.retainedProjectionEstimatedByteCount == 0)
+        #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 1)
+        #expect(coordinator.diagnostics.childLeaseReleaseCount == 0)
+
+        let scheduleCount = coordinator.diagnostics.childProjectionScheduleCount
+        let revision = await codex.session.canonicalSnapshot(
+            scope: .thread("child", fields: .all)
+        ).revision
+        let indexSnapshotCount = coordinator.diagnostics.indexSnapshotCount
+        await transport.sendChildDelta(" ignored while suppressed")
+        try await eventually {
+            guard let latestRevision =
+                coordinator.selectedProjection?.latestSnapshotRevision
+            else { return false }
+            return latestRevision > revision
+                && coordinator.diagnostics.indexSnapshotCount > indexSnapshotCount
+        }
+        #expect(coordinator.diagnostics.childProjectionScheduleCount == scheduleCount)
+
+        coordinator.selectTranscript(nil)
+        #expect(coordinator.panelSubagents.first?.transcriptAvailability == .available)
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.diagnostics.childProjectionScheduleCount > scheduleCount
+                && coordinator.panelSubagents.first?.transcriptAvailability
+                    == .exceedsDisplayLimit
+        }
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
+    @Test func switchingSelectionCancelsOldProjectionAndRetainsOnlyNewChild() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-switch-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let gate = CoordinatorProjectionGate()
+        defer { gate.releaseFirstProjection() }
+        let coordinator = CodexSubagentPresentationCoordinator(
+            codex: codex,
+            projectionOperation: { snapshot, threadID, previous, limit in
+                try gate.project(
+                    snapshot: snapshot,
+                    threadID: threadID,
+                    previous: previous,
+                    displayCostLimit: limit
+                )
+            }
+        )
+        coordinator.selectParent("parent")
+
+        await transport.sendParentDiscovery(childIDs: ["child", "other"])
+        try await eventually { coordinator.agents.count == 2 }
+        coordinator.selectTranscript("child")
+        await gate.waitForInvocationCount(1)
+
+        let oldProjectionTask = try #require(
+            coordinator.selectedProjection?.projectionTask
+        )
+        let acquisitionCount = coordinator.diagnostics.childLeaseAcquisitionCount
+        coordinator.selectTranscript("other")
+        gate.releaseFirstProjection()
+        await oldProjectionTask.value
+        await waitUntilObserved {
+            coordinator.diagnostics.childLeaseAcquisitionCount > acquisitionCount
+        }
+
+        #expect(coordinator.selectedProjection?.threadID == "other")
+        #expect(coordinator.selectedProjection?.lease != nil)
+        #expect(coordinator.selectedProjection?.observationTask != nil)
+        #expect(coordinator.agent(threadID: "child")?.transcript.turns.isEmpty == true)
+        #expect(coordinator.diagnostics.childProjectionDiscardCount >= 1)
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
+    @Test func streamingChildSnapshotsAreSingleFlightAndOnlyNewestPublishes() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-single-flight-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let gate = CoordinatorProjectionGate()
+        defer { gate.releaseFirstProjection() }
+        let coordinator = CodexSubagentPresentationCoordinator(
+            codex: codex,
+            projectionOperation: { snapshot, threadID, previous, limit in
+                try gate.project(
+                    snapshot: snapshot,
+                    threadID: threadID,
+                    previous: previous,
+                    displayCostLimit: limit
+                )
+            }
+        )
+        coordinator.selectParent("parent")
+
+        await transport.sendParentDiscovery()
+        try await eventually { coordinator.agents.count == 1 }
+        coordinator.selectTranscript("child")
+        try await eventually { gate.invocationCount == 1 }
+        #expect(gate.firstProjectionWasOnMainThread == false)
+
+        await transport.sendChildDelta(" middle")
+        try await eventually {
+            coordinator.diagnostics.childSnapshotCoalescingCount >= 1
+        }
+        await transport.sendChildDelta(" newest")
+        try await eventually {
+            coordinator.diagnostics.childSnapshotCoalescingCount >= 2
+        }
+
+        #expect(coordinator.agents.first?.transcript.turns.isEmpty == true)
+        #expect(gate.invocationCount == 1)
+
+        gate.releaseFirstProjection()
+        try await eventually {
+            coordinator.diagnostics.childProjectionCount == 1
+                && coordinator.agents.first.map {
+                    Self.transcriptText($0.transcript).contains("newest")
+                } == true
+        }
+
+        #expect(gate.invocationCount == 2)
+        #expect(coordinator.diagnostics.childProjectionScheduleCount == 2)
+        #expect(coordinator.diagnostics.childProjectionDiscardCount == 1)
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
+    @Test func terminalSelectionReactivatesWhenChildWorksAgain() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-reactivation-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+        coordinator.selectParent("parent")
+        await transport.sendParentDiscovery()
+        try await eventually { coordinator.agents.count == 1 }
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.agents.first?.transcript.turns.isEmpty == false
+        }
+
+        coordinator.store.updateStatus(
+            threadID: "child",
+            status: .completed(durationMs: nil)
+        )
+        coordinator.closeSelectedProjection(discardContent: false)
+        let acquisitionCount = coordinator.diagnostics.childLeaseAcquisitionCount
+        coordinator.store.updateStatus(threadID: "child", status: .working(since: nil))
+        coordinator.reconcileSelectedLifecycle(
+            from: .completed(durationMs: nil)
+        )
+        #expect(coordinator.selectedProjection?.observationTask != nil)
+        await waitUntilObserved {
+            coordinator.diagnostics.childLeaseAcquisitionCount > acquisitionCount
+        }
+        #expect(coordinator.selectedProjection?.lease != nil)
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
+    @Test func deinitCancelsObserversAndClosesSelectedLease() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-deinit-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        var coordinator: CodexSubagentPresentationCoordinator? =
+            CodexSubagentPresentationCoordinator(codex: codex)
+        weak var weakCoordinator = coordinator
+        coordinator?.selectParent("parent")
+        await transport.sendParentDiscovery()
+        try await eventually { coordinator?.agents.count == 1 }
+        coordinator?.selectTranscript("child")
+        try await eventually {
+            coordinator?.diagnostics.childLeaseAcquisitionCount == 1
+                && coordinator?.agents.first?.transcript.turns.isEmpty == false
+        }
+
+        coordinator = nil
+        try await eventually {
+            let counts = await transport.counts()
+            return weakCoordinator == nil && counts.unsubscribe >= 1
+        }
+
+        await codex.close()
+    }
+
+    private static func transcriptText(_ transcript: CodexTranscriptV2) -> String {
+        transcript.turns.flatMap { turn in
+            var values = turn.narrative.compactMap { entry -> String? in
+                guard case .prose(let prose) = entry else { return nil }
+                return prose.text
+            }
+            if let finalAnswer = turn.finalAnswer?.text {
+                values.append(finalAnswer)
+            }
+            if let liveTail = turn.liveTail {
+                values.append(liveTail)
+            }
+            return values
+        }.joined(separator: "\n")
+    }
 }
 
 private enum CoordinatorTestError: Error {
@@ -69,6 +465,8 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var openCount = 0
     private(set) var resumeCount = 0
+    private(set) var unsubscribeCount = 0
+    private var resumedIDs: [String] = []
 
     init(homePath: String) {
         self.homePath = homePath
@@ -103,8 +501,10 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
         case "thread/resume":
             resumeCount += 1
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
+            resumedIDs.append(threadID)
             result = Self.resumeResult(threadID: threadID)
         case "thread/unsubscribe":
+            unsubscribeCount += 1
             result = .dictionary([:])
         default:
             result = .dictionary([:])
@@ -123,11 +523,15 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
         current?.finish(throwing: CoordinatorTestError.disconnected)
     }
 
-    func counts() -> (open: Int, resume: Int) {
-        (openCount, resumeCount)
+    func counts() -> (open: Int, resume: Int, unsubscribe: Int) {
+        (openCount, resumeCount, unsubscribeCount)
     }
 
-    func sendParentDiscovery() {
+    func resumedThreadIDs() -> [String] {
+        resumedIDs
+    }
+
+    func sendParentDiscovery(childIDs: [String] = ["child"]) {
         sendNotification(
             method: "turn/started",
             params: [
@@ -144,27 +548,41 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 ]),
             ]
         )
-        sendNotification(
-            method: "item/completed",
-            params: [
-                "threadId": .string("parent"),
-                "turnId": .string("parent-turn"),
-                "completedAtMs": .int(1_700_000_000_100),
-                "item": .dictionary([
-                    "type": .string("subAgentActivity"),
-                    "id": .string("spawn-child"),
-                    "kind": .string("started"),
-                    "agentThreadId": .string("child"),
-                    "agentPath": .string("/root/scout"),
-                ]),
-            ]
-        )
+        for childID in childIDs {
+            sendNotification(
+                method: "item/completed",
+                params: [
+                    "threadId": .string("parent"),
+                    "turnId": .string("parent-turn"),
+                    "completedAtMs": .int(1_700_000_000_100),
+                    "item": .dictionary([
+                        "type": .string("subAgentActivity"),
+                        "id": .string("spawn-\(childID)"),
+                        "kind": .string("started"),
+                        "agentThreadId": .string(childID),
+                        "agentPath": .string("/root/\(childID)"),
+                    ]),
+                ]
+            )
+        }
     }
 
     func sendThreadDeleted(_ threadID: String) {
         sendNotification(
             method: "thread/deleted",
             params: ["threadId": .string(threadID)]
+        )
+    }
+
+    func sendChildDelta(_ delta: String) {
+        sendNotification(
+            method: "item/agentMessage/delta",
+            params: [
+                "threadId": .string("child"),
+                "turnId": .string("child-turn"),
+                "itemId": .string("child-message"),
+                "delta": .string(delta),
+            ]
         )
     }
 
@@ -256,6 +674,100 @@ private extension Dictionary where Key == String, Value == CodexJSONValue {
 
 private extension CodexJSONValue {
     var flatString: String? { CodexJSONCoercion.flatString(from: self) }
+}
+
+private final class CoordinatorProjectionGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var didReleaseFirstProjection = false
+    private var invocations = 0
+    private var firstWasOnMainThread: Bool?
+    private var invocationWaiters: [
+        (target: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+
+    var invocationCount: Int {
+        condition.lock()
+        let value = invocations
+        condition.unlock()
+        return value
+    }
+
+    var firstProjectionWasOnMainThread: Bool? {
+        condition.lock()
+        let value = firstWasOnMainThread
+        condition.unlock()
+        return value
+    }
+
+    func releaseFirstProjection() {
+        condition.lock()
+        didReleaseFirstProjection = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func waitForInvocationCount(_ target: Int) async {
+        await withCheckedContinuation { continuation in
+            condition.lock()
+            if invocations >= target {
+                condition.unlock()
+                continuation.resume()
+            } else {
+                invocationWaiters.append((target, continuation))
+                condition.unlock()
+            }
+        }
+    }
+
+    func project(
+        snapshot: CanonicalStateSnapshot,
+        threadID: ThreadID,
+        previous: CodexCanonicalTranscriptPresentation?,
+        displayCostLimit: Int
+    ) throws -> CodexSelectedChildProjectionOutput {
+        condition.lock()
+        invocations += 1
+        let shouldWait = invocations == 1
+        if shouldWait {
+            firstWasOnMainThread = Thread.isMainThread
+            condition.broadcast()
+        }
+        let satisfied = invocationWaiters.filter { invocations >= $0.target }
+        invocationWaiters.removeAll { invocations >= $0.target }
+        condition.unlock()
+        for waiter in satisfied {
+            waiter.continuation.resume()
+        }
+
+        condition.lock()
+        while shouldWait && !didReleaseFirstProjection {
+            condition.wait()
+        }
+        condition.unlock()
+        try Task.checkCancellation()
+
+        return try CodexSubagentStoreV2.projectSelectedChildSnapshot(
+            snapshot,
+            threadID: threadID,
+            previous: previous,
+            displayCostLimit: displayCostLimit
+        )
+    }
+}
+
+@MainActor
+private func waitUntilObserved(
+    _ condition: @escaping @MainActor () -> Bool
+) async {
+    while !condition() {
+        await withCheckedContinuation { continuation in
+            withObservationTracking {
+                _ = condition()
+            } onChange: {
+                continuation.resume()
+            }
+        }
+    }
 }
 
 @MainActor

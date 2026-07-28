@@ -1,4 +1,5 @@
 @testable import CodexCoreUI
+import Foundation
 import Testing
 
 struct CodexUnifiedDiffParserTests {
@@ -33,5 +34,531 @@ struct CodexUnifiedDiffParserTests {
         #expect(files.count == 1)
         #expect(files[0].path == "patch")
         #expect(files[0].hunks[0].lines.map(\.text) == ["+line", "-line"])
+    }
+
+    @Test func hunkSourceThatResemblesFileHeadersStillCountsAsSource() throws {
+        let diff = """
+        diff --git a/Sources/Counter.swift b/Sources/Counter.swift
+        --- a/Sources/Counter.swift
+        +++ b/Sources/Counter.swift
+        @@ -1 +1 @@
+        ---value
+        +++counter
+        """
+
+        let file = try #require(CodexUnifiedDiffParser.parse(diff).first)
+
+        #expect(file.added == 1)
+        #expect(file.removed == 1)
+        #expect(file.hunks.last?.lines.map(\.text) == ["---value", "+++counter"])
+        #expect(file.hunks.last?.lines.map(\.kind) == [.remove, .add])
+    }
+
+    @Test func exactOneMiBPatchKeepsExactStatsWithinByteAndLineCaps() throws {
+        let prefix = """
+        diff --git a/Sources/Large.swift b/Sources/Large.swift\r
+        --- a/Sources/Large.swift\r
+        +++ b/Sources/Large.swift\r
+        @@ -0,0 +1 @@\r
+        +
+        """
+        let targetByteCount = 1_024 * 1_024
+        let diff = prefix + String(
+            repeating: "x",
+            count: targetByteCount - prefix.utf8.count
+        )
+
+        let parsed = CodexUnifiedDiffParser.parseBounded(
+            diff,
+            maximumRetainedUTF8Bytes: 1_024,
+            maximumRetainedLineCount: 8,
+            checkpoint: {}
+        )
+        let file = try #require(parsed.files.first)
+        var expectedFingerprint = CodexStableFingerprint()
+        expectedFingerprint.combine(diff)
+
+        #expect(diff.utf8.count == targetByteCount)
+        #expect(parsed.rawFingerprint == expectedFingerprint.value)
+        #expect(parsed.totalLineCount == 5)
+        #expect(file.path == "Sources/Large.swift")
+        #expect(file.added == 1)
+        #expect(file.removed == 0)
+        #expect(parsed.retainedUTF8ByteCount <= 1_024)
+        #expect(parsed.retainedLineCount <= 8)
+        #expect(parsed.isTruncated)
+    }
+
+    @Test func newlineDenseOfficialAdditionHasExactCountAndBoundedPreparation() throws {
+        let content = String(repeating: "\n", count: 1_024 * 1_024)
+        let change = CodexFileChangeV2(
+            id: "dense",
+            path: "Sources/Dense.swift",
+            kind: .added,
+            diff: content
+        )
+
+        let prepared = CodexFileChangeDiffPreparer().prepare(
+            changes: [change],
+            legacyDiff: nil,
+            checkpoint: {}
+        )
+        let entry = try #require(prepared.entries.first)
+
+        #expect(content.utf8.count == 1_024 * 1_024)
+        #expect(entry.added == 1_024 * 1_024)
+        #expect(entry.removed == 0)
+        #expect(entry.isTruncated)
+        #expect(
+            prepared.retainedUTF8ByteCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
+        )
+        #expect(
+            prepared.retainedLineCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedLineCount
+        )
+    }
+
+    @Test func newlineDenseOneMiBDiffDoesNotRetainAnUnboundedLineArray() {
+        let diff = String(repeating: "\n", count: 1_024 * 1_024)
+
+        let parsed = CodexUnifiedDiffParser.parseBounded(
+            diff,
+            maximumRetainedUTF8Bytes: 32,
+            maximumRetainedLineCount: 32,
+            checkpoint: {}
+        )
+
+        #expect(diff.utf8.count == 1_024 * 1_024)
+        #expect(parsed.totalLineCount == 1_024 * 1_024 + 1)
+        #expect(parsed.retainedLineCount == 32)
+        #expect(parsed.retainedUTF8ByteCount == "patch".utf8.count)
+        #expect(
+            parsed.files.flatMap(\.hunks).flatMap(\.lines).count == 32
+        )
+        #expect(parsed.isTruncated)
+    }
+
+    @Test func exactOneMiBLegacyMultifilePatchKeepsPerFileBinaryAndSlices() throws {
+        let first = [
+            "diff --git a/Assets/Image.png b/Assets/Image.png",
+            "new file mode 100644",
+            "Binary files /dev/null and b/Assets/Image.png differ",
+        ].joined(separator: "\r\n")
+        let secondPrefix = [
+            "diff --git a/Sources/Text.swift b/Sources/Text.swift",
+            "--- a/Sources/Text.swift",
+            "+++ b/Sources/Text.swift",
+            "@@ -1 +1 @@",
+            "-old",
+            "+new",
+            " ",
+        ].joined(separator: "\r\n")
+        let prefix = first + "\r\n" + secondPrefix
+        let targetByteCount = 1_024 * 1_024
+        let diff = prefix + String(
+            repeating: "x",
+            count: targetByteCount - prefix.utf8.count
+        )
+
+        let prepared = CodexFileChangeDiffPreparer().prepare(
+            changes: [],
+            legacyDiff: diff,
+            checkpoint: {}
+        )
+        let firstEntry = try #require(prepared.entries.first)
+        let secondEntry = try #require(prepared.entries.dropFirst().first)
+
+        #expect(diff.utf8.count == targetByteCount)
+        #expect(prepared.entries.count == 2)
+        #expect(prepared.entries.map(\.path) == [
+            "Assets/Image.png",
+            "Sources/Text.swift",
+        ])
+        #expect(prepared.entries.map(\.isBinary) == [true, false])
+        #expect(prepared.entries.map(\.added) == [0, 1])
+        #expect(prepared.entries.map(\.removed) == [0, 1])
+        #expect(
+            firstEntry.exactPatch?.materialized()
+                .hasPrefix("diff --git a/Assets/Image.png") == true
+        )
+        #expect(
+            firstEntry.exactPatch?.materialized()
+                .contains("Sources/Text.swift") == false
+        )
+        #expect(
+            secondEntry.exactPatch?.materialized()
+                .hasPrefix("diff --git a/Sources/Text.swift") == true
+        )
+        #expect(
+            prepared.retainedUTF8ByteCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
+        )
+        #expect(
+            prepared.retainedLineCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedLineCount
+        )
+    }
+
+    @Test func headerDenseOneMiBMultifilePatchCapsRecordsButKeepsExactTotals() {
+        let block = """
+        diff --git a/a.swift b/a.swift
+        @@ -1 +1 @@
+        -old
+        +new
+
+        """
+        let targetByteCount = 1_024 * 1_024
+        let fileCount = targetByteCount / block.utf8.count
+        let repeated = String(repeating: block, count: fileCount)
+        let diff = repeated + String(
+            repeating: " ",
+            count: targetByteCount - repeated.utf8.count
+        )
+
+        let parsed = CodexUnifiedDiffParser.parseBounded(
+            diff,
+            maximumRetainedUTF8Bytes: 1_024,
+            maximumRetainedLineCount: 32,
+            checkpoint: {}
+        )
+        let prepared = CodexFileChangeDiffPreparer().prepare(
+            changes: [],
+            legacyDiff: diff,
+            checkpoint: {}
+        )
+
+        #expect(diff.utf8.count == targetByteCount)
+        #expect(parsed.totalFileCount == fileCount)
+        #expect(parsed.totalAdded == fileCount)
+        #expect(parsed.totalRemoved == fileCount)
+        #expect(
+            parsed.files.count
+                <= CodexUnifiedDiffParser.defaultMaximumRetainedFileCount
+        )
+        #expect(parsed.fileSourceRanges.count == parsed.files.count)
+        #expect(parsed.didTruncateFileRecords)
+        #expect(prepared.totalAdded == fileCount)
+        #expect(prepared.totalRemoved == fileCount)
+        #expect(
+            prepared.entries.count
+                <= CodexPreparedFileChangeSetV2.maximumPreparedEntryCount
+        )
+    }
+
+    @Test func officialContentNormalizesCRLFAndSynthesizesExactHeaders() throws {
+        let content = "let first = true\r\n\r\nlet second = true\r\n"
+        let change = CodexFileChangeV2(
+            id: "added",
+            path: "Sources/Added.swift",
+            kind: .added,
+            diff: content
+        )
+
+        let entry = try #require(
+            CodexFileChangeDiffPreparer().prepare(
+                changes: [change],
+                legacyDiff: nil,
+                checkpoint: {}
+            ).entries.first
+        )
+
+        #expect(entry.added == 3)
+        #expect(entry.removed == 0)
+        let display = displayText(entry)
+        #expect(display.contains("@@ -0,0 +1,3 @@"))
+        #expect(display.contains("+let first = true\n+\n+let second = true"))
+        #expect(!display.contains("\r"))
+    }
+
+    @Test func officialContentThatResemblesFileHeadersRemainsVisible() throws {
+        let added = CodexFileChangeV2(
+            id: "added",
+            path: "Sources/Added.swift",
+            kind: .added,
+            diff: "++ generated heading"
+        )
+        let deleted = CodexFileChangeV2(
+            id: "deleted",
+            path: "Sources/Deleted.swift",
+            kind: .deleted,
+            diff: "-- removed heading"
+        )
+
+        let entries = CodexFileChangeDiffPreparer().prepare(
+            changes: [added, deleted],
+            legacyDiff: nil,
+            checkpoint: {}
+        ).entries
+        let addedEntry = try #require(entries.first)
+        let deletedEntry = try #require(entries.dropFirst().first)
+
+        #expect(entries.count == 2)
+        #expect(displayText(addedEntry).contains("+++ generated heading"))
+        #expect(displayText(deletedEntry).contains("--- removed heading"))
+    }
+
+    @Test func modifiedPayloadHeaderVariantsNormalizeWithoutDuplicates() throws {
+        let path = "Sources/Counter.swift"
+        let payloads = [
+            "@@ -1 +1 @@\n-old\n+new",
+            "--- a/\(path)\n+++ b/\(path)\n@@ -1 +1 @@\n-old\n+new",
+            "\n\ndiff --git a/\(path) b/\(path)\n@@ -1 +1 @@\n-old\n+new",
+            """
+            diff --git a/\(path) b/\(path)
+            --- a/\(path)
+            +++ b/\(path)
+            @@ -1 +1 @@
+            -old
+            +new
+            """,
+        ]
+
+        for (index, payload) in payloads.enumerated() {
+            let entry = try #require(
+                CodexFileChangeDiffPreparer().prepare(
+                    changes: [.init(
+                        id: "modified:\(index)",
+                        path: path,
+                        kind: .modified,
+                        diff: payload
+                    )],
+                    legacyDiff: nil,
+                    checkpoint: {}
+                ).entries.first
+            )
+            let lines = entry.displayLines.map(\.text)
+
+            #expect(lines.filter { $0.hasPrefix("diff --git ") }.count == 1)
+            #expect(lines.filter { $0.hasPrefix("--- ") }.count == 1)
+            #expect(lines.filter { $0.hasPrefix("+++ ") }.count == 1)
+            #expect(entry.added == 1)
+            #expect(entry.removed == 1)
+        }
+    }
+
+    @Test func renamedPayloadHeaderVariantsNormalizeWithoutDuplicates() throws {
+        let oldPath = "Sources/Old.swift"
+        let newPath = "Sources/New.swift"
+        let payloads = [
+            "@@ -1 +1 @@\n-old\n+new",
+            "--- a/\(oldPath)\n+++ b/\(newPath)\n@@ -1 +1 @@\n-old\n+new",
+            "diff --git a/\(oldPath) b/\(newPath)\n@@ -1 +1 @@\n-old\n+new",
+        ]
+
+        for (index, payload) in payloads.enumerated() {
+            let entry = try #require(
+                CodexFileChangeDiffPreparer().prepare(
+                    changes: [.init(
+                        id: "renamed:\(index)",
+                        path: oldPath,
+                        destinationPath: newPath,
+                        kind: .renamed,
+                        diff: payload
+                    )],
+                    legacyDiff: nil,
+                    checkpoint: {}
+                ).entries.first
+            )
+            let lines = entry.displayLines.map(\.text)
+
+            #expect(lines.filter { $0.hasPrefix("diff --git ") }.count == 1)
+            #expect(lines.filter { $0.hasPrefix("rename from ") }.count == 1)
+            #expect(lines.filter { $0.hasPrefix("rename to ") }.count == 1)
+            #expect(lines.filter { $0.hasPrefix("--- ") }.count == 1)
+            #expect(lines.filter { $0.hasPrefix("+++ ") }.count == 1)
+            #expect(entry.added == 1)
+            #expect(entry.removed == 1)
+        }
+    }
+
+    @Test func canonicalPreparationCapsThousandsOfEmptyFileEntries() {
+        var changes = (0..<5_000).map { index in
+            CodexFileChangeV2(
+                id: "empty:\(index)",
+                path: "Generated/Empty\(index).swift",
+                kind: .added,
+                diff: ""
+            )
+        }
+        changes.append(.init(
+            id: "tail",
+            path: "Sources/Tail.swift",
+            kind: .modified,
+            diff: "@@ -1 +1 @@\n-old\n+new"
+        ))
+
+        let prepared = CodexFileChangeDiffPreparer().prepare(
+            changes: changes,
+            legacyDiff: nil,
+            checkpoint: {}
+        )
+        let entryLimit = CodexPreparedFileChangeSetV2.maximumPreparedEntryCount
+
+        #expect(prepared.entries.count == entryLimit)
+        #expect(prepared.entries.last?.sourceIndex == entryLimit - 1)
+        #expect(prepared.omittedEntryCount == changes.count - entryLimit)
+        #expect(prepared.totalAdded == 1)
+        #expect(prepared.totalRemoved == 1)
+        #expect(
+            prepared.retainedUTF8ByteCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
+        )
+        #expect(
+            prepared.retainedLineCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedLineCount
+        )
+    }
+
+    @Test func entryFingerprintIncludesItsBudgetDependentDisplay() throws {
+        let target = CodexFileChangeV2(
+            id: "target",
+            path: "Sources/Target.swift",
+            kind: .modified,
+            diff: "@@ -1 +1 @@\n-old\n+new"
+        )
+        let targetAlone = try #require(
+            CodexFileChangeDiffPreparer().prepare(
+                changes: [target],
+                legacyDiff: nil,
+                checkpoint: {}
+            ).entries.first
+        )
+        let budgetConsumer = CodexFileChangeV2(
+            id: "large",
+            path: "Sources/Large.swift",
+            kind: .added,
+            diff: String(repeating: "let value = true\n", count: 100_000)
+        )
+        let targetAfterLargeChange = try #require(
+            CodexFileChangeDiffPreparer().prepare(
+                changes: [budgetConsumer, target],
+                legacyDiff: nil,
+                checkpoint: {}
+            ).entries.last
+        )
+
+        #expect(targetAlone.displayLines != targetAfterLargeChange.displayLines)
+        #expect(targetAlone.fingerprint != targetAfterLargeChange.fingerprint)
+    }
+
+    @Test func metadataModeUsesCanonicalParserWithoutRetainingHunks() {
+        let diff = """
+        diff --git a/Sources/Old.swift b/Sources/New.swift
+        similarity index 90%
+        rename from Sources/Old.swift
+        rename to Sources/New.swift
+        --- a/Sources/Old.swift
+        +++ b/Sources/New.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+
+        let parsed = CodexUnifiedDiffParser.parseMetadataBounded(
+            diff,
+            checkpoint: {}
+        )
+
+        #expect(parsed.files.count == 1)
+        #expect(parsed.files[0].path == "Sources/New.swift")
+        #expect(parsed.files[0].kind == "renamed")
+        #expect(parsed.files[0].added == 1)
+        #expect(parsed.files[0].removed == 1)
+        #expect(parsed.files[0].hunks.isEmpty)
+        #expect(parsed.retainedLineCount == 0)
+    }
+
+    @Test func officialTrimStartOnlyNormalizesPatchPayloadKinds() throws {
+        let modified = CodexFileChangeV2(
+            id: "modified",
+            path: "Sources/Modified.swift",
+            kind: .modified,
+            diff: "\n \t@@ -1 +1 @@\n-old\n+new"
+        )
+        let added = CodexFileChangeV2(
+            id: "added",
+            path: "Sources/Added.swift",
+            kind: .added,
+            diff: "  indented"
+        )
+
+        let entries = CodexFileChangeDiffPreparer().prepare(
+            changes: [modified, added],
+            legacyDiff: nil,
+            checkpoint: {}
+        ).entries
+        let modifiedEntry = try #require(entries.first)
+        let addedEntry = try #require(entries.dropFirst().first)
+
+        #expect(modifiedEntry.added == 1)
+        #expect(modifiedEntry.removed == 1)
+        #expect(addedEntry.displayLines.contains { $0.text == "+  indented" })
+    }
+
+    @Test func sourceFingerprintKeepsLegacyFileListInRowEquality() {
+        let first = CodexFileChangeRowV2(
+            id: "legacy",
+            files: ["Sources/A.swift"],
+            status: .completed,
+            diff: "+same"
+        )
+        let second = CodexFileChangeRowV2(
+            id: "legacy",
+            files: ["Sources/B.swift"],
+            status: .completed,
+            diff: "+same"
+        )
+
+        #expect(first != second)
+    }
+
+    @Test func preparedSourceIndexSelectsCanonicalChangeInConstantTime() throws {
+        let changes = [
+            CodexFileChangeV2(
+                id: "first",
+                path: "Sources/First.swift",
+                kind: .added,
+                diff: "first"
+            ),
+            CodexFileChangeV2(
+                id: "second",
+                path: "Sources/Second.swift",
+                kind: .added,
+                diff: "second"
+            ),
+        ]
+        let row = CodexFileChangeRowV2(
+            id: "canonical",
+            changes: changes,
+            status: .completed
+        )
+        let prepared = try #require(row.preparedChanges.last)
+
+        #expect(prepared.sourceIndex == 1)
+        #expect(row.exactChange(at: prepared.sourceIndex)?.id == "second")
+    }
+
+    @Test func parserCheckpointCanCancelWithinOneHugeLine() {
+        let diff = String(repeating: "x", count: 256 * 1_024)
+        var checkpointCount = 0
+
+        #expect(throws: CancellationError.self) {
+            try CodexUnifiedDiffParser.parseBounded(
+                diff,
+                maximumRetainedUTF8Bytes: 1_024,
+                checkpoint: {
+                    checkpointCount += 1
+                    throw CancellationError()
+                }
+            )
+        }
+        #expect(checkpointCount == 1)
+    }
+
+    private func displayText(
+        _ entry: CodexPreparedFileChangeV2
+    ) -> String {
+        entry.displayLines.map(\.text).joined(separator: "\n")
     }
 }

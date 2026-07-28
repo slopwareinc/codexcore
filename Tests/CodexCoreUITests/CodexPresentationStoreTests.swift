@@ -115,6 +115,49 @@ struct CodexPresentationStoreTests {
         #expect(store.diagnostics.invalidSnapshotCount == 0)
     }
 
+    @Test func terminalSupersessionCancelsObsoleteProjectionWork() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Obsolete", turnRevision: 1)
+        )
+        let cancellationProbe = PresentationProjectionCancellationProbe()
+        defer { cancellationProbe.release() }
+        let policy = CodexTranscriptItemPresentationPolicyV2 { context in
+            cancellationProbe.presentation(for: context)
+        }
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            itemPresentationPolicy: policy,
+            coalescingInterval: .milliseconds(5)
+        )
+
+        store.select(threadID: "thread")
+        try await eventually { cancellationProbe.didStart }
+        #expect(cancellationProbe.startedOnMainThread == false)
+
+        await source.install(
+            sessionState(
+                revision: 2,
+                text: "Newest",
+                status: .completed,
+                turnRevision: 2
+            ),
+            change: change(revision: 2, fields: .turnStatus)
+        )
+
+        try await eventually { cancellationProbe.didObserveCancellation }
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(2)
+                && store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                    == "Newest"
+        }
+
+        #expect(cancellationProbe.invocationCount == 2)
+        #expect(store.diagnostics.projectionScheduleCount == 2)
+        #expect(store.diagnostics.projectionPublishCount == 1)
+        #expect(store.diagnostics.discardedProjectionCount == 0)
+        #expect(store.diagnostics.terminalFlushCount == 1)
+    }
+
     @Test func coalescesStreamingChangesButFlushesTerminalTurnImmediately() async throws {
         let source = PresentationStateFixture(
             initial: sessionState(revision: 1, text: "A", turnRevision: 1)
@@ -215,8 +258,10 @@ struct CodexPresentationStoreTests {
 
         store.select(threadID: "warm-neighbor")
         #expect(store.isSelectionHydrated == false)
+        #expect(store.containsCachedPresentation(for: "thread"))
         store.select(threadID: "thread")
         #expect(store.isSelectionHydrated)
+        #expect(store.containsCachedPresentation(for: "thread"))
         #expect(store.activePresentation?.transcript.turns.count == 1)
         #expect(store.diagnostics.presentationCacheHitCount == 1)
         #expect(store.activePresentation?.rawScrollOffset == 417)
@@ -244,6 +289,117 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.expandedWorkTurnIDs.isEmpty == true)
         #expect(store.activePresentation?.expandedRowIDs.isEmpty == true)
         #expect(store.activePresentation?.selectedDiffFileIndexByRowID.isEmpty == true)
+    }
+
+    @Test func canonicalFileChangePermanentlyDisablesWarmCachingForLifecycle() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Initially cacheable", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                == "Initially cacheable"
+        }
+        #expect(store.containsCachedPresentation(for: "thread"))
+
+        await source.install(
+            fileChangeSessionState(revision: 2, legacy: false),
+            change: change(revision: 2, fields: [.turn, .item])
+        )
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.narrative
+                .contains(where: \.containsFileChangeForTesting) == true
+        }
+        #expect(!store.containsCachedPresentation(for: "thread"))
+
+        await source.install(
+            sessionState(revision: 3, text: "Cache remains disabled", turnRevision: 3),
+            change: change(revision: 3, fields: [.turn, .item])
+        )
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                == "Cache remains disabled"
+        }
+        #expect(!store.containsCachedPresentation(for: "thread"))
+
+        store.select(threadID: "neighbor")
+        store.select(threadID: "thread")
+        #expect(!store.isSelectionHydrated)
+    }
+
+    @Test func legacyFileChangeProjectionDoesNotEnterWarmCache() async throws {
+        let source = PresentationStateFixture(
+            initial: fileChangeSessionState(revision: 1, legacy: true)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.narrative
+                .contains(where: \.containsFileChangeForTesting) == true
+        }
+
+        #expect(!store.containsCachedPresentation(for: "thread"))
+        store.select(threadID: "neighbor")
+        store.select(threadID: "thread")
+        #expect(!store.isSelectionHydrated)
+    }
+
+    @Test func disconnectedActiveProjectionCannotReenterWarmCache() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Prior adapter", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(1)
+        }
+
+        store.disconnect()
+        store.select(threadID: "other")
+
+        #expect(!store.containsCachedPresentation(for: "thread"))
+    }
+
+    @Test func adapterReplacementAcceptsLowerRevisionWithoutReusingPriorBaseline() async throws {
+        let original = PresentationStateFixture(
+            initial: sessionState(revision: 9, text: "Original", turnRevision: 9)
+        )
+        let replacement = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Replacement", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(original),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(9)
+        }
+
+        store.connect(adapter(replacement))
+
+        #expect(store.activeCanonicalPresentation == nil)
+        #expect(store.activeRenderUpdate == nil)
+        #expect(store.activePendingRequests.isEmpty)
+        #expect(store.activePresentation?.transcript.turns.isEmpty == true)
+        #expect(store.observedRevision == .zero)
+        #expect(!store.isSelectionHydrated)
+        #expect(!store.containsCachedPresentation(for: "thread"))
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(1)
+                && store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                    == "Replacement"
+        }
     }
 
     @Test func scrollPersistenceDoesNotRepublishActivePresentation() async throws {
@@ -426,6 +582,71 @@ private extension CodexPresentationStoreTests {
         )
     }
 
+    func fileChangeSessionState(
+        revision: UInt64,
+        legacy: Bool
+    ) -> CodexSessionStateSnapshot {
+        let stateRevision = StateRevision(revision)
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let itemID: ItemID = "patch"
+        let turnKey = TurnKey(threadID: threadID, turnID: turnID)
+        let itemKey = ItemKey(
+            threadID: threadID,
+            turnID: turnID,
+            itemID: itemID
+        )
+        let payload: [String: CodexJSONValue] = legacy
+            ? [
+                "status": .string("completed"),
+                "files": .array([.string("Sources/Legacy.swift")]),
+                "diff": .string("@@ -1 +1 @@\n-old\n+new"),
+            ]
+            : [
+                "status": .string("completed"),
+                "changes": .array([.dictionary([
+                    "path": .string("Sources/Canonical.swift"),
+                    "kind": .dictionary(["type": .string("update")]),
+                    "diff": .string("@@ -1 +1 @@\n-old\n+new"),
+                ])]),
+            ]
+        let canonical = CanonicalStateSnapshot(
+            revision: stateRevision,
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
+                id: threadID,
+                status: .idle,
+                turnOrder: [turnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: stateRevision
+            )],
+            turns: [turnKey: CanonicalTurn(
+                key: turnKey,
+                status: .completed,
+                itemOrder: [itemID],
+                itemsCoverage: .full,
+                itemsConsistency: .authoritative,
+                lastChangedRevision: stateRevision
+            )],
+            items: [itemKey: CanonicalItem(
+                key: itemKey,
+                kind: .fileChange,
+                payload: payload,
+                authority: .completed,
+                consistency: .authoritative,
+                lastChangedRevision: stateRevision
+            )]
+        )
+        return .init(
+            stateRevision: stateRevision,
+            canonical: canonical,
+            serverRequests: .init(revision: stateRevision, requests: []),
+            lifecycle: .ready(connectionEpoch: 1)
+        )
+    }
+
     func change(revision: UInt64, fields: StateFieldMask) -> StateInvalidation {
         let threadID: ThreadID = "thread"
         let turnKey = TurnKey(threadID: threadID, turnID: "turn")
@@ -466,4 +687,90 @@ private extension CodexPresentationStoreTests {
 
 private enum PresentationWaitError: Error {
     case timedOut
+}
+
+private final class PresentationProjectionCancellationProbe: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var started = false
+    private var observedCancellation = false
+    private var wasStartedOnMainThread: Bool?
+    private var invocations = 0
+    private var isReleased = false
+
+    var didStart: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return started
+    }
+
+    var didObserveCancellation: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return observedCancellation
+    }
+
+    var startedOnMainThread: Bool? {
+        condition.lock()
+        defer { condition.unlock() }
+        return wasStartedOnMainThread
+    }
+
+    var invocationCount: Int {
+        condition.lock()
+        defer { condition.unlock() }
+        return invocations
+    }
+
+    func presentation(
+        for _: CodexTranscriptItemContextV2
+    ) -> CodexTranscriptItemPresentationV2 {
+        condition.lock()
+        invocations += 1
+        let shouldWait = invocations == 1
+        if shouldWait {
+            started = true
+            wasStartedOnMainThread = Thread.isMainThread
+            condition.broadcast()
+        }
+        condition.unlock()
+        guard shouldWait else { return .standard }
+
+        let deadline = Date().addingTimeInterval(1)
+        while true {
+            if Task.isCancelled {
+                condition.lock()
+                observedCancellation = true
+                condition.broadcast()
+                condition.unlock()
+                return .standard
+            }
+            if Date() >= deadline { return .standard }
+            condition.lock()
+            if !isReleased {
+                _ = condition.wait(until: min(
+                    deadline,
+                    Date().addingTimeInterval(0.005)
+                ))
+            }
+            let released = isReleased
+            condition.unlock()
+            if released { return .standard }
+        }
+    }
+
+    func release() {
+        condition.lock()
+        isReleased = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+private extension CodexNarrativeEntry {
+    var containsFileChangeForTesting: Bool {
+        guard case .workGroup(let group) = self else { return false }
+        return group.rows.contains { row in
+            if case .fileChange = row { true } else { false }
+        }
+    }
 }

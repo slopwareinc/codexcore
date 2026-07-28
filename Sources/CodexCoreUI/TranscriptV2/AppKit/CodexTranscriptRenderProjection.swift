@@ -141,17 +141,6 @@ struct CodexTranscriptAgentChipRender: Sendable, Equatable {
     }
 }
 
-struct CodexTranscriptDiffPanelRender: Sendable, Equatable {
-    var rowID: String
-    var files: [CodexDiffFile]
-    var selectedFileIndex: Int
-
-    var selectedFile: CodexDiffFile? {
-        guard files.indices.contains(selectedFileIndex) else { return files.first }
-        return files[selectedFileIndex]
-    }
-}
-
 enum CodexWorkRowKind: Sendable, Equatable {
     case command, fileChange, mcp, webSearch, agent, other
 }
@@ -180,6 +169,20 @@ final class CodexPreparedTranscriptText: @unchecked Sendable {
     }
 }
 
+enum CodexTranscriptCopyPayload: @unchecked Sendable {
+    case text(String)
+    case exactPatch(CodexExactPatchSliceV2)
+
+    func materialized() -> String {
+        switch self {
+        case .text(let text):
+            text
+        case .exactPatch(let slice):
+            slice.materialized()
+        }
+    }
+}
+
 struct CodexTranscriptRenderItem: @unchecked Sendable {
     var id: CodexTranscriptRenderItemID
     var sectionID: String
@@ -197,7 +200,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var directive: CodexTranscriptDirectiveRender?
     var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
-    var copyText: String?
+    var copyPayload: CodexTranscriptCopyPayload?
     var editUserText: String?
     var copyTurnText: String
     var allowsTextSelection: Bool
@@ -211,6 +214,14 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var measuredHeight: CGFloat
     var bottomSpacing: CGFloat
     var isScrollableOutput: Bool
+
+    /// Compatibility access for callers that explicitly request copy text.
+    /// AppKit visibility paths inspect `copyPayload` and avoid materializing a
+    /// legacy exact-patch slice.
+    var copyText: String? {
+        get { copyPayload?.materialized() }
+        set { copyPayload = newValue.map(CodexTranscriptCopyPayload.text) }
+    }
 }
 
 struct CodexTranscriptRenderDiagnostics: Sendable, Equatable {
@@ -333,6 +344,10 @@ actor CodexTranscriptRenderProjector {
     private var heightByKey: [HeightKey: CGFloat] = [:]
     private var preparedTextByKey: [String: CodexPreparedTranscriptText] = [:]
     private var preparedTextInsertionOrder: [String] = []
+    private var preparedDiffText: (
+        key: String,
+        text: CodexPreparedTranscriptText
+    )?
     private var imageAspectRatioBySource: [String: CGFloat] = [:]
     private var projectionCount = 0
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
@@ -412,7 +427,7 @@ actor CodexTranscriptRenderProjector {
                     directive: draft.directive,
                     approval: draft.approval,
                     action: draft.action,
-                    copyText: draft.copyText,
+                    copyPayload: draft.copyPayload,
                     editUserText: draft.editUserText,
                     copyTurnText: copyTurnText,
                     allowsTextSelection: allowsTextSelection,
@@ -567,20 +582,21 @@ actor CodexTranscriptRenderProjector {
                             if case .collabAgent = row { continue }
                             let rowID = row.id
                             let detail = Self.detail(for: row)
-                            let diffFiles: [CodexDiffFile]? = {
-                                guard case .fileChange(let value) = row,
-                                      let diff = value.diff?.codexAppKitNilIfEmpty else { return nil }
-                                return CodexUnifiedDiffParser.parse(diff)
+                            let hasFileDetail: Bool = {
+                                guard case .fileChange(let value) = row else { return false }
+                                return value.hasPreparedDetail
                             }()
+                            let hasDetail = detail != nil || hasFileDetail
+                            let isRowExpanded = presentation.expandedRowIDs.contains(rowID)
                             let subagentThreadID = Self.subagentThreadID(for: row)
                             let rowRender = CodexTranscriptWorkRowRender(
                                 kind: Self.kind(for: row),
-                                label: Self.label(for: row, diffFiles: diffFiles),
+                                label: Self.label(for: row),
                                 status: Self.status(for: row),
                                 systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
-                                isExpanded: presentation.expandedRowIDs.contains(rowID),
-                                hasDetail: detail != nil,
+                                isExpanded: isRowExpanded,
+                                hasDetail: hasDetail,
                                 isSubagentLink: subagentThreadID != nil
                             )
                             append(ItemDraft(
@@ -588,7 +604,7 @@ actor CodexTranscriptRenderProjector {
                                 fingerprint: "row:\(String(describing: rowRender))",
                                 workRow: rowRender,
                                 action: subagentThreadID.map(CodexTranscriptRenderAction.openSubagent)
-                                    ?? (detail == nil ? nil : .toggleRow(rowID: rowID)),
+                                    ?? (hasDetail ? .toggleRow(rowID: rowID) : nil),
                                 copyText: detail,
                                 accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
                                 indentation: 0,
@@ -598,36 +614,38 @@ actor CodexTranscriptRenderProjector {
                                     ? 2
                                     : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                             ))
-                            if presentation.expandedRowIDs.contains(rowID),
-                               let diffFiles,
-                               !diffFiles.isEmpty {
-                                let requestedIndex = presentation.selectedDiffFileIndexByRowID[rowID] ?? 0
-                                let selectedIndex = min(max(0, requestedIndex), diffFiles.count - 1)
-                                let selectedFile = diffFiles[selectedIndex]
-                                let fullPatch = Self.patchText(for: selectedFile)
-                                let displayPatch = Self.boundedLines(fullPatch, limit: 400)
+                            if isRowExpanded,
+                               case .fileChange(let fileChange) = row,
+                               let fileChangeRender = Self.fileChangeRenderProjection(
+                                   rowID: rowID,
+                                   fileChange: fileChange,
+                                   requestedIndex: presentation.selectedDiffFileIndexByRowID[rowID] ?? 0
+                               ) {
+                                let selectedPreparedChange = fileChangeRender.selectedChange
                                 let prepared = cachedPreparedText(
-                                    content: displayPatch, style: "diff-file", theme: theme,
+                                    content: "", style: "diff-file", theme: theme,
+                                    cacheFingerprint: selectedPreparedChange.fingerprint,
                                     cacheHits: &preparedTextCacheHits, cacheMisses: &preparedTextCacheMisses
-                                ) { Self.prepareDiffFile(selectedFile, displayedPatch: displayPatch, theme: theme) }
+                                ) {
+                                    Self.prepareDiffFile(
+                                        selectedPreparedChange,
+                                        theme: theme
+                                    )
+                                }
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):diff-panel",
-                                    fingerprint: "diff-panel:\(selectedIndex):\(String(describing: diffFiles))",
+                                    fingerprint: "diff-panel:\(fileChangeRender.panel.selectedFileIndex):\(selectedPreparedChange.fingerprint):\(fileChangeRender.panelFingerprint):\(fileChangeRender.panel.omittedFileCount)",
                                     preparedText: prepared,
-                                    diffPanel: .init(
-                                        rowID: rowID,
-                                        files: diffFiles,
-                                        selectedFileIndex: selectedIndex
-                                    ),
-                                    copyText: Self.patchText(for: selectedFile),
-                                    accessibilityLabel: "Patch for \(selectedFile.path), \(selectedFile.added) additions and \(selectedFile.removed) removals",
+                                    diffPanel: fileChangeRender.panel,
+                                    copyPayload: fileChangeRender.copyPayload,
+                                    accessibilityLabel: fileChangeRender.accessibilityLabel,
                                     indentation: 0,
                                     maxWidthKind: .card,
                                     fixedHeight: CodexTranscriptColumnMetrics.diffPanelHeight,
                                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
                                     isScrollableOutput: true
                                 ))
-                            } else if presentation.expandedRowIDs.contains(rowID), let detail {
+                            } else if isRowExpanded, let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
@@ -917,7 +935,7 @@ private extension CodexTranscriptRenderProjector {
         var directive: CodexTranscriptDirectiveRender?
         var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
-        var copyText: String?
+        var copyPayload: CodexTranscriptCopyPayload?
         var editUserText: String?
         var accessibilityLabel: String
         var indentation: CGFloat
@@ -944,6 +962,7 @@ private extension CodexTranscriptRenderProjector {
             approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
             copyText: String? = nil,
+            copyPayload: CodexTranscriptCopyPayload? = nil,
             editUserText: String? = nil,
             accessibilityLabel: String,
             indentation: CGFloat = 0,
@@ -968,7 +987,8 @@ private extension CodexTranscriptRenderProjector {
             self.directive = directive
             self.approval = approval
             self.action = action
-            self.copyText = copyText
+            self.copyPayload = copyPayload
+                ?? copyText.map(CodexTranscriptCopyPayload.text)
             self.editUserText = editUserText
             self.accessibilityLabel = accessibilityLabel
             self.indentation = indentation
@@ -1425,11 +1445,24 @@ private extension CodexTranscriptRenderProjector {
         content: String,
         style: String,
         theme: CodexTranscriptAppKitTheme,
+        cacheFingerprint: UInt64? = nil,
         cacheHits: inout Int,
         cacheMisses: inout Int,
         make: () -> CodexPreparedTranscriptText
     ) -> CodexPreparedTranscriptText {
-        let key = theme.fingerprint + ":" + style + ":" + CodexBlockDigest.digest(content)
+        let contentKey = cacheFingerprint.map { String($0, radix: 16) }
+            ?? CodexBlockDigest.digest(content)
+        let key = theme.fingerprint + ":" + style + ":" + contentKey
+        if style == "diff-file" {
+            if preparedDiffText?.key == key, let cached = preparedDiffText?.text {
+                cacheHits += 1
+                return cached
+            }
+            let prepared = make()
+            preparedDiffText = (key, prepared)
+            cacheMisses += 1
+            return prepared
+        }
         if let cached = preparedTextByKey[key] {
             cacheHits += 1
             return cached
@@ -1654,7 +1687,13 @@ private extension CodexTranscriptRenderProjector {
             .foregroundColor: color,
             .paragraphStyle: paragraphStyle(theme)
         ], range: fullRange)
-        parsed.enumerateAttribute(.inlinePresentationIntent, in: fullRange) { value, range, _ in
+        let presentationIntentKey = NSAttributedString.Key(
+            AttributeScopes.FoundationAttributes.PresentationIntentAttribute.name
+        )
+        let inlinePresentationIntentKey = NSAttributedString.Key(
+            AttributeScopes.FoundationAttributes.InlinePresentationIntentAttribute.name
+        )
+        parsed.enumerateAttribute(inlinePresentationIntentKey, in: fullRange) { value, range, _ in
             let raw = (value as? NSNumber)?.uintValue ?? (value as? UInt)
             guard let raw else { return }
             let intent = InlinePresentationIntent(rawValue: raw)
@@ -1677,6 +1716,12 @@ private extension CodexTranscriptRenderProjector {
                 .underlineStyle: NSUnderlineStyle.single.rawValue
             ], range: range)
         }
+        // Foundation's presentation intents describe Markdown structure. The
+        // projector has already applied the paragraph and inline styling used
+        // by AppKit, so retaining their parent-linked metadata only inflates
+        // cache entries and makes otherwise ordinary Markdown look unsafe.
+        result.removeAttribute(presentationIntentKey, range: fullRange)
+        result.removeAttribute(inlinePresentationIntentKey, range: fullRange)
         return CodexPreparedTranscriptText(result)
     }
 
@@ -1865,16 +1910,12 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
-    static func label(for row: CodexWorkRowV2, diffFiles: [CodexDiffFile]? = nil) -> String {
+    static func label(for row: CodexWorkRowV2) -> String {
         switch row {
         case .command(let value):
             return value.label.codexAppKitDisplayPrefix(limit: 280)
         case .fileChange(let value):
-            guard let diffFiles else { return "Edited " + value.files.joined(separator: " · ") }
-            let added = diffFiles.reduce(0) { $0 + $1.added }
-            let removed = diffFiles.reduce(0) { $0 + $1.removed }
-            let count = max(value.files.count, diffFiles.count)
-            return "Edited \(count) \(count == 1 ? "file" : "files") · +\(added) −\(removed)"
+            return fileChangeLabel(value)
         case .mcpToolCall(let value):
             let app = value.appName.isEmpty ? value.server : value.appName
             let base = "Called \(app) · \(value.tool)"
@@ -1919,7 +1960,7 @@ private extension CodexTranscriptRenderProjector {
     static func detail(for row: CodexWorkRowV2) -> String? {
         switch row {
         case .command(let value): return value.output?.codexAppKitNilIfEmpty
-        case .fileChange(let value): return value.diff?.codexAppKitNilIfEmpty
+        case .fileChange: return nil
         case .mcpToolCall(let value):
             let parts = [
                 value.arguments.map { "Arguments\n\($0.description)" },
@@ -1939,54 +1980,19 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
-    static func patchText(for file: CodexDiffFile) -> String {
-        var lines = ["\(file.path) · +\(file.added) −\(file.removed)"]
-        for hunk in file.hunks {
-            if !hunk.header.isEmpty { lines.append(hunk.header) }
-            lines.append(contentsOf: hunk.lines.map(\.text))
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    static func boundedLines(_ text: String, limit: Int) -> String {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > limit else { return text }
-        return lines.prefix(limit).joined(separator: "\n") + "\n… \(lines.count - limit) more lines"
-    }
-
-    static func prepareDiffFile(
-        _ file: CodexDiffFile,
-        displayedPatch: String,
-        theme: CodexTranscriptAppKitTheme
-    ) -> CodexPreparedTranscriptText {
-        let result = NSMutableAttributedString()
-        let lines = displayedPatch.split(separator: "\n", omittingEmptySubsequences: false)
-        for (index, lineValue) in lines.enumerated() {
-            let line = String(lineValue)
-            let color: NSColor
-            if index == 0 { color = theme.textPrimary }
-            else if line.hasPrefix("+") && !line.hasPrefix("+++") { color = theme.success }
-            else if line.hasPrefix("-") && !line.hasPrefix("---") { color = theme.danger }
-            else if line.hasPrefix("@@") || line.hasPrefix("… ") { color = theme.textTertiary }
-            else { color = theme.codeText }
-            let font = index == 0
-                ? NSFontManager.shared.convert(theme.codeFont, toHaveTrait: .boldFontMask)
-                : theme.codeFont
-            result.append(NSAttributedString(
-                string: line + (index == lines.count - 1 ? "" : "\n"),
-                attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraphStyle(theme)]
-            ))
-        }
-        return CodexPreparedTranscriptText(result)
-    }
-
     static func subagentThreadID(for row: CodexWorkRowV2) -> String? {
         guard case .collabAgent(let value) = row else { return nil }
         return value.agentThreadIDs.first
     }
 
     static func accessibilityLabel(for row: CodexWorkRowV2, render: CodexTranscriptWorkRowRender) -> String {
-        let state = switch render.status { case .inProgress: "in progress"; case .completed: "completed"; case .failed: "failed" }
+        let state = switch render.status {
+        case .inProgress: "in progress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "unknown status"
+        }
         return "\(render.label), \(state)"
     }
 
@@ -1998,6 +2004,8 @@ private extension CodexTranscriptRenderProjector {
         case .inProgress: "in progress"
         case .completed: "completed"
         case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "unknown status"
         }
         let hasExpandableContent = activity.detail?
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

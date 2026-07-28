@@ -58,6 +58,101 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(duration == 2_000)
     }
 
+    @Test func childMetadataSummaryUsesExactOrderedLatestTurn() throws {
+        let threadID: ThreadID = "child"
+        let olderTurnID: TurnID = "older"
+        let missingLatestTurnID: TurnID = "latest"
+        let olderTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: olderTurnID),
+            status: .completed,
+            completedAt: ProtocolSeconds(123),
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(1)
+        )
+        let snapshot = CanonicalStateSnapshot(
+            revision: StateRevision(2),
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
+                id: threadID,
+                status: .active(flags: []),
+                turnOrder: [olderTurnID, missingLatestTurnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: StateRevision(2)
+            )],
+            turns: [olderTurn.key: olderTurn]
+        )
+
+        let summary = try #require(CodexSubagentChildSnapshotSummary(
+            snapshot: snapshot,
+            threadID: threadID
+        ))
+        #expect(summary.latestTurn == nil)
+        #expect(!CodexSubagentStoreV2.isTerminalAndHydrated(
+            snapshot,
+            summary: summary
+        ))
+
+        var store = CodexSubagentStoreV2()
+        let didApplyMetadata = store.applyChildSnapshotMetadata(summary)
+        #expect(didApplyMetadata)
+        let child = try #require(store.agent(threadID: threadID.rawValue))
+        guard case .working = child.status else {
+            Issue.record("Missing ordered latest turn must not reuse an older terminal turn")
+            return
+        }
+        #expect(child.completedAt == nil)
+    }
+
+    @Test func detachedChildHydrationPreservesFullHistoryCheck() throws {
+        let threadID: ThreadID = "child"
+        let olderTurnID: TurnID = "older"
+        let latestTurnID: TurnID = "latest"
+        let olderTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: olderTurnID),
+            status: .completed,
+            itemsCoverage: .summary,
+            itemsConsistency: .partial,
+            lastChangedRevision: StateRevision(1)
+        )
+        let latestTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: latestTurnID),
+            status: .completed,
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(2)
+        )
+        let snapshot = CanonicalStateSnapshot(
+            revision: StateRevision(2),
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
+                id: threadID,
+                status: .idle,
+                turnOrder: [olderTurnID, latestTurnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: StateRevision(2)
+            )],
+            turns: [
+                olderTurn.key: olderTurn,
+                latestTurn.key: latestTurn,
+            ]
+        )
+
+        let summary = try #require(CodexSubagentChildSnapshotSummary(
+            snapshot: snapshot,
+            threadID: threadID
+        ))
+        #expect(summary.latestTurn?.key.turnID == latestTurnID)
+        #expect(!CodexSubagentStoreV2.isTerminalAndHydrated(
+            snapshot,
+            summary: summary
+        ))
+    }
+
     @Test func mapperUsesCanonicalCompositeIdentityAcrossRefreshes() throws {
         let parent = parentSnapshot()
         var store = CodexSubagentStoreV2()
@@ -96,6 +191,72 @@ struct CodexSubagentCanonicalPresentationTests {
         }
     }
 
+    @Test func selectedDisplayCostOnlyWeighsUpsertedTurns() throws {
+        let oldTurnID: TurnID = "old-turn"
+        let currentTurnID: TurnID = "current-turn"
+        let projector = CodexCanonicalTranscriptProjector()
+        let previousSnapshot = displayCostSnapshot(
+            currentRevision: StateRevision(1),
+            currentText: "first"
+        )
+        let previous = try projector.project(
+            snapshot: previousSnapshot,
+            threadID: "child",
+            previous: nil
+        ).presentation
+        let currentSnapshot = displayCostSnapshot(
+            currentRevision: StateRevision(2),
+            currentText: "current"
+        )
+        let limit = 1 * 1_024 * 1_024
+        let incremental = try projector.projectSelectedChild(
+            snapshot: currentSnapshot,
+            threadID: "child",
+            previous: previous,
+            displayCostLimit: limit
+        )
+
+        let incrementalCost = CodexTranscriptDisplayCostWeigher.update(
+            output: incremental,
+            stoppingAfter: limit
+        )
+        #expect(!incrementalCost.exceedsDisplayLimit)
+        #expect(incremental.projection.update.upsertedTurns.map(\.id)
+            == [currentTurnID.rawValue])
+        #expect(
+            Set(incremental.upsertedTurnDisplayCosts.keys)
+                == Set([currentTurnID])
+        )
+
+        var ledger = CodexTranscriptDisplayCostLedger()
+        ledger.apply(.init(
+            upsertedTurnBytes: [oldTurnID: 128],
+            removedTurnIDs: [],
+            orderByteCount: 512,
+            requestByteCount: 0,
+            isFullRebuild: true,
+            exceedsDisplayLimit: false
+        ))
+        ledger.apply(incrementalCost)
+        #expect(ledger.turnBytesByID[oldTurnID] == 128)
+        #expect(ledger.turnBytesByID[currentTurnID] != nil)
+
+        let fullRebuild = try projector.projectSelectedChild(
+            snapshot: currentSnapshot,
+            threadID: "child",
+            previous: nil,
+            displayCostLimit: limit
+        )
+        let fullCost = CodexTranscriptDisplayCostWeigher.update(
+            output: fullRebuild,
+            stoppingAfter: limit
+        )
+        #expect(fullRebuild.upsertedTurnDisplayCosts[oldTurnID]?.exceedsLimit == true)
+        #expect(fullRebuild.projection.update.upsertedTurns.map(\.id)
+            == [oldTurnID.rawValue])
+        #expect(fullCost.exceedsDisplayLimit)
+    }
+
     @Test func sideChatCompletesOnlyItsExactCanonicalTurn() {
         var sideChat = CodexSideChatSession()
         _ = sideChat.open(createdAt: Date(timeIntervalSince1970: 1))
@@ -114,6 +275,89 @@ struct CodexSubagentCanonicalPresentationTests {
 }
 
 private extension CodexSubagentCanonicalPresentationTests {
+    func displayCostSnapshot(
+        currentRevision: StateRevision,
+        currentText: String
+    ) -> CanonicalStateSnapshot {
+        let threadID: ThreadID = "child"
+        let oldTurnID: TurnID = "old-turn"
+        let currentTurnID: TurnID = "current-turn"
+        let oldItemID: ItemID = "deep-tool"
+        let currentItemID: ItemID = "current-message"
+        var nested: CodexJSONValue = .null
+        for _ in 0..<256 { nested = .array([nested]) }
+
+        let oldItem = CanonicalItem(
+            key: .init(
+                threadID: threadID,
+                turnID: oldTurnID,
+                itemID: oldItemID
+            ),
+            kind: .dynamicToolCall,
+            payload: [
+                "tool": .string("deep"),
+                "arguments": nested,
+                "contentItems": .array([]),
+                "success": .bool(true),
+            ],
+            authority: .completed,
+            consistency: .authoritative,
+            lastChangedRevision: StateRevision(1)
+        )
+        let currentItem = CanonicalItem(
+            key: .init(
+                threadID: threadID,
+                turnID: currentTurnID,
+                itemID: currentItemID
+            ),
+            kind: .agentMessage,
+            payload: [
+                "phase": .string("commentary"),
+                "text": .string(currentText),
+            ],
+            authority: .started,
+            consistency: .authoritative,
+            lastChangedRevision: currentRevision
+        )
+        let oldTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: oldTurnID),
+            status: .completed,
+            itemOrder: [oldItemID],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: StateRevision(1)
+        )
+        let currentTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: currentTurnID),
+            status: .inProgress,
+            itemOrder: [currentItemID],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: currentRevision
+        )
+        return CanonicalStateSnapshot(
+            revision: currentRevision,
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
+                id: threadID,
+                status: .active(flags: []),
+                turnOrder: [oldTurnID, currentTurnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: currentRevision
+            )],
+            turns: [
+                oldTurn.key: oldTurn,
+                currentTurn.key: currentTurn,
+            ],
+            items: [
+                oldItem.key: oldItem,
+                currentItem.key: currentItem,
+            ]
+        )
+    }
+
     func parentSnapshot(close: Bool = false) -> CanonicalStateSnapshot {
         let threadID: ThreadID = "parent"
         let turnID: TurnID = "parent-turn"

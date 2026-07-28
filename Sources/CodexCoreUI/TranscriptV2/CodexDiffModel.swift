@@ -6,6 +6,7 @@ struct CodexDiffFile: Sendable, Equatable {
     var added: Int
     var removed: Int
     var hunks: [CodexDiffHunk]
+    var isBinary: Bool = false
 }
 
 struct CodexDiffHunk: Sendable, Equatable {
@@ -19,81 +20,120 @@ struct CodexDiffLine: Sendable, Equatable {
     var text: String
 }
 
-enum CodexUnifiedDiffParser {
-    static func parse(_ diff: String) -> [CodexDiffFile] {
-        guard !diff.isEmpty else { return [] }
-        let lines = diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        var files: [CodexDiffFile] = []
-        var path = "patch"
-        var kind = "modified"
-        var hunks: [CodexDiffHunk] = []
-        var headerLines: [CodexDiffLine] = []
-        var currentHeader: String?
-        var currentLines: [CodexDiffLine] = []
-        var added = 0
-        var removed = 0
-        var sawFile = false
+struct CodexRetainedDiffHeaders: Sendable {
+    var diff: String?
+    var oldFile: String?
+    var newFile: String?
+    var renameFrom: String?
+    var renameTo: String?
+}
 
-        func flushHunk() {
-            if let currentHeader {
-                hunks.append(.init(header: currentHeader, lines: currentLines))
-            } else if !headerLines.isEmpty {
-                hunks.append(.init(header: "", lines: headerLines))
-            }
-            currentHeader = nil
-            currentLines = []
-            headerLines = []
-        }
-        func flushFile() {
-            flushHunk()
-            guard sawFile || !hunks.isEmpty else { return }
-            files.append(.init(path: path, kind: kind, added: added, removed: removed, hunks: hunks))
-            hunks = []; added = 0; removed = 0; kind = "modified"
-        }
+struct CodexParsedDiff: Sendable {
+    var files: [CodexDiffFile]
+    var fileSourceRanges: [Range<String.Index>] = []
+    var totalLineCount: Int
+    var retainedLineCount: Int
+    var retainedUTF8ByteCount: Int
+    var rawFingerprint: UInt64 = 0
+    var containsBinaryPatch: Bool = false
+    var totalFileCount: Int = 0
+    var totalAdded: Int = 0
+    var totalRemoved: Int = 0
+    var didTruncateFileRecords: Bool = false
+    var retainedHeaders = CodexRetainedDiffHeaders()
 
-        for line in lines {
-            if line.hasPrefix("diff --git ") {
-                flushFile()
-                sawFile = true
-                let pieces = line.split(separator: " ")
-                if pieces.count >= 4 { path = Self.cleanPath(String(pieces[3])) }
-                headerLines.append(.init(kind: .context, text: line))
-            } else if line.hasPrefix("new file mode") {
-                kind = "added"; headerLines.append(.init(kind: .context, text: line))
-            } else if line.hasPrefix("deleted file mode") {
-                kind = "deleted"; headerLines.append(.init(kind: .context, text: line))
-            } else if line.hasPrefix("rename from ") {
-                kind = "renamed"; headerLines.append(.init(kind: .context, text: line))
-            } else if line.hasPrefix("+++ ") {
-                let candidate = Self.cleanPath(String(line.dropFirst(4)))
-                if candidate != "/dev/null" { path = candidate }
-                headerLines.append(.init(kind: .context, text: line))
-            } else if line.hasPrefix("@@") {
-                flushHunk()
-                currentHeader = line
-            } else {
-                let parsed: CodexDiffLine
-                if line.hasPrefix("+") && !line.hasPrefix("+++") {
-                    parsed = .init(kind: .add, text: line); added += 1
-                } else if line.hasPrefix("-") && !line.hasPrefix("---") {
-                    parsed = .init(kind: .remove, text: line); removed += 1
-                } else {
-                    parsed = .init(kind: .context, text: line)
-                }
-                if currentHeader == nil { headerLines.append(parsed) } else { currentLines.append(parsed) }
-            }
-        }
-        flushFile()
-        if files.isEmpty {
-            let fallback = lines.map { CodexDiffLine(kind: .context, text: $0) }
-            return [.init(path: "patch", kind: "unknown", added: 0, removed: 0, hunks: [.init(header: "", lines: fallback)])]
-        }
-        return files
+    var isTruncated: Bool { retainedLineCount < totalLineCount || didTruncateFileRecords }
+}
+
+/// A zero-copy reference to one file section inside a legacy aggregate patch.
+/// The selected section is copied only when the user requests exact patch text.
+struct CodexExactPatchSliceV2: @unchecked Sendable {
+    private let source: String
+    private let range: Range<String.Index>
+
+    init(source: String, range: Range<String.Index>) {
+        self.source = source
+        self.range = range
     }
 
-    private static func cleanPath(_ value: String) -> String {
-        let path = value.split(separator: "\t", maxSplits: 1).first.map(String.init) ?? value
-        if path.hasPrefix("a/") || path.hasPrefix("b/") { return String(path.dropFirst(2)) }
-        return path
+    func materialized() -> String { String(source[range]) }
+}
+
+struct CodexPreparedFileChangeSummaryV2: Sendable, Equatable {
+    var path: String
+    var previousPath: String?
+    var kind: CodexFileChangeKindV2
+    var added: Int
+    var removed: Int
+    var isBinary: Bool
+}
+
+struct CodexPreparedFileChangeTruncationV2: Sendable, Equatable {
+    var omittedLineCount: Int
+    var omittedFileCount: Int
+}
+
+struct CodexPreparedFileChangeV2: Sendable {
+    var sourceIndex: Int
+    var summary: CodexPreparedFileChangeSummaryV2
+    var displayLines: [CodexDiffLine]
+    var exactPatch: CodexExactPatchSliceV2?
+    var isMalformed: Bool
+    var truncation: CodexPreparedFileChangeTruncationV2?
+    var fingerprint: UInt64
+    var retainedUTF8ByteCount: Int
+    var retainedLineCount: Int
+
+    var path: String { summary.path }
+    var previousPath: String? { summary.previousPath }
+    var kind: CodexFileChangeKindV2 { summary.kind }
+    var added: Int { summary.added }
+    var removed: Int { summary.removed }
+    var isBinary: Bool { summary.isBinary }
+    var isTruncated: Bool { truncation != nil }
+    var omittedLineCount: Int { truncation?.omittedLineCount ?? 0 }
+}
+
+/// Immutable analysis shared by incremental projections. Raw patches remain in
+/// `CodexFileChangeV2`; this object retains only byte-bounded display data.
+final class CodexPreparedFileChangeSetV2: @unchecked Sendable {
+    static let maximumRetainedUTF8Bytes = 256 * 1_024
+    static let maximumRetainedLineCount = 4_096
+    static let maximumPreparedEntryCount = 512
+
+    let entries: [CodexPreparedFileChangeV2]
+    let retainedUTF8ByteCount: Int
+    let retainedLineCount: Int
+    let totalAdded: Int
+    let totalRemoved: Int
+    let sourceFingerprint: UInt64
+    let omittedEntryCount: Int
+
+    init(
+        entries: [CodexPreparedFileChangeV2],
+        retainedUTF8ByteCount: Int,
+        retainedLineCount: Int,
+        totalAdded: Int? = nil,
+        totalRemoved: Int? = nil,
+        sourceFingerprint: UInt64,
+        omittedEntryCount: Int
+    ) {
+        self.entries = entries
+        self.retainedUTF8ByteCount = retainedUTF8ByteCount
+        self.retainedLineCount = retainedLineCount
+        self.totalAdded = totalAdded ?? entries.reduce(0) { $0 + $1.added }
+        self.totalRemoved = totalRemoved ?? entries.reduce(0) { $0 + $1.removed }
+        self.sourceFingerprint = sourceFingerprint
+        self.omittedEntryCount = max(0, omittedEntryCount)
     }
+
+    static let empty = CodexPreparedFileChangeSetV2(
+        entries: [],
+        retainedUTF8ByteCount: 0,
+        retainedLineCount: 0,
+        totalAdded: 0,
+        totalRemoved: 0,
+        sourceFingerprint: 0,
+        omittedEntryCount: 0
+    )
 }

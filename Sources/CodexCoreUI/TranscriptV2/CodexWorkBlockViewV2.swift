@@ -231,7 +231,13 @@ private struct CodexProductToolFallbackV2: View {
 }
 
 func codexStatusGlyphV2(_ status: CodexWorkItemStatusV2) -> String {
-    switch status { case .inProgress: "◌"; case .completed: "✓"; case .failed: "!" }
+    switch status {
+    case .inProgress: "◌"
+    case .completed: "✓"
+    case .failed: "!"
+    case .declined: "×"
+    case .unknown: "?"
+    }
 }
 
 #if DEBUG

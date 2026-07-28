@@ -114,6 +114,8 @@ struct CodexInlineActivityViewV2: View {
         case .inProgress: "In progress"
         case .completed: "Completed"
         case .failed: "Failed"
+        case .declined: "Declined"
+        case .unknown: "Unknown status"
         }
     }
 }

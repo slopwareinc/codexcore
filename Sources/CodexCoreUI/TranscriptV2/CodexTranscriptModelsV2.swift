@@ -150,7 +150,13 @@ public struct CodexWorkGroupV2: Identifiable, Sendable, Equatable {
     }
 }
 
-public enum CodexWorkItemStatusV2: Sendable, Equatable { case inProgress, completed, failed }
+public enum CodexWorkItemStatusV2: Sendable, Equatable {
+    case inProgress
+    case completed
+    case failed
+    case declined
+    case unknown(String)
+}
 
 /// User-facing lifecycle for one collaboration agent. This stays distinct from
 /// `CodexWorkItemStatusV2`: completing a spawn request does not mean the child
@@ -171,10 +177,6 @@ public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
         self.id = id; self.command = command; self.label = label; self.action = action; self.status = status
         self.exitCode = exitCode; self.durationMs = durationMs; self.output = output
     }
-}
-public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
-    public var id: String; public var files: [String]; public var status: CodexWorkItemStatusV2
-    public var durationMs: Int?; public var diff: String?
 }
 public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var appName: String; public var server: String; public var tool: String
@@ -200,9 +202,11 @@ extension CodexCollabAgentRowV2 {
             subject = "Agent"
         }
         return switch action {
-        case .created, .started: "\(subject) · \(status == .inProgress ? "working" : "started")"
+        case .created, .started:
+            "\(subject) · \(status.collaborationLabel(active: "working", completed: "started"))"
         case .sentInput, .interacted: "\(subject) · messaged"
-        case .waited: "\(subject) · \(status == .inProgress ? "waiting" : "finished")"
+        case .waited:
+            "\(subject) · \(status.collaborationLabel(active: "waiting", completed: "finished"))"
         case .closed: "\(subject) · closed"
         case .interrupted: "\(subject) · interrupted"
         }
@@ -234,9 +238,21 @@ extension CodexCollabAgentRowV2 {
              switch status {
              case .inProgress: .working
              case .completed: .done
-             case .failed: .failed
+             case .failed, .declined, .unknown: .failed
              }
          }()
+    }
+}
+
+private extension CodexWorkItemStatusV2 {
+    func collaborationLabel(active: String, completed: String) -> String {
+        switch self {
+        case .inProgress: active
+        case .completed: completed
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "status unknown"
+        }
     }
 }
 public struct CodexOtherWorkRowV2: Identifiable, Sendable, Equatable {
