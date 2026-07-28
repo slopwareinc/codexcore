@@ -964,15 +964,15 @@ enum CodexUnifiedDiffParser {
                     headerLines.append(retained)
                 }
             } else if line.hasPrefix("+++ ") {
-                if shouldRetainCurrentFile {
-                    let candidate = cleanPath(line.dropFirst(4))
-                    if candidate != "/dev/null" { path = candidate }
-                }
                 if let retained = retain(
                     line,
                     byteCount: lineByteCount,
                     kind: .context
                 ) {
+                    if shouldRetainCurrentFile {
+                        let candidate = cleanPath(line.dropFirst(4))
+                        if candidate != "/dev/null" { path = candidate }
+                    }
                     if retainedNewFileHeader == nil {
                         retainedNewFileHeader = retained.text
                     }
