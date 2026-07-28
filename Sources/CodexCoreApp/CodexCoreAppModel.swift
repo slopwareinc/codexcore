@@ -2221,6 +2221,51 @@ final class CodexCoreAppModel {
         clientUserMessageID: String,
         permissionConfiguration: CodexPermissionProfileWireConfiguration
     ) -> CodexSchemaTurnStartParams {
+        turnStartParameters(
+            threadID: threadID,
+            input: input,
+            clientUserMessageID: clientUserMessageID,
+            viewedThreadID: currentThreadID,
+            permissionConfiguration: permissionConfiguration
+        )
+    }
+
+    func turnStartParameters(
+        threadID: ThreadID,
+        input: [CodexInput],
+        clientUserMessageID: String
+    ) -> CodexSchemaTurnStartParams {
+        turnStartParameters(
+            threadID: threadID,
+            input: input,
+            clientUserMessageID: clientUserMessageID,
+            viewedThreadID: currentThreadID,
+            permissionConfiguration: approvalSelection.permissionProfileWireConfiguration
+        )
+    }
+
+    func turnStartParameters(
+        threadID: ThreadID,
+        input: [CodexInput],
+        clientUserMessageID: String,
+        viewedThreadID: String?
+    ) -> CodexSchemaTurnStartParams {
+        turnStartParameters(
+            threadID: threadID,
+            input: input,
+            clientUserMessageID: clientUserMessageID,
+            viewedThreadID: viewedThreadID,
+            permissionConfiguration: approvalSelection.permissionProfileWireConfiguration
+        )
+    }
+
+    private func turnStartParameters(
+        threadID: ThreadID,
+        input: [CodexInput],
+        clientUserMessageID: String,
+        viewedThreadID: String?,
+        permissionConfiguration: CodexPermissionProfileWireConfiguration
+    ) -> CodexSchemaTurnStartParams {
         let collaborationMode = configurationSession.collaborationModeOverride
         let cwd = isProjectlessDraft ? projectlessDraftPaths?.cwd ?? workspacePath : workspacePath
         let roots = if isProjectlessDraft, let paths = projectlessDraftPaths {
@@ -2229,11 +2274,17 @@ final class CodexCoreAppModel {
             protocolWorkspaceRoots
         }
         let wire = taskWireSelection(for: threadID.rawValue)
-        let effectiveWire = if let collaborationMode,
-                               collaborationMode.settings.model != wire.modelIdentifier {
-            wire.omittingModelSpecificOverrides()
+        let targetWire = if let viewedThreadID,
+                            viewedThreadID != threadID.rawValue {
+            wire.omittingEffort()
         } else {
             wire
+        }
+        let effectiveWire = if let collaborationMode,
+                               collaborationMode.settings.model != targetWire.modelIdentifier {
+            targetWire.omittingModelSpecificOverrides()
+        } else {
+            targetWire
         }
         var parameters = effectiveWire.applying(to: CodexSchemaTurnStartParams(
             clientUserMessageID: clientUserMessageID,
