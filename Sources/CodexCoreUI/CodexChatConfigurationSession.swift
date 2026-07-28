@@ -69,21 +69,20 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         planModeOption != nil
     }
 
-    public var turnParameterOverrides: [String: CodexJSONValue] {
-        var params = approvalSelection.turnParameterOverrides
-        if isPlanModeEnabled,
-           let planModeOption,
-           let model = planModeOption.modelIdentifier ?? modelSelection.modelIdentifier {
-            var settings: [String: CodexJSONValue] = ["model": .string(model)]
-            if let reasoning = planModeOption.reasoning ?? Optional(reasoningSelection) {
-                settings["reasoning_effort"] = .string(reasoning.effort.rawValue)
-            }
-            params["collaborationMode"] = .dictionary([
-                "mode": .string(planModeOption.mode),
-                "settings": .dictionary(settings),
-            ])
+    public var collaborationModeOverride: CodexSchemaCollaborationMode? {
+        guard isPlanModeEnabled,
+              let planModeOption,
+              let model = planModeOption.modelIdentifier ?? modelSelection.modelIdentifier else {
+            return nil
         }
-        return params
+        let reasoning = planModeOption.reasoning ?? reasoningSelection
+        return CodexSchemaCollaborationMode(
+            mode: CodexSchemaModeKind(rawValue: planModeOption.mode)!,
+            settings: CodexSchemaSettings(
+                model: model,
+                reasoningEffort: CodexSchemaReasoningEffort(.string(reasoning.effort.rawValue))
+            )
+        )
     }
 
     public mutating func reset() {

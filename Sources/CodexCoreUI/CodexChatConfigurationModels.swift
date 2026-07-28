@@ -71,28 +71,6 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         }
     }
 
-    public var turnParameterOverrides: [String: CodexJSONValue] {
-        switch self {
-        case .readOnly, .askForApproval:
-            return [
-                "approvalPolicy": .string(AskForApproval.onRequest.rawValue),
-                "approvalsReviewer": .string(ApprovalsReviewer.user.rawValue)
-            ]
-        case .approveForMe:
-            return [
-                "approvalPolicy": .string(AskForApproval.onRequest.rawValue),
-                "approvalsReviewer": .string(ApprovalsReviewer.autoReview.rawValue)
-            ]
-        case .fullAccess:
-            return [
-                "approvalPolicy": .string(AskForApproval.never.rawValue),
-                "approvalsReviewer": .string(ApprovalsReviewer.user.rawValue)
-            ]
-        case .custom:
-            return [:]
-        }
-    }
-
     public var permissionProfileID: String? {
         switch self {
         case .readOnly: return ":read-only"

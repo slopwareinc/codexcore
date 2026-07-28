@@ -2188,10 +2188,7 @@ final class CodexCoreAppModel {
         clientUserMessageID: String,
         permissionConfiguration: CodexPermissionProfileWireConfiguration
     ) -> CodexSchemaTurnStartParams {
-        let overrides = configurationSession.turnParameterOverrides
-        let collaborationMode = overrides["collaborationMode"].flatMap {
-            try? $0.decode(CodexSchemaCollaborationMode.self)
-        }
+        let collaborationMode = configurationSession.collaborationModeOverride
         let cwd = isProjectlessDraft ? projectlessDraftPaths?.cwd ?? workspacePath : workspacePath
         let roots = if isProjectlessDraft, let paths = projectlessDraftPaths {
             [CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot))]
