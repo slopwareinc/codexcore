@@ -54,7 +54,7 @@ public struct CodexComposerBar: View {
         referencedFiles: Binding<[CodexReferencedFile]> = .constant([]),
         placeholder: String = "Ask Codex anything about this workspace...",
         isCompact: Bool = false,
-        approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
+        approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         isGoalPursuitEnabled: Bool = false,
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
@@ -749,14 +749,23 @@ private struct ComposerApprovalMenu: View {
 
     @Binding var selection: CodexApprovalSelection
     let options: [CodexApprovalSelection]
+    @State private var isFullAccessConfirmationPresented = false
 
     var body: some View {
         Menu {
             Text("How should Codex actions be approved?")
             Divider()
-            ForEach(availableOptions) { option in
+            ForEach(options) { option in
                 Button {
-                    selection = option
+                    switch CodexPermissionSelectionDecision.resolve(
+                        current: selection,
+                        requested: option
+                    ) {
+                    case .apply(let selection):
+                        self.selection = selection
+                    case .confirmFullAccess:
+                        isFullAccessConfirmationPresented = true
+                    }
                 } label: {
                     if selection == option {
                         Label(option.displayName, systemImage: "checkmark")
@@ -771,12 +780,14 @@ private struct ComposerApprovalMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Approval mode")
+        .disabled(options.isEmpty)
+        .help(options.isEmpty ? "No permission profile changes available" : "Approval mode")
+        .codexFullAccessConfirmation(
+            isPresented: $isFullAccessConfirmationPresented,
+            onConfirm: { selection = .fullAccess }
+        )
     }
 
-    private var availableOptions: [CodexApprovalSelection] {
-        options.isEmpty ? CodexApprovalSelection.defaultOptions : options
-    }
 }
 
 public struct ComposerModelMenu: View {

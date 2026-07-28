@@ -12,8 +12,12 @@ public struct CodexChatConfigurationActivity: Equatable, Sendable {
 }
 
 public struct CodexChatConfigurationSession: Equatable, Sendable {
-    public var approvalSelection: CodexApprovalSelection
+    private var selectedApprovalSelection: CodexApprovalSelection
+    private var ambientApprovalSelection: CodexApprovalSelection
+    private var hasActiveThreadPermissionConfiguration: Bool
     public private(set) var approvalOptions: [CodexApprovalSelection]
+    private var catalogApprovalOptions: [CodexApprovalSelection]
+    private var activeThreadHasExplicitPermissionProfile: Bool
     public private(set) var collaborationModes: [CodexCollaborationModeOption]
     public private(set) var isPlanModeEnabled: Bool
     public private(set) var modelSelection: CodexModelSelection
@@ -22,7 +26,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     public private(set) var slashCommands: [CodexSlashCommand]
 
     public init(
-        approvalSelection: CodexApprovalSelection = .fullAccess,
+        approvalSelection: CodexApprovalSelection = .askForApproval,
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         collaborationModes: [CodexCollaborationModeOption] = CodexCollaborationModeOption.defaultOptions,
         isPlanModeEnabled: Bool = false,
@@ -31,8 +35,12 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         reasoningSelection: CodexReasoningSelection = .medium,
         slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands
     ) {
-        self.approvalSelection = approvalSelection
+        self.selectedApprovalSelection = approvalSelection
+        self.ambientApprovalSelection = approvalSelection
+        self.hasActiveThreadPermissionConfiguration = false
         self.approvalOptions = approvalOptions
+        self.catalogApprovalOptions = approvalOptions
+        self.activeThreadHasExplicitPermissionProfile = false
         self.collaborationModes = collaborationModes
         self.isPlanModeEnabled = isPlanModeEnabled
         self.modelSelection = modelSelection
@@ -41,30 +49,49 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         self.slashCommands = slashCommands
     }
 
+    public var approvalSelection: CodexApprovalSelection {
+        get { selectedApprovalSelection }
+        set {
+            selectedApprovalSelection = newValue
+            if !hasActiveThreadPermissionConfiguration {
+                ambientApprovalSelection = newValue
+            }
+        }
+    }
+
+    /// The selection used when creating a thread independently of the active
+    /// thread, such as from the Voice task tool.
+    package var newThreadApprovalSelection: CodexApprovalSelection {
+        ambientApprovalSelection
+    }
+
     public var canUsePlanMode: Bool {
         planModeOption != nil
     }
 
-    public var turnParameterOverrides: [String: CodexJSONValue] {
-        var params = approvalSelection.turnParameterOverrides
-        if isPlanModeEnabled,
-           let planModeOption,
-           let model = planModeOption.modelIdentifier ?? modelSelection.modelIdentifier {
-            var settings: [String: CodexJSONValue] = ["model": .string(model)]
-            if let reasoning = planModeOption.reasoning ?? Optional(reasoningSelection) {
-                settings["reasoning_effort"] = .string(reasoning.effort.rawValue)
-            }
-            params["collaborationMode"] = .dictionary([
-                "mode": .string(planModeOption.mode),
-                "settings": .dictionary(settings),
-            ])
+    public var collaborationModeOverride: CodexSchemaCollaborationMode? {
+        guard isPlanModeEnabled,
+              let planModeOption,
+              let model = planModeOption.modelIdentifier ?? modelSelection.modelIdentifier else {
+            return nil
         }
-        return params
+        let reasoning = planModeOption.reasoning ?? reasoningSelection
+        return CodexSchemaCollaborationMode(
+            mode: CodexSchemaModeKind(rawValue: planModeOption.mode)!,
+            settings: CodexSchemaSettings(
+                model: model,
+                reasoningEffort: CodexSchemaReasoningEffort(.string(reasoning.effort.rawValue))
+            )
+        )
     }
 
     public mutating func reset() {
-        approvalSelection = .fullAccess
+        selectedApprovalSelection = .askForApproval
+        ambientApprovalSelection = .askForApproval
+        hasActiveThreadPermissionConfiguration = false
         approvalOptions = CodexApprovalSelection.defaultOptions
+        catalogApprovalOptions = CodexApprovalSelection.defaultOptions
+        activeThreadHasExplicitPermissionProfile = false
         collaborationModes = CodexCollaborationModeOption.defaultOptions
         isPlanModeEnabled = false
         modelSelection = .appServerDefault
@@ -88,9 +115,16 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     public mutating func applyPermissionProfileResponse(_ raw: CodexJSONValue) -> CodexChatConfigurationActivity {
         let profiles = CodexPermissionProfileSummary.profiles(from: raw)
         let options = CodexApprovalSelection.options(from: profiles)
-        approvalOptions = options
-        if !options.contains(approvalSelection) {
-            approvalSelection = options.contains(.fullAccess) ? .fullAccess : (options.first ?? .approveForMe)
+        catalogApprovalOptions = options
+        reconcileApprovalOptions()
+        if !options.contains(ambientApprovalSelection) {
+            ambientApprovalSelection = Self.safeFallbackApprovalSelection(
+                in: options
+            )
+        }
+        if !hasActiveThreadPermissionConfiguration,
+           !approvalOptions.contains(approvalSelection) {
+            selectedApprovalSelection = ambientApprovalSelection
         }
         return CodexChatConfigurationActivity(title: "Loaded access profiles", detail: "\(profiles.count) app-server profiles")
     }
@@ -129,8 +163,65 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failPermissionProfileRefresh(message: String) -> CodexChatConfigurationActivity {
-        approvalOptions = CodexApprovalSelection.defaultOptions
+        reconcileApprovalOptions()
         return CodexChatConfigurationActivity(title: "Access profiles unavailable", detail: message)
+    }
+
+    package mutating func applyActiveThreadPermissionConfiguration(
+        _ configuration: CodexThreadPermissionConfiguration
+    ) {
+        if !hasActiveThreadPermissionConfiguration {
+            ambientApprovalSelection = selectedApprovalSelection
+        }
+        hasActiveThreadPermissionConfiguration = true
+        activeThreadHasExplicitPermissionProfile = configuration.profileID != nil
+        selectedApprovalSelection = CodexApprovalSelection.selection(
+            profileID: configuration.profileID,
+            approvalsReviewer: configuration.approvalsReviewer
+        )
+        reconcileApprovalOptions()
+    }
+
+    package mutating func clearActiveThreadPermissionConfiguration() {
+        let restoredSelection = catalogApprovalOptions.contains(ambientApprovalSelection)
+            ? ambientApprovalSelection
+            : Self.safeFallbackApprovalSelection(in: catalogApprovalOptions)
+        hasActiveThreadPermissionConfiguration = false
+        activeThreadHasExplicitPermissionProfile = false
+        selectedApprovalSelection = restoredSelection
+        ambientApprovalSelection = restoredSelection
+        reconcileApprovalOptions()
+    }
+
+    /// Commits the exact profile from a successful main-thread turn request.
+    package mutating func markPermissionProfileActive(
+        _ configuration: CodexPermissionProfileWireConfiguration
+    ) {
+        guard let profileID = configuration.permissions else { return }
+        if !hasActiveThreadPermissionConfiguration {
+            ambientApprovalSelection = selectedApprovalSelection
+        }
+        hasActiveThreadPermissionConfiguration = true
+        activeThreadHasExplicitPermissionProfile = true
+        selectedApprovalSelection = CodexApprovalSelection.selection(
+            profileID: profileID,
+            approvalsReviewer: configuration.approvalsReviewer ?? .user
+        )
+        reconcileApprovalOptions()
+    }
+
+    private mutating func reconcileApprovalOptions() {
+        approvalOptions = activeThreadHasExplicitPermissionProfile
+            ? catalogApprovalOptions.filter { $0 != .custom }
+            : catalogApprovalOptions
+    }
+
+    private static func safeFallbackApprovalSelection(
+        in options: [CodexApprovalSelection]
+    ) -> CodexApprovalSelection {
+        [.askForApproval, .readOnly, .approveForMe, .custom]
+            .first(where: { options.contains($0) })
+            ?? .custom
     }
 
     @discardableResult

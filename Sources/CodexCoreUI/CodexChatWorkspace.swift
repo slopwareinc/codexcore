@@ -149,7 +149,7 @@ public struct CodexChatWorkspaceView: View {
         mcpServers: [CodexMCPServerStatus] = [],
         isLoadingMCPServers: Bool = false,
         mcpErrorMessage: String? = nil,
-        approvalSelection: Binding<CodexApprovalSelection> = .constant(.fullAccess),
+        approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),

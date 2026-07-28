@@ -9,9 +9,21 @@ final class CodexPromptParsingTests: XCTestCase {
     func testPermissionProfilesParseAppServerAccessOptions() throws {
         let raw = CodexJSONValue.dictionary([
             "data": .array([
-                .dictionary(["id": .string(":read-only"), "description": .null]),
-                .dictionary(["id": .string(":workspace"), "description": .null]),
-                .dictionary(["id": .string(":danger-full-access"), "description": .null]),
+                .dictionary([
+                    "id": .string(":read-only"),
+                    "allowed": .bool(true),
+                    "description": .null,
+                ]),
+                .dictionary([
+                    "id": .string(":workspace"),
+                    "allowed": .bool(false),
+                    "description": .null,
+                ]),
+                .dictionary([
+                    "id": .string(":danger-full-access"),
+                    "allowed": .bool(true),
+                    "description": .null,
+                ]),
             ]),
             "nextCursor": .null,
         ])
@@ -19,9 +31,10 @@ final class CodexPromptParsingTests: XCTestCase {
         let profiles = CodexPermissionProfileSummary.profiles(from: raw)
         XCTAssertEqual(profiles.map(\.id), [":read-only", ":workspace", ":danger-full-access"])
         XCTAssertEqual(profiles.map(\.displayName), ["Read only", "Workspace", "Full access"])
+        XCTAssertEqual(profiles.map(\.allowed), [true, false, true])
         XCTAssertEqual(
             CodexApprovalSelection.options(from: profiles),
-            [.readOnly, .askForApproval, .approveForMe, .fullAccess, .custom]
+            [.readOnly, .fullAccess, .custom]
         )
         XCTAssertEqual(
             CodexApprovalSelection.options(from: []),

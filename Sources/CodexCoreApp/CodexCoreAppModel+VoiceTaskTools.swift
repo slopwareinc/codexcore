@@ -196,9 +196,10 @@ extension CodexCoreAppModel {
                     throw CodexVoiceTaskToolError.unsupportedTarget(targetType)
                 }
 
-                let lease = try await codex.startThread(CodexSchemaThreadStartParams(
-                    approvalPolicy: protocolApprovalPolicy,
-                    approvalsReviewer: protocolApprovalsReviewer,
+                let permissionConfiguration = configurationSession
+                    .newThreadApprovalSelection
+                    .permissionProfileWireConfiguration
+                var startParameters = CodexSchemaThreadStartParams(
                     cwd: cwd,
                     developerInstructions: developerInstructions,
                     dynamicTools: Self.voiceTaskToolSpecs,
@@ -206,11 +207,12 @@ extension CodexCoreAppModel {
                     model: model,
                     runtimeWorkspaceRoots: roots.map {
                         CodexSchemaAbsolutePathBuf(.string($0))
-                    },
-                    sandbox: CodexSchemaSandboxMode(
-                        rawValue: approvalSelection.sandbox.threadMode.rawValue
-                    )
-                ))
+                    }
+                )
+                permissionConfiguration.apply(
+                    to: &startParameters
+                )
+                let lease = try await codex.startThread(startParameters)
                 if isProjectless {
                     projectlessThreadIDs.insert(lease.id.rawValue)
                     CodexProjectlessThreadStorage.save(
@@ -218,9 +220,7 @@ extension CodexCoreAppModel {
                         to: preferenceStore
                     )
                 }
-                let turn = try await lease.startTurn(CodexSchemaTurnStartParams(
-                    approvalPolicy: protocolApprovalPolicy,
-                    approvalsReviewer: protocolApprovalsReviewer,
+                var turnParameters = CodexSchemaTurnStartParams(
                     clientUserMessageID: UUID().uuidString,
                     cwd: cwd,
                     effort: CodexSchemaReasoningEffort(.string(thinking)),
@@ -229,11 +229,12 @@ extension CodexCoreAppModel {
                     runtimeWorkspaceRoots: roots.map {
                         CodexSchemaAbsolutePathBuf(.string($0))
                     },
-                    sandboxPolicy: CodexSchemaSandboxPolicy(
-                        approvalSelection.sandbox.turnPolicy
-                    ),
                     threadID: lease.id.rawValue
-                ))
+                )
+                permissionConfiguration.apply(
+                    to: &turnParameters
+                )
+                let turn = try await lease.startTurn(turnParameters)
                 content = .dictionary([
                     "threadId": .string(lease.id.rawValue),
                     "hostId": .string("local"),
@@ -290,22 +291,16 @@ extension CodexCoreAppModel {
                 } else {
                     roots = workspaceRoots(containing: cwd)
                 }
-                let lease = try await codex.resumeThread(CodexSchemaThreadResumeParams(
-                    approvalPolicy: protocolApprovalPolicy,
-                    approvalsReviewer: protocolApprovalsReviewer,
+                let resumeParameters = CodexSchemaThreadResumeParams(
                     cwd: cwd,
                     model: modelSelection.modelIdentifier,
                     runtimeWorkspaceRoots: roots.map {
                         CodexSchemaAbsolutePathBuf(.string($0))
                     },
-                    sandbox: CodexSchemaSandboxMode(
-                        rawValue: approvalSelection.sandbox.threadMode.rawValue
-                    ),
                     threadID: threadID
-                ))
-                let turn = try await lease.startTurn(CodexSchemaTurnStartParams(
-                    approvalPolicy: protocolApprovalPolicy,
-                    approvalsReviewer: protocolApprovalsReviewer,
+                )
+                let lease = try await codex.resumeThread(resumeParameters)
+                let turnParameters = CodexSchemaTurnStartParams(
                     clientUserMessageID: UUID().uuidString,
                     cwd: cwd,
                     effort: CodexSchemaReasoningEffort(
@@ -316,11 +311,9 @@ extension CodexCoreAppModel {
                     runtimeWorkspaceRoots: roots.map {
                         CodexSchemaAbsolutePathBuf(.string($0))
                     },
-                    sandboxPolicy: CodexSchemaSandboxPolicy(
-                        approvalSelection.sandbox.turnPolicy
-                    ),
                     threadID: threadID
-                ))
+                )
+                let turn = try await lease.startTurn(turnParameters)
                 let result: CodexJSONValue = .dictionary([
                     "threadId": .string(threadID),
                     "turnId": .string(turn.key.turnID.rawValue),
