@@ -103,7 +103,8 @@ public struct CodexSubagentStoreV2: Sendable {
     private var canonicalPresentationsByID: [
         String: CodexCanonicalTranscriptPresentation
     ] = [:]
-    private let projector = CodexCanonicalTranscriptProjector()
+    private var retainedPreparedByteCountByID: [String: Int] = [:]
+    private var retainedPreparedByteCount = 0
 
     public init() {}
 
@@ -132,16 +133,11 @@ public struct CodexSubagentStoreV2: Sendable {
     public func contains(threadID: String) -> Bool { agentsByID[threadID] != nil }
 
     var retainedPreparedUTF8ByteCount: Int {
-        canonicalPresentationsByID.values.reduce(into: 0) { total, presentation in
-            let (sum, overflow) = total.addingReportingOverflow(
-                presentation.retainedPreparedUTF8ByteCount
-            )
-            total = overflow ? .max : sum
-        }
+        retainedPreparedByteCount
     }
 
     func retainedPreparedUTF8ByteCount(threadID: ThreadID) -> Int {
-        canonicalPresentationsByID[threadID.rawValue]?.retainedPreparedUTF8ByteCount ?? 0
+        retainedPreparedByteCountByID[threadID.rawValue] ?? 0
     }
 
     /// Discovers direct children from parent collaboration items. This works at
@@ -237,6 +233,31 @@ public struct CodexSubagentStoreV2: Sendable {
         _ snapshot: CanonicalStateSnapshot,
         threadID: ThreadID
     ) -> Bool {
+        guard applyChildSnapshotMetadata(snapshot, threadID: threadID) else {
+            return false
+        }
+        let result = Self.projectChildSnapshot(
+            snapshot,
+            threadID: threadID,
+            previous: canonicalPresentation(threadID: threadID)
+        )
+        return applyChildProjection(
+            result,
+            threadID: threadID,
+            expectedRevision: snapshot.revision,
+            transcript: result.presentation.transcript,
+            retainedPreparedUTF8ByteCount: result.presentation.retainedPreparedUTF8ByteCount
+        )
+    }
+
+    /// Applies only the inexpensive identity and lifecycle portion of a child
+    /// snapshot. The coordinator performs transcript projection off-main, then
+    /// commits it through `applyChildProjection`.
+    @discardableResult
+    mutating func applyChildSnapshotMetadata(
+        _ snapshot: CanonicalStateSnapshot,
+        threadID: ThreadID
+    ) -> Bool {
         let id = threadID.rawValue
         guard let thread = snapshot.threads[threadID] else { return false }
         if agentsByID[id] == nil {
@@ -260,16 +281,6 @@ public struct CodexSubagentStoreV2: Sendable {
                 fallback: agent.status
             )
         }
-        let previous = canonicalPresentationsByID[id]
-        let result = (
-            try? projector.project(
-                snapshot: snapshot,
-                threadID: threadID,
-                previous: previous
-            )
-        ) ?? projector.rebuild(snapshot: snapshot, threadID: threadID)
-        canonicalPresentationsByID[id] = result.presentation
-        agent.transcript = result.presentation.transcript
         if let createdAt = thread.metadata.createdAt?.rawValue {
             agent.createdAt = Date(timeIntervalSince1970: TimeInterval(createdAt))
         }
@@ -280,11 +291,67 @@ public struct CodexSubagentStoreV2: Sendable {
         return true
     }
 
+    func canonicalPresentation(
+        threadID: ThreadID
+    ) -> CodexCanonicalTranscriptPresentation? {
+        canonicalPresentationsByID[threadID.rawValue]
+    }
+
+    static func projectChildSnapshot(
+        _ snapshot: CanonicalStateSnapshot,
+        threadID: ThreadID,
+        previous: CodexCanonicalTranscriptPresentation?
+    ) -> CodexCanonicalTranscriptProjectionResult {
+        let projector = CodexCanonicalTranscriptProjector()
+        return (
+            try? projector.project(
+                snapshot: snapshot,
+                threadID: threadID,
+                previous: previous
+            )
+        ) ?? projector.rebuild(snapshot: snapshot, threadID: threadID)
+    }
+
+    /// Commits a completed pure projection only when it still represents the
+    /// exact scheduled child snapshot and cannot regress the retained cache.
+    @discardableResult
+    mutating func applyChildProjection(
+        _ result: CodexCanonicalTranscriptProjectionResult,
+        threadID: ThreadID,
+        expectedRevision: StateRevision,
+        transcript: CodexTranscriptV2? = nil,
+        retainedPreparedUTF8ByteCount: Int? = nil
+    ) -> Bool {
+        let id = threadID.rawValue
+        guard var agent = agentsByID[id],
+              result.presentation.threadID == threadID,
+              result.presentation.sourceRevision == expectedRevision,
+              canonicalPresentationsByID[id].map({
+                  $0.sourceRevision <= result.presentation.sourceRevision
+              }) ?? true
+        else {
+            return false
+        }
+
+        replaceCanonicalPresentation(
+            result.presentation,
+            threadID: id,
+            retainedPreparedUTF8ByteCount: max(
+                0,
+                retainedPreparedUTF8ByteCount
+                    ?? result.presentation.retainedPreparedUTF8ByteCount
+            )
+        )
+        agent.transcript = transcript ?? result.presentation.transcript
+        agentsByID[id] = agent
+        return true
+    }
+
     /// Drops only the heavy transcript projection. Identity and live status stay
     /// available for the overview and can be rehydrated by reacquiring a lease.
     public mutating func evictTranscript(threadID: ThreadID) {
         agentsByID[threadID.rawValue]?.transcript = .init()
-        canonicalPresentationsByID.removeValue(forKey: threadID.rawValue)
+        removeCanonicalPresentation(threadID: threadID.rawValue)
     }
 
     public mutating func updateStatus(
@@ -297,13 +364,15 @@ public struct CodexSubagentStoreV2: Sendable {
     public mutating func remove(threadID: ThreadID) {
         agentsByID.removeValue(forKey: threadID.rawValue)
         discoveriesByID.removeValue(forKey: threadID.rawValue)
-        canonicalPresentationsByID.removeValue(forKey: threadID.rawValue)
+        removeCanonicalPresentation(threadID: threadID.rawValue)
     }
 
     public mutating func removeAll() {
         agentsByID.removeAll(keepingCapacity: false)
         discoveriesByID.removeAll(keepingCapacity: false)
         canonicalPresentationsByID.removeAll(keepingCapacity: false)
+        retainedPreparedByteCountByID.removeAll(keepingCapacity: false)
+        retainedPreparedByteCount = 0
     }
 
     public mutating func updateMetadata(
@@ -334,6 +403,37 @@ public struct CodexSubagentStoreV2: Sendable {
 }
 
 private extension CodexSubagentStoreV2 {
+    mutating func replaceCanonicalPresentation(
+        _ presentation: CodexCanonicalTranscriptPresentation,
+        threadID: String,
+        retainedPreparedUTF8ByteCount: Int
+    ) {
+        canonicalPresentationsByID[threadID] = presentation
+        if let previous = retainedPreparedByteCountByID.updateValue(
+            retainedPreparedUTF8ByteCount,
+            forKey: threadID
+        ) {
+            retainedPreparedByteCount = max(
+                0,
+                retainedPreparedByteCount - previous
+            )
+        }
+        let (sum, overflow) = retainedPreparedByteCount.addingReportingOverflow(
+            retainedPreparedUTF8ByteCount
+        )
+        retainedPreparedByteCount = overflow ? .max : sum
+    }
+
+    mutating func removeCanonicalPresentation(threadID: String) {
+        canonicalPresentationsByID.removeValue(forKey: threadID)
+        guard let previous = retainedPreparedByteCountByID.removeValue(forKey: threadID)
+        else { return }
+        retainedPreparedByteCount = max(
+            0,
+            retainedPreparedByteCount - previous
+        )
+    }
+
     mutating func register(_ discovery: CodexSubagentDiscoveryV2) -> Bool {
         let id = discovery.threadID
         let isNew = agentsByID[id] == nil

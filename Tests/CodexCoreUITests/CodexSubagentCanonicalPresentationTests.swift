@@ -79,6 +79,49 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(store.retainedPreparedUTF8ByteCount == 0)
     }
 
+    @Test func childProjectionCommitRejectsStaleOrMismatchedResults() throws {
+        var store = CodexSubagentStoreV2()
+        let current = childFileChangeSnapshot(revision: 4)
+        #expect(store.applyChildSnapshot(current, threadID: "child"))
+        let expectedTranscript = try #require(store.agent(threadID: "child")?.transcript)
+        let expectedBytes = store.retainedPreparedUTF8ByteCount
+
+        let stale = childFileChangeSnapshot(revision: 3)
+        let staleResult = CodexSubagentStoreV2.projectChildSnapshot(
+            stale,
+            threadID: "child",
+            previous: nil
+        )
+        #expect(!store.applyChildProjection(
+            staleResult,
+            threadID: "child",
+            expectedRevision: StateRevision(3)
+        ))
+
+        let wrongThread = childFileChangeSnapshot(
+            threadID: "other",
+            revision: 5
+        )
+        let wrongThreadResult = CodexSubagentStoreV2.projectChildSnapshot(
+            wrongThread,
+            threadID: "other",
+            previous: nil
+        )
+        #expect(!store.applyChildProjection(
+            wrongThreadResult,
+            threadID: "child",
+            expectedRevision: StateRevision(5)
+        ))
+        #expect(!store.applyChildProjection(
+            staleResult,
+            threadID: "child",
+            expectedRevision: StateRevision(4)
+        ))
+
+        #expect(store.agent(threadID: "child")?.transcript == expectedTranscript)
+        #expect(store.retainedPreparedUTF8ByteCount == expectedBytes)
+    }
+
     @Test func mapperUsesCanonicalCompositeIdentityAcrossRefreshes() throws {
         let parent = parentSnapshot()
         var store = CodexSubagentStoreV2()
@@ -182,11 +225,13 @@ private extension CodexSubagentCanonicalPresentationTests {
 
     func closedParentSnapshot() -> CanonicalStateSnapshot { parentSnapshot(close: true) }
 
-    func childFileChangeSnapshot() -> CanonicalStateSnapshot {
-        let threadID: ThreadID = "child"
+    func childFileChangeSnapshot(
+        threadID: ThreadID = "child",
+        revision rawRevision: UInt64 = 4
+    ) -> CanonicalStateSnapshot {
         let turnID: TurnID = "child-turn"
         let itemID: ItemID = "patch"
-        let revision = StateRevision(4)
+        let revision = StateRevision(rawRevision)
         let item = CanonicalItem(
             key: .init(threadID: threadID, turnID: turnID, itemID: itemID),
             kind: .fileChange,
