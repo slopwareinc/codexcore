@@ -216,11 +216,9 @@ struct CodexPresentationStoreTests {
         store.select(threadID: "warm-neighbor")
         #expect(store.isSelectionHydrated == false)
         #expect(store.containsCachedPresentation(for: "thread"))
-        #expect(store.warmPresentationRetainedByteCount > 0)
         store.select(threadID: "thread")
         #expect(store.isSelectionHydrated)
-        #expect(!store.containsCachedPresentation(for: "thread"))
-        #expect(store.warmPresentationRetainedByteCount == 0)
+        #expect(store.containsCachedPresentation(for: "thread"))
         #expect(store.activePresentation?.transcript.turns.count == 1)
         #expect(store.diagnostics.presentationCacheHitCount == 1)
         #expect(store.activePresentation?.rawScrollOffset == 417)
@@ -250,83 +248,64 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.selectedDiffFileIndexByRowID.isEmpty == true)
     }
 
-    @Test func bytePressureEvictsOnlyWarmProjectionAndPreservesLocalState() async throws {
-        let answer = String(repeating: "retained transcript payload ", count: 256)
+    @Test func canonicalFileChangePermanentlyDisablesWarmCachingForLifecycle() async throws {
         let source = PresentationStateFixture(
-            initial: multiThreadAssistantState(
-                revision: 1,
-                threadIDs: ["one", "two"],
-                text: answer
-            )
+            initial: sessionState(revision: 1, text: "Initially cacheable", turnRevision: 1)
         )
         let store = CodexPresentationStore(
             adapter: adapter(source),
-            coalescingInterval: .milliseconds(5),
-            warmPresentationByteCapacity: 1_024
+            coalescingInterval: .milliseconds(5)
         )
-
-        store.select(threadID: "one")
+        store.select(threadID: "thread")
         try await eventually {
-            (store.activeCanonicalPresentation?.estimatedRetainedByteCount ?? 0)
-                > answer.utf8.count
+            store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                == "Initially cacheable"
         }
-        #expect(store.activeCanonicalPresentation?.retainedPreparedUTF8ByteCount == 0)
-        #expect(!store.containsCachedPresentation(for: "one"))
-        #expect(store.warmPresentationRetainedByteCount == 0)
-        #expect(store.diagnostics.presentationCacheByteEvictionCount == 0)
-        store.updateScrollState(threadID: "one", rawOffset: 73, isPinnedToBottom: false)
+        #expect(store.containsCachedPresentation(for: "thread"))
 
-        store.select(threadID: "two")
-
-        #expect(!store.containsCachedPresentation(for: "one"))
-        #expect(store.containsLocalState(for: "one"))
-        #expect(store.localState(for: "one")?.rawScrollOffset == 73)
-        #expect(store.warmPresentationRetainedByteCount <= 1_024)
-        #expect(
-            store.warmPresentationRetainedUTF8ByteCount
-                == store.warmPresentationRetainedByteCount
+        await source.install(
+            fileChangeSessionState(revision: 2, legacy: false),
+            change: change(revision: 2, fields: [.turn, .item])
         )
-        #expect(store.diagnostics.presentationCacheByteEvictionCount == 1)
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.narrative
+                .contains(where: \.containsFileChangeForTesting) == true
+        }
+        #expect(!store.containsCachedPresentation(for: "thread"))
+
+        await source.install(
+            sessionState(revision: 3, text: "Cache remains disabled", turnRevision: 3),
+            change: change(revision: 3, fields: [.turn, .item])
+        )
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                == "Cache remains disabled"
+        }
+        #expect(!store.containsCachedPresentation(for: "thread"))
+
+        store.select(threadID: "neighbor")
+        store.select(threadID: "thread")
+        #expect(!store.isSelectionHydrated)
     }
 
-    @Test func inclusiveEstimateChargesExactPatchBeyondPreparedDisplayBudget() {
-        let exactDiff = "@@ -0,0 +1 @@\n+" + String(
-            repeating: "x",
-            count: CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes * 2
+    @Test func legacyFileChangeProjectionDoesNotEnterWarmCache() async throws {
+        let source = PresentationStateFixture(
+            initial: fileChangeSessionState(revision: 1, legacy: true)
         )
-        let row = CodexFileChangeRowV2(
-            id: "patch",
-            changes: [.init(
-                id: "patch:file",
-                path: "Sources/Large.swift",
-                kind: .modified,
-                diff: exactDiff
-            )],
-            status: .completed
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
         )
-        let turnID: TurnID = "turn"
-        let turn = CodexTurnV2(
-            id: turnID.rawValue,
-            narrative: [.workGroup(.init(
-                id: "work",
-                rows: [.fileChange(row)],
-                isLive: false
-            ))],
-            status: .done(durationMs: 1)
-        )
-        let presentation = CodexCanonicalTranscriptPresentation(
-            threadID: "thread",
-            sourceRevision: StateRevision(1),
-            turnOrder: [turnID],
-            turnsByID: [turnID: turn],
-            sourceTurnRevisions: [turnID: StateRevision(1)]
-        )
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activePresentation?.transcript.turns.first?.narrative
+                .contains(where: \.containsFileChangeForTesting) == true
+        }
 
-        #expect(
-            row.retainedPreparedUTF8ByteCount
-                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
-        )
-        #expect(presentation.estimatedRetainedByteCount > exactDiff.utf8.count)
+        #expect(!store.containsCachedPresentation(for: "thread"))
+        store.select(threadID: "neighbor")
+        store.select(threadID: "thread")
+        #expect(!store.isSelectionHydrated)
     }
 
     @Test func disconnectedActiveProjectionCannotReenterWarmCache() async throws {
@@ -346,7 +325,6 @@ struct CodexPresentationStoreTests {
         store.select(threadID: "other")
 
         #expect(!store.containsCachedPresentation(for: "thread"))
-        #expect(store.warmPresentationRetainedByteCount == 0)
     }
 
     @Test func adapterReplacementAcceptsLowerRevisionWithoutReusingPriorBaseline() async throws {
@@ -373,12 +351,12 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.transcript.turns.isEmpty == true)
         #expect(store.observedRevision == .zero)
         #expect(!store.isSelectionHydrated)
+        #expect(!store.containsCachedPresentation(for: "thread"))
         try await eventually {
             store.activeCanonicalPresentation?.sourceRevision == StateRevision(1)
                 && store.activePresentation?.transcript.turns.first?.finalAnswer?.text
                     == "Replacement"
         }
-        #expect(store.warmPresentationRetainedByteCount == 0)
     }
 
     @Test func scrollPersistenceDoesNotRepublishActivePresentation() async throws {
@@ -561,26 +539,38 @@ private extension CodexPresentationStoreTests {
         )
     }
 
-    func multiThreadAssistantState(
+    func fileChangeSessionState(
         revision: UInt64,
-        threadIDs: [ThreadID],
-        text: String
+        legacy: Bool
     ) -> CodexSessionStateSnapshot {
         let stateRevision = StateRevision(revision)
-        var threads: [ThreadID: CanonicalThread] = [:]
-        var turns: [TurnKey: CanonicalTurn] = [:]
-        var items: [ItemKey: CanonicalItem] = [:]
-
-        for threadID in threadIDs {
-            let turnID = TurnID("turn-\(threadID.rawValue)")
-            let itemID: ItemID = "answer"
-            let turnKey = TurnKey(threadID: threadID, turnID: turnID)
-            let itemKey = ItemKey(
-                threadID: threadID,
-                turnID: turnID,
-                itemID: itemID
-            )
-            threads[threadID] = CanonicalThread(
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let itemID: ItemID = "patch"
+        let turnKey = TurnKey(threadID: threadID, turnID: turnID)
+        let itemKey = ItemKey(
+            threadID: threadID,
+            turnID: turnID,
+            itemID: itemID
+        )
+        let payload: [String: CodexJSONValue] = legacy
+            ? [
+                "status": .string("completed"),
+                "files": .array([.string("Sources/Legacy.swift")]),
+                "diff": .string("@@ -1 +1 @@\n-old\n+new"),
+            ]
+            : [
+                "status": .string("completed"),
+                "changes": .array([.dictionary([
+                    "path": .string("Sources/Canonical.swift"),
+                    "kind": .dictionary(["type": .string("update")]),
+                    "diff": .string("@@ -1 +1 @@\n-old\n+new"),
+                ])]),
+            ]
+        let canonical = CanonicalStateSnapshot(
+            revision: stateRevision,
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
                 id: threadID,
                 status: .idle,
                 turnOrder: [turnID],
@@ -588,34 +578,23 @@ private extension CodexPresentationStoreTests {
                 isLoaded: true,
                 consistency: .authoritative,
                 lastChangedRevision: stateRevision
-            )
-            turns[turnKey] = CanonicalTurn(
+            )],
+            turns: [turnKey: CanonicalTurn(
                 key: turnKey,
                 status: .completed,
                 itemOrder: [itemID],
                 itemsCoverage: .full,
                 itemsConsistency: .authoritative,
                 lastChangedRevision: stateRevision
-            )
-            items[itemKey] = CanonicalItem(
+            )],
+            items: [itemKey: CanonicalItem(
                 key: itemKey,
-                kind: .agentMessage,
-                payload: [
-                    "phase": .string("final_answer"),
-                    "text": .string(text),
-                ],
+                kind: .fileChange,
+                payload: payload,
                 authority: .completed,
                 consistency: .authoritative,
                 lastChangedRevision: stateRevision
-            )
-        }
-
-        let canonical = CanonicalStateSnapshot(
-            revision: stateRevision,
-            threadOrder: threadIDs,
-            threads: threads,
-            turns: turns,
-            items: items
+            )]
         )
         return .init(
             stateRevision: stateRevision,
@@ -665,4 +644,13 @@ private extension CodexPresentationStoreTests {
 
 private enum PresentationWaitError: Error {
     case timedOut
+}
+
+private extension CodexNarrativeEntry {
+    var containsFileChangeForTesting: Bool {
+        guard case .workGroup(let group) = self else { return false }
+        return group.rows.contains { row in
+            if case .fileChange = row { true } else { false }
+        }
+    }
 }
