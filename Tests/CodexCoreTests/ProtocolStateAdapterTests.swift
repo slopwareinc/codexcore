@@ -171,6 +171,95 @@ final class ProtocolStateAdapterTests: XCTestCase {
         )
     }
 
+    func testFileChangePatchUpdatePreservesRawChangesWhenOneSiblingIsMalformed() throws {
+        let params = try objectFixture(
+            #"""
+            {
+              "threadId": "thread-1",
+              "turnId": "turn-1",
+              "itemId": "item-1",
+              "changes": [
+                {
+                  "path": "Sources/Feature.swift",
+                  "kind": "update",
+                  "diff": "@@ -1 +1 @@\n-old\n+new"
+                },
+                {
+                  "path": "Sources/Malformed.swift",
+                  "kind": "update",
+                  "diff": 42,
+                  "futureField": {"kept": true}
+                }
+              ]
+            }
+            """#
+        )
+        let rawChanges = try XCTUnwrap(params["changes"])
+
+        let adaptation = try adapter.adaptNotification(
+            method: .itemFileChangePatchUpdated,
+            params: params
+        )
+
+        XCTAssertEqual(
+            adaptation.mutations,
+            [.itemLiveFieldReplaced(
+                item: ItemKey(threadID: "thread-1", turnID: "turn-1", itemID: "item-1"),
+                key: "fileChanges",
+                value: rawChanges
+            )]
+        )
+
+        let itemKey = ItemKey(threadID: "thread-1", turnID: "turn-1", itemID: "item-1")
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        _ = reducer.apply(
+            .itemStarted(CanonicalItem(key: itemKey, kind: .fileChange, authority: .started)),
+            to: &graph
+        )
+        _ = reducer.apply(adaptation.mutations, to: &graph)
+
+        XCTAssertEqual(graph.items[itemKey]?.liveFields["fileChanges"], rawChanges)
+    }
+
+    func testFileChangePatchUpdateRejectsMalformedEnvelopeFields() throws {
+        let fixtures = [
+            (
+                #"{"threadId":42,"turnId":"turn-1","itemId":"item-1","changes":[]}"#,
+                "threadId must be a string"
+            ),
+            (
+                #"{"threadId":"thread-1","turnId":null,"itemId":"item-1","changes":[]}"#,
+                "turnId must be a string"
+            ),
+            (
+                #"{"threadId":"thread-1","turnId":"turn-1","itemId":{},"changes":[]}"#,
+                "itemId must be a string"
+            ),
+            (
+                #"{"threadId":"thread-1","turnId":"turn-1","itemId":"item-1","changes":{}}"#,
+                "changes must be an array"
+            ),
+        ]
+
+        for (fixture, message) in fixtures {
+            XCTAssertThrowsError(
+                try adapter.adaptNotification(
+                    method: .itemFileChangePatchUpdated,
+                    params: objectFixture(fixture)
+                )
+            ) { error in
+                XCTAssertEqual(
+                    error as? ProtocolStateAdapterError,
+                    .malformedNotification(
+                        method: CodexAppServerNotificationMethod.itemFileChangePatchUpdated.rawValue,
+                        message: message
+                    )
+                )
+            }
+        }
+    }
+
     func testItemCompletionKeepsMillisecondAuthorityAndAdditivePayload() throws {
         let adaptation = try adapter.adaptNotification(
             method: .itemCompleted,

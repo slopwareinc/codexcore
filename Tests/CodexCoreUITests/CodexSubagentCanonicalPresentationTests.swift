@@ -58,6 +58,27 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(duration == 2_000)
     }
 
+    @Test func childProjectionRetainsPreviousPresentationUntilTranscriptEviction() throws {
+        var store = CodexSubagentStoreV2()
+        let snapshot = childFileChangeSnapshot()
+
+        let applied = store.applyChildSnapshot(snapshot, threadID: "child")
+        #expect(applied)
+        let retainedBytes = store.retainedPreparedUTF8ByteCount(threadID: "child")
+        #expect(retainedBytes > 0)
+        #expect(store.retainedPreparedUTF8ByteCount == retainedBytes)
+
+        // The same canonical revision is accepted through the incremental
+        // projection seam and leaves one retained preparation, not another copy.
+        let reapplied = store.applyChildSnapshot(snapshot, threadID: "child")
+        #expect(reapplied)
+        #expect(store.retainedPreparedUTF8ByteCount == retainedBytes)
+
+        store.evictTranscript(threadID: "child")
+        #expect(store.agent(threadID: "child")?.transcript.turns.isEmpty == true)
+        #expect(store.retainedPreparedUTF8ByteCount == 0)
+    }
+
     @Test func mapperUsesCanonicalCompositeIdentityAcrossRefreshes() throws {
         let parent = parentSnapshot()
         var store = CodexSubagentStoreV2()
@@ -160,6 +181,51 @@ private extension CodexSubagentCanonicalPresentationTests {
     }
 
     func closedParentSnapshot() -> CanonicalStateSnapshot { parentSnapshot(close: true) }
+
+    func childFileChangeSnapshot() -> CanonicalStateSnapshot {
+        let threadID: ThreadID = "child"
+        let turnID: TurnID = "child-turn"
+        let itemID: ItemID = "patch"
+        let revision = StateRevision(4)
+        let item = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: itemID),
+            kind: .fileChange,
+            payload: [
+                "status": .string("completed"),
+                "changes": .array([.dictionary([
+                    "path": .string("Sources/Child.swift"),
+                    "kind": .dictionary(["type": .string("update")]),
+                    "diff": .string("@@ -1 +1 @@\n-let child = false\n+let child = true"),
+                ])]),
+            ],
+            authority: .completed,
+            consistency: .authoritative,
+            lastChangedRevision: revision
+        )
+        let turn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .completed,
+            itemOrder: [itemID],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative,
+            lastChangedRevision: revision
+        )
+        return CanonicalStateSnapshot(
+            revision: revision,
+            threadOrder: [threadID],
+            threads: [threadID: CanonicalThread(
+                id: threadID,
+                status: .idle,
+                turnOrder: [turnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: revision
+            )],
+            turns: [turn.key: turn],
+            items: [item.key: item]
+        )
+    }
 
     func childSnapshot(
         threadID: ThreadID = "child",

@@ -567,20 +567,20 @@ actor CodexTranscriptRenderProjector {
                             if case .collabAgent = row { continue }
                             let rowID = row.id
                             let detail = Self.detail(for: row)
-                            let diffFiles: [CodexDiffFile]? = {
-                                guard case .fileChange(let value) = row,
-                                      !value.preparedDiffFiles.isEmpty else { return nil }
-                                return value.preparedDiffFiles
+                            let hasFileDetail: Bool = {
+                                guard case .fileChange(let value) = row else { return false }
+                                return value.hasPreparedDetail
                             }()
-                            let hasDetail = detail != nil || diffFiles != nil
+                            let hasDetail = detail != nil || hasFileDetail
+                            let isRowExpanded = presentation.expandedRowIDs.contains(rowID)
                             let subagentThreadID = Self.subagentThreadID(for: row)
                             let rowRender = CodexTranscriptWorkRowRender(
                                 kind: Self.kind(for: row),
-                                label: Self.label(for: row, diffFiles: diffFiles),
+                                label: Self.label(for: row),
                                 status: Self.status(for: row),
                                 systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
-                                isExpanded: presentation.expandedRowIDs.contains(rowID),
+                                isExpanded: isRowExpanded,
                                 hasDetail: hasDetail,
                                 isSubagentLink: subagentThreadID != nil
                             )
@@ -599,28 +599,40 @@ actor CodexTranscriptRenderProjector {
                                     ? 2
                                     : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                             ))
-                            if presentation.expandedRowIDs.contains(rowID),
-                               let diffFiles,
-                               !diffFiles.isEmpty {
+                            if isRowExpanded,
+                               case .fileChange(let fileChange) = row,
+                               !fileChange.preparedChanges.isEmpty {
+                                let preparedFileChanges = fileChange.preparedChanges
+                                let diffFiles = preparedFileChanges.map(\.file)
                                 let requestedIndex = presentation.selectedDiffFileIndexByRowID[rowID] ?? 0
                                 let selectedIndex = min(max(0, requestedIndex), diffFiles.count - 1)
                                 let selectedFile = diffFiles[selectedIndex]
-                                let fullPatch = Self.patchText(for: selectedFile)
-                                let displayPatch = Self.boundedLines(fullPatch, limit: 400)
+                                let selectedPreparedChange = preparedFileChanges[selectedIndex]
+                                let displayPatch = selectedPreparedChange.displayPatch
                                 let prepared = cachedPreparedText(
                                     content: displayPatch, style: "diff-file", theme: theme,
                                     cacheHits: &preparedTextCacheHits, cacheMisses: &preparedTextCacheMisses
-                                ) { Self.prepareDiffFile(selectedFile, displayedPatch: displayPatch, theme: theme) }
+                                ) {
+                                    Self.prepareDiffFile(
+                                        selectedPreparedChange,
+                                        theme: theme
+                                    )
+                                }
+                                let exactCopy: String? = {
+                                    fileChange.exactChange(
+                                        forPreparedChangeID: selectedPreparedChange.changeID
+                                    )?.diff ?? fileChange.diff
+                                }()
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):diff-panel",
-                                    fingerprint: "diff-panel:\(selectedIndex):\(String(describing: diffFiles))",
+                                    fingerprint: "diff-panel:\(selectedIndex):\(selectedPreparedChange.fingerprint)",
                                     preparedText: prepared,
                                     diffPanel: .init(
                                         rowID: rowID,
                                         files: diffFiles,
                                         selectedFileIndex: selectedIndex
                                     ),
-                                    copyText: Self.patchText(for: selectedFile),
+                                    copyText: exactCopy,
                                     accessibilityLabel: "Patch for \(selectedFile.path), \(selectedFile.added) additions and \(selectedFile.removed) removals",
                                     indentation: 0,
                                     maxWidthKind: .card,
@@ -628,7 +640,7 @@ actor CodexTranscriptRenderProjector {
                                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
                                     isScrollableOutput: true
                                 ))
-                            } else if presentation.expandedRowIDs.contains(rowID), let detail {
+                            } else if isRowExpanded, let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
@@ -1866,16 +1878,23 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
-    static func label(for row: CodexWorkRowV2, diffFiles: [CodexDiffFile]? = nil) -> String {
+    static func label(for row: CodexWorkRowV2) -> String {
         switch row {
         case .command(let value):
             return value.label.codexAppKitDisplayPrefix(limit: 280)
         case .fileChange(let value):
-            guard let diffFiles else { return "Edited " + value.files.joined(separator: " · ") }
-            let added = diffFiles.reduce(0) { $0 + $1.added }
-            let removed = diffFiles.reduce(0) { $0 + $1.removed }
-            let count = max(value.files.count, diffFiles.count)
-            return "Edited \(count) \(count == 1 ? "file" : "files") · +\(added) −\(removed)"
+            guard value.hasPreparedDetail else {
+                let paths = value.changes.isEmpty
+                    ? Array(value.files.prefix(3))
+                    : value.changes.prefix(3).map(\.displayPath)
+                let visible = paths.joined(separator: " · ")
+                let remainder = max(0, value.fileCount - 3)
+                return remainder == 0
+                    ? "Edited \(visible)"
+                    : "Edited \(visible) · +\(remainder) more"
+            }
+            let count = max(value.fileCount, value.preparedChanges.count)
+            return "Edited \(count) \(count == 1 ? "file" : "files") · +\(value.preparedAddedLineCount) −\(value.preparedRemovedLineCount)"
         case .mcpToolCall(let value):
             let app = value.appName.isEmpty ? value.server : value.appName
             let base = "Called \(app) · \(value.tool)"
@@ -1920,7 +1939,7 @@ private extension CodexTranscriptRenderProjector {
     static func detail(for row: CodexWorkRowV2) -> String? {
         switch row {
         case .command(let value): return value.output?.codexAppKitNilIfEmpty
-        case .fileChange(let value): return value.diff?.codexAppKitNilIfEmpty
+        case .fileChange: return nil
         case .mcpToolCall(let value):
             let parts = [
                 value.arguments.map { "Arguments\n\($0.description)" },
@@ -1940,41 +1959,30 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
-    static func patchText(for file: CodexDiffFile) -> String {
-        var lines = ["\(file.path) · +\(file.added) −\(file.removed)"]
-        for hunk in file.hunks {
-            if !hunk.header.isEmpty { lines.append(hunk.header) }
-            lines.append(contentsOf: hunk.lines.map(\.text))
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    static func boundedLines(_ text: String, limit: Int) -> String {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > limit else { return text }
-        return lines.prefix(limit).joined(separator: "\n") + "\n… \(lines.count - limit) more lines"
-    }
-
     static func prepareDiffFile(
-        _ file: CodexDiffFile,
-        displayedPatch: String,
+        _ preparedChange: CodexPreparedFileChangeV2,
         theme: CodexTranscriptAppKitTheme
     ) -> CodexPreparedTranscriptText {
         let result = NSMutableAttributedString()
-        let lines = displayedPatch.split(separator: "\n", omittingEmptySubsequences: false)
-        for (index, lineValue) in lines.enumerated() {
-            let line = String(lineValue)
+        for (index, preparedLine) in preparedChange.displayLines.enumerated() {
+            let line = preparedLine.text
             let color: NSColor
             if index == 0 { color = theme.textPrimary }
-            else if line.hasPrefix("+") && !line.hasPrefix("+++") { color = theme.success }
-            else if line.hasPrefix("-") && !line.hasPrefix("---") { color = theme.danger }
-            else if line.hasPrefix("@@") || line.hasPrefix("… ") { color = theme.textTertiary }
-            else { color = theme.codeText }
+            else {
+                color = switch preparedLine.kind {
+                case .add: theme.success
+                case .remove: theme.danger
+                case .context where line.hasPrefix("@@") || line.hasPrefix("… "):
+                    theme.textTertiary
+                case .context:
+                    theme.codeText
+                }
+            }
             let font = index == 0
                 ? NSFontManager.shared.convert(theme.codeFont, toHaveTrait: .boldFontMask)
                 : theme.codeFont
             result.append(NSAttributedString(
-                string: line + (index == lines.count - 1 ? "" : "\n"),
+                string: line + (index == preparedChange.displayLines.count - 1 ? "" : "\n"),
                 attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraphStyle(theme)]
             ))
         }
@@ -1987,7 +1995,13 @@ private extension CodexTranscriptRenderProjector {
     }
 
     static func accessibilityLabel(for row: CodexWorkRowV2, render: CodexTranscriptWorkRowRender) -> String {
-        let state = switch render.status { case .inProgress: "in progress"; case .completed: "completed"; case .failed: "failed" }
+        let state = switch render.status {
+        case .inProgress: "in progress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "unknown status"
+        }
         return "\(render.label), \(state)"
     }
 
@@ -1999,6 +2013,8 @@ private extension CodexTranscriptRenderProjector {
         case .inProgress: "in progress"
         case .completed: "completed"
         case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "unknown status"
         }
         let hasExpandableContent = activity.detail?
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

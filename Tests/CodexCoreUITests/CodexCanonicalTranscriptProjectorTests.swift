@@ -1,4 +1,4 @@
-import CodexCore
+@testable import CodexCore
 @testable import CodexCoreUI
 import Foundation
 import Testing
@@ -221,6 +221,54 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(commands.map(\.action) == [.read, .read, .search])
         #expect(commands.allSatisfy { $0.output == "matches" })
         #expect(projected.narrative.compactMap(\.workGroup).first?.header == "Read files")
+    }
+
+    @Test func declinedAndUnknownItemStatusesRemainNonSuccess() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let declined = item(threadID, turnID, "declined", .commandExecution, [
+            "command": .string("apply patch"),
+            "status": .string("declined"),
+        ])
+        let unknown = item(threadID, turnID, "unknown", .mcpToolCall, [
+            "server": .string("future-server"),
+            "tool": .string("future-tool"),
+            "status": .string("awaitingPolicy"),
+        ])
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(
+                snapshot: state(
+                    revision: 1,
+                    threadID: threadID,
+                    turns: [turn(
+                        turnID,
+                        threadID: threadID,
+                        itemIDs: ["declined", "unknown"],
+                        revision: 1
+                    )],
+                    items: [declined, unknown]
+                ),
+                threadID: threadID
+            ).presentation.transcript.turns.first
+        )
+        let rows = projected.narrative.flatMap(\.workRows)
+
+        #expect(rows.count == 2)
+        if case .command(let command) = rows[0] {
+            #expect(command.status == .declined)
+        } else {
+            Issue.record("Expected declined command row")
+        }
+        if case .mcpToolCall(let tool) = rows[1] {
+            #expect(tool.status == .unknown("awaitingPolicy"))
+        } else {
+            Issue.record("Expected unknown MCP row")
+        }
+        #expect(CodexWorkGroupPresentationV2.status(rows: [rows[0]], isLive: false) == .declined)
+        #expect(
+            CodexWorkGroupPresentationV2.status(rows: [rows[1]], isLive: false)
+                == .unknown("awaitingPolicy")
+        )
     }
 
     @Test func skillReadsBecomeLoadedToolsAndUnknownCommandsUseFallback() throws {
@@ -612,12 +660,8 @@ struct CodexCanonicalTranscriptProjectorTests {
 
         #expect(rows.count == 1)
         #expect(row.id == "patch")
-        #expect(row.changes.map(\.id) == [
-            "patch:file:Sources/Added.swift:0",
-            "patch:file:Sources/Modified.swift:0",
-            "patch:file:Sources/Deleted.swift:0",
-            "patch:file:Sources/OldName.swift:0",
-        ])
+        #expect(Set(row.changes.map(\.id)).count == 4)
+        #expect(row.changes.allSatisfy { $0.id.hasPrefix("patch:file:") })
         #expect(row.changes.map(\.path) == [
             "Sources/Added.swift",
             "Sources/Modified.swift",
@@ -744,6 +788,7 @@ struct CodexCanonicalTranscriptProjectorTests {
             "",
             "@@ -1 +1 @@\n-let valid = false\n+let valid = true",
         ])
+        #expect(row.preparedChanges.map(\.isMalformed) == [true, false])
     }
 
     @Test func representativeLargeFilePatchIsPreparedOnceDuringProjection() throws {
@@ -779,6 +824,372 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(prepared.path == "Sources/Large.swift")
         #expect(prepared.added == lineCount)
         #expect(prepared.removed == lineCount)
+        #expect(
+            row.retainedPreparedUTF8ByteCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
+        )
+        #expect(row.preparedChanges.first?.isTruncated == true)
+        #expect(row.preparedChanges.first?.displayPatch.contains("more lines") == true)
+    }
+
+    @Test func officialKindDependentFilePayloadsNormalizeOnceWithExactStats() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let addedContent = "let first = true\n\nlet second = true\n"
+        let deletedContent = "old\n--value\n"
+        let updateDiff = "@@ -1 +1 @@\n---value\n+++counter"
+        let changes: [CodexJSONValue] = [
+            fileUpdate(path: "Sources/Added.swift", kind: "add", diff: addedContent),
+            fileUpdate(path: "Sources/Deleted.swift", kind: "delete", diff: deletedContent),
+            fileUpdate(path: "Sources/Counter.swift", kind: "update", diff: updateDiff),
+            fileUpdate(
+                path: "Sources/Old.swift",
+                kind: "update",
+                movePath: "Sources/New.swift",
+                diff: ""
+            ),
+        ]
+        let snapshot = state(
+            revision: 3,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], revision: 3)],
+            items: [item(threadID, turnID, "patch", .fileChange, [
+                "status": .string("completed"),
+                "changes": .array(changes),
+            ], revision: 3)]
+        )
+
+        let row = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+
+        #expect(row.changes.map(\.diff) == [
+            addedContent,
+            deletedContent,
+            updateDiff,
+            "",
+        ])
+        #expect(row.preparedChanges.map(\.added) == [3, 0, 1, 0])
+        #expect(row.preparedChanges.map(\.removed) == [0, 2, 1, 0])
+        #expect(row.preparedChanges[0].displayPatch.contains("new file mode 100644"))
+        #expect(row.preparedChanges[0].displayPatch.contains("+let first = true"))
+        #expect(row.preparedChanges[1].displayPatch.contains("deleted file mode 100644"))
+        #expect(row.preparedChanges[1].displayLines.contains {
+            $0.kind == .remove && $0.text == "---value"
+        })
+        #expect(row.preparedChanges[2].displayPatch.contains("--- a/Sources/Counter.swift"))
+        #expect(row.preparedChanges[2].displayLines.contains {
+            $0.kind == .add && $0.text == "+++counter"
+        })
+        #expect(row.preparedChanges[3].displayPatch.contains("rename from Sources/Old.swift"))
+        #expect(row.preparedChanges[3].displayPatch.contains("rename to Sources/New.swift"))
+        #expect(row.hasPreparedDetail)
+    }
+
+    @Test func unchangedFileRevisionReusesPreparationAcrossDirtySiblingAndContentChangeInvalidates() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let probe = FilePreparationProbe()
+        let production = CodexFileChangeDiffPreparer()
+        let projector = CodexCanonicalTranscriptProjector(
+            fileChangeDiffPreparer: .init { changes, legacyDiff, maximumBytes in
+                probe.record()
+                return production.prepare(
+                    changes: changes,
+                    legacyDiff: legacyDiff,
+                    maximumRetainedUTF8Bytes: maximumBytes
+                )
+            }
+        )
+        let firstFile = item(threadID, turnID, "patch", .fileChange, [
+            "status": .string("completed"),
+            "changes": .array([
+                fileUpdate(
+                    path: "Sources/Stable.swift",
+                    kind: "update",
+                    diff: "@@ -1 +1 @@\n-old\n+new"
+                ),
+            ]),
+        ], revision: 3)
+        let first = state(
+            revision: 3,
+            threadID: threadID,
+            turns: [turn(
+                turnID,
+                threadID: threadID,
+                itemIDs: ["patch", "message"],
+                revision: 3
+            )],
+            items: [
+                firstFile,
+                item(threadID, turnID, "message", .agentMessage, [
+                    "phase": .string("commentary"),
+                    "text": .string("one"),
+                ], revision: 3),
+            ]
+        )
+        let firstResult = projector.rebuild(snapshot: first, threadID: threadID)
+        let firstRow = try #require(
+            firstResult.presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+
+        let siblingChanged = state(
+            revision: 4,
+            threadID: threadID,
+            turns: [turn(
+                turnID,
+                threadID: threadID,
+                itemIDs: ["patch", "message"],
+                revision: 4
+            )],
+            items: [
+                firstFile,
+                item(threadID, turnID, "message", .agentMessage, [
+                    "phase": .string("commentary"),
+                    "text": .string("two"),
+                ], revision: 4),
+            ]
+        )
+        let secondResult = try projector.project(
+            snapshot: siblingChanged,
+            threadID: threadID,
+            previous: firstResult.presentation
+        )
+        let secondRow = try #require(
+            secondResult.presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+
+        #expect(probe.count == 1)
+        #expect(firstRow.preparedFileChanges === secondRow.preparedFileChanges)
+
+        let contentChangedAtSameItemRevision = item(
+            threadID,
+            turnID,
+            "patch",
+            .fileChange,
+            [
+                "status": .string("completed"),
+                "changes": .array([
+                    fileUpdate(
+                        path: "Sources/Stable.swift",
+                        kind: "update",
+                        diff: "@@ -1 +1 @@\n-old\n+newer"
+                    ),
+                ]),
+            ],
+            revision: 3
+        )
+        let third = state(
+            revision: 5,
+            threadID: threadID,
+            turns: [turn(
+                turnID,
+                threadID: threadID,
+                itemIDs: ["patch", "message"],
+                revision: 5
+            )],
+            items: [
+                contentChangedAtSameItemRevision,
+                siblingChanged.items[.init(
+                    threadID: threadID,
+                    turnID: turnID,
+                    itemID: "message"
+                )]!,
+            ]
+        )
+        let thirdResult = try projector.project(
+            snapshot: third,
+            threadID: threadID,
+            previous: secondResult.presentation
+        )
+        let thirdRow = try #require(
+            thirdResult.presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+
+        #expect(probe.count == 2)
+        #expect(thirdRow.preparedFileChanges !== secondRow.preparedFileChanges)
+    }
+
+    @Test func duplicatePathIDsRemainUniqueAndFollowContentAcrossReordering() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let firstDiff = "@@ -1 +1 @@\n-a\n+b"
+        let secondDiff = "@@ -1 +1 @@\n-c\n+d"
+        func snapshot(_ diffs: [String], revision: UInt64) -> CanonicalStateSnapshot {
+            state(
+                revision: revision,
+                threadID: threadID,
+                turns: [turn(
+                    turnID,
+                    threadID: threadID,
+                    itemIDs: ["patch"],
+                    revision: revision
+                )],
+                items: [item(threadID, turnID, "patch", .fileChange, [
+                    "changes": .array(diffs.map {
+                        fileUpdate(path: "Sources/Same.swift", kind: "update", diff: $0)
+                    }),
+                ], revision: revision)]
+            )
+        }
+        func IDsByDiff(_ snapshot: CanonicalStateSnapshot) throws -> [String: String] {
+            let row = try #require(
+                CodexCanonicalTranscriptProjector().rebuild(
+                    snapshot: snapshot,
+                    threadID: threadID
+                ).presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                    .compactMap(\.fileChange).first
+            )
+            #expect(Set(row.changes.map(\.id)).count == row.changes.count)
+            return Dictionary(uniqueKeysWithValues: row.changes.map { ($0.diff, $0.id) })
+        }
+
+        let original = try IDsByDiff(snapshot([firstDiff, secondDiff], revision: 2))
+        let reordered = try IDsByDiff(snapshot([secondDiff, firstDiff], revision: 3))
+
+        #expect(original == reordered)
+    }
+
+    @Test func publicFileChangeMutationCannotDivergePathsAndDerivedStateIsNotEquality() {
+        var row = CodexFileChangeRowV2(
+            id: "patch",
+            changes: [.init(
+                id: "change",
+                path: "Sources/Old.swift",
+                destinationPath: "Sources/New.swift",
+                kind: .renamed,
+                status: .completed,
+                diff: ""
+            )],
+            status: .completed
+        )
+        #expect(row.files == ["Sources/New.swift"])
+        #expect(row.preparedChanges.count == 1)
+
+        row.changes[0].destinationPath = "Sources/Newer.swift"
+        #expect(row.files == ["Sources/Newer.swift"])
+        #expect(row.preparedChanges.first?.path == "Sources/Newer.swift")
+
+        let alternatePreparation = CodexFileChangeDiffPreparer().prepare(
+            changes: row.changes,
+            legacyDiff: nil,
+            maximumRetainedUTF8Bytes: 8
+        )
+        let semanticallyEqual = CodexFileChangeRowV2(
+            id: row.id,
+            changes: row.changes,
+            status: row.status,
+            durationMs: row.durationMs,
+            preparationKey: .init(
+                itemKey: nil,
+                sourceRevision: nil,
+                contentFingerprint: 999
+            ),
+            preparedFileChanges: alternatePreparation
+        )
+        #expect(row == semanticallyEqual)
+    }
+
+    @Test func malformedLivePatchAdapterReducerAndHydratedProjectionKeepValidSibling() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let itemID: ItemID = "patch"
+        let itemKey = ItemKey(threadID: threadID, turnID: turnID, itemID: itemID)
+        let malformedWire: CodexJSONValue = .dictionary([
+            "path": .string("Sources/Future.swift"),
+            "kind": .dictionary(["type": .string("update")]),
+            "diff": .int(42),
+            "futureField": .dictionary(["kept": .bool(true)]),
+        ])
+        let rawChanges: CodexJSONValue = .array([
+            fileUpdate(
+                path: "Sources/Valid.swift",
+                kind: "update",
+                diff: "@@ -1 +1 @@\n-old\n+new"
+            ),
+            malformedWire,
+        ])
+        let adaptation = try ProtocolStateAdapter().adaptNotification(
+            method: .itemFileChangePatchUpdated,
+            params: [
+                "threadId": .string(threadID.rawValue),
+                "turnId": .string(turnID.rawValue),
+                "itemId": .string(itemID.rawValue),
+                "changes": rawChanges,
+            ]
+        )
+        var graph = CanonicalStateGraph()
+        var reducer = CanonicalStateReducer()
+        _ = reducer.apply(.threadUpsert(.init(
+            id: threadID,
+            status: .active(flags: []),
+            turnOrder: [turnID],
+            isLoaded: true
+        )), to: &graph)
+        _ = reducer.apply(.turnStarted(.init(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .inProgress,
+            itemOrder: [itemID]
+        ), items: []), to: &graph)
+        _ = reducer.apply(.itemStarted(.init(
+            key: itemKey,
+            kind: .fileChange,
+            payload: ["status": .string("inProgress")],
+            authority: .started
+        )), to: &graph)
+        _ = reducer.apply(adaptation.mutations, to: &graph)
+
+        let projector = CodexCanonicalTranscriptProjector()
+        let liveRow = try #require(
+            projector.rebuild(snapshot: graph.snapshot(), threadID: threadID)
+                .presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+        #expect(liveRow.changes.map(\.path) == [
+            "Sources/Valid.swift",
+            "Sources/Future.swift",
+        ])
+        #expect(graph.items[itemKey]?.liveFields["fileChanges"] == rawChanges)
+        #expect(liveRow.preparedChanges.map(\.isMalformed) == [false, true])
+        #expect(liveRow.preparedChanges[1].wireValue == malformedWire)
+
+        _ = reducer.apply(.itemCompleted(.init(
+            key: itemKey,
+            kind: .fileChange,
+            payload: [
+                "status": .string("completed"),
+                "changes": rawChanges,
+            ],
+            authority: .completed
+        )), to: &graph)
+        _ = reducer.apply(.turnCompleted(.init(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .completed,
+            itemOrder: [itemID],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative
+        ), items: [], itemPolicy: .mergePreservingExistingOrder), to: &graph)
+        let hydratedRow = try #require(
+            projector.rebuild(snapshot: graph.snapshot(), threadID: threadID)
+                .presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+
+        #expect(hydratedRow.changes.map(\.path) == liveRow.changes.map(\.path))
+        #expect(hydratedRow.changes.map(\.diff) == liveRow.changes.map(\.diff))
+        #expect(
+            hydratedRow.preparedChanges.map(\.added)
+                == liveRow.preparedChanges.map(\.added)
+        )
+        #expect(
+            hydratedRow.preparedChanges.map(\.removed)
+                == liveRow.preparedChanges.map(\.removed)
+        )
     }
 
     @Test func liveCompactionExtensionAndHydratedItemProjectIdentically() {
@@ -1357,5 +1768,18 @@ private extension CodexNarrativeEntry {
 private extension CodexWorkRowV2 {
     var fileChange: CodexFileChangeRowV2? {
         if case .fileChange(let value) = self { value } else { nil }
+    }
+}
+
+private final class FilePreparationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    var count: Int {
+        lock.withLock { value }
+    }
+
+    func record() {
+        lock.withLock { value += 1 }
     }
 }

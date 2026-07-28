@@ -34,4 +34,22 @@ struct CodexUnifiedDiffParserTests {
         #expect(files[0].path == "patch")
         #expect(files[0].hunks[0].lines.map(\.text) == ["+line", "-line"])
     }
+
+    @Test func hunkSourceThatResemblesFileHeadersStillCountsAsSource() throws {
+        let diff = """
+        diff --git a/Sources/Counter.swift b/Sources/Counter.swift
+        --- a/Sources/Counter.swift
+        +++ b/Sources/Counter.swift
+        @@ -1 +1 @@
+        ---value
+        +++counter
+        """
+
+        let file = try #require(CodexUnifiedDiffParser.parse(diff).first)
+
+        #expect(file.added == 1)
+        #expect(file.removed == 1)
+        #expect(file.hunks.last?.lines.map(\.text) == ["---value", "+++counter"])
+        #expect(file.hunks.last?.lines.map(\.kind) == [.remove, .add])
+    }
 }

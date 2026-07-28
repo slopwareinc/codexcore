@@ -380,6 +380,63 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(panel.copyText?.contains("let new = true") == true)
     }
 
+    @Test func collapsedLargeCanonicalPatchStaysBoundedAndExpandedCopyIsExact() async throws {
+        let body = (0..<20_000).map { "+let value\($0) = true" }.joined(separator: "\n")
+        let exactDiff = "@@ -0,0 +1,20000 @@\n\(body)"
+        let row = CodexFileChangeRowV2(
+            id: "files",
+            changes: [.init(
+                id: "change",
+                path: "Sources/Large.swift",
+                kind: .modified,
+                status: .completed,
+                diff: exactDiff
+            )],
+            status: .completed
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "work", rows: [.fileChange(row)]))],
+            status: .done(durationMs: 1)
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let collapsed = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: ["turn"],
+                expandedRowIDs: ["work"]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+
+        #expect(collapsed.itemsByID.values.allSatisfy { $0.diffPanel == nil })
+        #expect(
+            collapsed.itemsByID.values.first { $0.workRow?.kind == .fileChange }?.copyText == nil
+        )
+        #expect(
+            row.retainedPreparedUTF8ByteCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
+        )
+        #expect(row.preparedChanges.first?.displayPatch.utf8.count ?? .max < exactDiff.utf8.count)
+
+        let expanded = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: ["turn"],
+                expandedRowIDs: ["work", "files"]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+        let panel = try #require(expanded.itemsByID.values.first { $0.diffPanel != nil })
+
+        #expect(panel.copyText == exactDiff)
+        #expect(panel.preparedText?.attributedString.length ?? .max < exactDiff.utf8.count)
+    }
+
 
     @Test func streamingAnswerKeepsOnlyCompactLiveActivityVisible() async throws {
         let projector = CodexTranscriptRenderProjector()

@@ -246,6 +246,33 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.selectedDiffFileIndexByRowID.isEmpty == true)
     }
 
+    @Test func bytePressureEvictsOnlyWarmProjectionAndPreservesLocalState() async throws {
+        let source = PresentationStateFixture(
+            initial: multiThreadFileChangeState(revision: 1, threadIDs: ["one", "two"])
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5),
+            warmPresentationByteCapacity: 1
+        )
+
+        store.select(threadID: "one")
+        try await eventually {
+            (store.activeCanonicalPresentation?.retainedPreparedUTF8ByteCount ?? 0) > 1
+        }
+        #expect(store.containsCachedPresentation(for: "one"))
+        #expect(store.warmPresentationRetainedUTF8ByteCount == 0)
+        store.updateScrollState(threadID: "one", rawOffset: 73, isPinnedToBottom: false)
+
+        store.select(threadID: "two")
+
+        #expect(!store.containsCachedPresentation(for: "one"))
+        #expect(store.containsLocalState(for: "one"))
+        #expect(store.localState(for: "one")?.rawScrollOffset == 73)
+        #expect(store.warmPresentationRetainedUTF8ByteCount <= 1)
+        #expect(store.diagnostics.presentationCacheByteEvictionCount == 1)
+    }
+
     @Test func scrollPersistenceDoesNotRepublishActivePresentation() async throws {
         let source = PresentationStateFixture(
             initial: sessionState(revision: 1, text: "Answer", turnRevision: 1)
@@ -421,6 +448,73 @@ private extension CodexPresentationStoreTests {
                 threadOrder: [threadID],
                 threads: [threadID: thread]
             ),
+            serverRequests: .init(revision: stateRevision, requests: []),
+            lifecycle: .ready(connectionEpoch: 1)
+        )
+    }
+
+    func multiThreadFileChangeState(
+        revision: UInt64,
+        threadIDs: [ThreadID]
+    ) -> CodexSessionStateSnapshot {
+        let stateRevision = StateRevision(revision)
+        var threads: [ThreadID: CanonicalThread] = [:]
+        var turns: [TurnKey: CanonicalTurn] = [:]
+        var items: [ItemKey: CanonicalItem] = [:]
+
+        for threadID in threadIDs {
+            let turnID = TurnID("turn-\(threadID.rawValue)")
+            let itemID: ItemID = "patch"
+            let turnKey = TurnKey(threadID: threadID, turnID: turnID)
+            let itemKey = ItemKey(
+                threadID: threadID,
+                turnID: turnID,
+                itemID: itemID
+            )
+            threads[threadID] = CanonicalThread(
+                id: threadID,
+                status: .idle,
+                turnOrder: [turnID],
+                history: .init(turnsCoverage: .full),
+                isLoaded: true,
+                consistency: .authoritative,
+                lastChangedRevision: stateRevision
+            )
+            turns[turnKey] = CanonicalTurn(
+                key: turnKey,
+                status: .completed,
+                itemOrder: [itemID],
+                itemsCoverage: .full,
+                itemsConsistency: .authoritative,
+                lastChangedRevision: stateRevision
+            )
+            items[itemKey] = CanonicalItem(
+                key: itemKey,
+                kind: .fileChange,
+                payload: [
+                    "status": .string("completed"),
+                    "changes": .array([.dictionary([
+                        "path": .string("\(threadID.rawValue).swift"),
+                        "kind": .dictionary(["type": .string("update")]),
+                        "diff": .string("@@ -1 +1 @@\n-let value = false\n+let value = true"),
+                    ])]),
+                ],
+                authority: .completed,
+                consistency: .authoritative,
+                lastChangedRevision: stateRevision
+            )
+        }
+
+        let canonical = CanonicalStateSnapshot(
+            revision: stateRevision,
+            threadOrder: threadIDs,
+            threads: threads,
+            turns: turns,
+            items: items
+        )
+        return .init(
+            stateRevision: stateRevision,
+            canonical: canonical,
             serverRequests: .init(revision: stateRevision, requests: []),
             lifecycle: .ready(connectionEpoch: 1)
         )

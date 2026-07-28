@@ -8,11 +8,21 @@ import Foundation
 /// exact same presentation from canonical state.
 public struct CodexCanonicalTranscriptProjector: Sendable {
     private let itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2?
+    private let fileChangeDiffPreparer: CodexFileChangeDiffPreparer
 
     public init(
         itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil
     ) {
         self.itemPresentationPolicy = itemPresentationPolicy
+        self.fileChangeDiffPreparer = .init()
+    }
+
+    init(
+        itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil,
+        fileChangeDiffPreparer: CodexFileChangeDiffPreparer
+    ) {
+        self.itemPresentationPolicy = itemPresentationPolicy
+        self.fileChangeDiffPreparer = fileChangeDiffPreparer
     }
 
     public func rebuild(
@@ -125,7 +135,8 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
                 turnID: turnID,
                 canonical: turn,
                 items: items,
-                intents: visibleIntentByTurn[turnID] ?? []
+                intents: visibleIntentByTurn[turnID] ?? [],
+                previous: old?.turnsByID[turnID]
             ) else {
                 turnsByID.removeValue(forKey: turnID)
                 continue
@@ -329,10 +340,12 @@ private extension CodexCanonicalTranscriptProjector {
         turnID: TurnID,
         canonical: CanonicalTurn?,
         items: [CanonicalItem],
-        intents: [SubmissionIntent]
+        intents: [SubmissionIntent],
+        previous: CodexTurnV2?
     ) -> CodexTurnV2? {
         guard canonical != nil || !intents.isEmpty else { return nil }
 
+        let previousFileRows = previousFileRows(in: previous)
         var turn = CodexTurnV2(
             id: turnID.rawValue,
             status: projectStatus(canonical: canonical, fallbackIntent: intents.first)
@@ -421,7 +434,11 @@ private extension CodexCanonicalTranscriptProjector {
             case .sleep:
                 appendNotice(id: item.key.itemID, message: "Waiting", to: &turn)
             case .imageGeneration:
-                for row in makeWorkRows(item, completed: completed) {
+                for row in makeWorkRows(
+                    item,
+                    completed: completed,
+                    previousFileRow: previousFileRows[item.key.itemID.rawValue]
+                ) {
                     appendWorkRow(row, to: &turn)
                 }
                 if completed,
@@ -440,7 +457,11 @@ private extension CodexCanonicalTranscriptProjector {
                 }
             case .commandExecution, .fileChange, .mcpToolCall, .collabAgentToolCall,
                     .subAgentActivity, .webSearch:
-                for row in makeWorkRows(item, completed: completed) {
+                for row in makeWorkRows(
+                    item,
+                    completed: completed,
+                    previousFileRow: previousFileRows[item.key.itemID.rawValue]
+                ) {
                     appendWorkRow(row, to: &turn)
                 }
             case .unknown:
@@ -499,6 +520,19 @@ private extension CodexCanonicalTranscriptProjector {
             turn.liveTail = nil
         }
         return turn
+    }
+
+    func previousFileRows(in turn: CodexTurnV2?) -> [String: CodexFileChangeRowV2] {
+        guard let turn else { return [:] }
+        var result: [String: CodexFileChangeRowV2] = [:]
+        for entry in turn.narrative {
+            guard case .workGroup(let group) = entry else { continue }
+            for row in group.rows {
+                guard case .fileChange(let value) = row else { continue }
+                result[value.id] = value
+            }
+        }
+        return result
     }
 
     func projectStatus(
@@ -713,7 +747,11 @@ private extension CodexCanonicalTranscriptProjector {
 // MARK: - Work grammar
 
 private extension CodexCanonicalTranscriptProjector {
-    func makeWorkRows(_ item: CanonicalItem, completed: Bool) -> [CodexWorkRowV2] {
+    func makeWorkRows(
+        _ item: CanonicalItem,
+        completed: Bool,
+        previousFileRow: CodexFileChangeRowV2?
+    ) -> [CodexWorkRowV2] {
         let id = item.key.itemID.rawValue
         let state = workStatus(item, completed: completed)
         switch item.kind {
@@ -739,11 +777,23 @@ private extension CodexCanonicalTranscriptProjector {
             }
         case .fileChange:
             let changes = fileChanges(item, status: state)
+            let key = fileChangePreparationKey(item: item, changes: changes)
+            let prepared: CodexPreparedFileChangeSetV2
+            if previousFileRow?.preparationKey == key {
+                prepared = previousFileRow?.preparedFileChanges ?? .empty
+            } else {
+                prepared = fileChangeDiffPreparer.prepare(
+                    changes: changes,
+                    legacyDiff: nil
+                )
+            }
             return [.fileChange(.init(
                 id: id,
                 changes: changes,
                 status: state,
-                durationMs: itemDuration(item)
+                durationMs: itemDuration(item),
+                preparationKey: key,
+                preparedFileChanges: prepared
             ))]
         case .mcpToolCall:
             let app = item.payload.object("appContext")?.string("appName")
@@ -787,19 +837,42 @@ private extension CodexCanonicalTranscriptProjector {
             rawChanges = item.payload.array("changes") ?? []
         }
 
-        var pathOccurrences: [String: Int] = [:]
-        return rawChanges.compactMap { rawChange in
+        struct Draft {
+            var path: String
+            var destinationPath: String?
+            var kind: CodexFileChangeKindV2
+            var diff: String
+            var isMalformed: Bool
+            var wireValue: CodexJSONValue
+            var identityFingerprint: UInt64
+            var contentFingerprint: UInt64
+        }
+
+        let drafts: [Draft] = rawChanges.compactMap { rawChange in
             guard let change = rawChange.object,
                   let path = change.string("path"),
                   !path.isEmpty else {
                 return nil
             }
-            let occurrence = pathOccurrences[path, default: 0]
-            pathOccurrences[path] = occurrence + 1
             let kindPayload = change.object("kind")
             let rawKind = kindPayload?.string("type") ?? change.string("kind")
             let destinationPath = kindPayload?.string("move_path")
                 ?? kindPayload?.string("movePath")
+            let kindValue = change["kind"]
+            let kindIsMalformed: Bool = {
+                guard let kindValue else { return true }
+                if kindValue.stringValue != nil { return false }
+                guard let object = kindValue.object else { return true }
+                return object.string("type") == nil
+            }()
+            let movePathIsMalformed: Bool = {
+                guard let kindPayload else { return false }
+                for key in ["move_path", "movePath"] {
+                    guard let value = kindPayload[key] else { continue }
+                    if value.stringValue == nil { return true }
+                }
+                return false
+            }()
             let kind: CodexFileChangeKindV2 = switch rawKind {
             case "add": .added
             case "delete": .deleted
@@ -808,23 +881,91 @@ private extension CodexCanonicalTranscriptProjector {
             case .some(let value): .unknown(value)
             case nil: .unknown("unknown")
             }
-            return CodexFileChangeV2(
-                id: "\(item.key.itemID.rawValue):file:\(path):\(occurrence)",
+            let diff = change.string("diff") ?? ""
+            let diffIsMalformed = change["diff"].map { $0.stringValue == nil } ?? false
+            var identityHasher = CodexStableFingerprint()
+            identityHasher.combine(path)
+            identityHasher.combine(destinationPath ?? "")
+            identityHasher.combine(kind.stableValue)
+            var contentHasher = identityHasher
+            contentHasher.combine(diff)
+            return Draft(
                 path: path,
                 destinationPath: destinationPath,
                 kind: kind,
+                diff: diff,
+                isMalformed: kindIsMalformed || movePathIsMalformed || diffIsMalformed,
+                wireValue: rawChange,
+                identityFingerprint: identityHasher.value,
+                contentFingerprint: contentHasher.value
+            )
+        }
+
+        let identityCounts = Dictionary(grouping: drafts, by: \.identityFingerprint)
+            .mapValues(\.count)
+        var exactOccurrences: [UInt64: Int] = [:]
+        return drafts.map { draft in
+            let fingerprint: UInt64
+            if identityCounts[draft.identityFingerprint] == 1 {
+                fingerprint = draft.identityFingerprint
+            } else {
+                fingerprint = draft.contentFingerprint
+            }
+            let occurrence = exactOccurrences[fingerprint, default: 0]
+            exactOccurrences[fingerprint] = occurrence + 1
+            let suffix = occurrence == 0 ? "" : ":\(occurrence)"
+            return CodexFileChangeV2(
+                id: "\(item.key.itemID.rawValue):file:\(String(fingerprint, radix: 16))\(suffix)",
+                path: draft.path,
+                destinationPath: draft.destinationPath,
+                kind: draft.kind,
                 status: status,
-                diff: change.string("diff") ?? ""
+                diff: draft.diff,
+                isMalformed: draft.isMalformed,
+                wireValue: draft.wireValue
             )
         }
     }
 
+    func fileChangePreparationKey(
+        item: CanonicalItem,
+        changes: [CodexFileChangeV2]
+    ) -> CodexFileChangePreparationKey {
+        var hasher = CodexStableFingerprint()
+        for change in changes {
+            hasher.combine(change.id)
+            hasher.combine(change.path)
+            hasher.combine(change.destinationPath ?? "")
+            hasher.combine(change.kind.stableValue)
+            hasher.combine(change.diff)
+            hasher.combine(change.isMalformed ? "malformed" : "valid")
+        }
+        return .init(
+            itemKey: item.key,
+            sourceRevision: item.lastChangedRevision,
+            contentFingerprint: hasher.value
+        )
+    }
+
     func workStatus(_ item: CanonicalItem, completed: Bool) -> CodexWorkItemStatusV2 {
-        if item.payload.string("status") == "failed"
-            || item.payload.int("exitCode").map({ $0 != 0 }) == true {
+        if item.payload.int("exitCode").map({ $0 != 0 }) == true {
             return .failed
         }
-        return completed ? .completed : .inProgress
+        guard let rawStatus = item.payload.string("status") else {
+            return completed ? .completed : .inProgress
+        }
+        switch rawStatus {
+        case "inProgress":
+            return completed ? .completed : .inProgress
+        case "completed":
+            return .completed
+        case "failed":
+            return .failed
+        case "declined":
+            return .declined
+        default:
+            return .unknown(rawStatus)
+        }
     }
 
     /// The official renderer prefers the durable saved path but accepts the
@@ -1033,11 +1174,13 @@ private extension CodexCanonicalTranscriptProjector {
         _ rawStatus: String?,
         fallback: CodexWorkItemStatusV2
     ) -> CodexWorkItemStatusV2 {
-        switch rawStatus?.lowercased() {
+        guard let rawStatus else { return fallback }
+        return switch rawStatus.lowercased() {
         case "completed", "done", "shutdown", "closed": .completed
         case "errored", "error", "failed", "interrupted": .failed
+        case "declined": .declined
         case "pendinginit", "pending_init", "running", "working": .inProgress
-        default: fallback
+        default: .unknown(rawStatus)
         }
     }
 
@@ -1051,11 +1194,13 @@ private extension CodexCanonicalTranscriptProjector {
         case "completed", "done": .done
         case "shutdown", "closed", "cancelled", "canceled": .closed
         case "errored", "error", "failed", "interrupted": .failed
+        case .some:
+            .failed
         default:
             switch fallback {
             case .inProgress: .working
             case .completed: .done
-            case .failed: .failed
+            case .failed, .declined, .unknown: .failed
             }
         }
     }

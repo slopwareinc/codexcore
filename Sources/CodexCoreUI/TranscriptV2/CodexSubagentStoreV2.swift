@@ -100,6 +100,9 @@ public struct CodexSubagentDiscoveryV2: Sendable, Equatable {
 public struct CodexSubagentStoreV2: Sendable {
     private var agentsByID: [String: CodexSubagentV2] = [:]
     private var discoveriesByID: [String: CodexSubagentDiscoveryV2] = [:]
+    private var canonicalPresentationsByID: [
+        String: CodexCanonicalTranscriptPresentation
+    ] = [:]
     private let projector = CodexCanonicalTranscriptProjector()
 
     public init() {}
@@ -127,6 +130,19 @@ public struct CodexSubagentStoreV2: Sendable {
 
     public func agent(threadID: String) -> CodexSubagentV2? { agentsByID[threadID] }
     public func contains(threadID: String) -> Bool { agentsByID[threadID] != nil }
+
+    var retainedPreparedUTF8ByteCount: Int {
+        canonicalPresentationsByID.values.reduce(into: 0) { total, presentation in
+            let (sum, overflow) = total.addingReportingOverflow(
+                presentation.retainedPreparedUTF8ByteCount
+            )
+            total = overflow ? .max : sum
+        }
+    }
+
+    func retainedPreparedUTF8ByteCount(threadID: ThreadID) -> Int {
+        canonicalPresentationsByID[threadID.rawValue]?.retainedPreparedUTF8ByteCount ?? 0
+    }
 
     /// Discovers direct children from parent collaboration items. This works at
     /// the exact frame that announces a child, before thread metadata arrives.
@@ -244,10 +260,16 @@ public struct CodexSubagentStoreV2: Sendable {
                 fallback: agent.status
             )
         }
-        agent.transcript = projector.rebuild(
-            snapshot: snapshot,
-            threadID: threadID
-        ).presentation.transcript
+        let previous = canonicalPresentationsByID[id]
+        let result = (
+            try? projector.project(
+                snapshot: snapshot,
+                threadID: threadID,
+                previous: previous
+            )
+        ) ?? projector.rebuild(snapshot: snapshot, threadID: threadID)
+        canonicalPresentationsByID[id] = result.presentation
+        agent.transcript = result.presentation.transcript
         if let createdAt = thread.metadata.createdAt?.rawValue {
             agent.createdAt = Date(timeIntervalSince1970: TimeInterval(createdAt))
         }
@@ -262,6 +284,7 @@ public struct CodexSubagentStoreV2: Sendable {
     /// available for the overview and can be rehydrated by reacquiring a lease.
     public mutating func evictTranscript(threadID: ThreadID) {
         agentsByID[threadID.rawValue]?.transcript = .init()
+        canonicalPresentationsByID.removeValue(forKey: threadID.rawValue)
     }
 
     public mutating func updateStatus(
@@ -274,11 +297,13 @@ public struct CodexSubagentStoreV2: Sendable {
     public mutating func remove(threadID: ThreadID) {
         agentsByID.removeValue(forKey: threadID.rawValue)
         discoveriesByID.removeValue(forKey: threadID.rawValue)
+        canonicalPresentationsByID.removeValue(forKey: threadID.rawValue)
     }
 
     public mutating func removeAll() {
         agentsByID.removeAll(keepingCapacity: false)
         discoveriesByID.removeAll(keepingCapacity: false)
+        canonicalPresentationsByID.removeAll(keepingCapacity: false)
     }
 
     public mutating func updateMetadata(

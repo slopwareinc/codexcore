@@ -34,6 +34,28 @@ public struct CodexCanonicalTranscriptPresentation: Sendable, Equatable {
     public var transcript: CodexTranscriptV2 {
         CodexTranscriptV2(turns: turnOrder.compactMap { turnsByID[$0] })
     }
+
+    /// Retained UTF-8 bytes used by prepared file-change presentation data.
+    ///
+    /// Exact canonical patches remain owned by their rows. This measures only
+    /// the disposable, bounded render preparation duplicated by warm caches.
+    public var retainedPreparedUTF8ByteCount: Int {
+        var total = 0
+        for turnID in turnOrder {
+            guard let turn = turnsByID[turnID] else { continue }
+            for entry in turn.narrative {
+                guard case .workGroup(let group) = entry else { continue }
+                for row in group.rows {
+                    guard case .fileChange(let fileChange) = row else { continue }
+                    let (sum, overflow) = total.addingReportingOverflow(
+                        fileChange.retainedPreparedUTF8ByteCount
+                    )
+                    total = overflow ? .max : sum
+                }
+            }
+        }
+        return total
+    }
 }
 
 /// Continuation-free request presentation. The pending interaction inbox is

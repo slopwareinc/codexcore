@@ -55,13 +55,13 @@ private struct CodexWorkRowViewV2: View {
         VStack(alignment: .leading, spacing: 5) {
             Button {
                 if let threadID = subagentThreadID { onOpenSubagent(threadID) }
-                else if detail != nil { isExpanded.toggle() }
+                else if hasDetail { isExpanded.toggle() }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(codexStatusGlyphV2(status)).foregroundStyle(statusColor)
                     label
                     if let durationMs { Text(CodexWorkBlockViewV2.duration(durationMs)).font(theme.fonts.micro) }
-                    if detail != nil {
+                    if hasDetail {
                         Image(systemName: "chevron.right")
                             .font(theme.fonts.micro)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -73,13 +73,38 @@ private struct CodexWorkRowViewV2: View {
             }
             .buttonStyle(.plain)
             .help(hoverDetail ?? rowLabel)
-            if isExpanded, let detail {
-                Text(detail)
-                    .font(theme.fonts.code)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .textSelection(.enabled)
-                    .padding(.leading, 18)
+            if isExpanded {
+                expandedContent
             }
+        }
+    }
+
+    @ViewBuilder private var expandedContent: some View {
+        if case .fileChange(let value) = row {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(value.preparedChanges, id: \.changeID) { prepared in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(prepared.path)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if !prepared.displayPatch.isEmpty {
+                            Text(prepared.displayPatch)
+                                .font(theme.fonts.code)
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+            .padding(.leading, 18)
+        } else if let detail = expandedDetail {
+            Text(detail)
+                .font(theme.fonts.code)
+                .foregroundStyle(theme.colors.textSecondary)
+                .textSelection(.enabled)
+                .padding(.leading, 18)
         }
     }
 
@@ -97,7 +122,13 @@ private struct CodexWorkRowViewV2: View {
     private var rowLabel: String {
         switch row {
         case .command(let value): return value.label.codexDisplayPrefix(limit: 280)
-        case .fileChange(let value): return "Edited \(value.files.joined(separator: " · "))"
+        case .fileChange(let value):
+            let paths = value.changes.isEmpty
+                ? Array(value.files.prefix(3))
+                : value.changes.prefix(3).map(\.displayPath)
+            let visible = paths.joined(separator: " · ")
+            let remainder = max(0, value.fileCount - 3)
+            return remainder == 0 ? "Edited \(visible)" : "Edited \(visible) · +\(remainder) more"
         case .mcpToolCall(let value):
             if let error = value.errorFirstLine, !error.isEmpty { return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool) — \(error)" }
             return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool)"
@@ -121,13 +152,25 @@ private struct CodexWorkRowViewV2: View {
         }
     }
 
-    private var detail: String? {
+    private var hasDetail: Bool {
+        switch row {
+        case .command(let value):
+            value.output?.isEmpty == false
+        case .fileChange(let value):
+            value.hasPreparedDetail
+        case .mcpToolCall(let value):
+            value.arguments != nil || value.result != nil
+        case .collabAgent(let value):
+            (value.action == .waited || value.action == .sentInput)
+                && (value.instructions?.isEmpty == false || !value.agentMessages.isEmpty)
+        default:
+            false
+        }
+    }
+
+    private var expandedDetail: String? {
         switch row {
         case .command(let v): return v.output?.nilIfEmpty?.codexDisplayPrefix(limit: 20_000)
-        case .fileChange(let v):
-            if let diff = v.diff?.nilIfEmpty { return diff }
-            let patches = v.changes.map(\.diff).filter { !$0.isEmpty }
-            return patches.isEmpty ? nil : patches.joined(separator: "\n")
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
@@ -146,7 +189,7 @@ private struct CodexWorkRowViewV2: View {
 
     private var hoverDetail: String? {
         guard case .collabAgent = row else { return nil }
-        return detail?.codexDisplayPrefix(limit: 4_000)
+        return expandedDetail?.codexDisplayPrefix(limit: 4_000)
     }
 
     private var subagentThreadID: String? {
@@ -155,7 +198,12 @@ private struct CodexWorkRowViewV2: View {
     }
 
     private var statusColor: Color {
-        switch status { case .inProgress: theme.colors.running; case .completed: theme.colors.success; case .failed: theme.colors.danger }
+        switch status {
+        case .inProgress: theme.colors.running
+        case .completed: theme.colors.success
+        case .failed: theme.colors.danger
+        case .declined, .unknown: theme.colors.warning
+        }
     }
 }
 

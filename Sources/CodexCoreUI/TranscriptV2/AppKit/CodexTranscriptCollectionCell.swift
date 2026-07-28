@@ -1810,7 +1810,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
     private static func chipIconName(_ row: CodexTranscriptWorkRowRender) -> String {
         if let systemImage = row.systemImage, !systemImage.isEmpty { return systemImage }
-        if row.status == .failed { return "exclamationmark.triangle" }
+        switch row.status {
+        case .failed, .declined, .unknown:
+            return "exclamationmark.triangle"
+        case .inProgress, .completed:
+            break
+        }
         return switch row.kind {
         case .command: "terminal"
         case .fileChange: "doc.text"
@@ -1826,6 +1831,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .inProgress: "In progress"
         case .completed: "Completed"
         case .failed: "Failed"
+        case .declined: "Declined"
+        case .unknown: "Unknown status"
         }
     }
 
@@ -1857,6 +1864,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .inProgress: theme.running
         case .completed: theme.success
         case .failed: theme.danger
+        case .declined, .unknown: theme.warning
         }
     }
 
@@ -1865,6 +1873,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .inProgress: "running"
         case .completed: "finished"
         case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "status unknown"
         }
     }
 

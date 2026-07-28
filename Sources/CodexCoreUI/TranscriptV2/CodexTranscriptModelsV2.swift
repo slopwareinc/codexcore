@@ -150,7 +150,13 @@ public struct CodexWorkGroupV2: Identifiable, Sendable, Equatable {
     }
 }
 
-public enum CodexWorkItemStatusV2: Sendable, Equatable { case inProgress, completed, failed }
+public enum CodexWorkItemStatusV2: Sendable, Equatable {
+    case inProgress
+    case completed
+    case failed
+    case declined
+    case unknown(String)
+}
 
 /// User-facing lifecycle for one collaboration agent. This stays distinct from
 /// `CodexWorkItemStatusV2`: completing a spawn request does not mean the child
@@ -187,6 +193,8 @@ public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
     public var kind: CodexFileChangeKindV2
     public var status: CodexWorkItemStatusV2
     public var diff: String
+    var isMalformed: Bool
+    var wireValue: CodexJSONValue?
 
     public init(
         id: String,
@@ -202,6 +210,28 @@ public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
         self.kind = kind
         self.status = status
         self.diff = diff
+        self.isMalformed = false
+        self.wireValue = nil
+    }
+
+    init(
+        id: String,
+        path: String,
+        destinationPath: String? = nil,
+        kind: CodexFileChangeKindV2,
+        status: CodexWorkItemStatusV2,
+        diff: String,
+        isMalformed: Bool,
+        wireValue: CodexJSONValue?
+    ) {
+        self.id = id
+        self.path = path
+        self.destinationPath = destinationPath
+        self.kind = kind
+        self.status = status
+        self.diff = diff
+        self.isMalformed = isMalformed
+        self.wireValue = wireValue
     }
 
     public var displayPath: String { destinationPath ?? path }
@@ -209,7 +239,12 @@ public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
 
 public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
     public var id: String
-    public var files: [String]
+    private var legacyFiles: [String]
+    /// Canonical rows derive paths from `changes`, so callers cannot observe a
+    /// stale second path list after mutating a structured change.
+    public var files: [String] {
+        changes.isEmpty ? legacyFiles : changes.map(\.displayPath)
+    }
     public var status: CodexWorkItemStatusV2
     public var durationMs: Int?
     /// Legacy aggregate patch supplied by hosts that construct Transcript V2 directly.
@@ -218,18 +253,53 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
     /// a second concatenated copy.
     public var diff: String? {
         didSet {
-            preparedDiffFiles = Self.prepareDiffFiles(changes: changes, legacyDiff: diff)
+            guard changes.isEmpty else { return }
+            preparationKey = Self.contentPreparationKey(changes: [], legacyDiff: diff)
+            preparedFileChanges = CodexFileChangeDiffPreparer().prepare(
+                changes: [],
+                legacyDiff: diff
+            )
         }
     }
     public var changes: [CodexFileChangeV2] {
         didSet {
-            if !changes.isEmpty {
-                files = changes.map(\.displayPath)
-            }
-            preparedDiffFiles = Self.prepareDiffFiles(changes: changes, legacyDiff: diff)
+            preparationKey = Self.contentPreparationKey(changes: changes, legacyDiff: diff)
+            preparedFileChanges = CodexFileChangeDiffPreparer().prepare(
+                changes: changes,
+                legacyDiff: changes.isEmpty ? diff : nil
+            )
         }
     }
-    private(set) var preparedDiffFiles: [CodexDiffFile]
+    var preparationKey: CodexFileChangePreparationKey?
+    var preparedFileChanges: CodexPreparedFileChangeSetV2
+
+    var preparedChanges: [CodexPreparedFileChangeV2] {
+        preparedFileChanges.entries
+    }
+
+    var preparedDiffFiles: [CodexDiffFile] {
+        preparedFileChanges.entries.map(\.file)
+    }
+
+    var retainedPreparedUTF8ByteCount: Int {
+        preparedFileChanges.retainedUTF8ByteCount
+    }
+
+    var hasPreparedDetail: Bool {
+        !preparedFileChanges.entries.isEmpty
+    }
+
+    var fileCount: Int {
+        changes.isEmpty ? legacyFiles.count : changes.count
+    }
+
+    var preparedAddedLineCount: Int {
+        preparedFileChanges.totalAdded
+    }
+
+    var preparedRemovedLineCount: Int {
+        preparedFileChanges.totalRemoved
+    }
 
     public init(
         id: String,
@@ -239,12 +309,16 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
         diff: String? = nil
     ) {
         self.id = id
-        self.files = files
+        self.legacyFiles = files
         self.status = status
         self.durationMs = durationMs
         self.diff = diff
         self.changes = []
-        self.preparedDiffFiles = Self.prepareDiffFiles(changes: [], legacyDiff: diff)
+        self.preparationKey = Self.contentPreparationKey(changes: [], legacyDiff: diff)
+        self.preparedFileChanges = CodexFileChangeDiffPreparer().prepare(
+            changes: [],
+            legacyDiff: diff
+        )
     }
 
     public init(
@@ -254,33 +328,62 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
         durationMs: Int? = nil
     ) {
         self.id = id
-        self.files = changes.map(\.displayPath)
+        self.legacyFiles = []
         self.status = status
         self.durationMs = durationMs
         self.diff = nil
         self.changes = changes
-        self.preparedDiffFiles = Self.prepareDiffFiles(changes: changes, legacyDiff: nil)
+        self.preparationKey = Self.contentPreparationKey(changes: changes, legacyDiff: nil)
+        self.preparedFileChanges = CodexFileChangeDiffPreparer().prepare(
+            changes: changes,
+            legacyDiff: nil
+        )
     }
 
-    private static func prepareDiffFiles(
+    init(
+        id: String,
+        changes: [CodexFileChangeV2],
+        status: CodexWorkItemStatusV2,
+        durationMs: Int?,
+        preparationKey: CodexFileChangePreparationKey,
+        preparedFileChanges: CodexPreparedFileChangeSetV2
+    ) {
+        self.id = id
+        self.legacyFiles = []
+        self.status = status
+        self.durationMs = durationMs
+        self.diff = nil
+        self.changes = changes
+        self.preparationKey = preparationKey
+        self.preparedFileChanges = preparedFileChanges
+    }
+
+    func exactChange(forPreparedChangeID changeID: String) -> CodexFileChangeV2? {
+        changes.first { $0.id == changeID }
+    }
+
+    private static func contentPreparationKey(
         changes: [CodexFileChangeV2],
         legacyDiff: String?
-    ) -> [CodexDiffFile] {
+    ) -> CodexFileChangePreparationKey {
+        var hasher = CodexStableFingerprint()
         if changes.isEmpty {
-            return legacyDiff.map { CodexUnifiedDiffParser.parse($0) } ?? []
-        }
-        return changes.flatMap { change in
-            CodexUnifiedDiffParser.parse(
-                change.diff,
-                fallbackPath: change.displayPath,
-                fallbackKind: change.kind.diffKind
-            ).map { parsed in
-                var prepared = parsed
-                prepared.path = change.displayPath
-                prepared.kind = change.kind.diffKind
-                return prepared
+            hasher.combine(legacyDiff ?? "")
+        } else {
+            for change in changes {
+                hasher.combine(change.id)
+                hasher.combine(change.path)
+                hasher.combine(change.destinationPath ?? "")
+                hasher.combine(change.kind.stableValue)
+                hasher.combine(change.diff)
+                hasher.combine(change.isMalformed ? "malformed" : "valid")
             }
         }
+        return .init(
+            itemKey: nil,
+            sourceRevision: nil,
+            contentFingerprint: hasher.value
+        )
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
@@ -316,9 +419,11 @@ extension CodexCollabAgentRowV2 {
             subject = "Agent"
         }
         return switch action {
-        case .created, .started: "\(subject) · \(status == .inProgress ? "working" : "started")"
+        case .created, .started:
+            "\(subject) · \(status.collaborationLabel(active: "working", completed: "started"))"
         case .sentInput, .interacted: "\(subject) · messaged"
-        case .waited: "\(subject) · \(status == .inProgress ? "waiting" : "finished")"
+        case .waited:
+            "\(subject) · \(status.collaborationLabel(active: "waiting", completed: "finished"))"
         case .closed: "\(subject) · closed"
         case .interrupted: "\(subject) · interrupted"
         }
@@ -350,9 +455,21 @@ extension CodexCollabAgentRowV2 {
              switch status {
              case .inProgress: .working
              case .completed: .done
-             case .failed: .failed
+             case .failed, .declined, .unknown: .failed
              }
          }()
+    }
+}
+
+private extension CodexWorkItemStatusV2 {
+    func collaborationLabel(active: String, completed: String) -> String {
+        switch self {
+        case .inProgress: active
+        case .completed: completed
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "status unknown"
+        }
     }
 }
 public struct CodexOtherWorkRowV2: Identifiable, Sendable, Equatable {

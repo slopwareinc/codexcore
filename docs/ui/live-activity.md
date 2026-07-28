@@ -124,6 +124,23 @@ not when a transcript view renders. Hosts constructing Transcript V2 directly
 can continue to use `CodexFileChangeRowV2.init(id:files:status:durationMs:diff:)`;
 that initializer prepares its aggregate patch once as well.
 
+The app-server `changes[].diff` field is kind-dependent: add and delete entries
+carry raw file content, while updates carry a unified diff. Preparation
+normalizes those forms once, preserves exact wire text in `changes`, and exposes
+an ordered prepared entry keyed by the stable change ID. Empty renames still
+produce a prepared zero-line entry. Duplicate paths use kind, destination, and
+content fingerprints so reordering does not move identity between patches.
+
+Prepared display data is capped at 256 KiB per row while scanning the entire
+wire value for exact addition/removal counts. Unchanged item revisions reuse the
+immutable preparation when an unrelated item dirties the same turn. Warm main
+and subagent presentation caches also have byte budgets; eviction drops only
+disposable projection data, never canonical state or per-thread UI state.
+
+File-change lifecycle values preserve `declined` and future status strings as
+non-success states. Do not treat any explicit status other than `completed` as a
+successful edit.
+
 ## Policy rules
 
 - Keep the closure deterministic, sendable, and inexpensive. It runs whenever

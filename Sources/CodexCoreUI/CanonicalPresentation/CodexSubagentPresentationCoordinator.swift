@@ -23,6 +23,7 @@ public struct CodexSubagentPresentationDiagnostics: Sendable, Equatable {
 @Observable
 public final class CodexSubagentPresentationCoordinator {
     public static let defaultProjectionCapacity = 8
+    public static let defaultProjectionByteCapacity = 8 * 1_024 * 1_024
 
     public private(set) var parentThreadID: ThreadID?
     public private(set) var agents: [CodexSubagentV2] = []
@@ -33,6 +34,7 @@ public final class CodexSubagentPresentationCoordinator {
 
     @ObservationIgnored private let codex: Codex
     @ObservationIgnored private let projectionCapacity: Int
+    @ObservationIgnored private let projectionByteCapacity: Int
     @ObservationIgnored private var store = CodexSubagentStoreV2()
     @ObservationIgnored private var mapper = CodexAgentStateMapper()
     @ObservationIgnored private var latestParentSnapshot: CanonicalStateSnapshot?
@@ -55,10 +57,12 @@ public final class CodexSubagentPresentationCoordinator {
 
     public init(
         codex: Codex,
-        projectionCapacity: Int = CodexSubagentPresentationCoordinator.defaultProjectionCapacity
+        projectionCapacity: Int = CodexSubagentPresentationCoordinator.defaultProjectionCapacity,
+        projectionByteCapacity: Int = CodexSubagentPresentationCoordinator.defaultProjectionByteCapacity
     ) {
         self.codex = codex
         self.projectionCapacity = max(1, projectionCapacity)
+        self.projectionByteCapacity = max(0, projectionByteCapacity)
     }
 
     deinit {
@@ -114,12 +118,18 @@ public final class CodexSubagentPresentationCoordinator {
         store.agent(threadID: threadID.rawValue)
     }
 
+    public var retainedProjectionPreparedUTF8ByteCount: Int {
+        store.retainedPreparedUTF8ByteCount
+    }
+
     /// Returns the currently cached child transcript and marks it most recent.
     /// If a terminal projection was evicted, this starts a fresh exact lease so
     /// the caller eventually receives a complete canonical projection again.
     public func transcript(threadID: ThreadID) -> CodexTranscriptV2? {
         guard store.contains(threadID: threadID.rawValue) else { return nil }
-        touchProjection(threadID)
+        if touchProjection(threadID, protecting: threadID) {
+            refreshMapperAndPublish()
+        }
         let transcript = store.agent(threadID: threadID.rawValue)?.transcript
         if transcript?.turns.isEmpty == true,
            childRuntimes[threadID] == nil,
@@ -317,19 +327,21 @@ private extension CodexSubagentPresentationCoordinator {
         guard store.applyChildSnapshot(snapshot, threadID: threadID) else { return }
         diagnostics.childProjectionCount += 1
         touchProjection(threadID)
-        refreshMapperAndPublish()
 
         if Self.isTerminalAndHydrated(snapshot, threadID: threadID) {
             terminalChildIDs.insert(threadID)
             releaseChildLease(threadID, retainProjection: true)
+            evictProjectionOverflow()
         } else {
             evictProjectionOverflow()
         }
+        refreshMapperAndPublish()
     }
 
     func markChildFailure(_ threadID: ThreadID, message: String) {
         store.updateStatus(threadID: threadID, status: .failed(message: message))
         releaseChildLease(threadID, retainProjection: true)
+        evictProjectionOverflow()
         refreshMapperAndPublish()
     }
 
@@ -356,6 +368,7 @@ private extension CodexSubagentPresentationCoordinator {
             terminalChildIDs.insert(id)
             releaseChildLease(id, retainProjection: true)
         }
+        evictProjectionOverflow()
     }
 
     static func isTerminalAndHydrated(
@@ -378,21 +391,30 @@ private extension CodexSubagentPresentationCoordinator {
 // MARK: - Projection retention and publication
 
 private extension CodexSubagentPresentationCoordinator {
-    func touchProjection(_ threadID: ThreadID) {
+    @discardableResult
+    func touchProjection(
+        _ threadID: ThreadID,
+        protecting protectedThreadID: ThreadID? = nil
+    ) -> Bool {
         projectionLRU.removeAll { $0 == threadID }
         projectionLRU.append(threadID)
-        evictProjectionOverflow()
+        return evictProjectionOverflow(protecting: protectedThreadID)
     }
 
-    func evictProjectionOverflow() {
-        while projectionLRU.count > projectionCapacity {
+    @discardableResult
+    func evictProjectionOverflow(protecting protectedThreadID: ThreadID? = nil) -> Bool {
+        var didEvict = false
+        while projectionLRU.count > projectionCapacity
+            || store.retainedPreparedUTF8ByteCount > projectionByteCapacity {
             guard let candidate = projectionLRU.first(where: {
-                childRuntimes[$0] == nil
-            }) else { return }
+                $0 != protectedThreadID && childRuntimes[$0] == nil
+            }) else { return didEvict }
             projectionLRU.removeAll { $0 == candidate }
             store.evictTranscript(threadID: candidate)
             diagnostics.projectionEvictionCount += 1
+            didEvict = true
         }
+        return didEvict
     }
 
     func refreshMapperAndPublish() {

@@ -403,16 +403,21 @@ private extension ProtocolStateAdapter {
             )])
 
         case .itemFileChangePatchUpdated:
-            let value: CodexSchemaFileChangePatchUpdatedNotification =
-                try decodeNotification(method, params)
+            let coordinates = try requiredCoordinates(method: method, params: params)
+            guard let itemID = params.string(at: "itemId") else {
+                throw malformed(method, "itemId must be a string")
+            }
+            guard let changes = params["changes"], case .array = changes else {
+                throw malformed(method, "changes must be an array")
+            }
             return .state([.itemLiveFieldReplaced(
                 item: ItemKey(
-                    threadID: .init(value.threadID),
-                    turnID: .init(value.turnID),
-                    itemID: .init(value.itemID)
+                    threadID: coordinates.threadID,
+                    turnID: coordinates.turnID,
+                    itemID: .init(itemID)
                 ),
                 key: "fileChanges",
-                value: params["changes"]
+                value: changes
             )])
 
         case .serverRequestResolved:

@@ -110,6 +110,7 @@ public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
     public fileprivate(set) var uiStateEvictionCount = 0
     public fileprivate(set) var presentationCacheHitCount = 0
     public fileprivate(set) var presentationCacheMissCount = 0
+    public fileprivate(set) var presentationCacheByteEvictionCount = 0
     public fileprivate(set) var deferredIncompleteHistoryCount = 0
 
     public init() {}
@@ -124,6 +125,7 @@ public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
 @Observable
 public final class CodexPresentationStore {
     public static let uiStateCapacity = 20
+    public static let defaultWarmPresentationByteCapacity = 16 * 1_024 * 1_024
 
     public private(set) var selectedThreadID: ThreadID?
     public private(set) var activePresentation: CodexThreadUIPresentation?
@@ -138,6 +140,7 @@ public final class CodexPresentationStore {
     @ObservationIgnored private let coalescingInterval: Duration
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let projector: CodexCanonicalTranscriptProjector
+    @ObservationIgnored private let warmPresentationByteCapacity: Int
     @ObservationIgnored private var adapter: CodexPresentationStateAdapter?
     @ObservationIgnored private var localStateByThreadID: [ThreadID: CodexThreadPresentationLocalState] = [:]
     @ObservationIgnored private var presentationCacheByThreadID: [ThreadID: CachedThreadPresentation] = [:]
@@ -168,6 +171,7 @@ public final class CodexPresentationStore {
         adapter: CodexPresentationStateAdapter? = nil,
         itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil,
         coalescingInterval: Duration = .milliseconds(17),
+        warmPresentationByteCapacity: Int = CodexPresentationStore.defaultWarmPresentationByteCapacity,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.adapter = adapter
@@ -175,6 +179,7 @@ public final class CodexPresentationStore {
             itemPresentationPolicy: itemPresentationPolicy
         )
         self.coalescingInterval = coalescingInterval
+        self.warmPresentationByteCapacity = max(0, warmPresentationByteCapacity)
         self.now = now
     }
 
@@ -219,12 +224,14 @@ public final class CodexPresentationStore {
         guard let threadID else {
             activePresentation = nil
             presentationRevision &+= 1
+            evictWarmPresentationCacheIfNeeded()
             restartObservation()
             return
         }
 
         ensureLocalState(for: threadID)
         touch(threadID)
+        evictWarmPresentationCacheIfNeeded()
         var local = localStateByThreadID[threadID] ?? .init()
         local.lastSeenAttentionRevision = observedRevision
         localStateByThreadID[threadID] = local
@@ -263,6 +270,16 @@ public final class CodexPresentationStore {
 
     public func containsCachedPresentation(for threadID: ThreadID) -> Bool {
         presentationCacheByThreadID[threadID] != nil
+    }
+
+    public var warmPresentationRetainedUTF8ByteCount: Int {
+        presentationCacheByThreadID.reduce(into: 0) { total, entry in
+            guard entry.key != selectedThreadID else { return }
+            let (sum, overflow) = total.addingReportingOverflow(
+                entry.value.canonical.retainedPreparedUTF8ByteCount
+            )
+            total = overflow ? .max : sum
+        }
     }
 
     public func hasUnreadAttention(for threadID: ThreadID) -> Bool {
@@ -634,6 +651,8 @@ private extension CodexPresentationStore {
             pendingRequests: result.presentation.pendingRequests,
             approvals: approvals
         )
+        touch(threadID)
+        evictWarmPresentationCacheIfNeeded()
         isSelectionHydrated = true
         diagnostics.projectionPublishCount &+= 1
         presentationRevision &+= 1
@@ -676,6 +695,16 @@ private extension CodexPresentationStore {
             presentationCacheByThreadID.removeValue(forKey: candidate)
             leastToMostRecentThreadIDs.removeAll { $0 == candidate }
             diagnostics.uiStateEvictionCount &+= 1
+        }
+    }
+
+    func evictWarmPresentationCacheIfNeeded() {
+        while warmPresentationRetainedUTF8ByteCount > warmPresentationByteCapacity {
+            guard let candidate = leastToMostRecentThreadIDs.first(where: {
+                $0 != selectedThreadID && presentationCacheByThreadID[$0] != nil
+            }) else { return }
+            presentationCacheByThreadID.removeValue(forKey: candidate)
+            diagnostics.presentationCacheByteEvictionCount &+= 1
         }
     }
 

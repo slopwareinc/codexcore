@@ -67,7 +67,7 @@ public enum CodexWorkGroupHeaderV2 {
                 case .imageGeneration: generatedImages += 1
                 }
             case .fileChange(let value):
-                editedFiles += max(1, value.files.count)
+                editedFiles += max(1, value.fileCount)
             case .mcpToolCall(let value):
                 appendUnique(value.appName.isEmpty ? value.server : value.appName, to: &mcpApps)
             case .webSearch:
@@ -106,7 +106,22 @@ enum CodexWorkGroupPresentationV2 {
         rows: [CodexWorkRowV2],
         isLive: Bool
     ) -> CodexWorkItemStatusV2 {
-        if rows.contains(where: isFailed) { return .failed }
+        var hasDeclined = false
+        var firstUnknown: CodexWorkItemStatusV2?
+        for row in rows {
+            switch status(of: row) {
+            case .failed:
+                return .failed
+            case .declined:
+                hasDeclined = true
+            case .unknown(let value):
+                if firstUnknown == nil { firstUnknown = .unknown(value) }
+            case .inProgress, .completed:
+                break
+            }
+        }
+        if hasDeclined { return .declined }
+        if let firstUnknown { return firstUnknown }
         if isLive || rows.contains(where: \.isInProgress) { return .inProgress }
         return .completed
     }
@@ -144,14 +159,14 @@ enum CodexWorkGroupPresentationV2 {
         }
     }
 
-    private static func isFailed(_ row: CodexWorkRowV2) -> Bool {
+    private static func status(of row: CodexWorkRowV2) -> CodexWorkItemStatusV2 {
         switch row {
-        case .command(let value): value.status == .failed
-        case .fileChange(let value): value.status == .failed
-        case .mcpToolCall(let value): value.status == .failed
-        case .webSearch(let value): value.status == .failed
-        case .collabAgent(let value): value.status == .failed
-        case .other(let value): value.status == .failed
+        case .command(let value): value.status
+        case .fileChange(let value): value.status
+        case .mcpToolCall(let value): value.status
+        case .webSearch(let value): value.status
+        case .collabAgent(let value): value.status
+        case .other(let value): value.status
         }
     }
 
