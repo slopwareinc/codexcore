@@ -133,14 +133,38 @@ struct CodexCanonicalFileChangeProjectorTests {
         let historyTranscript = projector.rebuild(snapshot: history, threadID: threadID)
             .presentation.transcript
 
-        #expect(liveTranscript == historyTranscript)
         #expect(liveTranscript.turns.map(\.id) == [turnID.rawValue])
-        let row = try #require(
+        #expect(historyTranscript.turns.map(\.id) == [turnID.rawValue])
+        let liveRow = try #require(
             liveTranscript.turns.first?.narrative.flatMap(\.fileChangeTestWorkRows)
                 .compactMap(\.canonicalFileChange).first
         )
-        #expect(row.changes.map(\.path) == ["Sources/Live.swift", "Tests/LiveTests.swift"])
-        #expect(row.preparedChanges.map(\.sourceIndex) == [0, 1])
+        let historyRow = try #require(
+            historyTranscript.turns.first?.narrative.flatMap(\.fileChangeTestWorkRows)
+                .compactMap(\.canonicalFileChange).first
+        )
+
+        #expect(liveRow.status == .inProgress)
+        #expect(historyRow.status == .completed)
+        #expect(liveRow.changes == historyRow.changes)
+        #expect(liveRow.preparedSourceFingerprint == historyRow.preparedSourceFingerprint)
+        #expect(
+            liveRow.preparedChanges.map(\.sourceIndex)
+                == historyRow.preparedChanges.map(\.sourceIndex)
+        )
+        #expect(
+            liveRow.preparedChanges.map(\.summary)
+                == historyRow.preparedChanges.map(\.summary)
+        )
+        #expect(
+            liveRow.preparedChanges.map(\.displayLines)
+                == historyRow.preparedChanges.map(\.displayLines)
+        )
+        #expect(liveRow.changes.map(\.path) == [
+            "Sources/Live.swift",
+            "Tests/LiveTests.swift",
+        ])
+        #expect(liveRow.preparedChanges.map(\.sourceIndex) == [0, 1])
     }
 
     @Test func malformedFileChangeEntriesDoNotDropValidSiblings() throws {

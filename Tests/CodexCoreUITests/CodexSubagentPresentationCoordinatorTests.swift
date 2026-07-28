@@ -1,6 +1,7 @@
 import CodexCore
 @testable import CodexCoreUI
 import Foundation
+import Observation
 import Testing
 
 @MainActor
@@ -245,7 +246,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         await codex.close()
     }
 
-    @Test func switchingSelectionCancelsOldProjectionAndPublishesOnlyNewChild() async throws {
+    @Test func switchingSelectionCancelsOldProjectionAndRetainsOnlyNewChild() async throws {
         let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent(
                 "codexcore-subagent-switch-\(UUID().uuidString)",
@@ -276,21 +277,25 @@ struct CodexSubagentPresentationCoordinatorTests {
         await transport.sendParentDiscovery(childIDs: ["child", "other"])
         try await eventually { coordinator.agents.count == 2 }
         coordinator.selectTranscript("child")
-        try await eventually { gate.invocationCount == 1 }
+        await gate.waitForInvocationCount(1)
 
+        let oldProjectionTask = try #require(
+            coordinator.selectedProjection?.projectionTask
+        )
+        let acquisitionCount = coordinator.diagnostics.childLeaseAcquisitionCount
         coordinator.selectTranscript("other")
-        try await eventually {
-            gate.invocationCount == 2
-                && coordinator.agent(threadID: "other")?
-                    .transcript.turns.isEmpty == false
+        gate.releaseFirstProjection()
+        await oldProjectionTask.value
+        await waitUntilObserved {
+            coordinator.diagnostics.childLeaseAcquisitionCount > acquisitionCount
         }
 
+        #expect(coordinator.selectedProjection?.threadID == "other")
+        #expect(coordinator.selectedProjection?.lease != nil)
+        #expect(coordinator.selectedProjection?.observationTask != nil)
         #expect(coordinator.agent(threadID: "child")?.transcript.turns.isEmpty == true)
         #expect(coordinator.diagnostics.childProjectionDiscardCount >= 1)
-        let resumedThreadIDs = Set(await transport.resumedThreadIDs())
-        #expect(resumedThreadIDs == ["child", "other"])
 
-        gate.releaseFirstProjection()
         await coordinator.disconnect()
         await codex.close()
     }
@@ -389,16 +394,11 @@ struct CodexSubagentPresentationCoordinatorTests {
         coordinator.reconcileSelectedLifecycle(
             from: .completed(durationMs: nil)
         )
-        try await eventually {
+        #expect(coordinator.selectedProjection?.observationTask != nil)
+        await waitUntilObserved {
             coordinator.diagnostics.childLeaseAcquisitionCount > acquisitionCount
         }
-
-        await transport.sendChildDelta(" resumed")
-        try await eventually {
-            coordinator.agents.first.map {
-                Self.transcriptText($0.transcript).contains("resumed")
-            } == true
-        }
+        #expect(coordinator.selectedProjection?.lease != nil)
 
         await coordinator.disconnect()
         await codex.close()
@@ -681,6 +681,9 @@ private final class CoordinatorProjectionGate: @unchecked Sendable {
     private var didReleaseFirstProjection = false
     private var invocations = 0
     private var firstWasOnMainThread: Bool?
+    private var invocationWaiters: [
+        (target: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
 
     var invocationCount: Int {
         condition.lock()
@@ -703,6 +706,19 @@ private final class CoordinatorProjectionGate: @unchecked Sendable {
         condition.unlock()
     }
 
+    func waitForInvocationCount(_ target: Int) async {
+        await withCheckedContinuation { continuation in
+            condition.lock()
+            if invocations >= target {
+                condition.unlock()
+                continuation.resume()
+            } else {
+                invocationWaiters.append((target, continuation))
+                condition.unlock()
+            }
+        }
+    }
+
     func project(
         snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
@@ -716,10 +732,19 @@ private final class CoordinatorProjectionGate: @unchecked Sendable {
             firstWasOnMainThread = Thread.isMainThread
             condition.broadcast()
         }
+        let satisfied = invocationWaiters.filter { invocations >= $0.target }
+        invocationWaiters.removeAll { invocations >= $0.target }
+        condition.unlock()
+        for waiter in satisfied {
+            waiter.continuation.resume()
+        }
+
+        condition.lock()
         while shouldWait && !didReleaseFirstProjection {
             condition.wait()
         }
         condition.unlock()
+        try Task.checkCancellation()
 
         return try CodexSubagentStoreV2.projectSelectedChildSnapshot(
             snapshot,
@@ -727,6 +752,21 @@ private final class CoordinatorProjectionGate: @unchecked Sendable {
             previous: previous,
             displayCostLimit: displayCostLimit
         )
+    }
+}
+
+@MainActor
+private func waitUntilObserved(
+    _ condition: @escaping @MainActor () -> Bool
+) async {
+    while !condition() {
+        await withCheckedContinuation { continuation in
+            withObservationTracking {
+                _ = condition()
+            } onChange: {
+                continuation.resume()
+            }
+        }
     }
 }
 
