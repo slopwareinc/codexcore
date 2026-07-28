@@ -567,6 +567,220 @@ struct CodexCanonicalTranscriptProjectorTests {
         )
     }
 
+    @Test func canonicalFileChangesPreserveEveryPatchAndMetadataInOneStableRow() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let fileChange = item(threadID, turnID, "patch", .fileChange, [
+            "status": .string("completed"),
+            "changes": .array([
+                fileUpdate(
+                    path: "Sources/Added.swift",
+                    kind: "add",
+                    diff: "@@ -0,0 +1 @@\n+let added = true"
+                ),
+                fileUpdate(
+                    path: "Sources/Modified.swift",
+                    kind: "update",
+                    diff: "@@ -1 +1 @@\n-let value = 1\n+let value = 2"
+                ),
+                fileUpdate(
+                    path: "Sources/Deleted.swift",
+                    kind: "delete",
+                    diff: "@@ -1 +0,0 @@\n-let deleted = true"
+                ),
+                fileUpdate(
+                    path: "Sources/OldName.swift",
+                    kind: "update",
+                    movePath: "Sources/NewName.swift",
+                    diff: "@@ -1 +1 @@\n-let name = \"old\"\n+let name = \"new\""
+                ),
+            ]),
+        ])
+        let snapshot = state(
+            revision: 4,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], revision: 4)],
+            items: [fileChange]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        let rows = projected.narrative.flatMap(\.workRows)
+        let row = try #require(rows.compactMap(\.fileChange).first)
+
+        #expect(rows.count == 1)
+        #expect(row.id == "patch")
+        #expect(row.changes.map(\.id) == [
+            "patch:file:Sources/Added.swift:0",
+            "patch:file:Sources/Modified.swift:0",
+            "patch:file:Sources/Deleted.swift:0",
+            "patch:file:Sources/OldName.swift:0",
+        ])
+        #expect(row.changes.map(\.path) == [
+            "Sources/Added.swift",
+            "Sources/Modified.swift",
+            "Sources/Deleted.swift",
+            "Sources/OldName.swift",
+        ])
+        #expect(row.changes.map(\.kind) == [.added, .modified, .deleted, .renamed])
+        #expect(row.changes.map(\.destinationPath) == [
+            nil,
+            nil,
+            nil,
+            "Sources/NewName.swift",
+        ])
+        #expect(row.changes.map(\.diff) == [
+            "@@ -0,0 +1 @@\n+let added = true",
+            "@@ -1 +1 @@\n-let value = 1\n+let value = 2",
+            "@@ -1 +0,0 @@\n-let deleted = true",
+            "@@ -1 +1 @@\n-let name = \"old\"\n+let name = \"new\"",
+        ])
+        #expect(row.changes.allSatisfy { $0.status == .completed })
+        #expect(row.files == [
+            "Sources/Added.swift",
+            "Sources/Modified.swift",
+            "Sources/Deleted.swift",
+            "Sources/NewName.swift",
+        ])
+    }
+
+    @Test func liveFilePatchAndHydratedHistoryProjectIdenticallyInTheirTurn() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let changes: [CodexJSONValue] = [
+            fileUpdate(
+                path: "Sources/Live.swift",
+                kind: "update",
+                diff: "@@ -1 +1 @@\n-let live = false\n+let live = true"
+            ),
+            fileUpdate(
+                path: "Tests/LiveTests.swift",
+                kind: "add",
+                diff: "@@ -0,0 +1 @@\n+#expect(live)"
+            ),
+        ]
+        let liveItem = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "patch"),
+            kind: .fileChange,
+            payload: ["status": .string("inProgress"), "changes": .array([])],
+            authority: .started,
+            liveFields: ["fileChanges": .array(changes)],
+            consistency: .partial,
+            lastChangedRevision: StateRevision(4)
+        )
+        let historyItem = item(threadID, turnID, "patch", .fileChange, [
+            "status": .string("completed"),
+            "changes": .array(changes),
+        ], revision: 40)
+        let live = state(
+            revision: 4,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], revision: 4)],
+            items: [liveItem]
+        )
+        let history = state(
+            revision: 40,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], revision: 40)],
+            items: [historyItem]
+        )
+        let projector = CodexCanonicalTranscriptProjector()
+
+        let liveTranscript = projector.rebuild(snapshot: live, threadID: threadID)
+            .presentation.transcript
+        let historyTranscript = projector.rebuild(snapshot: history, threadID: threadID)
+            .presentation.transcript
+
+        #expect(liveTranscript == historyTranscript)
+        #expect(liveTranscript.turns.map(\.id) == [turnID.rawValue])
+        let row = try #require(
+            liveTranscript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+        #expect(row.changes.map(\.path) == ["Sources/Live.swift", "Tests/LiveTests.swift"])
+    }
+
+    @Test func malformedFileChangeEntriesDoNotDropValidSiblings() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let fileChange = item(threadID, turnID, "patch", .fileChange, [
+            "status": .string("completed"),
+            "changes": .array([
+                .string("not an object"),
+                .dictionary([
+                    "kind": .dictionary(["type": .string("delete")]),
+                    "diff": .string("-missing path"),
+                ]),
+                .dictionary([
+                    "path": .string("Sources/Partial.swift"),
+                    "kind": .bool(true),
+                    "diff": .int(7),
+                ]),
+                fileUpdate(
+                    path: "Sources/Valid.swift",
+                    kind: "update",
+                    diff: "@@ -1 +1 @@\n-let valid = false\n+let valid = true"
+                ),
+            ]),
+        ])
+        let snapshot = state(
+            revision: 2,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], revision: 2)],
+            items: [fileChange]
+        )
+
+        let row = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+
+        #expect(row.changes.map(\.path) == ["Sources/Partial.swift", "Sources/Valid.swift"])
+        #expect(row.changes.map(\.kind) == [.unknown("unknown"), .modified])
+        #expect(row.changes.map(\.diff) == [
+            "",
+            "@@ -1 +1 @@\n-let valid = false\n+let valid = true",
+        ])
+    }
+
+    @Test func representativeLargeFilePatchIsPreparedOnceDuringProjection() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let lineCount = 5_000
+        let body = (0..<lineCount).flatMap { index in
+            ["-let value\(index) = false", "+let value\(index) = true"]
+        }.joined(separator: "\n")
+        let diff = "@@ -1,\(lineCount) +1,\(lineCount) @@\n\(body)"
+        let fileChange = item(threadID, turnID, "large-patch", .fileChange, [
+            "status": .string("completed"),
+            "changes": .array([
+                fileUpdate(path: "Sources/Large.swift", kind: "update", diff: diff),
+            ]),
+        ])
+        let snapshot = state(
+            revision: 3,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["large-patch"], revision: 3)],
+            items: [fileChange]
+        )
+
+        let row = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first?.narrative.flatMap(\.workRows)
+                .compactMap(\.fileChange).first
+        )
+        let prepared = try #require(row.preparedDiffFiles.first)
+
+        #expect(row.changes.first?.diff == diff)
+        #expect(row.preparedDiffFiles.count == 1)
+        #expect(prepared.path == "Sources/Large.swift")
+        #expect(prepared.added == lineCount)
+        #expect(prepared.removed == lineCount)
+    }
+
     @Test func liveCompactionExtensionAndHydratedItemProjectIdentically() {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"
@@ -1090,6 +1304,23 @@ private extension CodexCanonicalTranscriptProjectorTests {
         )
     }
 
+    func fileUpdate(
+        path: String,
+        kind: String,
+        movePath: String? = nil,
+        diff: String
+    ) -> CodexJSONValue {
+        var kindPayload: [String: CodexJSONValue] = ["type": .string(kind)]
+        if let movePath {
+            kindPayload["move_path"] = .string(movePath)
+        }
+        return .dictionary([
+            "path": .string(path),
+            "kind": .dictionary(kindPayload),
+            "diff": .string(diff),
+        ])
+    }
+
     func request(
         id: CodexServerRequestID,
         kind: CodexServerRequestKind,
@@ -1120,5 +1351,11 @@ private extension CodexNarrativeEntry {
 
     var workGroup: CodexWorkGroupV2? {
         if case .workGroup(let group) = self { group } else { nil }
+    }
+}
+
+private extension CodexWorkRowV2 {
+    var fileChange: CodexFileChangeRowV2? {
+        if case .fileChange(let value) = self { value } else { nil }
     }
 }

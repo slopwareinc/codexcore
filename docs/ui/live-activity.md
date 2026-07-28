@@ -112,6 +112,18 @@ render as `Viewed an image`; selecting the preview opens the original image.
 The activity ID is scoped by transcript turn. Include a domain identifier only
 when one turn can contain multiple concurrent activities.
 
+Canonical file-change rows preserve their per-file wire entries in
+`CodexFileChangeRowV2.changes`. Each `CodexFileChangeV2` has a stable ID, source
+path, optional rename destination, add/modify/delete/rename kind, lifecycle
+status, and exact patch text. The row remains the single aggregate work entry;
+consumers should use `changes` for review data instead of trying to split the
+legacy aggregate `diff`.
+
+Diff hunks and line counts are prepared when the canonical turn is projected,
+not when a transcript view renders. Hosts constructing Transcript V2 directly
+can continue to use `CodexFileChangeRowV2.init(id:files:status:durationMs:diff:)`;
+that initializer prepares its aggregate patch once as well.
+
 ## Policy rules
 
 - Keep the closure deterministic, sendable, and inexpensive. It runs whenever

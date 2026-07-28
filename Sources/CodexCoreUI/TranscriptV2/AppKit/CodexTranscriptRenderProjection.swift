@@ -569,9 +569,10 @@ actor CodexTranscriptRenderProjector {
                             let detail = Self.detail(for: row)
                             let diffFiles: [CodexDiffFile]? = {
                                 guard case .fileChange(let value) = row,
-                                      let diff = value.diff?.codexAppKitNilIfEmpty else { return nil }
-                                return CodexUnifiedDiffParser.parse(diff)
+                                      !value.preparedDiffFiles.isEmpty else { return nil }
+                                return value.preparedDiffFiles
                             }()
+                            let hasDetail = detail != nil || diffFiles != nil
                             let subagentThreadID = Self.subagentThreadID(for: row)
                             let rowRender = CodexTranscriptWorkRowRender(
                                 kind: Self.kind(for: row),
@@ -580,7 +581,7 @@ actor CodexTranscriptRenderProjector {
                                 systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
                                 isExpanded: presentation.expandedRowIDs.contains(rowID),
-                                hasDetail: detail != nil,
+                                hasDetail: hasDetail,
                                 isSubagentLink: subagentThreadID != nil
                             )
                             append(ItemDraft(
@@ -588,7 +589,7 @@ actor CodexTranscriptRenderProjector {
                                 fingerprint: "row:\(String(describing: rowRender))",
                                 workRow: rowRender,
                                 action: subagentThreadID.map(CodexTranscriptRenderAction.openSubagent)
-                                    ?? (detail == nil ? nil : .toggleRow(rowID: rowID)),
+                                    ?? (hasDetail ? .toggleRow(rowID: rowID) : nil),
                                 copyText: detail,
                                 accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
                                 indentation: 0,

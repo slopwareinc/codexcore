@@ -124,7 +124,10 @@ private struct CodexWorkRowViewV2: View {
     private var detail: String? {
         switch row {
         case .command(let v): return v.output?.nilIfEmpty?.codexDisplayPrefix(limit: 20_000)
-        case .fileChange(let v): return v.diff?.nilIfEmpty
+        case .fileChange(let v):
+            if let diff = v.diff?.nilIfEmpty { return diff }
+            let patches = v.changes.map(\.diff).filter { !$0.isEmpty }
+            return patches.isEmpty ? nil : patches.joined(separator: "\n")
         case .mcpToolCall(let v):
             let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")

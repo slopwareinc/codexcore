@@ -172,9 +172,125 @@ public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
         self.exitCode = exitCode; self.durationMs = durationMs; self.output = output
     }
 }
+public enum CodexFileChangeKindV2: Sendable, Equatable {
+    case added
+    case modified
+    case deleted
+    case renamed
+    case unknown(String)
+}
+
+public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var path: String
+    public var destinationPath: String?
+    public var kind: CodexFileChangeKindV2
+    public var status: CodexWorkItemStatusV2
+    public var diff: String
+
+    public init(
+        id: String,
+        path: String,
+        destinationPath: String? = nil,
+        kind: CodexFileChangeKindV2,
+        status: CodexWorkItemStatusV2,
+        diff: String
+    ) {
+        self.id = id
+        self.path = path
+        self.destinationPath = destinationPath
+        self.kind = kind
+        self.status = status
+        self.diff = diff
+    }
+
+    public var displayPath: String { destinationPath ?? path }
+}
+
 public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
-    public var id: String; public var files: [String]; public var status: CodexWorkItemStatusV2
-    public var durationMs: Int?; public var diff: String?
+    public var id: String
+    public var files: [String]
+    public var status: CodexWorkItemStatusV2
+    public var durationMs: Int?
+    /// Legacy aggregate patch supplied by hosts that construct Transcript V2 directly.
+    ///
+    /// Canonical projection keeps exact patches in `changes` instead of retaining
+    /// a second concatenated copy.
+    public var diff: String? {
+        didSet {
+            preparedDiffFiles = Self.prepareDiffFiles(changes: changes, legacyDiff: diff)
+        }
+    }
+    public var changes: [CodexFileChangeV2] {
+        didSet {
+            if !changes.isEmpty {
+                files = changes.map(\.displayPath)
+            }
+            preparedDiffFiles = Self.prepareDiffFiles(changes: changes, legacyDiff: diff)
+        }
+    }
+    private(set) var preparedDiffFiles: [CodexDiffFile]
+
+    public init(
+        id: String,
+        files: [String],
+        status: CodexWorkItemStatusV2,
+        durationMs: Int? = nil,
+        diff: String? = nil
+    ) {
+        self.id = id
+        self.files = files
+        self.status = status
+        self.durationMs = durationMs
+        self.diff = diff
+        self.changes = []
+        self.preparedDiffFiles = Self.prepareDiffFiles(changes: [], legacyDiff: diff)
+    }
+
+    public init(
+        id: String,
+        changes: [CodexFileChangeV2],
+        status: CodexWorkItemStatusV2,
+        durationMs: Int? = nil
+    ) {
+        self.id = id
+        self.files = changes.map(\.displayPath)
+        self.status = status
+        self.durationMs = durationMs
+        self.diff = nil
+        self.changes = changes
+        self.preparedDiffFiles = Self.prepareDiffFiles(changes: changes, legacyDiff: nil)
+    }
+
+    private static func prepareDiffFiles(
+        changes: [CodexFileChangeV2],
+        legacyDiff: String?
+    ) -> [CodexDiffFile] {
+        if changes.isEmpty {
+            return legacyDiff.map { CodexUnifiedDiffParser.parse($0) } ?? []
+        }
+        return changes.flatMap { change in
+            CodexUnifiedDiffParser.parse(
+                change.diff,
+                fallbackPath: change.displayPath,
+                fallbackKind: change.kind.diffKind
+            ).map { parsed in
+                var prepared = parsed
+                prepared.path = change.displayPath
+                prepared.kind = change.kind.diffKind
+                return prepared
+            }
+        }
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+            && lhs.files == rhs.files
+            && lhs.status == rhs.status
+            && lhs.durationMs == rhs.durationMs
+            && lhs.diff == rhs.diff
+            && lhs.changes == rhs.changes
+    }
 }
 public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var appName: String; public var server: String; public var tool: String

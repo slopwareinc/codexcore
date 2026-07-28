@@ -339,6 +339,47 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(panel.bottomSpacing == 8)
     }
 
+    @Test func canonicalFileEntriesRenderPreparedPatchWithoutAggregateDiff() async throws {
+        let row = CodexFileChangeRowV2(
+            id: "files",
+            changes: [
+                .init(
+                    id: "files:file:Sources/Canonical.swift:0",
+                    path: "Sources/Canonical.swift",
+                    kind: .modified,
+                    status: .completed,
+                    diff: "@@ -1 +1 @@\n-let old = true\n+let new = true"
+                ),
+            ],
+            status: .completed
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "work", rows: [.fileChange(row)]))],
+            status: .done(durationMs: 1)
+        )
+
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: ["turn"],
+                expandedRowIDs: ["work", "files"]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark)
+        )
+
+        #expect(row.diff == nil)
+        let renderedRow = try #require(
+            snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange }
+        )
+        #expect(renderedRow.workRow?.label == "Edited 1 file · +1 −1")
+        let panel = try #require(snapshot.itemsByID.values.first { $0.diffPanel != nil })
+        #expect(panel.diffPanel?.selectedFile?.path == "Sources/Canonical.swift")
+        #expect(panel.copyText?.contains("let new = true") == true)
+    }
+
 
     @Test func streamingAnswerKeepsOnlyCompactLiveActivityVisible() async throws {
         let projector = CodexTranscriptRenderProjector()

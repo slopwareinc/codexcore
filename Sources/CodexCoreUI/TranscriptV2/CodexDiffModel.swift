@@ -20,12 +20,16 @@ struct CodexDiffLine: Sendable, Equatable {
 }
 
 enum CodexUnifiedDiffParser {
-    static func parse(_ diff: String) -> [CodexDiffFile] {
+    static func parse(
+        _ diff: String,
+        fallbackPath: String = "patch",
+        fallbackKind: String? = nil
+    ) -> [CodexDiffFile] {
         guard !diff.isEmpty else { return [] }
         let lines = diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var files: [CodexDiffFile] = []
-        var path = "patch"
-        var kind = "modified"
+        var path = fallbackPath
+        var kind = fallbackKind ?? "modified"
         var hunks: [CodexDiffHunk] = []
         var headerLines: [CodexDiffLine] = []
         var currentHeader: String?
@@ -48,7 +52,7 @@ enum CodexUnifiedDiffParser {
             flushHunk()
             guard sawFile || !hunks.isEmpty else { return }
             files.append(.init(path: path, kind: kind, added: added, removed: removed, hunks: hunks))
-            hunks = []; added = 0; removed = 0; kind = "modified"
+            hunks = []; added = 0; removed = 0; kind = fallbackKind ?? "modified"
         }
 
         for line in lines {
@@ -86,7 +90,13 @@ enum CodexUnifiedDiffParser {
         flushFile()
         if files.isEmpty {
             let fallback = lines.map { CodexDiffLine(kind: .context, text: $0) }
-            return [.init(path: "patch", kind: "unknown", added: 0, removed: 0, hunks: [.init(header: "", lines: fallback)])]
+            return [.init(
+                path: fallbackPath,
+                kind: fallbackKind ?? "unknown",
+                added: 0,
+                removed: 0,
+                hunks: [.init(header: "", lines: fallback)]
+            )]
         }
         return files
     }
@@ -95,5 +105,17 @@ enum CodexUnifiedDiffParser {
         let path = value.split(separator: "\t", maxSplits: 1).first.map(String.init) ?? value
         if path.hasPrefix("a/") || path.hasPrefix("b/") { return String(path.dropFirst(2)) }
         return path
+    }
+}
+
+extension CodexFileChangeKindV2 {
+    var diffKind: String {
+        switch self {
+        case .added: "added"
+        case .modified: "modified"
+        case .deleted: "deleted"
+        case .renamed: "renamed"
+        case .unknown(let value): value
+        }
     }
 }

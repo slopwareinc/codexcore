@@ -738,13 +738,12 @@ private extension CodexCanonicalTranscriptProjector {
                 ))
             }
         case .fileChange:
-            let files = item.payload.array("changes")?.compactMap { $0.object?.string("path") } ?? []
+            let changes = fileChanges(item, status: state)
             return [.fileChange(.init(
                 id: id,
-                files: files,
+                changes: changes,
                 status: state,
-                durationMs: itemDuration(item),
-                diff: item.payload.string("diff")
+                durationMs: itemDuration(item)
             ))]
         case .mcpToolCall:
             let app = item.payload.object("appContext")?.string("appName")
@@ -774,6 +773,49 @@ private extension CodexCanonicalTranscriptProjector {
             return [.other(.init(id: id, label: "Generating an image", status: state))]
         default:
             return []
+        }
+    }
+
+    func fileChanges(
+        _ item: CanonicalItem,
+        status: CodexWorkItemStatusV2
+    ) -> [CodexFileChangeV2] {
+        let rawChanges: [CodexJSONValue]
+        if case .array(let liveChanges) = item.liveFields["fileChanges"] {
+            rawChanges = liveChanges
+        } else {
+            rawChanges = item.payload.array("changes") ?? []
+        }
+
+        var pathOccurrences: [String: Int] = [:]
+        return rawChanges.compactMap { rawChange in
+            guard let change = rawChange.object,
+                  let path = change.string("path"),
+                  !path.isEmpty else {
+                return nil
+            }
+            let occurrence = pathOccurrences[path, default: 0]
+            pathOccurrences[path] = occurrence + 1
+            let kindPayload = change.object("kind")
+            let rawKind = kindPayload?.string("type") ?? change.string("kind")
+            let destinationPath = kindPayload?.string("move_path")
+                ?? kindPayload?.string("movePath")
+            let kind: CodexFileChangeKindV2 = switch rawKind {
+            case "add": .added
+            case "delete": .deleted
+            case "update" where destinationPath != nil: .renamed
+            case "update": .modified
+            case .some(let value): .unknown(value)
+            case nil: .unknown("unknown")
+            }
+            return CodexFileChangeV2(
+                id: "\(item.key.itemID.rawValue):file:\(path):\(occurrence)",
+                path: path,
+                destinationPath: destinationPath,
+                kind: kind,
+                status: status,
+                diff: change.string("diff") ?? ""
+            )
         }
     }
 
