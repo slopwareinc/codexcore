@@ -1733,6 +1733,12 @@ private extension CodexTranscriptRenderProjector {
                 .underlineStyle: NSUnderlineStyle.single.rawValue
             ], range: range)
         }
+        // Foundation's presentation intents describe Markdown structure. The
+        // projector has already applied the paragraph and inline styling used
+        // by AppKit, so retaining their parent-linked metadata only inflates
+        // cache entries and makes otherwise ordinary Markdown look unsafe.
+        result.removeAttribute(.presentationIntent, range: fullRange)
+        result.removeAttribute(.inlinePresentationIntent, range: fullRange)
         return CodexPreparedTranscriptText(result)
     }
 

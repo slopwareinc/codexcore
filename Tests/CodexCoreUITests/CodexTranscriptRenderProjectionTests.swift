@@ -517,6 +517,42 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(listEntryCount == 0)
     }
 
+    @Test func identicalOrdinaryMarkdownIsRetainedAndHitsPreparedTextCache() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let presentation = CodexThreadUIPresentation(
+            threadID: "markdown-thread",
+            transcript: .init(turns: [.init(
+                id: "markdown-turn",
+                finalAnswer: .init(
+                    id: "markdown-answer",
+                    text: "Read **the docs** at [OpenAI](https://openai.com).",
+                    isStreaming: false
+                ),
+                status: .done(durationMs: 1)
+            )])
+        )
+        let theme = CodexTranscriptAppKitTheme(.officialDark)
+
+        let first = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let firstEntryCount = await projector.preparedTextCacheEntryCount
+        let second = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let secondEntryCount = await projector.preparedTextCacheEntryCount
+
+        #expect(first.diagnostics.preparedTextCacheMissCount == 1)
+        #expect(firstEntryCount == 1)
+        #expect(second.diagnostics.preparedTextCacheHitCount == 1)
+        #expect(second.diagnostics.preparedTextCacheMissCount == 0)
+        #expect(secondEntryCount == 1)
+    }
+
     @Test func collapsedLargeCanonicalPatchStaysBoundedAndExpandedCopyIsExact() async throws {
         let body = (0..<20_000).map { "+let value\($0) = true" }.joined(separator: "\n")
         let exactDiff = "@@ -0,0 +1,20000 @@\n\(body)"
