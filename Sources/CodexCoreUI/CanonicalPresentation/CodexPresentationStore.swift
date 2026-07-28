@@ -143,8 +143,7 @@ public final class CodexPresentationStore {
     @ObservationIgnored private let warmPresentationByteCapacity: Int
     @ObservationIgnored private var adapter: CodexPresentationStateAdapter?
     @ObservationIgnored private var localStateByThreadID: [ThreadID: CodexThreadPresentationLocalState] = [:]
-    @ObservationIgnored private var presentationCacheByThreadID: [ThreadID: CachedThreadPresentation] = [:]
-    @ObservationIgnored private var cachedPresentationRetainedByteCount = 0
+    @ObservationIgnored private var warmPresentationCache = CodexWarmPresentationCache()
     @ObservationIgnored private var leastToMostRecentThreadIDs: [ThreadID] = []
     @ObservationIgnored private var latestSnapshot: CanonicalStateSnapshot?
     @ObservationIgnored private var latestRequestBatch = CodexPendingInteractionSnapshotBatch(
@@ -162,15 +161,6 @@ public final class CodexPresentationStore {
     @ObservationIgnored private var projectionGeneration: UInt64 = 0
     @ObservationIgnored private var cacheLifecycleGeneration: UInt64 = 0
     @ObservationIgnored private var activePresentationCacheGeneration: UInt64?
-
-    private struct CachedThreadPresentation {
-        var canonical: CodexCanonicalTranscriptPresentation
-        var renderUpdate: CodexCanonicalTranscriptRenderUpdate
-        var pendingRequests: [CodexTranscriptRequestPresentation]
-        var approvals: [CodexApprovalPrompt]
-        var estimatedRetainedByteCount: Int
-        var cacheLifecycleGeneration: UInt64
-    }
 
     public init(
         adapter: CodexPresentationStateAdapter? = nil,
@@ -195,9 +185,7 @@ public final class CodexPresentationStore {
 
     /// Attaches a stateless adapter. Observation begins when a thread is selected.
     public func connect(_ adapter: CodexPresentationStateAdapter) {
-        cacheLifecycleGeneration &+= 1
-        removeAllCachedPresentations(keepingCapacity: true)
-        activePresentationCacheGeneration = nil
+        resetPresentationForAdapterReplacement()
         self.adapter = adapter
         restartObservation()
     }
@@ -211,7 +199,7 @@ public final class CodexPresentationStore {
         projectionTask = nil
         adapter = nil
         cacheLifecycleGeneration &+= 1
-        removeAllCachedPresentations(keepingCapacity: true)
+        warmPresentationCache.removeAll(keepingCapacity: true)
         activePresentationCacheGeneration = nil
         clearPendingProjection()
     }
@@ -224,7 +212,7 @@ public final class CodexPresentationStore {
 
         cacheActivePresentationIfNeeded()
         let incomingCachedPresentation = threadID.flatMap {
-            removeCachedPresentation(for: $0)
+            warmPresentationCache.take(for: $0)
         }
         selectedThreadID = threadID
         latestSnapshot = nil
@@ -251,7 +239,7 @@ public final class CodexPresentationStore {
         local.lastSeenAttentionRevision = observedRevision
         localStateByThreadID[threadID] = local
         if let cached = incomingCachedPresentation,
-           cached.cacheLifecycleGeneration == cacheLifecycleGeneration {
+           cached.lifecycleGeneration == cacheLifecycleGeneration {
             activeCanonicalPresentation = cached.canonical
             activeRenderUpdate = cached.renderUpdate
             activePendingRequests = cached.pendingRequests
@@ -286,7 +274,7 @@ public final class CodexPresentationStore {
     }
 
     public func containsCachedPresentation(for threadID: ThreadID) -> Bool {
-        presentationCacheByThreadID[threadID] != nil
+        warmPresentationCache.contains(threadID)
     }
 
     /// Conservative logical bytes retained by inactive cached projections.
@@ -296,7 +284,7 @@ public final class CodexPresentationStore {
     /// weights are computed once and the aggregate is adjusted on replacement
     /// and removal.
     public var warmPresentationRetainedByteCount: Int {
-        cachedPresentationRetainedByteCount
+        warmPresentationCache.retainedByteCount
     }
 
     /// Compatibility spelling retained for clients of the initial diff-only
@@ -393,13 +381,13 @@ public final class CodexPresentationStore {
         if selectedThreadID == threadID {
             select(threadID: nil)
         }
-        removeCachedPresentation(for: threadID)
+        warmPresentationCache.take(for: threadID)
     }
 
     public func resetLocalState() {
         select(threadID: nil)
         localStateByThreadID.removeAll(keepingCapacity: false)
-        removeAllCachedPresentations(keepingCapacity: false)
+        warmPresentationCache.removeAll(keepingCapacity: false)
         leastToMostRecentThreadIDs.removeAll(keepingCapacity: false)
         diagnostics = .init()
     }
@@ -415,6 +403,38 @@ private extension CodexPresentationStore {
         .requests,
         .submissionIntents,
     ]
+
+    /// Adapter revisions are independent domains. Drop every selected-thread
+    /// baseline before observing the replacement so a lower revision can seed
+    /// it and no projection launched by the old adapter can publish afterward.
+    func resetPresentationForAdapterReplacement() {
+        cacheLifecycleGeneration &+= 1
+        warmPresentationCache.removeAll(keepingCapacity: true)
+        activePresentationCacheGeneration = nil
+        cancelProjection()
+        latestSnapshot = nil
+        latestRequestBatch = .init(revision: .zero, requests: [])
+        observedRevision = .zero
+        activeCanonicalPresentation = nil
+        activeRenderUpdate = nil
+        activePendingRequests = []
+        isSelectionHydrated = selectedThreadID == nil
+
+        guard let threadID = selectedThreadID else {
+            activePresentation = nil
+            return
+        }
+        var local = localStateByThreadID[threadID] ?? .init()
+        local.lastSeenAttentionRevision = .zero
+        localStateByThreadID[threadID] = local
+        activePresentation = Self.presentation(
+            threadID: threadID,
+            transcript: .init(),
+            localState: local,
+            pendingApprovals: []
+        )
+        presentationRevision &+= 1
+    }
 
     func restartObservation() {
         observationGeneration &+= 1
@@ -717,7 +737,7 @@ private extension CodexPresentationStore {
                 $0 != selectedThreadID
             }) else { return }
             localStateByThreadID.removeValue(forKey: candidate)
-            removeCachedPresentation(for: candidate)
+            warmPresentationCache.take(for: candidate)
             leastToMostRecentThreadIDs.removeAll { $0 == candidate }
             diagnostics.uiStateEvictionCount &+= 1
         }
@@ -726,9 +746,9 @@ private extension CodexPresentationStore {
     func evictWarmPresentationCacheIfNeeded() {
         while warmPresentationRetainedByteCount > warmPresentationByteCapacity {
             guard let candidate = leastToMostRecentThreadIDs.first(where: {
-                $0 != selectedThreadID && presentationCacheByThreadID[$0] != nil
+                $0 != selectedThreadID && warmPresentationCache.contains($0)
             }) else { return }
-            removeCachedPresentation(for: candidate)
+            warmPresentationCache.take(for: candidate)
             diagnostics.presentationCacheByteEvictionCount &+= 1
         }
     }
@@ -744,185 +764,16 @@ private extension CodexPresentationStore {
               let activePresentation
         else { return }
         let approvals = activePresentation.pendingApprovals
-        let cached = CachedThreadPresentation(
-            canonical: canonical,
-            renderUpdate: renderUpdate,
-            pendingRequests: activePendingRequests,
-            approvals: approvals,
-            estimatedRetainedByteCount: Self.estimatedRetainedByteCount(
+        warmPresentationCache.insert(
+            .init(
                 canonical: canonical,
                 renderUpdate: renderUpdate,
                 pendingRequests: activePendingRequests,
-                approvals: approvals
+                approvals: approvals,
+                lifecycleGeneration: cacheLifecycleGeneration
             ),
-            cacheLifecycleGeneration: cacheLifecycleGeneration
+            for: threadID
         )
-        replaceCachedPresentation(cached, for: threadID)
-    }
-
-    func replaceCachedPresentation(
-        _ presentation: CachedThreadPresentation,
-        for threadID: ThreadID
-    ) {
-        let wasSaturated = cachedPresentationRetainedByteCount == .max
-        if let previous = presentationCacheByThreadID.updateValue(
-            presentation,
-            forKey: threadID
-        ), !wasSaturated {
-            cachedPresentationRetainedByteCount = max(
-                0,
-                cachedPresentationRetainedByteCount - previous.estimatedRetainedByteCount
-            )
-        }
-        if wasSaturated {
-            recomputeCachedPresentationRetainedByteCount()
-            return
-        }
-        let (sum, overflow) = cachedPresentationRetainedByteCount.addingReportingOverflow(
-            presentation.estimatedRetainedByteCount
-        )
-        cachedPresentationRetainedByteCount = overflow ? .max : sum
-    }
-
-    @discardableResult
-    func removeCachedPresentation(
-        for threadID: ThreadID
-    ) -> CachedThreadPresentation? {
-        guard let removed = presentationCacheByThreadID.removeValue(forKey: threadID) else {
-            return nil
-        }
-        if cachedPresentationRetainedByteCount == .max {
-            recomputeCachedPresentationRetainedByteCount()
-            return removed
-        }
-        cachedPresentationRetainedByteCount = max(
-            0,
-            cachedPresentationRetainedByteCount - removed.estimatedRetainedByteCount
-        )
-        return removed
-    }
-
-    func removeAllCachedPresentations(keepingCapacity: Bool) {
-        presentationCacheByThreadID.removeAll(keepingCapacity: keepingCapacity)
-        cachedPresentationRetainedByteCount = 0
-    }
-
-    func recomputeCachedPresentationRetainedByteCount() {
-        cachedPresentationRetainedByteCount = 0
-        for presentation in presentationCacheByThreadID.values {
-            let (sum, overflow) = cachedPresentationRetainedByteCount.addingReportingOverflow(
-                presentation.estimatedRetainedByteCount
-            )
-            if overflow {
-                cachedPresentationRetainedByteCount = .max
-                return
-            }
-            cachedPresentationRetainedByteCount = sum
-        }
-    }
-
-    static func estimatedRetainedByteCount(
-        canonical: CodexCanonicalTranscriptPresentation,
-        renderUpdate: CodexCanonicalTranscriptRenderUpdate,
-        pendingRequests: [CodexTranscriptRequestPresentation],
-        approvals: [CodexApprovalPrompt]
-    ) -> Int {
-        var estimate = CodexPresentationRetentionEstimate(CachedThreadPresentation.self)
-        estimate.add(canonical.estimatedRetainedByteCount)
-
-        // Render updates and the second pending-request array share their
-        // copy-on-write payloads with the canonical projection. Charge the
-        // additional roots and collection buffers without counting every
-        // transcript string a second time.
-        estimate.add(MemoryLayout<CodexCanonicalTranscriptRenderUpdate>.stride)
-        estimate.addString(renderUpdate.threadID.rawValue)
-        if let turnOrder = renderUpdate.turnOrder {
-            estimate.addStringValues(turnOrder.lazy.map(\.rawValue))
-        }
-        estimate.addCollectionAllocation(count: renderUpdate.upsertedTurns.count)
-        estimate.addProduct(
-            renderUpdate.upsertedTurns.count,
-            MemoryLayout<CodexTurnV2>.stride
-        )
-        estimate.addStringValues(renderUpdate.removedTurnIDs.lazy.map(\.rawValue))
-        estimate.addStringValues(renderUpdate.dirtyTurnIDs.lazy.map(\.rawValue))
-        estimate.addCollectionAllocation(count: renderUpdate.pendingRequests.count)
-        estimate.addProduct(
-            renderUpdate.pendingRequests.count,
-            MemoryLayout<CodexTranscriptRequestPresentation>.stride
-        )
-
-        estimate.addCollectionAllocation(count: pendingRequests.count)
-        estimate.addProduct(
-            pendingRequests.count,
-            MemoryLayout<CodexTranscriptRequestPresentation>.stride
-        )
-
-        estimate.addCollectionAllocation(count: approvals.count)
-        for approval in approvals {
-            estimate.add(estimatedRetainedByteCount(approval))
-        }
-        return estimate.total
-    }
-
-    static func estimatedRetainedByteCount(_ approval: CodexApprovalPrompt) -> Int {
-        var estimate = CodexPresentationRetentionEstimate(CodexApprovalPrompt.self)
-        if case .string(let requestID) = approval.id.requestID {
-            estimate.addString(requestID)
-        }
-        estimate.addString(approval.method)
-        estimate.addString(approval.title)
-        estimate.addString(approval.detail)
-        estimate.addString(approval.primaryValue)
-        estimate.addString(approval.secondaryValue)
-        estimate.addString(approval.cwd)
-        estimate.addString(approval.reason)
-        estimate.addString(approval.threadId)
-        estimate.addString(approval.turnId)
-        estimate.addString(approval.itemId)
-        estimate.addString(approval.approvalId)
-        estimate.addString(approval.environmentId)
-
-        if let decisions = approval.availableDecisions {
-            estimate.addCollectionAllocation(count: decisions.count)
-            for decision in decisions {
-                estimate.add(MemoryLayout<CodexCommandApprovalDecision>.stride)
-                switch decision {
-                case .acceptWithExecpolicyAmendment(let amendment):
-                    estimate.addStringValues(amendment)
-                case .applyNetworkPolicyAmendment(let amendment):
-                    estimate.addString(amendment.host)
-                case .accept, .acceptForSession, .decline, .cancel:
-                    break
-                }
-            }
-        }
-
-        estimate.addCollectionAllocation(count: approval.commandActions.count)
-        for action in approval.commandActions {
-            estimate.add(MemoryLayout<CodexCommandAction>.stride)
-            estimate.addString(action.type)
-            estimate.addString(action.command)
-            estimate.addString(action.name)
-            estimate.addString(action.path)
-            estimate.addString(action.query)
-        }
-
-        estimate.add(approval.additionalPermissions?.estimatedRetainedByteCount ?? 0)
-        if let context = approval.networkApprovalContext {
-            estimate.add(MemoryLayout<CodexNetworkApprovalContext>.stride)
-            estimate.addString(context.host)
-            estimate.addString(context.`protocol`)
-        }
-        if let amendment = approval.proposedExecpolicyAmendment {
-            estimate.addStringValues(amendment)
-        }
-        estimate.addCollectionAllocation(count: approval.proposedNetworkPolicyAmendments.count)
-        for amendment in approval.proposedNetworkPolicyAmendments {
-            estimate.add(MemoryLayout<CodexNetworkPolicyAmendment>.stride)
-            estimate.addString(amendment.host)
-        }
-        return estimate.total
     }
 
     func refreshActiveLocalState() {
