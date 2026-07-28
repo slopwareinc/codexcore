@@ -367,6 +367,12 @@ struct CodexPresentationStoreTests {
 
         store.connect(adapter(replacement))
 
+        #expect(store.activeCanonicalPresentation == nil)
+        #expect(store.activeRenderUpdate == nil)
+        #expect(store.activePendingRequests.isEmpty)
+        #expect(store.activePresentation?.transcript.turns.isEmpty == true)
+        #expect(store.observedRevision == .zero)
+        #expect(!store.isSelectionHydrated)
         try await eventually {
             store.activeCanonicalPresentation?.sourceRevision == StateRevision(1)
                 && store.activePresentation?.transcript.turns.first?.finalAnswer?.text
