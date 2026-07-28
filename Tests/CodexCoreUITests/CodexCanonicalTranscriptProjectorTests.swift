@@ -1203,8 +1203,8 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(evolvedID == firstID)
     }
 
-    @Test func publicFileChangeMutationCannotDivergePathsAndDerivedStateIsNotEquality() {
-        var row = CodexFileChangeRowV2(
+    @Test func publicFileChangeSourcesAreExplicitAndDerivedStateIsNotEquality() {
+        let row = CodexFileChangeRowV2(
             id: "patch",
             changes: [.init(
                 id: "change",
@@ -1217,21 +1217,17 @@ struct CodexCanonicalTranscriptProjectorTests {
         )
         #expect(row.files == ["Sources/New.swift"])
         #expect(row.preparedChanges.count == 1)
-
-        row.files = ["Sources/SetThroughLegacyAPI.swift"]
-        #expect(row.changes[0].destinationPath == "Sources/SetThroughLegacyAPI.swift")
-        #expect(row.preparedChanges.first?.path == "Sources/SetThroughLegacyAPI.swift")
-
-        row.files = ["one", "two"]
-        #expect(row.changes.count == 1)
-        #expect(row.files == ["Sources/SetThroughLegacyAPI.swift"])
-
-        row.diff = "legacy aggregate must not diverge"
         #expect(row.diff == nil)
 
-        row.changes[0].destinationPath = "Sources/Newer.swift"
-        #expect(row.files == ["Sources/Newer.swift"])
-        #expect(row.preparedChanges.first?.path == "Sources/Newer.swift")
+        let legacy = CodexFileChangeRowV2(
+            id: "legacy",
+            files: ["Sources/Legacy.swift"],
+            status: .completed,
+            diff: "@@ -1 +1 @@\n-old\n+new"
+        )
+        #expect(legacy.files == ["Sources/Legacy.swift"])
+        #expect(legacy.diff == "@@ -1 +1 @@\n-old\n+new")
+        #expect(legacy.changes.isEmpty)
 
         let alternatePreparation = CodexFileChangeDiffPreparer().prepare(
             changes: row.changes,
@@ -1240,14 +1236,10 @@ struct CodexCanonicalTranscriptProjectorTests {
         )
         let semanticallyEqual = CodexFileChangeRowV2(
             id: row.id,
+            sourceRevision: StateRevision(999),
             changes: row.changes,
             status: row.status,
             durationMs: row.durationMs,
-            preparationKey: .init(
-                itemKey: nil,
-                sourceRevision: nil,
-                contentFingerprint: 999
-            ),
             preparedFileChanges: alternatePreparation
         )
         #expect(row == semanticallyEqual)

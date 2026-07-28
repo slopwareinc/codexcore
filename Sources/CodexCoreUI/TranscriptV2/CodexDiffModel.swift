@@ -1,4 +1,3 @@
-import CodexCore
 import Foundation
 
 struct CodexDiffFile: Sendable, Equatable {
@@ -114,10 +113,4 @@ final class CodexPreparedFileChangeSetV2: @unchecked Sendable {
         totalAdded: 0,
         totalRemoved: 0
     )
-}
-
-struct CodexFileChangePreparationKey: Sendable, Equatable {
-    var itemKey: ItemKey?
-    var sourceRevision: StateRevision?
-    var contentFingerprint: UInt64
 }

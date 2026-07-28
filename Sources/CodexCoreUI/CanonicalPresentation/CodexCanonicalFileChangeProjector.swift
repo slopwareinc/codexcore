@@ -19,20 +19,11 @@ struct CodexCanonicalFileChangeProjector: Sendable {
         durationMs: Int?,
         previous: CodexFileChangeRowV2?
     ) -> CodexFileChangeRowV2 {
-        let key = CodexFileChangePreparationKey(
-            itemKey: item.key,
-            sourceRevision: item.lastChangedRevision,
-            contentFingerprint: 0
-        )
-        if let previous, previous.preparationKey == key {
-            return CodexFileChangeRowV2(
-                id: item.key.itemID.rawValue,
-                changes: previous.changes,
-                status: status,
-                durationMs: durationMs,
-                preparationKey: key,
-                preparedFileChanges: previous.preparedFileChanges
-            )
+        if var previous,
+           previous.canonicalSourceRevision == item.lastChangedRevision {
+            previous.status = status
+            previous.durationMs = durationMs
+            return previous
         }
 
         let changes = decodeChanges(
@@ -41,10 +32,10 @@ struct CodexCanonicalFileChangeProjector: Sendable {
         )
         return CodexFileChangeRowV2(
             id: item.key.itemID.rawValue,
+            sourceRevision: item.lastChangedRevision,
             changes: changes,
             status: status,
             durationMs: durationMs,
-            preparationKey: key,
             preparedFileChanges: diffPreparer.prepare(
                 changes: changes,
                 legacyDiff: nil
