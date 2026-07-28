@@ -129,7 +129,7 @@ struct CodexUnifiedDiffParserTests {
         #expect(diff.utf8.count == 1_024 * 1_024)
         #expect(parsed.totalLineCount == 1_024 * 1_024 + 1)
         #expect(parsed.retainedLineCount == 32)
-        #expect(parsed.retainedUTF8ByteCount == 0)
+        #expect(parsed.retainedUTF8ByteCount == "patch".utf8.count)
         #expect(
             parsed.files.flatMap(\.hunks).flatMap(\.lines).count == 32
         )
@@ -226,7 +226,10 @@ struct CodexUnifiedDiffParserTests {
         #expect(parsed.totalFileCount == fileCount)
         #expect(parsed.totalAdded == fileCount)
         #expect(parsed.totalRemoved == fileCount)
-        #expect(parsed.files.count <= 32)
+        #expect(
+            parsed.files.count
+                <= CodexUnifiedDiffParser.defaultMaximumRetainedFileCount
+        )
         #expect(parsed.fileSourceRanges.count == parsed.files.count)
         #expect(parsed.didTruncateFileRecords)
         #expect(prepared.totalAdded == fileCount)
@@ -255,9 +258,10 @@ struct CodexUnifiedDiffParserTests {
 
         #expect(entry.added == 3)
         #expect(entry.removed == 0)
-        #expect(entry.displayPatch.contains("@@ -0,0 +1,3 @@"))
-        #expect(entry.displayPatch.contains("+let first = true\n+\n+let second = true"))
-        #expect(!entry.displayPatch.contains("\r"))
+        let display = displayText(entry)
+        #expect(display.contains("@@ -0,0 +1,3 @@"))
+        #expect(display.contains("+let first = true\n+\n+let second = true"))
+        #expect(!display.contains("\r"))
     }
 
     @Test func officialContentThatResemblesFileHeadersRemainsVisible() throws {
@@ -282,8 +286,8 @@ struct CodexUnifiedDiffParserTests {
         let deletedEntry = try #require(entries.dropFirst().first)
 
         #expect(entries.count == 2)
-        #expect(addedEntry.displayPatch.contains("+++ generated heading"))
-        #expect(deletedEntry.displayPatch.contains("--- removed heading"))
+        #expect(displayText(addedEntry).contains("+++ generated heading"))
+        #expect(displayText(deletedEntry).contains("--- removed heading"))
     }
 
     @Test func modifiedPayloadHeaderVariantsNormalizeWithoutDuplicates() throws {
@@ -314,7 +318,7 @@ struct CodexUnifiedDiffParserTests {
                     legacyDiff: nil
                 ).entries.first
             )
-            let lines = entry.displayPatch.components(separatedBy: "\n")
+            let lines = entry.displayLines.map(\.text)
 
             #expect(lines.filter { $0.hasPrefix("diff --git ") }.count == 1)
             #expect(lines.filter { $0.hasPrefix("--- ") }.count == 1)
@@ -346,7 +350,7 @@ struct CodexUnifiedDiffParserTests {
                     legacyDiff: nil
                 ).entries.first
             )
-            let lines = entry.displayPatch.components(separatedBy: "\n")
+            let lines = entry.displayLines.map(\.text)
 
             #expect(lines.filter { $0.hasPrefix("diff --git ") }.count == 1)
             #expect(lines.filter { $0.hasPrefix("rename from ") }.count == 1)
@@ -381,7 +385,8 @@ struct CodexUnifiedDiffParserTests {
         let entryLimit = CodexPreparedFileChangeSetV2.maximumPreparedEntryCount
 
         #expect(prepared.entries.count == entryLimit)
-        #expect(prepared.entries.last?.changeID == "empty:\(entryLimit - 1)")
+        #expect(prepared.entries.last?.sourceIndex == entryLimit - 1)
+        #expect(prepared.omittedEntryCount == changes.count - entryLimit)
         #expect(prepared.totalAdded == 1)
         #expect(prepared.totalRemoved == 1)
         #expect(
@@ -420,7 +425,123 @@ struct CodexUnifiedDiffParserTests {
             ).entries.last
         )
 
-        #expect(targetAlone.displayPatch != targetAfterLargeChange.displayPatch)
+        #expect(targetAlone.displayLines != targetAfterLargeChange.displayLines)
         #expect(targetAlone.fingerprint != targetAfterLargeChange.fingerprint)
+    }
+
+    @Test func metadataModeUsesCanonicalParserWithoutRetainingHunks() {
+        let diff = """
+        diff --git a/Sources/Old.swift b/Sources/New.swift
+        similarity index 90%
+        rename from Sources/Old.swift
+        rename to Sources/New.swift
+        --- a/Sources/Old.swift
+        +++ b/Sources/New.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+
+        let parsed = CodexUnifiedDiffParser.parseMetadataBounded(diff)
+
+        #expect(parsed.files.count == 1)
+        #expect(parsed.files[0].path == "Sources/New.swift")
+        #expect(parsed.files[0].kind == "renamed")
+        #expect(parsed.files[0].added == 1)
+        #expect(parsed.files[0].removed == 1)
+        #expect(parsed.files[0].hunks.isEmpty)
+        #expect(parsed.retainedLineCount == 0)
+    }
+
+    @Test func officialTrimStartOnlyNormalizesPatchPayloadKinds() throws {
+        let modified = CodexFileChangeV2(
+            id: "modified",
+            path: "Sources/Modified.swift",
+            kind: .modified,
+            diff: "\n \t@@ -1 +1 @@\n-old\n+new"
+        )
+        let added = CodexFileChangeV2(
+            id: "added",
+            path: "Sources/Added.swift",
+            kind: .added,
+            diff: "  indented"
+        )
+
+        let entries = CodexFileChangeDiffPreparer().prepare(
+            changes: [modified, added],
+            legacyDiff: nil
+        ).entries
+        let modifiedEntry = try #require(entries.first)
+        let addedEntry = try #require(entries.dropFirst().first)
+
+        #expect(modifiedEntry.added == 1)
+        #expect(modifiedEntry.removed == 1)
+        #expect(addedEntry.displayLines.contains { $0.text == "+  indented" })
+    }
+
+    @Test func sourceFingerprintKeepsLegacyFileListInRowEquality() {
+        let first = CodexFileChangeRowV2(
+            id: "legacy",
+            files: ["Sources/A.swift"],
+            status: .completed,
+            diff: "+same"
+        )
+        let second = CodexFileChangeRowV2(
+            id: "legacy",
+            files: ["Sources/B.swift"],
+            status: .completed,
+            diff: "+same"
+        )
+
+        #expect(first != second)
+    }
+
+    @Test func preparedSourceIndexSelectsCanonicalChangeInConstantTime() throws {
+        let changes = [
+            CodexFileChangeV2(
+                id: "first",
+                path: "Sources/First.swift",
+                kind: .added,
+                diff: "first"
+            ),
+            CodexFileChangeV2(
+                id: "second",
+                path: "Sources/Second.swift",
+                kind: .added,
+                diff: "second"
+            ),
+        ]
+        let row = CodexFileChangeRowV2(
+            id: "canonical",
+            changes: changes,
+            status: .completed
+        )
+        let prepared = try #require(row.preparedChanges.last)
+
+        #expect(prepared.sourceIndex == 1)
+        #expect(row.exactChange(at: prepared.sourceIndex)?.id == "second")
+    }
+
+    @Test func parserCheckpointCanCancelWithinOneHugeLine() {
+        let diff = String(repeating: "x", count: 256 * 1_024)
+        var checkpointCount = 0
+
+        #expect(throws: CancellationError.self) {
+            try CodexUnifiedDiffParser.parseBounded(
+                diff,
+                maximumRetainedUTF8Bytes: 1_024,
+                checkpoint: {
+                    checkpointCount += 1
+                    throw CancellationError()
+                }
+            )
+        }
+        #expect(checkpointCount == 1)
+    }
+
+    private func displayText(
+        _ entry: CodexPreparedFileChangeV2
+    ) -> String {
+        entry.displayLines.map(\.text).joined(separator: "\n")
     }
 }

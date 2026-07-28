@@ -17,29 +17,36 @@ struct CodexCanonicalFileChangeProjector: Sendable {
         item: CanonicalItem,
         status: CodexWorkItemStatusV2,
         durationMs: Int?,
-        previous: CodexFileChangeRowV2?
-    ) -> CodexFileChangeRowV2 {
+        previous: CodexFileChangeRowV2?,
+        checkpoint: () throws -> Void = {}
+    ) rethrows -> CodexFileChangeRowV2 {
+        try checkpoint()
         if var previous,
            previous.canonicalSourceRevision == item.lastChangedRevision {
             previous.status = status
             previous.durationMs = durationMs
+            try checkpoint()
             return previous
         }
 
-        let changes = decodeChanges(
+        let changes = try decodeChanges(
             item,
-            previous: previous?.changes ?? []
+            previous: previous?.changes ?? [],
+            checkpoint: checkpoint
         )
-        return CodexFileChangeRowV2(
+        let prepared = try diffPreparer.prepare(
+            changes: changes,
+            legacyDiff: nil,
+            checkpoint: checkpoint
+        )
+        try checkpoint()
+        return .init(
             id: item.key.itemID.rawValue,
             sourceRevision: item.lastChangedRevision,
             changes: changes,
             status: status,
             durationMs: durationMs,
-            preparedFileChanges: diffPreparer.prepare(
-                changes: changes,
-                legacyDiff: nil
-            )
+            preparedFileChanges: prepared
         )
     }
 }
@@ -52,6 +59,7 @@ private extension CodexCanonicalFileChangeProjector {
         var diff: String
         var isMalformed: Bool
         var wireValue: CodexJSONValue
+        var wireFingerprint: UInt64
         var contentFingerprint: UInt64
     }
 
@@ -61,10 +69,17 @@ private extension CodexCanonicalFileChangeProjector {
         var kind: String
     }
 
+    enum WireFingerprintFrame {
+        case value(CodexJSONValue)
+        case array([CodexJSONValue], Int)
+        case dictionary([(String, CodexJSONValue)], Int)
+    }
+
     func decodeChanges(
         _ item: CanonicalItem,
-        previous: [CodexFileChangeV2]
-    ) -> [CodexFileChangeV2] {
+        previous: [CodexFileChangeV2],
+        checkpoint: () throws -> Void
+    ) rethrows -> [CodexFileChangeV2] {
         let rawChanges: [CodexJSONValue]
         if case .array(let liveChanges) = item.liveFields["fileChanges"] {
             rawChanges = liveChanges
@@ -72,13 +87,26 @@ private extension CodexCanonicalFileChangeProjector {
             rawChanges = item.payload.fileChangeArray("changes") ?? []
         }
 
-        let drafts = rawChanges.compactMap(decodeChange)
+        var drafts: [Draft] = []
+        drafts.reserveCapacity(rawChanges.count)
+        for rawChange in rawChanges {
+            try checkpoint()
+            if let draft = try decodeChange(
+                rawChange,
+                checkpoint: checkpoint
+            ) {
+                drafts.append(draft)
+            }
+        }
         var exactOccurrences: [UInt64: Int] = [:]
-        var changes = drafts.map { draft in
+        var changes: [CodexFileChangeV2] = []
+        changes.reserveCapacity(drafts.count)
+        for draft in drafts {
+            try checkpoint()
             let occurrence = exactOccurrences[draft.contentFingerprint, default: 0]
             exactOccurrences[draft.contentFingerprint] = occurrence + 1
             let suffix = occurrence == 0 ? "" : ":\(occurrence)"
-            return CodexFileChangeV2(
+            changes.append(CodexFileChangeV2(
                 id: "\(item.key.itemID.rawValue):file:"
                     + "\(String(draft.contentFingerprint, radix: 16))\(suffix)",
                 path: draft.path,
@@ -86,10 +114,15 @@ private extension CodexCanonicalFileChangeProjector {
                 kind: draft.kind,
                 diff: draft.diff,
                 isMalformed: draft.isMalformed,
-                wireValue: draft.isMalformed ? draft.wireValue : nil
-            )
+                wireValue: draft.isMalformed ? draft.wireValue : nil,
+                wireFingerprint: draft.wireFingerprint
+            ))
         }
-        reconcileEvolvingIDs(&changes, previous: previous)
+        try reconcileEvolvingIDs(
+            &changes,
+            previous: previous,
+            checkpoint: checkpoint
+        )
         return changes
     }
 
@@ -99,14 +132,19 @@ private extension CodexCanonicalFileChangeProjector {
     /// patch evolution does not churn identity merely because bytes changed.
     func reconcileEvolvingIDs(
         _ changes: inout [CodexFileChangeV2],
-        previous: [CodexFileChangeV2]
-    ) {
+        previous: [CodexFileChangeV2],
+        checkpoint: () throws -> Void
+    ) rethrows {
         guard !changes.isEmpty, !previous.isEmpty else { return }
-        let priorByID = Dictionary(
-            uniqueKeysWithValues: previous.map { ($0.id, $0) }
-        )
+        var priorByID: [String: CodexFileChangeV2] = [:]
+        priorByID.reserveCapacity(previous.count)
+        for prior in previous {
+            try checkpoint()
+            priorByID[prior.id] = prior
+        }
         var usedPriorIDs: Set<String> = []
         for change in changes {
+            try checkpoint()
             guard let prior = priorByID[change.id],
                   structuralIdentity(change) == structuralIdentity(prior)
             else {
@@ -115,19 +153,22 @@ private extension CodexCanonicalFileChangeProjector {
             usedPriorIDs.insert(prior.id)
         }
 
-        let unmatchedPrevious = Dictionary(
-            grouping: previous.filter { !usedPriorIDs.contains($0.id) },
-            by: structuralIdentity
-        )
-        let unmatchedCurrent = Dictionary(
-            grouping: changes.indices.filter {
-                !usedPriorIDs.contains(changes[$0].id)
-            },
-            by: { structuralIdentity(changes[$0]) }
-        )
+        var unmatchedPrevious: [StructuralIdentity: [CodexFileChangeV2]] = [:]
+        for prior in previous where !usedPriorIDs.contains(prior.id) {
+            try checkpoint()
+            unmatchedPrevious[structuralIdentity(prior), default: []].append(prior)
+        }
+        var unmatchedCurrent: [StructuralIdentity: [Int]] = [:]
+        for index in changes.indices where !usedPriorIDs.contains(changes[index].id) {
+            try checkpoint()
+            unmatchedCurrent[structuralIdentity(changes[index]), default: []]
+                .append(index)
+        }
         for (identity, indices) in unmatchedCurrent {
+            try checkpoint()
             guard let candidates = unmatchedPrevious[identity] else { continue }
             for (index, prior) in zip(indices, candidates) {
+                try checkpoint()
                 changes[index].id = prior.id
             }
         }
@@ -143,7 +184,10 @@ private extension CodexCanonicalFileChangeProjector {
         )
     }
 
-    func decodeChange(_ rawChange: CodexJSONValue) -> Draft? {
+    func decodeChange(
+        _ rawChange: CodexJSONValue,
+        checkpoint: () throws -> Void
+    ) rethrows -> Draft? {
         guard let change = rawChange.fileChangeObject,
               let path = change.fileChangeString("path"),
               !path.isEmpty
@@ -183,21 +227,107 @@ private extension CodexCanonicalFileChangeProjector {
         }
         let diff = change.fileChangeString("diff") ?? ""
         let diffIsMalformed = change["diff"]?.fileChangeStringValue == nil
+        let isMalformed = kindIsMalformed
+            || movePathIsMalformed
+            || diffIsMalformed
 
         var contentHasher = CodexStableFingerprint()
-        contentHasher.combine(path)
-        contentHasher.combine(destinationPath ?? "")
-        contentHasher.combine(kind.stableValue)
-        contentHasher.combine(diff)
+        try contentHasher.combine(path, checkpoint: checkpoint)
+        try contentHasher.combine(
+            destinationPath ?? "",
+            checkpoint: checkpoint
+        )
+        try contentHasher.combine(kind.stableValue, checkpoint: checkpoint)
+        try contentHasher.combine(diff, checkpoint: checkpoint)
+        let wireFingerprint = isMalformed
+            ? try malformedWireFingerprint(
+                change,
+                checkpoint: checkpoint
+            )
+            : 0
         return Draft(
             path: path,
             destinationPath: destinationPath,
             kind: kind,
             diff: diff,
-            isMalformed: kindIsMalformed || movePathIsMalformed || diffIsMalformed,
+            isMalformed: isMalformed,
             wireValue: rawChange,
+            wireFingerprint: wireFingerprint,
             contentFingerprint: contentHasher.value
         )
+    }
+
+    /// Hashes only malformed/unknown wire structure. A valid string `diff` is
+    /// excluded because the parser fingerprint already covers those bytes.
+    func malformedWireFingerprint(
+        _ change: [String: CodexJSONValue],
+        checkpoint: () throws -> Void
+    ) rethrows -> UInt64 {
+        var hasher = CodexStableFingerprint()
+        hasher.combine("malformed-wire")
+        for key in change.keys.sorted() {
+            try checkpoint()
+            guard key != "path", let value = change[key] else {
+                continue
+            }
+            hasher.combine(key)
+            if key == "diff", value.fileChangeStringValue != nil {
+                hasher.combine("normalized-string")
+                continue
+            }
+            try combineWireValue(
+                value,
+                into: &hasher,
+                checkpoint: checkpoint
+            )
+        }
+        return hasher.value
+    }
+
+    func combineWireValue(
+        _ value: CodexJSONValue,
+        into hasher: inout CodexStableFingerprint,
+        checkpoint: () throws -> Void
+    ) rethrows {
+        var stack: [WireFingerprintFrame] = [.value(value)]
+        while let frame = stack.popLast() {
+            try checkpoint()
+            switch frame {
+            case .value(.string(let string)):
+                hasher.combine("string")
+                try hasher.combine(string, checkpoint: checkpoint)
+            case .value(.int(let integer)):
+                hasher.combine("int")
+                hasher.combine(UInt64(bitPattern: Int64(integer)))
+            case .value(.double(let double)):
+                hasher.combine("double")
+                hasher.combine(double.bitPattern)
+            case .value(.bool(let bool)):
+                hasher.combine(bool ? "true" : "false")
+            case .value(.array(let values)):
+                hasher.combine("array")
+                hasher.combine(UInt64(values.count))
+                stack.append(.array(values, 0))
+            case .value(.dictionary(let dictionary)):
+                hasher.combine("dictionary")
+                hasher.combine(UInt64(dictionary.count))
+                stack.append(.dictionary(
+                    dictionary.sorted { $0.key < $1.key },
+                    0
+                ))
+            case .value(.null):
+                hasher.combine("null")
+            case .array(let values, let index):
+                guard values.indices.contains(index) else { continue }
+                stack.append(.array(values, index + 1))
+                stack.append(.value(values[index]))
+            case .dictionary(let entries, let index):
+                guard entries.indices.contains(index) else { continue }
+                stack.append(.dictionary(entries, index + 1))
+                hasher.combine(entries[index].0)
+                stack.append(.value(entries[index].1))
+            }
+        }
     }
 }
 

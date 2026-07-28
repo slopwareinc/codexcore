@@ -17,6 +17,7 @@ public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
     public var diff: String
     var isMalformed: Bool
     var wireValue: CodexJSONValue?
+    var wireFingerprint: UInt64
 
     public init(
         id: String,
@@ -32,6 +33,7 @@ public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
         self.diff = diff
         self.isMalformed = false
         self.wireValue = nil
+        self.wireFingerprint = 0
     }
 
     init(
@@ -41,7 +43,8 @@ public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
         kind: CodexFileChangeKindV2,
         diff: String,
         isMalformed: Bool,
-        wireValue: CodexJSONValue?
+        wireValue: CodexJSONValue?,
+        wireFingerprint: UInt64
     ) {
         self.id = id
         self.path = path
@@ -50,52 +53,65 @@ public struct CodexFileChangeV2: Identifiable, Sendable, Equatable {
         self.diff = diff
         self.isMalformed = isMalformed
         self.wireValue = wireValue
+        self.wireFingerprint = wireFingerprint
     }
 
     public var displayPath: String { destinationPath ?? path }
 }
 
 enum CodexFileChangeSourceV2: Sendable, Equatable {
-    case legacy(files: [String], diff: String?)
-    case canonical(revision: StateRevision, changes: [CodexFileChangeV2])
+    case legacy(files: [String], diff: String?, fingerprint: UInt64)
+    case canonical(
+        revision: StateRevision,
+        changes: [CodexFileChangeV2],
+        fingerprint: UInt64
+    )
 
     var files: [String] {
         switch self {
-        case .legacy(let files, _):
+        case .legacy(let files, _, _):
             files
-        case .canonical(_, let changes):
+        case .canonical(_, let changes, _):
             changes.map(\.displayPath)
         }
     }
 
     var diff: String? {
-        guard case .legacy(_, let diff) = self else { return nil }
+        guard case .legacy(_, let diff, _) = self else { return nil }
         return diff
     }
 
     var changes: [CodexFileChangeV2] {
-        guard case .canonical(_, let changes) = self else { return [] }
+        guard case .canonical(_, let changes, _) = self else { return [] }
         return changes
     }
 
     var canonicalRevision: StateRevision? {
-        guard case .canonical(let revision, _) = self else { return nil }
+        guard case .canonical(let revision, _, _) = self else { return nil }
         return revision
     }
 
     var fileCount: Int {
         switch self {
-        case .legacy(let files, _): files.count
-        case .canonical(_, let changes): changes.count
+        case .legacy(let files, _, _): files.count
+        case .canonical(_, let changes, _): changes.count
         }
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
-        case (.legacy(let lhsFiles, let lhsDiff), .legacy(let rhsFiles, let rhsDiff)):
-            lhsFiles == rhsFiles && lhsDiff == rhsDiff
-        case (.canonical(_, let lhsChanges), .canonical(_, let rhsChanges)):
-            lhsChanges == rhsChanges
+        case (
+            .legacy(let lhsFiles, _, let lhsFingerprint),
+            .legacy(let rhsFiles, _, let rhsFingerprint)
+        ):
+            lhsFiles.count == rhsFiles.count
+                && lhsFingerprint == rhsFingerprint
+        case (
+            .canonical(_, let lhsChanges, let lhsFingerprint),
+            .canonical(_, let rhsChanges, let rhsFingerprint)
+        ):
+            lhsChanges.count == rhsChanges.count
+                && lhsFingerprint == rhsFingerprint
         default:
             false
         }
@@ -154,6 +170,14 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
         preparedFileChanges.totalRemoved
     }
 
+    var omittedPreparedFileCount: Int {
+        preparedFileChanges.omittedEntryCount
+    }
+
+    var preparedSourceFingerprint: UInt64 {
+        preparedFileChanges.sourceFingerprint
+    }
+
     public init(
         id: String,
         files: [String],
@@ -161,14 +185,24 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
         durationMs: Int? = nil,
         diff: String? = nil
     ) {
-        self.id = id
-        self.source = .legacy(files: files, diff: diff)
-        self.status = status
-        self.durationMs = durationMs
-        self.preparedFileChanges = CodexFileChangeDiffPreparer().prepare(
+        let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: [],
             legacyDiff: diff
         )
+        var sourceHasher = CodexStableFingerprint()
+        sourceHasher.combine("legacy-row")
+        sourceHasher.combine(UInt64(files.count))
+        for file in files { sourceHasher.combine(file) }
+        sourceHasher.combine(prepared.sourceFingerprint)
+        self.id = id
+        self.source = .legacy(
+            files: files,
+            diff: diff,
+            fingerprint: sourceHasher.value
+        )
+        self.status = status
+        self.durationMs = durationMs
+        self.preparedFileChanges = prepared
     }
 
     public init(
@@ -177,14 +211,19 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
         status: CodexWorkItemStatusV2,
         durationMs: Int? = nil
     ) {
-        self.id = id
-        self.source = .canonical(revision: .zero, changes: changes)
-        self.status = status
-        self.durationMs = durationMs
-        self.preparedFileChanges = CodexFileChangeDiffPreparer().prepare(
+        let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: changes,
             legacyDiff: nil
         )
+        self.id = id
+        self.source = .canonical(
+            revision: .zero,
+            changes: changes,
+            fingerprint: prepared.sourceFingerprint
+        )
+        self.status = status
+        self.durationMs = durationMs
+        self.preparedFileChanges = prepared
     }
 
     init(
@@ -198,7 +237,8 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
         self.id = id
         self.source = .canonical(
             revision: sourceRevision,
-            changes: changes
+            changes: changes,
+            fingerprint: preparedFileChanges.sourceFingerprint
         )
         self.status = status
         self.durationMs = durationMs
@@ -209,8 +249,11 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
         source.canonicalRevision
     }
 
-    func exactChange(forPreparedChangeID changeID: String) -> CodexFileChangeV2? {
-        changes.first { $0.id == changeID }
+    func exactChange(
+        at sourceIndex: Int
+    ) -> CodexFileChangeV2? {
+        guard changes.indices.contains(sourceIndex) else { return nil }
+        return changes[sourceIndex]
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {

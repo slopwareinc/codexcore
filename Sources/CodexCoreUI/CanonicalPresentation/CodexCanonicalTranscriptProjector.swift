@@ -271,10 +271,11 @@ private extension CodexCanonicalTranscriptProjector {
             case .sleep:
                 appendNotice(id: item.key.itemID, message: "Waiting", to: &turn)
             case .imageGeneration:
-                for row in makeWorkRows(
+                for row in try makeWorkRows(
                     item,
                     completed: completed,
-                    previousFileRow: previousFileRows[item.key.itemID.rawValue]
+                    previousFileRow: previousFileRows[item.key.itemID.rawValue],
+                    checkpoint: checkpoint
                 ) {
                     appendWorkRow(row, to: &turn)
                 }
@@ -294,10 +295,11 @@ private extension CodexCanonicalTranscriptProjector {
                 }
             case .commandExecution, .fileChange, .mcpToolCall, .collabAgentToolCall,
                     .subAgentActivity, .webSearch:
-                for row in makeWorkRows(
+                for row in try makeWorkRows(
                     item,
                     completed: completed,
-                    previousFileRow: previousFileRows[item.key.itemID.rawValue]
+                    previousFileRow: previousFileRows[item.key.itemID.rawValue],
+                    checkpoint: checkpoint
                 ) {
                     appendWorkRow(row, to: &turn)
                 }
@@ -593,8 +595,9 @@ private extension CodexCanonicalTranscriptProjector {
     func makeWorkRows(
         _ item: CanonicalItem,
         completed: Bool,
-        previousFileRow: CodexFileChangeRowV2?
-    ) -> [CodexWorkRowV2] {
+        previousFileRow: CodexFileChangeRowV2?,
+        checkpoint: () throws -> Void
+    ) rethrows -> [CodexWorkRowV2] {
         let id = item.key.itemID.rawValue
         let state = workStatus(item, completed: completed)
         switch item.kind {
@@ -619,11 +622,12 @@ private extension CodexCanonicalTranscriptProjector {
                 ))
             }
         case .fileChange:
-            return [.fileChange(fileChangeProjector.project(
+            return [.fileChange(try fileChangeProjector.project(
                 item: item,
                 status: state,
                 durationMs: itemDuration(item),
-                previous: previousFileRow
+                previous: previousFileRow,
+                checkpoint: checkpoint
             ))]
         case .mcpToolCall:
             let app = item.payload.object("appContext")?.string("appName")

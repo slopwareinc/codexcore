@@ -59,24 +59,39 @@ struct CodexExactPatchSliceV2: @unchecked Sendable {
     func materialized() -> String { String(source[range]) }
 }
 
-struct CodexPreparedFileChangeV2: Sendable {
-    var changeID: String
+struct CodexPreparedFileChangeSummaryV2: Sendable, Equatable {
     var path: String
     var previousPath: String?
     var kind: CodexFileChangeKindV2
     var added: Int
     var removed: Int
-    var file: CodexDiffFile
-    var displayPatch: String
+    var isBinary: Bool
+}
+
+struct CodexPreparedFileChangeTruncationV2: Sendable, Equatable {
+    var omittedLineCount: Int
+    var omittedFileCount: Int
+}
+
+struct CodexPreparedFileChangeV2: Sendable {
+    var sourceIndex: Int
+    var summary: CodexPreparedFileChangeSummaryV2
     var displayLines: [CodexDiffLine]
     var exactPatch: CodexExactPatchSliceV2?
-    var isBinary: Bool
     var isMalformed: Bool
-    var isTruncated: Bool
-    var omittedLineCount: Int
+    var truncation: CodexPreparedFileChangeTruncationV2?
     var fingerprint: UInt64
     var retainedUTF8ByteCount: Int
     var retainedLineCount: Int
+
+    var path: String { summary.path }
+    var previousPath: String? { summary.previousPath }
+    var kind: CodexFileChangeKindV2 { summary.kind }
+    var added: Int { summary.added }
+    var removed: Int { summary.removed }
+    var isBinary: Bool { summary.isBinary }
+    var isTruncated: Bool { truncation != nil }
+    var omittedLineCount: Int { truncation?.omittedLineCount ?? 0 }
 }
 
 /// Immutable analysis shared by incremental projections. Raw patches remain in
@@ -91,19 +106,25 @@ final class CodexPreparedFileChangeSetV2: @unchecked Sendable {
     let retainedLineCount: Int
     let totalAdded: Int
     let totalRemoved: Int
+    let sourceFingerprint: UInt64
+    let omittedEntryCount: Int
 
     init(
         entries: [CodexPreparedFileChangeV2],
         retainedUTF8ByteCount: Int,
         retainedLineCount: Int,
         totalAdded: Int? = nil,
-        totalRemoved: Int? = nil
+        totalRemoved: Int? = nil,
+        sourceFingerprint: UInt64,
+        omittedEntryCount: Int
     ) {
         self.entries = entries
         self.retainedUTF8ByteCount = retainedUTF8ByteCount
         self.retainedLineCount = retainedLineCount
         self.totalAdded = totalAdded ?? entries.reduce(0) { $0 + $1.added }
         self.totalRemoved = totalRemoved ?? entries.reduce(0) { $0 + $1.removed }
+        self.sourceFingerprint = sourceFingerprint
+        self.omittedEntryCount = max(0, omittedEntryCount)
     }
 
     static let empty = CodexPreparedFileChangeSetV2(
@@ -111,6 +132,8 @@ final class CodexPreparedFileChangeSetV2: @unchecked Sendable {
         retainedUTF8ByteCount: 0,
         retainedLineCount: 0,
         totalAdded: 0,
-        totalRemoved: 0
+        totalRemoved: 0,
+        sourceFingerprint: 0,
+        omittedEntryCount: 0
     )
 }

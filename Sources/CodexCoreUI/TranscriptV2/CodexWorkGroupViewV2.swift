@@ -82,20 +82,28 @@ private struct CodexWorkRowViewV2: View {
     @ViewBuilder private var expandedContent: some View {
         if case .fileChange(let value) = row {
             LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(value.preparedChanges, id: \.changeID) { prepared in
+                ForEach(value.preparedChanges, id: \.sourceIndex) { prepared in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(prepared.path)
                             .font(theme.fonts.caption)
                             .foregroundStyle(theme.colors.textTertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        if !prepared.displayPatch.isEmpty {
-                            Text(prepared.displayPatch)
-                                .font(theme.fonts.code)
-                                .foregroundStyle(theme.colors.textSecondary)
-                                .textSelection(.enabled)
+                        if !prepared.displayLines.isEmpty {
+                            Text(
+                                prepared.displayLines.lazy.map(\.text)
+                                    .joined(separator: "\n")
+                            )
+                            .font(theme.fonts.code)
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .textSelection(.enabled)
                         }
                     }
+                }
+                if value.omittedPreparedFileCount > 0 {
+                    Text("… \(value.omittedPreparedFileCount) more files not shown")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
                 }
             }
             .padding(.leading, 18)

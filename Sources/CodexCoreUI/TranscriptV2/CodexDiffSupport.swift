@@ -17,6 +17,22 @@ struct CodexStableFingerprint: Sendable {
         combineSeparator()
     }
 
+    mutating func combine(
+        _ string: String,
+        checkpoint: () throws -> Void
+    ) rethrows {
+        var bytesUntilCheckpoint = 64 * 1_024
+        for byte in string.utf8 {
+            combineRawByte(byte)
+            bytesUntilCheckpoint -= 1
+            if bytesUntilCheckpoint == 0 {
+                try checkpoint()
+                bytesUntilCheckpoint = 64 * 1_024
+            }
+        }
+        combineSeparator()
+    }
+
     mutating func combine(_ number: UInt64) {
         var littleEndian = number.littleEndian
         withUnsafeBytes(of: &littleEndian) { bytes in
