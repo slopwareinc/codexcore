@@ -413,18 +413,11 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(canonicalCopy.contains("let new = true"))
     }
 
-    @Test func preparedTextCacheEvictsManyShortAttributedRunsByEstimatedBytes() async throws {
-        let capacity = 90_000
-        let projector = CodexTranscriptRenderProjector(
-            preparedTextCacheByteCapacity: capacity
-        )
+    @Test func preparedTextCacheRetainsOnlyTheMostRecentDiffPanel() async throws {
+        let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark)
-        let shortAlternatingLines = (0..<180).map { index in
-            index.isMultiple(of: 2) ? "+a" : "-b"
-        }.joined(separator: "\n")
-        let patch = "@@ -1,90 +1,90 @@\n\(shortAlternatingLines)"
-
-        for index in 0..<3 {
+        func presentation(_ index: Int) -> CodexThreadUIPresentation {
+            let patch = "@@ -1 +1 @@\n-old \(index)\n+new \(index)"
             let row = CodexFileChangeRowV2(
                 id: "files-\(index)",
                 changes: [.init(
@@ -435,86 +428,48 @@ struct CodexTranscriptRenderProjectionTests {
                 )],
                 status: .completed
             )
-            _ = try await projector.project(
-                presentation: .init(
-                    threadID: "thread-\(index)",
-                    transcript: .init(turns: [.init(
-                        id: "turn-\(index)",
-                        narrative: [.workGroup(.init(
-                            id: "work-\(index)",
-                            rows: [.fileChange(row)]
-                        ))],
-                        status: .done(durationMs: 1)
-                    )]),
-                    expandedWorkTurnIDs: ["turn-\(index)"],
-                    expandedRowIDs: ["work-\(index)", "files-\(index)"]
-                ),
-                availableWidth: 860,
-                theme: theme
+            return .init(
+                threadID: "thread-\(index)",
+                transcript: .init(turns: [.init(
+                    id: "turn-\(index)",
+                    narrative: [.workGroup(.init(
+                        id: "work-\(index)",
+                        rows: [.fileChange(row)]
+                    ))],
+                    status: .done(durationMs: 1)
+                )]),
+                expandedWorkTurnIDs: ["turn-\(index)"],
+                expandedRowIDs: ["work-\(index)", "files-\(index)"]
             )
-
-            if index == 0 {
-                let firstEntryBytes = await projector.preparedTextCacheRetainedByteCount
-                let firstEntryCount = await projector.preparedTextCacheEntryCount
-                #expect(firstEntryBytes > patch.utf8.count * 32)
-                #expect(firstEntryCount == 1)
-            }
         }
 
-        let retainedBytes = await projector.preparedTextCacheRetainedByteCount
-        let retainedEntries = await projector.preparedTextCacheEntryCount
-        #expect(retainedBytes <= capacity)
-        #expect(retainedEntries == 1)
-    }
-
-    @Test func preparedTextCacheRejectsHugeLinkAttributesAndDenseListRuns() async throws {
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
-        let hugeDestination = "https://example.com/"
-            + String(repeating: "a", count: 32_000)
-        let linkProjector = CodexTranscriptRenderProjector(
-            preparedTextCacheByteCapacity: 8_000
-        )
-        _ = try await linkProjector.project(
-            presentation: .init(
-                threadID: "link-thread",
-                transcript: .init(turns: [.init(
-                    id: "link-turn",
-                    finalAnswer: .init(
-                        id: "link-answer",
-                        text: "[x](\(hugeDestination))",
-                        isStreaming: false
-                    ),
-                    status: .done(durationMs: 1)
-                )])
-            ),
+        let first = try await projector.project(
+            presentation: presentation(0),
             availableWidth: 860,
             theme: theme
         )
-        let linkEntryCount = await linkProjector.preparedTextCacheEntryCount
-        #expect(linkEntryCount == 0)
-
-        let denseList = (0..<160).map { "- x\($0 % 10)" }.joined(separator: "\n")
-        let listProjector = CodexTranscriptRenderProjector(
-            preparedTextCacheByteCapacity: 25_000
-        )
-        _ = try await listProjector.project(
-            presentation: .init(
-                threadID: "list-thread",
-                transcript: .init(turns: [.init(
-                    id: "list-turn",
-                    finalAnswer: .init(
-                        id: "list-answer",
-                        text: denseList,
-                        isStreaming: false
-                    ),
-                    status: .done(durationMs: 1)
-                )])
-            ),
+        let repeated = try await projector.project(
+            presentation: presentation(0),
             availableWidth: 860,
             theme: theme
         )
-        let listEntryCount = await listProjector.preparedTextCacheEntryCount
-        #expect(listEntryCount == 0)
+        let replacement = try await projector.project(
+            presentation: presentation(1),
+            availableWidth: 860,
+            theme: theme
+        )
+        let evicted = try await projector.project(
+            presentation: presentation(0),
+            availableWidth: 860,
+            theme: theme
+        )
+
+        #expect(first.diagnostics.preparedTextCacheMissCount == 1)
+        #expect(repeated.diagnostics.preparedTextCacheHitCount == 1)
+        #expect(repeated.diagnostics.preparedTextCacheMissCount == 0)
+        #expect(replacement.diagnostics.preparedTextCacheMissCount == 1)
+        #expect(evicted.diagnostics.preparedTextCacheHitCount == 0)
+        #expect(evicted.diagnostics.preparedTextCacheMissCount == 1)
     }
 
     @Test func identicalOrdinaryMarkdownIsRetainedAndHitsPreparedTextCache() async throws {
@@ -538,19 +493,15 @@ struct CodexTranscriptRenderProjectionTests {
             availableWidth: 860,
             theme: theme
         )
-        let firstEntryCount = await projector.preparedTextCacheEntryCount
         let second = try await projector.project(
             presentation: presentation,
             availableWidth: 860,
             theme: theme
         )
-        let secondEntryCount = await projector.preparedTextCacheEntryCount
 
         #expect(first.diagnostics.preparedTextCacheMissCount == 1)
-        #expect(firstEntryCount == 1)
         #expect(second.diagnostics.preparedTextCacheHitCount == 1)
         #expect(second.diagnostics.preparedTextCacheMissCount == 0)
-        #expect(secondEntryCount == 1)
     }
 
     @Test func collapsedLargeCanonicalPatchStaysBoundedAndExpandedCopyIsExact() async throws {

@@ -353,22 +353,15 @@ actor CodexTranscriptRenderProjector {
     private var sourceTextBySourceID: [String: String] = [:]
     private var revisionByID: [CodexTranscriptRenderItemID: RevisionState] = [:]
     private var heightByKey: [HeightKey: CGFloat] = [:]
-    private var preparedTextCache: CodexPreparedTranscriptTextCache
+    private var preparedTextByKey: [String: CodexPreparedTranscriptText] = [:]
+    private var preparedTextInsertionOrder: [String] = []
+    private var preparedDiffText: (
+        key: String,
+        text: CodexPreparedTranscriptText
+    )?
     private var imageAspectRatioBySource: [String: CGFloat] = [:]
     private var projectionCount = 0
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
-
-    init(preparedTextCacheByteCapacity: Int = 8 * 1_024 * 1_024) {
-        self.preparedTextCache = .init(byteCapacity: preparedTextCacheByteCapacity)
-    }
-
-    var preparedTextCacheRetainedByteCount: Int {
-        preparedTextCache.retainedByteCount
-    }
-
-    var preparedTextCacheEntryCount: Int {
-        preparedTextCache.entryCount
-    }
 
     func project(
         presentation: CodexThreadUIPresentation,
@@ -1488,17 +1481,29 @@ private extension CodexTranscriptRenderProjector {
         let contentKey = cacheFingerprint.map { String($0, radix: 16) }
             ?? CodexBlockDigest.digest(content)
         let key = theme.fingerprint + ":" + style + ":" + contentKey
-        if let cached = preparedTextCache.value(forKey: key) {
+        if style == "diff-file" {
+            if preparedDiffText?.key == key, let cached = preparedDiffText?.text {
+                cacheHits += 1
+                return cached
+            }
+            let prepared = make()
+            preparedDiffText = (key, prepared)
+            cacheMisses += 1
+            return prepared
+        }
+        if let cached = preparedTextByKey[key] {
             cacheHits += 1
             return cached
         }
         let prepared = make()
+        preparedTextByKey[key] = prepared
+        preparedTextInsertionOrder.append(key)
         cacheMisses += 1
-        preparedTextCache.insert(
-            prepared,
-            forKey: key,
-            sourceContent: content
-        )
+        if preparedTextInsertionOrder.count > 8_192 {
+            let expired = Array(preparedTextInsertionOrder.prefix(1_024))
+            preparedTextInsertionOrder.removeFirst(1_024)
+            for key in expired { preparedTextByKey.removeValue(forKey: key) }
+        }
         return prepared
     }
 
