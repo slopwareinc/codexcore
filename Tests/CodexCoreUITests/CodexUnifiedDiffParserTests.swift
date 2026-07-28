@@ -233,7 +233,7 @@ struct CodexUnifiedDiffParserTests {
         #expect(prepared.totalRemoved == fileCount)
         #expect(
             prepared.entries.count
-                <= CodexPreparedFileChangeSetV2.maximumRetainedLineCount / 2
+                <= CodexPreparedFileChangeSetV2.maximumPreparedEntryCount
         )
     }
 
@@ -356,6 +356,42 @@ struct CodexUnifiedDiffParserTests {
             #expect(entry.added == 1)
             #expect(entry.removed == 1)
         }
+    }
+
+    @Test func canonicalPreparationCapsThousandsOfEmptyFileEntries() {
+        var changes = (0..<5_000).map { index in
+            CodexFileChangeV2(
+                id: "empty:\(index)",
+                path: "Generated/Empty\(index).swift",
+                kind: .added,
+                diff: ""
+            )
+        }
+        changes.append(.init(
+            id: "tail",
+            path: "Sources/Tail.swift",
+            kind: .modified,
+            diff: "@@ -1 +1 @@\n-old\n+new"
+        ))
+
+        let prepared = CodexFileChangeDiffPreparer().prepare(
+            changes: changes,
+            legacyDiff: nil
+        )
+        let entryLimit = CodexPreparedFileChangeSetV2.maximumPreparedEntryCount
+
+        #expect(prepared.entries.count == entryLimit)
+        #expect(prepared.entries.last?.changeID == "empty:\(entryLimit - 1)")
+        #expect(prepared.totalAdded == 1)
+        #expect(prepared.totalRemoved == 1)
+        #expect(
+            prepared.retainedUTF8ByteCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
+        )
+        #expect(
+            prepared.retainedLineCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedLineCount
+        )
     }
 
     @Test func entryFingerprintIncludesItsBudgetDependentDisplay() throws {
