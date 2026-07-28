@@ -56,6 +56,8 @@ public final class CodexThreadLease: @unchecked Sendable {
     public let id: ThreadID
     public let startRevision: StateRevision
     public let responseRevision: StateRevision
+    public let modelIdentifier: String?
+    public let serviceTier: String?
     package let permissionConfiguration: CodexThreadPermissionConfiguration?
 
     fileprivate let session: CodexSession
@@ -66,6 +68,8 @@ public final class CodexThreadLease: @unchecked Sendable {
         id: ThreadID,
         startRevision: StateRevision,
         responseRevision: StateRevision,
+        modelIdentifier: String? = nil,
+        serviceTier: String? = nil,
         permissionConfiguration: CodexThreadPermissionConfiguration? = nil,
         session: CodexSession,
         token: ThreadLeaseToken
@@ -73,6 +77,8 @@ public final class CodexThreadLease: @unchecked Sendable {
         self.id = id
         self.startRevision = startRevision
         self.responseRevision = responseRevision
+        self.modelIdentifier = modelIdentifier
+        self.serviceTier = serviceTier
         self.permissionConfiguration = permissionConfiguration
         self.session = session
         self.token = token
@@ -384,6 +390,8 @@ public extension CodexSession {
             id: id,
             startRevision: call.startRevision,
             responseRevision: call.responseRevision,
+            modelIdentifier: response.model,
+            serviceTier: response.serviceTier,
             permissionConfiguration: .init(
                 profileID: response.activePermissionProfile?.id,
                 approvalPolicy: response.approvalPolicy,
@@ -433,6 +441,8 @@ public extension CodexSession {
             id: actual,
             startRevision: call.startRevision,
             responseRevision: call.responseRevision,
+            modelIdentifier: response.model,
+            serviceTier: response.serviceTier,
             permissionConfiguration: .init(
                 profileID: response.activePermissionProfile?.id,
                 approvalPolicy: response.approvalPolicy,
@@ -463,6 +473,8 @@ public extension CodexSession {
             id: id,
             startRevision: call.startRevision,
             responseRevision: call.responseRevision,
+            modelIdentifier: response.model,
+            serviceTier: response.serviceTier,
             permissionConfiguration: .init(
                 profileID: response.activePermissionProfile?.id,
                 approvalPolicy: response.approvalPolicy,

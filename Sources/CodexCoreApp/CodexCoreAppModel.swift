@@ -95,12 +95,12 @@ final class CodexCoreAppModel {
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
-    var modelIDByThread: [String: String]
-    var lastManualModelID: String?
+    var modelPreferenceByThread: [String: CodexModelPreference]
+    var lastManualModelPreference: CodexModelPreference?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     let voiceSession = CodexVoiceChatSession()
-    private var isProjectlessDraft = true
-    private var projectlessDraftPaths: CodexProjectlessThreadPaths?
+    var isProjectlessDraft = true
+    var projectlessDraftPaths: CodexProjectlessThreadPaths?
     private var chatSelectionGeneration = 0
     var pluginLauncherTarget: CodexComposerPluginLauncher?
     var mobileRouteSession = CodexMobileRouteSession()
@@ -136,8 +136,12 @@ final class CodexCoreAppModel {
         )
         self.projectlessThreadIDs = CodexProjectlessThreadStorage.load(from: preferenceStore)
         self.projectSourceFoldersByPrimaryPath = CodexProjectSourceFoldersStorage.load(from: preferenceStore)
-        self.modelIDByThread = CodexModelPreferenceStorage.loadThreadModelIDs(from: preferenceStore)
-        self.lastManualModelID = CodexModelPreferenceStorage.loadLastModelID(from: preferenceStore)
+        self.modelPreferenceByThread = CodexModelPreferenceStorage.loadThreadSelections(
+            from: preferenceStore
+        )
+        self.lastManualModelPreference = CodexModelPreferenceStorage.loadLastSelection(
+            from: preferenceStore
+        )
         let expandedState = CodexExpandedProjectStorage.loadExpandedProjectState(from: preferenceStore)
         let projectOrder = CodexProjectOrderStorage.loadProjectOrder(from: preferenceStore)
         let pinnedProjectIDs = CodexPinnedProjectStorage.loadPinnedProjectIDs(from: preferenceStore)
@@ -1509,9 +1513,21 @@ final class CodexCoreAppModel {
                 start.config = Self.realtimeVoiceFeatureConfig
                 start.threadSource = CodexSchemaThreadSource(.string("realtime_voice"))
                 start.dynamicTools = Self.voiceTaskToolSpecs
+                let provenance = CodexModelPreference(
+                    model: configurationSession.modelSelection,
+                    serviceTier: configurationSession.serviceTierSelection,
+                    isServiceTierExplicit:
+                        lastManualModelPreference?.isServiceTierExplicit ?? false
+                )
                 visibleLease = try await codex.startThread(start)
                 createdNewVoiceThread = true
                 await activateThread(visibleLease)
+                hydrateModelPreference(
+                    for: visibleLease.id.rawValue,
+                    modelID: visibleLease.modelIdentifier,
+                    serviceTierID: visibleLease.serviceTier,
+                    provenance: provenance
+                )
                 if isProjectlessDraft {
                     rememberProjectlessThread(visibleLease.id.rawValue)
                     sidebarNavigationSession.selectProjectlessChat(visibleLease.id.rawValue)
@@ -1610,6 +1626,11 @@ final class CodexCoreAppModel {
                 await lease.close()
                 return
             }
+            hydrateModelPreference(
+                for: threadID,
+                modelID: lease.modelIdentifier,
+                serviceTierID: lease.serviceTier
+            )
             await activateThread(lease)
             await attachResumedTurnIfNeeded(
                 lease,
@@ -1941,11 +1962,18 @@ final class CodexCoreAppModel {
         do {
             let fork = try await source.fork(threadForkParameters(threadID: sourceID))
             guard chatSelectionGeneration == sourceSelectionGeneration else { return }
+            hydrateModelPreference(
+                for: fork.id.rawValue,
+                modelID: fork.modelIdentifier,
+                serviceTierID: fork.serviceTier,
+                provenance: modelPreferenceByThread[sourceID]
+            )
             invalidatePendingChatSelection()
             let forkSelectionGeneration = chatSelectionGeneration
             clearThreadState(keepCurrentThread: true)
             await activateThread(fork)
             guard chatSelectionGeneration == forkSelectionGeneration else { return }
+            applyPreferredModel(for: fork.id.rawValue)
             if isProjectlessDraft {
                 rememberProjectlessThread(fork.id.rawValue)
                 sidebarNavigationSession.selectProjectlessChat(fork.id.rawValue)
@@ -2026,14 +2054,25 @@ final class CodexCoreAppModel {
         if let currentThreadLease, !currentThreadLease.isClosed {
             return currentThreadLease
         }
+        let provenance = CodexModelPreference(
+            model: configurationSession.modelSelection,
+            serviceTier: configurationSession.serviceTierSelection,
+            isServiceTierExplicit:
+                lastManualModelPreference?.isServiceTierExplicit ?? false
+        )
         let thread = try await codex.startThread(threadStartParametersForCurrentDraft())
         await activateThread(thread)
+        hydrateModelPreference(
+            for: thread.id.rawValue,
+            modelID: thread.modelIdentifier,
+            serviceTierID: thread.serviceTier,
+            provenance: provenance
+        )
         if isProjectlessDraft {
             rememberProjectlessThread(thread.id.rawValue)
             sidebarNavigationSession.selectProjectlessChat(thread.id.rawValue)
         }
         syncComposerThreadID()
-        rememberModelSelection(for: thread.id.rawValue)
         workspacePanel.migrateUnassigned(to: thread.id.rawValue)
         appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
         return thread
@@ -2092,21 +2131,20 @@ final class CodexCoreAppModel {
         }
     }
 
-    private func threadStartParameters() -> CodexSchemaThreadStartParams {
-        var parameters = CodexSchemaThreadStartParams(
+    func threadStartParameters() -> CodexSchemaThreadStartParams {
+        var parameters = configurationSession.wireSelection.applying(to: CodexSchemaThreadStartParams(
             cwd: workspacePath,
             dynamicTools: Self.voiceTaskToolSpecs,
             historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
-            model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: protocolWorkspaceRoots
-        )
+        ))
         configurationSession.newThreadApprovalSelection
             .permissionProfileWireConfiguration
             .apply(to: &parameters)
         return parameters
     }
 
-    private func threadStartParametersForCurrentDraft() throws -> CodexSchemaThreadStartParams {
+    func threadStartParametersForCurrentDraft() throws -> CodexSchemaThreadStartParams {
         guard isProjectlessDraft else { return threadStartParameters() }
         let paths = try projectlessDraftPaths ?? CodexProjectlessThreadPaths.create()
         projectlessDraftPaths = paths
@@ -2119,21 +2157,15 @@ final class CodexCoreAppModel {
         return parameters
     }
 
-    private func threadResumeParametersForCurrentContext(
+    func threadResumeParametersForCurrentContext(
         threadID: String
     ) -> CodexSchemaThreadResumeParams {
-        var parameters: CodexSchemaThreadResumeParams
+        var parameters = threadResumeParameters(threadID: threadID)
         if isProjectlessDraft, let paths = projectlessDraftPaths {
-            parameters = CodexSchemaThreadResumeParams(
-                cwd: paths.cwd,
-                model: modelSelection.modelIdentifier,
-                runtimeWorkspaceRoots: [
-                    CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
-                ],
-                threadID: threadID
-            )
-        } else {
-            parameters = threadResumeParameters(threadID: threadID)
+            parameters.cwd = paths.cwd
+            parameters.runtimeWorkspaceRoots = [
+                CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
+            ]
         }
         if allSidebarChats.first(where: { $0.id == threadID })?
             .threadSource == "realtime_voice" {
@@ -2152,16 +2184,18 @@ final class CodexCoreAppModel {
         CodexProjectlessThreadStorage.save(projectlessThreadIDs, to: preferenceStore)
     }
 
-    private func threadResumeParameters(threadID: String) -> CodexSchemaThreadResumeParams {
-        CodexSchemaThreadResumeParams(
+    func threadResumeParameters(threadID: String) -> CodexSchemaThreadResumeParams {
+        taskWireSelection(
+            for: threadID,
+            explicitTierOnly: true
+        ).applying(to: CodexSchemaThreadResumeParams(
             cwd: workspacePath,
-            model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: protocolWorkspaceRoots,
             threadID: threadID
-        )
+        ))
     }
 
-    private func threadForkParameters(
+    func threadForkParameters(
         threadID: String,
         ephemeral: Bool = false
     ) -> CodexSchemaThreadForkParams {
@@ -2171,18 +2205,17 @@ final class CodexCoreAppModel {
         } else {
             protocolWorkspaceRoots
         }
-        var parameters = CodexSchemaThreadForkParams(
+        var parameters = taskWireSelection(for: threadID).applying(to: CodexSchemaThreadForkParams(
             cwd: cwd,
             ephemeral: ephemeral,
-            model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: roots,
             threadID: threadID
-        )
+        ))
         approvalSelection.permissionProfileWireConfiguration.apply(to: &parameters)
         return parameters
     }
 
-    private func turnStartParameters(
+    func turnStartParameters(
         threadID: ThreadID,
         input: [CodexInput],
         clientUserMessageID: String,
@@ -2195,16 +2228,21 @@ final class CodexCoreAppModel {
         } else {
             protocolWorkspaceRoots
         }
-        var parameters = CodexSchemaTurnStartParams(
+        let wire = taskWireSelection(for: threadID.rawValue)
+        let effectiveWire = if let collaborationMode,
+                               collaborationMode.settings.model != wire.modelIdentifier {
+            wire.omittingModelSpecificOverrides()
+        } else {
+            wire
+        }
+        var parameters = effectiveWire.applying(to: CodexSchemaTurnStartParams(
             clientUserMessageID: clientUserMessageID,
             collaborationMode: collaborationMode,
             cwd: cwd,
-            effort: CodexSchemaReasoningEffort(.string(reasoningSelection.effort.rawValue)),
             input: input.map { CodexSchemaUserInput($0.jsonValue) },
-            model: modelSelection.modelIdentifier,
             runtimeWorkspaceRoots: roots,
             threadID: threadID.rawValue
-        )
+        ))
         permissionConfiguration.apply(to: &parameters)
         return parameters
     }
@@ -2217,6 +2255,12 @@ final class CodexCoreAppModel {
         guard let source = currentThreadLease else { throw CodexSDKError.runtimeNotFound }
         let lease = try await source.fork(
             threadForkParameters(threadID: source.id.rawValue, ephemeral: true)
+        )
+        hydrateModelPreference(
+            for: lease.id.rawValue,
+            modelID: lease.modelIdentifier,
+            serviceTierID: lease.serviceTier,
+            provenance: modelPreferenceByThread[source.id.rawValue]
         )
         activeSideChatThreadLease = lease
         appendActivity(.notice, title: "Side chat ready", detail: "Forked focused branch")
@@ -2379,10 +2423,19 @@ final class CodexCoreAppModel {
         CodexErrorFormat.localizedDescription(error)
     }
 
-    private func applyFastCommand() {
-        let activity = configurationSession.applyFastCommand()
-        rememberManualModelSelection(configurationSession.modelSelection)
-        appendActivity(.notice, title: activity.title, detail: activity.detail)
+    func applyFastCommand() {
+        let result = configurationSession.applyFastCommandResult()
+        if result.didApply {
+            rememberManualModelSelection(
+                configurationSession.modelSelection,
+                tierExplicit: true
+            )
+        }
+        appendActivity(
+            .notice,
+            title: result.activity.title,
+            detail: result.activity.detail
+        )
     }
 
     private func applyReasoningCommand() {

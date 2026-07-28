@@ -391,7 +391,10 @@ public struct CodexSettingsGeneralPage: View {
             VStack(spacing: 0) {
                 CodexSettingsApprovalRow(selection: $approvalSelection, options: approvalOptions)
                 CodexSettingsModelRow(selection: $modelSelection, options: modelOptions)
-                CodexSettingsReasoningRow(selection: $reasoningSelection)
+                CodexSettingsReasoningRow(
+                    selection: $reasoningSelection,
+                    options: modelSelection.supportedReasoning
+                )
             }
             .settingsPanel(theme: theme)
         }
@@ -867,6 +870,7 @@ public struct CodexSettingsModelRow: View {
 
 public struct CodexSettingsReasoningRow: View {
     @Binding var selection: CodexReasoningSelection
+    let options: [CodexReasoningSelection]
 
     public var body: some View {
         CodexSettingsMenuRow(
@@ -874,7 +878,7 @@ public struct CodexSettingsReasoningRow: View {
             detail: "Default reasoning effort for new turns",
             value: selection.displayName
         ) {
-            ForEach(CodexReasoningSelection.defaultOptions) { option in
+            ForEach(options.isEmpty ? CodexReasoningSelection.defaultOptions : options) { option in
                 Button(option.displayName) { selection = option }
             }
         }

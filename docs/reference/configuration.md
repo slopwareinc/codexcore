@@ -33,6 +33,10 @@ Do not set `CODEX_HOME` expecting it to replace `CodexConfig.codexHome`; the SDK
 
 `TRACE_DURATION` is a developer `just trace` option, not an SDK runtime-discovery variable. `launchArgumentsOverride` replaces normal app-server arguments but does not bypass the forced credential-store isolation override.
 
+## Task model settings
+
+Model identity, service tier, and reasoning effort are independent app-server settings. Build model and tier choices from `model/list`: only send an advertised tier ID, omit `serviceTier` for Standard, and preserve the model ID when changing speed. `ReasoningEffort.max` encodes the server value `max`.
+
 ## Composer permission profiles
 
 The reference app sends the selected app-server permission profile through the

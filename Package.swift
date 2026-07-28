@@ -101,6 +101,12 @@ let package = Package(
             path: "Tests/CodexCoreUITests",
             resources: [.process("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CodexCoreAppTests",
+            dependencies: ["CodexCore", "CodexCoreUI", "CodexCoreApp"],
+            path: "Tests/CodexCoreAppTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],
     swiftLanguageModes: [.v6]

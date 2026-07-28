@@ -391,9 +391,106 @@ public enum CodexProjectlessThreadStorage {
     }
 }
 
+package struct CodexModelPreference: Codable, Equatable, Sendable {
+    package static let legacyFastTierID = "fast"
+    package static let standardTierID = "standard"
+
+    package var modelID: String?
+    package var serviceTierID: String?
+    package var isServiceTierExplicit: Bool
+    package var isAuthoritativeModelID: Bool
+
+    package init(
+        modelID: String?,
+        serviceTierID: String?,
+        isServiceTierExplicit: Bool,
+        isAuthoritativeModelID: Bool = false
+    ) {
+        self.modelID = modelID
+        self.serviceTierID = serviceTierID
+        self.isServiceTierExplicit = isServiceTierExplicit
+        self.isAuthoritativeModelID = isAuthoritativeModelID
+    }
+
+    package init(
+        model: CodexModelSelection,
+        serviceTier: CodexServiceTierSelection,
+        isServiceTierExplicit: Bool,
+        isAuthoritativeModelID: Bool = false
+    ) {
+        self.init(
+            modelID: model.id,
+            serviceTierID: serviceTier.protocolValue ?? Self.standardTierID,
+            isServiceTierExplicit: isServiceTierExplicit,
+            isAuthoritativeModelID: isAuthoritativeModelID
+        )
+    }
+
+    package static func migratingLegacyModelID(_ id: String) -> Self {
+        if id.caseInsensitiveCompare("speed") == .orderedSame {
+            return Self(
+                modelID: nil,
+                serviceTierID: legacyFastTierID,
+                isServiceTierExplicit: true
+            )
+        }
+        if id.lowercased().hasSuffix("-speed") {
+            return Self(
+                modelID: String(id.dropLast("-speed".count)),
+                serviceTierID: legacyFastTierID,
+                isServiceTierExplicit: true
+            )
+        }
+        return Self(
+            modelID: id,
+            serviceTierID: nil,
+            isServiceTierExplicit: false
+        )
+    }
+}
+
 public enum CodexModelPreferenceStorage {
     private static let lastModelKey = "CodexCoreApp.lastManualModel.v1"
     private static let threadModelsKey = "CodexCoreApp.threadModels.v1"
+    private static let lastSelectionKey = "CodexCoreApp.lastManualModel.v2"
+    private static let threadSelectionsKey = "CodexCoreApp.threadModels.v2"
+
+    package static func loadLastSelection(
+        from store: any CodexStringListPreferenceStore
+    ) -> CodexModelPreference? {
+        if let selection: CodexModelPreference = decode(lastSelectionKey, from: store) {
+            return selection
+        }
+        return loadLastModelID(from: store).map(CodexModelPreference.migratingLegacyModelID)
+    }
+
+    package static func saveLastSelection(
+        _ selection: CodexModelPreference,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        encode(selection, forKey: lastSelectionKey, to: store)
+    }
+
+    package static func loadThreadSelections(
+        from store: any CodexStringListPreferenceStore
+    ) -> [String: CodexModelPreference] {
+        if let selections: [String: CodexModelPreference] = decode(
+            threadSelectionsKey,
+            from: store
+        ) {
+            return selections
+        }
+        return loadThreadModelIDs(from: store).mapValues(
+            CodexModelPreference.migratingLegacyModelID
+        )
+    }
+
+    package static func saveThreadSelections(
+        _ selections: [String: CodexModelPreference],
+        to store: any CodexStringListPreferenceStore
+    ) {
+        encode(selections, forKey: threadSelectionsKey, to: store)
+    }
 
     public static func loadLastModelID(from store: any CodexStringListPreferenceStore) -> String? {
         store.loadStrings(forKey: lastModelKey).first
@@ -416,5 +513,25 @@ public enum CodexModelPreferenceStorage {
               let value = String(data: data, encoding: .utf8)
         else { return }
         store.saveStrings([value], forKey: threadModelsKey)
+    }
+
+    private static func decode<Value: Decodable>(
+        _ key: String,
+        from store: any CodexStringListPreferenceStore
+    ) -> Value? {
+        store.loadStrings(forKey: key).first
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode(Value.self, from: $0) }
+    }
+
+    private static func encode<Value: Encodable>(
+        _ value: Value,
+        forKey key: String,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        guard let data = try? JSONEncoder().encode(value),
+              let string = String(data: data, encoding: .utf8)
+        else { return }
+        store.saveStrings([string], forKey: key)
     }
 }

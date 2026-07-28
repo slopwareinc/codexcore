@@ -251,6 +251,17 @@ extension CodexCoreAppModel {
         configurationSession.modelOptions
     }
 
+    var serviceTierSelection: CodexServiceTierSelection {
+        get { configurationSession.serviceTierSelection }
+        set {
+            guard configurationSession.selectServiceTier(newValue) else { return }
+            rememberManualModelSelection(
+                configurationSession.modelSelection,
+                tierExplicit: true
+            )
+        }
+    }
+
     var reasoningSelection: CodexReasoningSelection {
         get { configurationSession.reasoningSelection }
         set { configurationSession.reasoningSelection = newValue }
@@ -332,26 +343,108 @@ extension CodexCoreAppModel {
     }
 
     func applyPreferredModel(for threadID: String?) {
-        let preferredID = threadID.flatMap { modelIDByThread[$0] } ?? lastManualModelID
-        let selection = preferredID.flatMap { id in
-            configurationSession.modelOptions.first { option in
-                option.id == id || option.modelIdentifier == id
-            }
-        } ?? (preferredID == CodexModelSelection.appServerDefault.id ? .appServerDefault : CodexModelSelection.preferredDefault(from: configurationSession.modelOptions))
-        configurationSession.selectModel(selection)
+        let preference = threadID.flatMap { modelPreferenceByThread[$0] }
+            ?? (threadID == nil ? lastManualModelPreference : nil)
+        guard let preference else {
+            configurationSession.selectModel(
+                CodexModelSelection.preferredDefault(
+                    from: configurationSession.modelOptions
+                ),
+                useServerDefaults: true
+            )
+            return
+        }
+        apply(configurationSession.resolveModelPreference(preference))
     }
 
-    func rememberManualModelSelection(_ selection: CodexModelSelection) {
-        lastManualModelID = selection.id
-        CodexModelPreferenceStorage.saveLastModelID(selection.id, to: preferenceStore)
+    func rememberManualModelSelection(
+        _ selection: CodexModelSelection,
+        tierExplicit: Bool? = nil
+    ) {
+        let existing = currentThreadID.flatMap { modelPreferenceByThread[$0] }
+            ?? lastManualModelPreference
+        let preference = CodexModelPreference(
+            model: selection,
+            serviceTier: configurationSession.serviceTierSelection,
+            isServiceTierExplicit: tierExplicit
+                ?? existing?.isServiceTierExplicit
+                ?? false
+        )
+        if lastManualModelPreference != preference {
+            lastManualModelPreference = preference
+            CodexModelPreferenceStorage.saveLastSelection(
+                preference,
+                to: preferenceStore
+            )
+        }
         if let threadID = currentThreadID {
-            modelIDByThread[threadID] = selection.id
-            CodexModelPreferenceStorage.saveThreadModelIDs(modelIDByThread, to: preferenceStore)
+            if modelPreferenceByThread[threadID] != preference {
+                modelPreferenceByThread[threadID] = preference
+                saveThreadModelPreferences()
+            }
         }
     }
 
-    func rememberModelSelection(for threadID: String) {
-        modelIDByThread[threadID] = configurationSession.modelSelection.id
-        CodexModelPreferenceStorage.saveThreadModelIDs(modelIDByThread, to: preferenceStore)
+    func resolvedModelPreference(
+        for threadID: String
+    ) -> CodexResolvedModelPreference? {
+        modelPreferenceByThread[threadID].map {
+            configurationSession.resolveModelPreference($0)
+        }
+    }
+
+    func taskWireSelection(
+        for threadID: String,
+        explicitTierOnly: Bool = false
+    ) -> CodexTaskWireSelection {
+        configurationSession.wireSelection(
+            for: resolvedModelPreference(for: threadID),
+            explicitTierOnly: explicitTierOnly
+        )
+    }
+
+    func hydrateModelPreference(
+        for threadID: String,
+        modelID: String?,
+        serviceTierID: String?,
+        provenance: CodexModelPreference? = nil
+    ) {
+        let existing = modelPreferenceByThread[threadID]
+        let preference = CodexModelPreference(
+            modelID: modelID,
+            serviceTierID: serviceTierID
+                ?? CodexModelPreference.standardTierID,
+            isServiceTierExplicit:
+                existing?.isServiceTierExplicit
+                ?? provenance?.isServiceTierExplicit
+                ?? false,
+            isAuthoritativeModelID: modelID != nil
+        )
+        let resolved = configurationSession.resolveModelPreference(preference)
+        let hydrated = CodexModelPreference(
+            model: resolved.model,
+            serviceTier: resolved.serviceTier,
+            isServiceTierExplicit: resolved.isServiceTierExplicit,
+            isAuthoritativeModelID: modelID != nil
+        )
+        if existing != hydrated {
+            modelPreferenceByThread[threadID] = hydrated
+            saveThreadModelPreferences()
+        }
+        if currentThreadID == threadID {
+            apply(resolved)
+        }
+    }
+
+    private func apply(_ preference: CodexResolvedModelPreference) {
+        configurationSession.selectModel(preference.model)
+        _ = configurationSession.selectServiceTier(preference.serviceTier)
+    }
+
+    private func saveThreadModelPreferences() {
+        CodexModelPreferenceStorage.saveThreadSelections(
+            modelPreferenceByThread,
+            to: preferenceStore
+        )
     }
 }

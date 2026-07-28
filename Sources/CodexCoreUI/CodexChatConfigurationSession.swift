@@ -22,8 +22,11 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     public private(set) var isPlanModeEnabled: Bool
     public private(set) var modelSelection: CodexModelSelection
     public private(set) var modelOptions: [CodexModelSelection]
+    public private(set) var serviceTierSelection: CodexServiceTierSelection
     public var reasoningSelection: CodexReasoningSelection
     public private(set) var slashCommands: [CodexSlashCommand]
+    private var modelIndex: CodexModelIndex
+    private var preferredModel: CodexModelSelection
 
     public init(
         approvalSelection: CodexApprovalSelection = .askForApproval,
@@ -32,6 +35,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         isPlanModeEnabled: Bool = false,
         modelSelection: CodexModelSelection = .appServerDefault,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        serviceTierSelection: CodexServiceTierSelection = .standard,
         reasoningSelection: CodexReasoningSelection = .medium,
         slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands
     ) {
@@ -45,8 +49,13 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         self.isPlanModeEnabled = isPlanModeEnabled
         self.modelSelection = modelSelection
         self.modelOptions = modelOptions
+        self.serviceTierSelection = serviceTierSelection.reconciled(
+            for: modelSelection
+        )
         self.reasoningSelection = reasoningSelection
         self.slashCommands = slashCommands
+        self.modelIndex = CodexModelIndex(models: modelOptions)
+        self.preferredModel = CodexModelSelection.preferredDefault(from: modelOptions)
     }
 
     public var approvalSelection: CodexApprovalSelection {
@@ -67,6 +76,36 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     public var canUsePlanMode: Bool {
         planModeOption != nil
+    }
+
+    package var wireSelection: CodexTaskWireSelection {
+        CodexTaskWireSelection(
+            modelIdentifier: modelSelection.modelIdentifier,
+            serviceTier: serviceTierSelection.protocolValue,
+            effort: CodexSchemaReasoningEffort(
+                .string(reasoningSelection.effort.rawValue)
+            )
+        )
+    }
+
+    package func wireSelection(
+        for preference: CodexResolvedModelPreference?,
+        explicitTierOnly: Bool = false
+    ) -> CodexTaskWireSelection {
+        guard let preference else {
+            return CodexTaskWireSelection(
+                modelIdentifier: nil,
+                serviceTier: nil,
+                effort: wireSelection.effort
+            )
+        }
+        return CodexTaskWireSelection(
+            modelIdentifier: preference.model.modelIdentifier,
+            serviceTier: explicitTierOnly && !preference.isServiceTierExplicit
+                ? nil
+                : preference.serviceTier.protocolValue,
+            effort: wireSelection.effort
+        )
     }
 
     public var collaborationModeOverride: CodexSchemaCollaborationMode? {
@@ -96,6 +135,9 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         isPlanModeEnabled = false
         modelSelection = .appServerDefault
         modelOptions = CodexModelSelection.defaultOptions
+        modelIndex = CodexModelIndex(models: modelOptions)
+        preferredModel = CodexModelSelection.preferredDefault(from: modelOptions)
+        serviceTierSelection = .standard
         reasoningSelection = .medium
         slashCommands = CodexSlashCommand.observedCommands
     }
@@ -106,9 +148,61 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         reasoningSelection = reasoning
     }
 
-    public mutating func selectModel(_ selection: CodexModelSelection) {
+    public mutating func selectModel(
+        _ selection: CodexModelSelection,
+        useServerDefaults: Bool = false
+    ) {
+        let previousTier = serviceTierSelection
         modelSelection = selection
-        normalizeReasoningForSelectedModel()
+        if useServerDefaults {
+            reasoningSelection = selection.defaultReasoning
+                ?? supportedReasoning(for: selection).first
+                ?? .medium
+            serviceTierSelection = selection.defaultServiceTierSelection
+        } else {
+            normalizeReasoningForSelectedModel()
+            serviceTierSelection = previousTier.reconciled(for: selection)
+        }
+    }
+
+    private func modelOption(id: String?) -> CodexModelSelection? {
+        id.flatMap { modelIndex.model(id: $0) }
+    }
+
+    package func resolveModelPreference(
+        _ preference: CodexModelPreference
+    ) -> CodexResolvedModelPreference {
+        let model = modelOption(id: preference.modelID)
+            ?? authoritativeFallbackModel(for: preference)
+            ?? preferredModel
+        let serviceTier = if preference.serviceTierID == nil,
+                             !preference.isServiceTierExplicit {
+            model.defaultServiceTierSelection
+        } else {
+            model.serviceTierSelection(id: preference.serviceTierID)
+        }
+        return CodexResolvedModelPreference(
+            model: model,
+            serviceTier: serviceTier,
+            isServiceTierExplicit: preference.isServiceTierExplicit
+        )
+    }
+
+    @discardableResult
+    public mutating func selectServiceTier(
+        _ selection: CodexServiceTierSelection
+    ) -> Bool {
+        switch selection {
+        case .standard:
+            serviceTierSelection = .standard
+            return true
+        case .tier(let requested):
+            guard let tier = modelSelection.serviceTier(id: requested.id) else {
+                return false
+            }
+            serviceTierSelection = .tier(tier)
+            return true
+        }
     }
 
     @discardableResult
@@ -256,16 +350,17 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     public mutating func applyModelResponse(_ response: CodexSchemaModelListResponse) -> CodexChatConfigurationActivity {
         let options = CodexModelSelection.options(from: response)
         guard !options.isEmpty else {
-            modelOptions = CodexModelSelection.defaultOptions
+            installModelOptions(CodexModelSelection.defaultOptions)
             selectModel(.appServerDefault)
             return CodexChatConfigurationActivity(title: "Model list empty", detail: "Using app-server default model")
         }
 
-        modelOptions = options
-        let selection = modelSelection.id == CodexModelSelection.appServerDefault.id
+        installModelOptions(options)
+        let usesServerDefaults = modelSelection.id == CodexModelSelection.appServerDefault.id
+        let selection = usesServerDefaults
             ? CodexModelSelection.preferredDefault(from: options)
             : selectedModel(from: options)
-        selectModel(selection)
+        selectModel(selection, useServerDefaults: usesServerDefaults)
         return CodexChatConfigurationActivity(title: "Loaded models", detail: "\(options.count) app-server models")
     }
 
@@ -283,7 +378,8 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failModelRefresh(message: String) -> CodexChatConfigurationActivity {
-        modelOptions = CodexModelSelection.defaultOptions
+        installModelOptions(CodexModelSelection.defaultOptions)
+        selectModel(.appServerDefault)
         return CodexChatConfigurationActivity(title: "Model list unavailable", detail: message)
     }
 
@@ -320,28 +416,46 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func applyFastCommand(
-        fallbackQuery: String = "speed",
+        fallbackQuery: String = "fast",
         fallbackReasoning: CodexReasoningSelection? = nil
     ) -> CodexChatConfigurationActivity {
-        guard let target = modelOptions.first(where: { option in
-            option.isFastModel ||
-            option.id.caseInsensitiveCompare(fallbackQuery) == .orderedSame ||
-            option.modelIdentifier?.caseInsensitiveCompare(fallbackQuery) == .orderedSame ||
-            option.displayName.localizedCaseInsensitiveContains(fallbackQuery)
-        }) else {
-            return CodexChatConfigurationActivity(title: "Fast mode", detail: "No Fast model returned by app-server")
+        applyFastCommandResult(
+            fallbackQuery: fallbackQuery,
+            fallbackReasoning: fallbackReasoning
+        ).activity
+    }
+
+    package mutating func applyFastCommandResult(
+        fallbackQuery: String = "fast",
+        fallbackReasoning: CodexReasoningSelection? = nil
+    ) -> (
+        activity: CodexChatConfigurationActivity,
+        didApply: Bool
+    ) {
+        guard case .tier(let target) = modelSelection.serviceTierSelection(
+            id: fallbackQuery
+        ) else {
+            return (
+                CodexChatConfigurationActivity(
+                    title: "Fast mode",
+                    detail: "Fast is unavailable for \(modelSelection.displayName)"
+                ),
+                false
+            )
         }
 
-        selectModel(target)
-
-        let supported = target.supportedReasoning
-        if let fastReasoning = fallbackReasoning ?? target.defaultReasoning ?? [CodexReasoningSelection.minimal, .low, .none].first(where: { supported.contains($0) }) {
+        serviceTierSelection = .tier(target)
+        if let fastReasoning = fallbackReasoning,
+           supportedReasoning(for: modelSelection).contains(fastReasoning) {
             reasoningSelection = fastReasoning
         }
 
-        return CodexChatConfigurationActivity(
-            title: "Fast mode",
-            detail: "\(modelSelection.displayName) \(reasoningSelection.displayName)"
+        return (
+            CodexChatConfigurationActivity(
+                title: "Fast mode",
+                detail: "\(modelSelection.displayName) \(target.displayName)"
+            ),
+            true
         )
     }
 
@@ -397,5 +511,52 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     private func supportedReasoning(for model: CodexModelSelection) -> [CodexReasoningSelection] {
         model.supportedReasoning.isEmpty ? CodexReasoningSelection.defaultOptions : model.supportedReasoning
+    }
+
+    private mutating func installModelOptions(
+        _ models: [CodexModelSelection]
+    ) {
+        modelOptions = models
+        modelIndex = CodexModelIndex(models: models)
+        preferredModel = CodexModelSelection.preferredDefault(from: models)
+    }
+
+    private func authoritativeFallbackModel(
+        for preference: CodexModelPreference
+    ) -> CodexModelSelection? {
+        guard preference.isAuthoritativeModelID,
+              let id = preference.modelID,
+              !id.isEmpty
+        else { return nil }
+        return CodexModelSelection(
+            id: id,
+            displayName: id,
+            modelIdentifier: id
+        )
+    }
+}
+
+private struct CodexModelIndex: Equatable, Sendable {
+    private var exact: [String: CodexModelSelection] = [:]
+    private var aliases: [String: CodexModelSelection] = [:]
+
+    init(models: [CodexModelSelection]) {
+        for model in models {
+            let exactKey = model.id.lowercased()
+            if exact[exactKey] == nil {
+                exact[exactKey] = model
+            }
+            if let identifier = model.modelIdentifier {
+                let aliasKey = identifier.lowercased()
+                if aliases[aliasKey] == nil {
+                    aliases[aliasKey] = model
+                }
+            }
+        }
+    }
+
+    func model(id: String) -> CodexModelSelection? {
+        let key = id.lowercased()
+        return exact[key] ?? aliases[key]
     }
 }

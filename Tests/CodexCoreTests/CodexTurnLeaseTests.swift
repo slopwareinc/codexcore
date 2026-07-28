@@ -2,6 +2,27 @@ import XCTest
 @testable import CodexCore
 
 final class CodexTurnLeaseTests: XCTestCase {
+    func testStartAndForkLeasesExposeEffectiveModelAndServiceTier() async throws {
+        let transport = CodexSessionLeaseTestTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        let thread = try await session.startThread()
+        XCTAssertEqual(thread.modelIdentifier, "gpt-5.6")
+        XCTAssertEqual(thread.serviceTier, "priority")
+
+        let fork = try await thread.fork(.init(threadID: thread.id.rawValue))
+        XCTAssertEqual(fork.modelIdentifier, "gpt-5.6")
+        XCTAssertEqual(fork.serviceTier, "priority")
+
+        await fork.close()
+        await thread.close()
+        await session.stop()
+    }
+
     func testLeaseCommandsUseCanonicalIdentityAndReturnAtomicTerminalResult() async throws {
         let transport = CodexSessionLeaseTestTransport()
         let session = CodexSession(
@@ -537,11 +558,13 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
             "model": .string("gpt-5.6"),
             "modelProvider": .string("openai"),
             "sandbox": .dictionary(["type": .string("workspaceWrite")]),
+            "serviceTier": .string("priority"),
             "thread": .dictionary([
                 "cliVersion": .string("alpha.20"),
                 "createdAt": .int(1),
                 "cwd": .string("/tmp"),
                 "ephemeral": .bool(false),
+                "historyMode": .string("legacy"),
                 "id": .string(id),
                 "historyMode": .string("legacy"),
                 "modelProvider": .string("openai"),

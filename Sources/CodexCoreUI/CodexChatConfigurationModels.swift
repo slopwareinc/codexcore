@@ -304,6 +304,79 @@ public struct CodexPermissionProfileSummary: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct CodexModelServiceTier: Identifiable, Equatable, Hashable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let detail: String
+
+    public init(id: String, displayName: String, detail: String) {
+        self.id = id
+        self.displayName = displayName
+        self.detail = detail
+    }
+}
+
+public enum CodexServiceTierSelection: Identifiable, Equatable, Hashable, Sendable {
+    case standard
+    case tier(CodexModelServiceTier)
+
+    public var id: String {
+        switch self {
+        case .standard: "standard"
+        case .tier(let tier): tier.id
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .standard: "Standard"
+        case .tier(let tier): tier.displayName
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .standard: "Default speed"
+        case .tier(let tier): tier.detail
+        }
+    }
+
+    /// `nil` is the app-server's explicit Standard/default tier behavior.
+    public var protocolValue: String? {
+        switch self {
+        case .standard: nil
+        case .tier(let tier): tier.id
+        }
+    }
+
+    func reconciled(for model: CodexModelSelection) -> Self {
+        switch self {
+        case .standard:
+            .standard
+        case .tier(let tier):
+            model.serviceTier(id: tier.id)
+                .map(Self.tier)
+                ?? model.defaultServiceTierSelection
+        }
+    }
+}
+
+package struct CodexResolvedModelPreference: Equatable, Sendable {
+    package var model: CodexModelSelection
+    package var serviceTier: CodexServiceTierSelection
+    package var isServiceTierExplicit: Bool
+
+    package init(
+        model: CodexModelSelection,
+        serviceTier: CodexServiceTierSelection,
+        isServiceTierExplicit: Bool
+    ) {
+        self.model = model
+        self.serviceTier = serviceTier
+        self.isServiceTierExplicit = isServiceTierExplicit
+    }
+}
+
 public struct CodexModelSelection: Identifiable, Equatable, Sendable {
     public var id: String
     public var displayName: String
@@ -312,7 +385,10 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
     public var isDefault: Bool
     public var defaultReasoning: CodexReasoningSelection?
     public var supportedReasoning: [CodexReasoningSelection]
+    public let serviceTiers: [CodexModelServiceTier]
+    public let defaultServiceTierID: String?
     public var isFastModel: Bool
+    private let serviceTierByID: [String: CodexModelServiceTier]
 
     public init(
         id: String,
@@ -322,8 +398,26 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         isDefault: Bool = false,
         defaultReasoning: CodexReasoningSelection? = nil,
         supportedReasoning: [CodexReasoningSelection] = CodexReasoningSelection.defaultOptions,
+        serviceTiers: [CodexModelServiceTier] = [],
+        defaultServiceTierID: String? = nil,
         isFastModel: Bool = false
     ) {
+        var normalizedTiers = serviceTiers
+        var tierByID: [String: CodexModelServiceTier] = [:]
+        normalizedTiers = normalizedTiers.filter { tier in
+            let key = tier.id.lowercased()
+            guard tierByID[key] == nil else { return false }
+            tierByID[key] = tier
+            return true
+        }
+        if tierByID["fast"] == nil,
+           let fast = normalizedTiers.first(where: Self.isFastTier) {
+            tierByID["fast"] = fast
+        }
+        let normalizedDefaultTierID = defaultServiceTierID.flatMap {
+            tierByID[$0.lowercased()]?.id
+        }
+
         self.id = id
         self.displayName = displayName
         self.modelIdentifier = modelIdentifier
@@ -331,7 +425,42 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         self.isDefault = isDefault
         self.defaultReasoning = defaultReasoning
         self.supportedReasoning = supportedReasoning
+        self.serviceTiers = normalizedTiers
+        self.defaultServiceTierID = normalizedDefaultTierID
         self.isFastModel = isFastModel
+        self.serviceTierByID = tierByID
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+            && lhs.displayName == rhs.displayName
+            && lhs.modelIdentifier == rhs.modelIdentifier
+            && lhs.detail == rhs.detail
+            && lhs.isDefault == rhs.isDefault
+            && lhs.defaultReasoning == rhs.defaultReasoning
+            && lhs.supportedReasoning == rhs.supportedReasoning
+            && lhs.serviceTiers == rhs.serviceTiers
+            && lhs.defaultServiceTierID == rhs.defaultServiceTierID
+            && lhs.isFastModel == rhs.isFastModel
+    }
+
+    func serviceTier(id: String) -> CodexModelServiceTier? {
+        serviceTierByID[id.lowercased()]
+    }
+
+    func serviceTierSelection(id: String?) -> CodexServiceTierSelection {
+        guard let id,
+              id.caseInsensitiveCompare("default") != .orderedSame,
+              id.caseInsensitiveCompare("standard") != .orderedSame
+        else { return .standard }
+        return serviceTier(id: id).map(CodexServiceTierSelection.tier) ?? .standard
+    }
+
+    var defaultServiceTierSelection: CodexServiceTierSelection {
+        defaultServiceTierID
+            .flatMap(serviceTier(id:))
+            .map(CodexServiceTierSelection.tier)
+            ?? .standard
     }
 
     public static let appServerDefault = CodexModelSelection(
@@ -340,18 +469,13 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         modelIdentifier: nil,
         detail: "default app-server model",
         isDefault: true,
-        defaultReasoning: .medium,
-        isFastModel: false
+        defaultReasoning: .medium
     )
 
     public static let defaultOptions: [CodexModelSelection] = [.appServerDefault]
 
     public static func preferredDefault(from options: [CodexModelSelection]) -> CodexModelSelection {
-        let sol = options.first { option in
-            let value = (option.modelIdentifier ?? option.id) + " " + option.displayName
-            return value.localizedCaseInsensitiveContains("5.6") && value.localizedCaseInsensitiveContains("sol")
-        }
-        return sol ?? options.first(where: \.isDefault) ?? options.first ?? .appServerDefault
+        options.first(where: \.isDefault) ?? options.first ?? .appServerDefault
     }
 
     public static func options(from response: CodexSchemaModelListResponse) -> [CodexModelSelection] {
@@ -359,6 +483,13 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
             let supportedReasoning = model.supportedReasoningEfforts.compactMap {
                 reasoningSelection(
                     from: CodexJSONCoercion.flatString(from: $0.reasoningEffort.rawValue)
+                )
+            }
+            let serviceTiers = (model.serviceTiers ?? []).map {
+                CodexModelServiceTier(
+                    id: $0.id,
+                    displayName: $0.name,
+                    detail: $0.description
                 )
             }
             return CodexModelSelection(
@@ -373,13 +504,20 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
                 supportedReasoning: supportedReasoning.isEmpty
                     ? CodexReasoningSelection.defaultOptions
                     : supportedReasoning,
-                isFastModel: model.additionalSpeedTiers?.contains("fast") == true
+                serviceTiers: serviceTiers,
+                defaultServiceTierID: model.defaultServiceTier
             )
         }
     }
 
     private static func reasoningSelection(from rawValue: String?) -> CodexReasoningSelection? {
         rawValue.flatMap(CodexReasoningSelection.init(appServerValue:))
+    }
+
+    private static func isFastTier(_ tier: CodexModelServiceTier) -> Bool {
+        tier.id.caseInsensitiveCompare("priority") == .orderedSame
+            || tier.id.caseInsensitiveCompare("fast") == .orderedSame
+            || tier.displayName.caseInsensitiveCompare("fast") == .orderedSame
     }
 }
 
@@ -390,6 +528,7 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
     case medium
     case high
     case extraHigh
+    case maximum
     case ultra
 
     public var id: String { rawValue }
@@ -410,6 +549,8 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
             self = .high
         case ReasoningEffort.xhigh.rawValue:
             self = .extraHigh
+        case ReasoningEffort.max.rawValue:
+            self = .maximum
         case ReasoningEffort.ultra.rawValue:
             self = .ultra
         default:
@@ -425,6 +566,7 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
         case .medium: return "Medium"
         case .high: return "High"
         case .extraHigh: return "Extra High"
+        case .maximum: return "Maximum"
         case .ultra: return "Ultra"
         }
     }
@@ -437,6 +579,7 @@ public enum CodexReasoningSelection: String, CaseIterable, Identifiable, Equatab
         case .medium: return .medium
         case .high: return .high
         case .extraHigh: return .xhigh
+        case .maximum: return .max
         case .ultra: return .ultra
         }
     }

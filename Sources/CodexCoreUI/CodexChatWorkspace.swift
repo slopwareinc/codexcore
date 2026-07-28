@@ -75,6 +75,7 @@ public struct CodexChatWorkspaceView: View {
     @Binding private var approvalSelection: CodexApprovalSelection
     @Binding private var isPlanModeEnabled: Bool
     @Binding private var modelSelection: CodexModelSelection
+    @Binding private var serviceTierSelection: CodexServiceTierSelection
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var draft: String
     @Binding private var referencedFiles: [CodexReferencedFile]
@@ -152,6 +153,7 @@ public struct CodexChatWorkspaceView: View {
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
+        serviceTierSelection: Binding<CodexServiceTierSelection> = .constant(.standard),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         draft: Binding<String>,
         referencedFiles: Binding<[CodexReferencedFile]> = .constant([]),
@@ -222,6 +224,7 @@ public struct CodexChatWorkspaceView: View {
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
         self._modelSelection = modelSelection
+        self._serviceTierSelection = serviceTierSelection
         self._reasoningSelection = reasoningSelection
         self._draft = draft
         self._referencedFiles = referencedFiles
@@ -451,6 +454,7 @@ public struct CodexChatWorkspaceView: View {
                         modelSelection: $modelSelection,
                         modelOptions: modelOptions,
                         modelPickerStyle: .grid,
+                        serviceTierSelection: $serviceTierSelection,
                         reasoningSelection: $reasoningSelection,
                         slashCommands: slashCommands,
                         mcpServers: mcpServers,

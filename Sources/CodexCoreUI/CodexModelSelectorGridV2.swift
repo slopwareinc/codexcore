@@ -41,7 +41,7 @@ public struct CodexModelGridV2: Equatable, Sendable {
         }
     }
 
-    public static let orderedEfforts: [CodexReasoningSelection] = [.low, .medium, .high, .extraHigh, .ultra]
+    public static let orderedEfforts: [CodexReasoningSelection] = [.low, .medium, .high, .extraHigh, .maximum, .ultra]
 
     public var columns: [Column]
     public var efforts: [CodexReasoningSelection]
@@ -224,7 +224,15 @@ public struct CodexModelSelectorGridV2: View {
     }
 
     private func shade(for effort: CodexReasoningSelection) -> Double {
-        switch effort { case .low: 0.16; case .medium: 0.25; case .high: 0.36; case .extraHigh: 0.49; case .ultra: 0.65; default: 0.1 }
+        switch effort {
+        case .low: 0.16
+        case .medium: 0.25
+        case .high: 0.36
+        case .extraHigh: 0.49
+        case .maximum: 0.57
+        case .ultra: 0.65
+        default: 0.1
+        }
     }
 }
 
@@ -232,13 +240,20 @@ public struct ComposerModelGridPicker: View {
     @Environment(\.codexAgentTheme) private var theme
     @Binding public var model: CodexModelSelection
     public let modelOptions: [CodexModelSelection]
+    @Binding public var serviceTier: CodexServiceTierSelection
     @Binding public var reasoning: CodexReasoningSelection
     @State private var isPresented = false
     @State private var showOlderModels = false
 
-    public init(model: Binding<CodexModelSelection>, modelOptions: [CodexModelSelection], reasoning: Binding<CodexReasoningSelection>) {
+    public init(
+        model: Binding<CodexModelSelection>,
+        modelOptions: [CodexModelSelection],
+        serviceTier: Binding<CodexServiceTierSelection> = .constant(.standard),
+        reasoning: Binding<CodexReasoningSelection>
+    ) {
         self._model = model
         self.modelOptions = modelOptions
+        self._serviceTier = serviceTier
         self._reasoning = reasoning
     }
 
@@ -262,28 +277,17 @@ public struct ComposerModelGridPicker: View {
                     .font(.caption)
                     .padding(.horizontal, 4)
 
-                if let fastModel = gridModel.fastModel {
-                    HStack(spacing: 6) {
-                        Text("Standard")
-                        Slider(
-                            value: Binding(
-                                get: { model.id == fastModel.id ? 1 : 0 },
-                                set: { value in
-                                    let target = value >= 0.5 ? fastModel : gridModel.standardModel
-                                    guard let target else { return }
-                                    let effort = target.supportedReasoning.contains(reasoning)
-                                        ? reasoning
-                                        : (target.defaultReasoning ?? .medium)
-                                    model = target
-                                    reasoning = effort
-                                }
-                            ),
-                            in: 0...1,
-                            step: 1
-                        )
-                        .controlSize(.mini)
-                        Text("Fast")
+                if !model.serviceTiers.isEmpty {
+                    Picker("Speed", selection: $serviceTier) {
+                        Text(CodexServiceTierSelection.standard.displayName)
+                            .tag(CodexServiceTierSelection.standard)
+                        ForEach(model.serviceTiers) { tier in
+                            Text(tier.displayName)
+                                .tag(CodexServiceTierSelection.tier(tier))
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
                     .font(.caption)
                     .padding(.horizontal, 4)
                 }
@@ -292,6 +296,10 @@ public struct ComposerModelGridPicker: View {
                     guard let selection = availableOptions.first(where: { $0.id == modelID }) else { return }
                     model = selection
                     reasoning = effort
+                    let reconciledTier = serviceTier.reconciled(for: selection)
+                    if reconciledTier != serviceTier {
+                        serviceTier = reconciledTier
+                    }
                     isPresented = false
                 }
             }
