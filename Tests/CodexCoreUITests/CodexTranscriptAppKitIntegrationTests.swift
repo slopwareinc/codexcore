@@ -234,7 +234,10 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.chipIsActionableForTesting)
         #expect(row.workRow?.style == .activitySummary)
         #expect(!snapshot.itemsByID.values.contains { $0.id.rawValue.contains(":row:command") })
-        #expect(row.bottomSpacing == 8)
+        #expect(
+            row.bottomSpacing
+                == CodexTranscriptColumnMetrics.interactiveBottomSpacing
+        )
     }
 
     @Test func compactActivityShimmersOnlyWhileActiveAndStopsOnReuse() async throws {
@@ -587,7 +590,10 @@ struct CodexTranscriptAppKitIntegrationTests {
         let cluster = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
         #expect(cluster.agentChips.count == 5)
         #expect(cluster.indentation == 0)
-        #expect(cluster.bottomSpacing == 8)
+        #expect(
+            cluster.bottomSpacing
+                == CodexTranscriptColumnMetrics.interactiveBottomSpacing
+        )
         #expect(!snapshot.itemsByID.values.contains { $0.workRow?.kind == .agent })
 
         let cell = CodexTranscriptCollectionItem()

@@ -14,10 +14,11 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let userBubbleHorizontalPadding: CGFloat = 12
     static let userBubbleVerticalPadding: CGFloat = 8
     static let workHeaderHeight: CGFloat = 22
+    static let workRowHeight: CGFloat = 28
     static let footerHeight: CGFloat = 22
     static let actionCardHeight: CGFloat = 32
     static let actionCardRadius: CGFloat = 10
-    static let interactiveBottomSpacing: CGFloat = 8
+    static let interactiveBottomSpacing: CGFloat = 4
     static let scrollableOutputMaxHeight: CGFloat = 220
     static let diffPanelHeight: CGFloat = 240
     // The workspace title bar floats over the transcript host. Reserve the same
@@ -550,7 +551,7 @@ actor CodexTranscriptRenderProjector {
                             action: .toggleRow(rowID: group.id),
                             accessibilityLabel: "\(groupHeader), \(groupIsExpanded ? "details shown" : "details hidden")",
                             maxWidthKind: .card,
-                            fixedHeight: 30,
+                            fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
                             bottomSpacing: groupIsExpanded ? 2 : CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
                         if !groupIsExpanded { continue }
@@ -609,7 +610,7 @@ actor CodexTranscriptRenderProjector {
                                 accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
                                 indentation: 0,
                                 maxWidthKind: .card,
-                                fixedHeight: 30,
+                                fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
                                 bottomSpacing: rowRender.isExpanded
                                     ? 2
                                     : CodexTranscriptColumnMetrics.interactiveBottomSpacing
@@ -669,7 +670,7 @@ actor CodexTranscriptRenderProjector {
                             productTool: call,
                             accessibilityLabel: "Tool \([call.namespace, call.tool].compactMap { $0 }.joined(separator: " "))",
                             maxWidthKind: .card,
-                            fixedHeight: 30,
+                            fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
                             bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
                     case .inlineActivity(let activity):
@@ -705,7 +706,7 @@ actor CodexTranscriptRenderProjector {
                                 isExpanded: isExpanded
                             ),
                             maxWidthKind: .card,
-                            fixedHeight: 30,
+                            fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
                             bottomSpacing: isExpanded
                                 ? 2
                                 : CodexTranscriptColumnMetrics.interactiveBottomSpacing

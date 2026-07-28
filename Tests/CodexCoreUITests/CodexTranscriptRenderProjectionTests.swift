@@ -13,10 +13,16 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexTranscriptColumnMetrics.userBubbleHorizontalPadding == 12)
         #expect(CodexTranscriptColumnMetrics.userBubbleVerticalPadding == 8)
         #expect(CodexTranscriptColumnMetrics.workHeaderHeight == 22)
+        #expect(CodexTranscriptColumnMetrics.workRowHeight == 28)
         #expect(CodexTranscriptColumnMetrics.footerHeight == 22)
         #expect(CodexTranscriptColumnMetrics.actionCardHeight == 32)
         #expect(CodexTranscriptColumnMetrics.actionCardRadius == 10)
-        #expect(CodexTranscriptColumnMetrics.interactiveBottomSpacing == 8)
+        #expect(CodexTranscriptColumnMetrics.interactiveBottomSpacing == 4)
+        #expect(
+            CodexTranscriptColumnMetrics.workRowHeight
+                + CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                == 32
+        )
         #expect(CodexTranscriptColumnMetrics.topContentInset == 72)
 
         let theme = CodexTranscriptAppKitTheme(.officialDark)
@@ -531,7 +537,11 @@ struct CodexTranscriptRenderProjectionTests {
         let chip = try #require(preview.agentChips.first)
         #expect(chip.imagePreviewAspectRatio == 2)
         #expect(chip.imagePreviewHeight == 180)
-        #expect(preview.measuredHeight == 188)
+        #expect(
+            preview.measuredHeight
+                == chip.imagePreviewHeight
+                    + CodexTranscriptColumnMetrics.interactiveBottomSpacing
+        )
     }
 
     @Test func defaultActivitySummaryUpdatesOneStableRowAsWorkAccumulates() async throws {
