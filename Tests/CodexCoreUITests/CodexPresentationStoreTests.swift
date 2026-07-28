@@ -215,8 +215,12 @@ struct CodexPresentationStoreTests {
 
         store.select(threadID: "warm-neighbor")
         #expect(store.isSelectionHydrated == false)
+        #expect(store.containsCachedPresentation(for: "thread"))
+        #expect(store.warmPresentationRetainedByteCount > 0)
         store.select(threadID: "thread")
         #expect(store.isSelectionHydrated)
+        #expect(!store.containsCachedPresentation(for: "thread"))
+        #expect(store.warmPresentationRetainedByteCount == 0)
         #expect(store.activePresentation?.transcript.turns.count == 1)
         #expect(store.diagnostics.presentationCacheHitCount == 1)
         #expect(store.activePresentation?.rawScrollOffset == 417)
@@ -247,21 +251,29 @@ struct CodexPresentationStoreTests {
     }
 
     @Test func bytePressureEvictsOnlyWarmProjectionAndPreservesLocalState() async throws {
+        let answer = String(repeating: "retained transcript payload ", count: 256)
         let source = PresentationStateFixture(
-            initial: multiThreadFileChangeState(revision: 1, threadIDs: ["one", "two"])
+            initial: multiThreadAssistantState(
+                revision: 1,
+                threadIDs: ["one", "two"],
+                text: answer
+            )
         )
         let store = CodexPresentationStore(
             adapter: adapter(source),
             coalescingInterval: .milliseconds(5),
-            warmPresentationByteCapacity: 1
+            warmPresentationByteCapacity: 1_024
         )
 
         store.select(threadID: "one")
         try await eventually {
-            (store.activeCanonicalPresentation?.retainedPreparedUTF8ByteCount ?? 0) > 1
+            (store.activeCanonicalPresentation?.estimatedRetainedByteCount ?? 0)
+                > answer.utf8.count
         }
-        #expect(store.containsCachedPresentation(for: "one"))
-        #expect(store.warmPresentationRetainedUTF8ByteCount == 0)
+        #expect(store.activeCanonicalPresentation?.retainedPreparedUTF8ByteCount == 0)
+        #expect(!store.containsCachedPresentation(for: "one"))
+        #expect(store.warmPresentationRetainedByteCount == 0)
+        #expect(store.diagnostics.presentationCacheByteEvictionCount == 0)
         store.updateScrollState(threadID: "one", rawOffset: 73, isPinnedToBottom: false)
 
         store.select(threadID: "two")
@@ -269,8 +281,98 @@ struct CodexPresentationStoreTests {
         #expect(!store.containsCachedPresentation(for: "one"))
         #expect(store.containsLocalState(for: "one"))
         #expect(store.localState(for: "one")?.rawScrollOffset == 73)
-        #expect(store.warmPresentationRetainedUTF8ByteCount <= 1)
+        #expect(store.warmPresentationRetainedByteCount <= 1_024)
+        #expect(
+            store.warmPresentationRetainedUTF8ByteCount
+                == store.warmPresentationRetainedByteCount
+        )
         #expect(store.diagnostics.presentationCacheByteEvictionCount == 1)
+    }
+
+    @Test func inclusiveEstimateChargesExactPatchBeyondPreparedDisplayBudget() {
+        let exactDiff = "@@ -0,0 +1 @@\n+" + String(
+            repeating: "x",
+            count: CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes * 2
+        )
+        let row = CodexFileChangeRowV2(
+            id: "patch",
+            changes: [.init(
+                id: "patch:file",
+                path: "Sources/Large.swift",
+                kind: .modified,
+                diff: exactDiff
+            )],
+            status: .completed
+        )
+        let turnID: TurnID = "turn"
+        let turn = CodexTurnV2(
+            id: turnID.rawValue,
+            narrative: [.workGroup(.init(
+                id: "work",
+                rows: [.fileChange(row)],
+                isLive: false
+            ))],
+            status: .done(durationMs: 1)
+        )
+        let presentation = CodexCanonicalTranscriptPresentation(
+            threadID: "thread",
+            sourceRevision: StateRevision(1),
+            turnOrder: [turnID],
+            turnsByID: [turnID: turn],
+            sourceTurnRevisions: [turnID: StateRevision(1)]
+        )
+
+        #expect(
+            row.retainedPreparedUTF8ByteCount
+                <= CodexPreparedFileChangeSetV2.maximumRetainedUTF8Bytes
+        )
+        #expect(presentation.estimatedRetainedByteCount > exactDiff.utf8.count)
+    }
+
+    @Test func disconnectedActiveProjectionCannotReenterWarmCache() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Prior adapter", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(1)
+        }
+
+        store.disconnect()
+        store.select(threadID: "other")
+
+        #expect(!store.containsCachedPresentation(for: "thread"))
+        #expect(store.warmPresentationRetainedByteCount == 0)
+    }
+
+    @Test func adapterReplacementAcceptsLowerRevisionWithoutReusingPriorBaseline() async throws {
+        let original = PresentationStateFixture(
+            initial: sessionState(revision: 9, text: "Original", turnRevision: 9)
+        )
+        let replacement = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Replacement", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(original),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(9)
+        }
+
+        store.connect(adapter(replacement))
+
+        try await eventually {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(1)
+                && store.activePresentation?.transcript.turns.first?.finalAnswer?.text
+                    == "Replacement"
+        }
+        #expect(store.warmPresentationRetainedByteCount == 0)
     }
 
     @Test func scrollPersistenceDoesNotRepublishActivePresentation() async throws {
@@ -453,9 +555,10 @@ private extension CodexPresentationStoreTests {
         )
     }
 
-    func multiThreadFileChangeState(
+    func multiThreadAssistantState(
         revision: UInt64,
-        threadIDs: [ThreadID]
+        threadIDs: [ThreadID],
+        text: String
     ) -> CodexSessionStateSnapshot {
         let stateRevision = StateRevision(revision)
         var threads: [ThreadID: CanonicalThread] = [:]
@@ -464,7 +567,7 @@ private extension CodexPresentationStoreTests {
 
         for threadID in threadIDs {
             let turnID = TurnID("turn-\(threadID.rawValue)")
-            let itemID: ItemID = "patch"
+            let itemID: ItemID = "answer"
             let turnKey = TurnKey(threadID: threadID, turnID: turnID)
             let itemKey = ItemKey(
                 threadID: threadID,
@@ -490,14 +593,10 @@ private extension CodexPresentationStoreTests {
             )
             items[itemKey] = CanonicalItem(
                 key: itemKey,
-                kind: .fileChange,
+                kind: .agentMessage,
                 payload: [
-                    "status": .string("completed"),
-                    "changes": .array([.dictionary([
-                        "path": .string("\(threadID.rawValue).swift"),
-                        "kind": .dictionary(["type": .string("update")]),
-                        "diff": .string("@@ -1 +1 @@\n-let value = false\n+let value = true"),
-                    ])]),
+                    "phase": .string("final_answer"),
+                    "text": .string(text),
                 ],
                 authority: .completed,
                 consistency: .authoritative,
