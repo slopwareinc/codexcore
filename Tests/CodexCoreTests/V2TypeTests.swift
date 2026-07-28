@@ -2,6 +2,13 @@ import XCTest
 @testable import CodexCore
 
 final class V2TypeTests: XCTestCase {
+    func testMaximumReasoningEffortUsesServerWireValue() throws {
+        XCTAssertEqual(
+            try CodexJSONValue(encoding: ReasoningEffort.max),
+            .string("max")
+        )
+    }
+
     func testCodexVoiceWebRTCStartUsesOfficialTransportShape() throws {
         let params = CodexSchemaThreadRealtimeStartParams.codexVoiceWebRTC(
             threadID: "thread-voice",

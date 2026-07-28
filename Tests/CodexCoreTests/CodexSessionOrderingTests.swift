@@ -336,6 +336,8 @@ final class CodexSessionOrderingTests: XCTestCase {
         )
 
         let lease = try await resume.value
+        XCTAssertEqual(lease.modelIdentifier, "gpt-5.6")
+        XCTAssertEqual(lease.serviceTier, "priority")
         let snapshot = try await lease.snapshot(fields: .threadHistory)
         let history = try XCTUnwrap(snapshot.threads[Self.threadID]?.history)
         XCTAssertEqual(history.mode, .legacy)
@@ -2621,7 +2623,8 @@ final class CodexSessionOrderingTests: XCTestCase {
     private static let legacyThreadMetadataResult = threadResult(historyMode: "legacy")
     private static let threadMetadataWithoutHistoryModeResult = threadResult(historyMode: nil)
     private static let legacyHistoryResumeResult = resumeResult(
-        thread: threadObject(historyMode: "legacy", turns: [fullHistoryTurn])
+        thread: threadObject(historyMode: "legacy", turns: [fullHistoryTurn]),
+        serviceTier: "priority"
     )
     private static let paginatedThreadMetadataResult = threadResult(
         historyMode: "paginated",
@@ -2681,7 +2684,8 @@ final class CodexSessionOrderingTests: XCTestCase {
     private static func resumeResult(
         thread: CodexJSONValue,
         turnsBackwardsCursor: String? = nil,
-        itemsBackwardsCursor: String? = nil
+        itemsBackwardsCursor: String? = nil,
+        serviceTier: String? = nil
     ) -> CodexJSONValue {
         var result: [String: CodexJSONValue] = [
             "approvalPolicy": .string("on-request"),
@@ -2697,6 +2701,9 @@ final class CodexSessionOrderingTests: XCTestCase {
         }
         if let itemsBackwardsCursor {
             result["itemsBackwardsCursor"] = .string(itemsBackwardsCursor)
+        }
+        if let serviceTier {
+            result["serviceTier"] = .string(serviceTier)
         }
         return .dictionary(result)
     }

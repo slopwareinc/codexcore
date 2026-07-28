@@ -17,6 +17,7 @@ public struct CodexComposerBar: View {
     @Binding private var modelSelection: CodexModelSelection
     private let modelOptions: [CodexModelSelection]
     private let modelPickerStyle: CodexComposerModelPickerStyle
+    @Binding private var serviceTierSelection: CodexServiceTierSelection
     @Binding private var reasoningSelection: CodexReasoningSelection
     private let slashCommands: [CodexSlashCommand]
     private let mcpServers: [CodexMCPServerStatus]
@@ -61,6 +62,7 @@ public struct CodexComposerBar: View {
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         modelPickerStyle: CodexComposerModelPickerStyle = .menu,
+        serviceTierSelection: Binding<CodexServiceTierSelection> = .constant(.standard),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
         mcpServers: [CodexMCPServerStatus] = [],
@@ -95,6 +97,7 @@ public struct CodexComposerBar: View {
         self._modelSelection = modelSelection
         self.modelOptions = modelOptions
         self.modelPickerStyle = modelPickerStyle
+        self._serviceTierSelection = serviceTierSelection
         self._reasoningSelection = reasoningSelection
         self.slashCommands = slashCommands
         self.mcpServers = mcpServers
@@ -196,7 +199,12 @@ public struct CodexComposerBar: View {
                             .transition(.opacity)
                     }
 
-                    ComposerModelMenu(model: $modelSelection, modelOptions: modelOptions, reasoning: $reasoningSelection)
+                    ComposerModelMenu(
+                        model: $modelSelection,
+                        modelOptions: modelOptions,
+                        serviceTier: $serviceTierSelection,
+                        reasoning: $reasoningSelection
+                    )
                     ComposerMicrophoneButton(action: nil)
 
                     if isSending {
@@ -489,6 +497,8 @@ public struct CodexComposerBar: View {
             selectModel(model)
         } else if let reasoning = row.reasoning {
             reasoningSelection = reasoning
+        } else if let serviceTier = row.serviceTier {
+            serviceTierSelection = serviceTier
         }
 
         activeCommandSelector = nil
@@ -498,6 +508,10 @@ public struct CodexComposerBar: View {
     private func selectModel(_ selection: CodexModelSelection) {
         modelSelection = selection
         reasoningSelection = CodexComposerModelMenuModel.reconciledReasoning(reasoningSelection, for: selection)
+        let reconciledTier = serviceTierSelection.reconciled(for: selection)
+        if reconciledTier != serviceTierSelection {
+            serviceTierSelection = reconciledTier
+        }
     }
 
     private func selectorRows(for selector: CodexComposerCommandSelector) -> [CodexComposerSelectorRow] {
@@ -516,16 +530,20 @@ public struct CodexComposerBar: View {
                     model: item.selection
                 )
             }
-            let speedRows = state.speedItems.map { item in
+            let speedSelections = [CodexServiceTierSelection.standard]
+                + modelSelection.serviceTiers.map(CodexServiceTierSelection.tier)
+            let speedRows = speedSelections.map { selection in
                 CodexComposerSelectorRow(
-                    id: "speed:\(item.kind.rawValue)",
+                    id: "speed:\(selection.id)",
                     section: state.speedTitle,
-                    title: item.title,
-                    detail: item.detail,
-                    systemImage: item.isSelected ? "checkmark" : "bolt.fill",
-                    isSelected: item.isSelected,
-                    isEnabled: item.isEnabled,
-                    model: item.selection
+                    title: selection.displayName,
+                    detail: selection.detail,
+                    systemImage: selection == serviceTierSelection
+                        ? "checkmark"
+                        : "bolt.fill",
+                    isSelected: selection == serviceTierSelection,
+                    isEnabled: true,
+                    serviceTier: selection
                 )
             }
             return modelRows + speedRows
@@ -575,6 +593,7 @@ private struct CodexComposerSelectorRow: Identifiable, Equatable {
     let isEnabled: Bool
     let model: CodexModelSelection?
     let reasoning: CodexReasoningSelection?
+    let serviceTier: CodexServiceTierSelection?
 
     init(
         id: String,
@@ -585,7 +604,8 @@ private struct CodexComposerSelectorRow: Identifiable, Equatable {
         isSelected: Bool,
         isEnabled: Bool,
         model: CodexModelSelection? = nil,
-        reasoning: CodexReasoningSelection? = nil
+        reasoning: CodexReasoningSelection? = nil,
+        serviceTier: CodexServiceTierSelection? = nil
     ) {
         self.id = id
         self.section = section
@@ -596,6 +616,7 @@ private struct CodexComposerSelectorRow: Identifiable, Equatable {
         self.isEnabled = isEnabled
         self.model = model
         self.reasoning = reasoning
+        self.serviceTier = serviceTier
     }
 }
 
@@ -793,22 +814,34 @@ private struct ComposerApprovalMenu: View {
 public struct ComposerModelMenu: View {
     @Binding public var model: CodexModelSelection
     public let modelOptions: [CodexModelSelection]
+    @Binding public var serviceTier: CodexServiceTierSelection
     @Binding public var reasoning: CodexReasoningSelection
 
     public init(
         model: Binding<CodexModelSelection>,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        serviceTier: Binding<CodexServiceTierSelection> = .constant(.standard),
         reasoning: Binding<CodexReasoningSelection>
     ) {
         self._model = model
         self.modelOptions = modelOptions
+        self._serviceTier = serviceTier
         self._reasoning = reasoning
     }
 
     public var body: some View {
-        ComposerModelGridPicker(model: $model, modelOptions: modelOptions, reasoning: $reasoning)
+        ComposerModelGridPicker(
+            model: $model,
+            modelOptions: modelOptions,
+            serviceTier: $serviceTier,
+            reasoning: $reasoning
+        )
         .onChange(of: model) { _, newModel in
             reconcileReasoning(for: newModel)
+            let reconciledTier = serviceTier.reconciled(for: newModel)
+            if reconciledTier != serviceTier {
+                serviceTier = reconciledTier
+            }
         }
     }
 
@@ -823,6 +856,10 @@ public struct ComposerModelMenu: View {
     private func selectModel(_ selection: CodexModelSelection) {
         model = selection
         reasoning = CodexComposerModelMenuModel.reconciledReasoning(reasoning, for: selection)
+        let reconciledTier = serviceTier.reconciled(for: selection)
+        if reconciledTier != serviceTier {
+            serviceTier = reconciledTier
+        }
     }
 
     private func reconcileReasoning(for model: CodexModelSelection) {

@@ -400,6 +400,7 @@ struct CodexCoreAppShell: View {
                 approvalSelection: $model.approvalSelection,
                 isPlanModeEnabled: $model.isPlanModeEnabled,
                 modelSelection: $model.modelSelection,
+                serviceTierSelection: $model.serviceTierSelection,
                 reasoningSelection: $model.reasoningSelection,
                 draft: $model.draft,
                 referencedFiles: $model.referencedFiles,

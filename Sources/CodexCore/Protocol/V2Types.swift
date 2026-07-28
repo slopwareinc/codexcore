@@ -63,6 +63,7 @@ public enum ReasoningEffort: String, Codable, Sendable, Equatable {
     case medium
     case high
     case xhigh
+    case max
     case ultra
 }
 

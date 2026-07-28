@@ -123,6 +123,81 @@ extension CodexCoreAppModel {
         ),
     ]
 
+    func voiceThreadStartParameters(
+        wire: CodexTaskWireSelection,
+        permissionConfiguration: CodexPermissionProfileWireConfiguration,
+        cwd: String,
+        roots: [String],
+        developerInstructions: String?
+    ) -> CodexSchemaThreadStartParams {
+        var parameters = wire.applying(to: CodexSchemaThreadStartParams(
+            cwd: cwd,
+            developerInstructions: developerInstructions,
+            dynamicTools: Self.voiceTaskToolSpecs,
+            historyMode: CodexSchemaThreadHistoryMode(
+                rawValue: newThreadHistoryMode.rawValue
+            ),
+            runtimeWorkspaceRoots: roots.map {
+                CodexSchemaAbsolutePathBuf(.string($0))
+            }
+        ))
+        permissionConfiguration.apply(to: &parameters)
+        return parameters
+    }
+
+    func voiceThreadResumeParameters(
+        wire: CodexTaskWireSelection,
+        cwd: String,
+        roots: [String],
+        threadID: String
+    ) -> CodexSchemaThreadResumeParams {
+        wire.applying(to: CodexSchemaThreadResumeParams(
+            cwd: cwd,
+            runtimeWorkspaceRoots: roots.map {
+                CodexSchemaAbsolutePathBuf(.string($0))
+            },
+            threadID: threadID
+        ))
+    }
+
+    func voiceTurnStartParameters(
+        wire: CodexTaskWireSelection,
+        permissionConfiguration: CodexPermissionProfileWireConfiguration?,
+        cwd: String,
+        roots: [String],
+        prompt: String,
+        threadID: String,
+        clientUserMessageID: String
+    ) -> CodexSchemaTurnStartParams {
+        var parameters = wire.applying(to: CodexSchemaTurnStartParams(
+            clientUserMessageID: clientUserMessageID,
+            cwd: cwd,
+            input: [CodexSchemaUserInput(CodexInput.text(prompt).jsonValue)],
+            runtimeWorkspaceRoots: roots.map {
+                CodexSchemaAbsolutePathBuf(.string($0))
+            },
+            threadID: threadID
+        ))
+        permissionConfiguration?.apply(to: &parameters)
+        return parameters
+    }
+
+    func voiceThreadProvenance(
+        for wire: CodexTaskWireSelection
+    ) -> CodexModelPreference {
+        let ambientWire = configurationSession.wireSelection
+        let sourcePreference = currentThreadID
+            .flatMap { modelPreferenceByThread[$0] }
+            ?? lastManualModelPreference
+        return CodexModelPreference(
+            modelID: wire.modelIdentifier,
+            serviceTierID: wire.serviceTier,
+            isServiceTierExplicit:
+                wire.modelIdentifier == ambientWire.modelIdentifier
+                && sourcePreference?.isServiceTierExplicit == true
+        )
+    }
+
     func handleVoiceTaskToolRequest(
         _ parsed: CodexParsedServerRequest
     ) async -> CodexServerRequestHandlerDecision {
@@ -167,10 +242,10 @@ extension CodexCoreAppModel {
                 let prompt = try request.arguments.requiredString(for: "prompt")
                 let target = try request.arguments.requiredObject(for: "target")
                 let targetType = try target.requiredString(for: "type")
-                let model = request.arguments.string(for: "model")
-                    ?? modelSelection.modelIdentifier
-                let thinking = request.arguments.string(for: "thinking")
-                    ?? reasoningSelection.effort.rawValue
+                let wire = configurationSession.wireSelection.overriding(
+                    model: request.arguments.string(for: "model"),
+                    effort: request.arguments.string(for: "thinking")
+                )
 
                 let cwd: String
                 let roots: [String]
@@ -199,20 +274,20 @@ extension CodexCoreAppModel {
                 let permissionConfiguration = configurationSession
                     .newThreadApprovalSelection
                     .permissionProfileWireConfiguration
-                var startParameters = CodexSchemaThreadStartParams(
+                let lease = try await codex.startThread(voiceThreadStartParameters(
+                    wire: wire,
+                    permissionConfiguration: permissionConfiguration,
                     cwd: cwd,
-                    developerInstructions: developerInstructions,
-                    dynamicTools: Self.voiceTaskToolSpecs,
-                    historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
-                    model: model,
-                    runtimeWorkspaceRoots: roots.map {
-                        CodexSchemaAbsolutePathBuf(.string($0))
-                    }
+                    roots: roots,
+                    developerInstructions: developerInstructions
+                ))
+                let provenance = voiceThreadProvenance(for: wire)
+                hydrateModelPreference(
+                    for: lease.id.rawValue,
+                    modelID: lease.modelIdentifier,
+                    serviceTierID: lease.serviceTier,
+                    provenance: provenance
                 )
-                permissionConfiguration.apply(
-                    to: &startParameters
-                )
-                let lease = try await codex.startThread(startParameters)
                 if isProjectless {
                     projectlessThreadIDs.insert(lease.id.rawValue)
                     CodexProjectlessThreadStorage.save(
@@ -220,21 +295,15 @@ extension CodexCoreAppModel {
                         to: preferenceStore
                     )
                 }
-                var turnParameters = CodexSchemaTurnStartParams(
-                    clientUserMessageID: UUID().uuidString,
+                let turn = try await lease.startTurn(voiceTurnStartParameters(
+                    wire: wire,
+                    permissionConfiguration: permissionConfiguration,
                     cwd: cwd,
-                    effort: CodexSchemaReasoningEffort(.string(thinking)),
-                    input: [CodexSchemaUserInput(CodexInput.text(prompt).jsonValue)],
-                    model: model,
-                    runtimeWorkspaceRoots: roots.map {
-                        CodexSchemaAbsolutePathBuf(.string($0))
-                    },
-                    threadID: lease.id.rawValue
-                )
-                permissionConfiguration.apply(
-                    to: &turnParameters
-                )
-                let turn = try await lease.startTurn(turnParameters)
+                    roots: roots,
+                    prompt: prompt,
+                    threadID: lease.id.rawValue,
+                    clientUserMessageID: UUID().uuidString
+                ))
                 content = .dictionary([
                     "threadId": .string(lease.id.rawValue),
                     "hostId": .string("local"),
@@ -291,29 +360,31 @@ extension CodexCoreAppModel {
                 } else {
                     roots = workspaceRoots(containing: cwd)
                 }
-                let resumeParameters = CodexSchemaThreadResumeParams(
-                    cwd: cwd,
-                    model: modelSelection.modelIdentifier,
-                    runtimeWorkspaceRoots: roots.map {
-                        CodexSchemaAbsolutePathBuf(.string($0))
-                    },
-                    threadID: threadID
+                let resumeWire = taskWireSelection(
+                    for: threadID,
+                    explicitTierOnly: true
                 )
-                let lease = try await codex.resumeThread(resumeParameters)
-                let turnParameters = CodexSchemaTurnStartParams(
-                    clientUserMessageID: UUID().uuidString,
+                let lease = try await codex.resumeThread(voiceThreadResumeParameters(
+                    wire: resumeWire,
                     cwd: cwd,
-                    effort: CodexSchemaReasoningEffort(
-                        .string(reasoningSelection.effort.rawValue)
-                    ),
-                    input: [CodexSchemaUserInput(CodexInput.text(message).jsonValue)],
-                    model: modelSelection.modelIdentifier,
-                    runtimeWorkspaceRoots: roots.map {
-                        CodexSchemaAbsolutePathBuf(.string($0))
-                    },
+                    roots: roots,
                     threadID: threadID
+                ))
+                hydrateModelPreference(
+                    for: threadID,
+                    modelID: lease.modelIdentifier,
+                    serviceTierID: lease.serviceTier
                 )
-                let turn = try await lease.startTurn(turnParameters)
+                let targetWire = taskWireSelection(for: threadID).omittingEffort()
+                let turn = try await lease.startTurn(voiceTurnStartParameters(
+                    wire: targetWire,
+                    permissionConfiguration: nil,
+                    cwd: cwd,
+                    roots: roots,
+                    prompt: message,
+                    threadID: threadID,
+                    clientUserMessageID: UUID().uuidString
+                ))
                 let result: CodexJSONValue = .dictionary([
                     "threadId": .string(threadID),
                     "turnId": .string(turn.key.turnID.rawValue),
