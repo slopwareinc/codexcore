@@ -114,10 +114,10 @@ when one turn can contain multiple concurrent activities.
 
 Canonical file-change rows preserve their per-file wire entries in
 `CodexFileChangeRowV2.changes`. Each `CodexFileChangeV2` has a stable ID, source
-path, optional rename destination, add/modify/delete/rename kind, lifecycle
-status, and exact patch text. The row remains the single aggregate work entry;
-consumers should use `changes` for review data instead of trying to split the
-legacy aggregate `diff`.
+path, optional rename destination, add/modify/delete/rename kind, and exact
+patch text. Lifecycle belongs to the aggregate row rather than being duplicated
+across independently mutable per-file values. Consumers should use `changes`
+for review data instead of trying to split the legacy aggregate `diff`.
 
 Diff hunks and line counts are prepared when the canonical turn is projected,
 not when a transcript view renders. Hosts constructing Transcript V2 directly
@@ -130,12 +130,15 @@ normalizes those forms once, preserves exact wire text in `changes`, and exposes
 an ordered prepared entry keyed by the stable change ID. Empty renames still
 produce a prepared zero-line entry. Duplicate paths use kind, destination, and
 content fingerprints so reordering does not move identity between patches.
+Incremental projection reconciles a structurally identical prior entry when a
+live patch evolves, avoiding identity churn for the normal same-file update.
 
-Prepared display data is capped at 256 KiB per row while scanning the entire
-wire value for exact addition/removal counts. Unchanged item revisions reuse the
-immutable preparation when an unrelated item dirties the same turn. Warm main
-and subagent presentation caches also have byte budgets; eviction drops only
-disposable projection data, never canonical state or per-thread UI state.
+Prepared display data is capped independently by retained bytes, lines, files,
+and entries while streaming the entire wire value for exact addition/removal
+counts. A file-change content revision reuses immutable preparation across
+lifecycle-only or unrelated turn updates. Warm main and subagent presentation
+caches use inclusive byte estimates; eviction drops only disposable projection
+data, never canonical state or per-thread UI state.
 
 File-change lifecycle values preserve `declined` and future status strings as
 non-success states. Do not treat any explicit status other than `completed` as a
