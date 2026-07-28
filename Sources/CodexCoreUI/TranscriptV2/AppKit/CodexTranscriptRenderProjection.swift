@@ -1687,7 +1687,13 @@ private extension CodexTranscriptRenderProjector {
             .foregroundColor: color,
             .paragraphStyle: paragraphStyle(theme)
         ], range: fullRange)
-        parsed.enumerateAttribute(.inlinePresentationIntent, in: fullRange) { value, range, _ in
+        let presentationIntentKey = NSAttributedString.Key(
+            AttributeScopes.FoundationAttributes.PresentationIntentAttribute.name
+        )
+        let inlinePresentationIntentKey = NSAttributedString.Key(
+            AttributeScopes.FoundationAttributes.InlinePresentationIntentAttribute.name
+        )
+        parsed.enumerateAttribute(inlinePresentationIntentKey, in: fullRange) { value, range, _ in
             let raw = (value as? NSNumber)?.uintValue ?? (value as? UInt)
             guard let raw else { return }
             let intent = InlinePresentationIntent(rawValue: raw)
@@ -1714,8 +1720,8 @@ private extension CodexTranscriptRenderProjector {
         // projector has already applied the paragraph and inline styling used
         // by AppKit, so retaining their parent-linked metadata only inflates
         // cache entries and makes otherwise ordinary Markdown look unsafe.
-        result.removeAttribute(.presentationIntent, range: fullRange)
-        result.removeAttribute(.inlinePresentationIntent, range: fullRange)
+        result.removeAttribute(presentationIntentKey, range: fullRange)
+        result.removeAttribute(inlinePresentationIntentKey, range: fullRange)
         return CodexPreparedTranscriptText(result)
     }
 

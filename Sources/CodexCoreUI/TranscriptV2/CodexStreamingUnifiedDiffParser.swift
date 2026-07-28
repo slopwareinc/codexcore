@@ -173,7 +173,8 @@ enum CodexUnifiedDiffParser {
             diff,
             fallbackPath: fallbackPath,
             fallbackKind: fallbackKind,
-            maximumRetainedUTF8Bytes: defaultMaximumRetainedUTF8Bytes
+            maximumRetainedUTF8Bytes: defaultMaximumRetainedUTF8Bytes,
+            checkpoint: {}
         ).files
     }
 

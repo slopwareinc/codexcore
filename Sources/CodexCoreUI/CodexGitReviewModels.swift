@@ -225,14 +225,15 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         )
         guard !parsed.didTruncateFileRecords else { return nil }
         let files = parsed.files.map { file in
-            CodexGitReviewFileChange(
+            let status: CodexGitReviewFileStatus = switch file.kind {
+            case "added": .added
+            case "deleted": .deleted
+            case "renamed": .renamed
+            default: .modified
+            }
+            return CodexGitReviewFileChange(
                 path: file.path,
-                status: switch file.kind {
-                case "added": .added
-                case "deleted": .deleted
-                case "renamed": .renamed
-                default: .modified
-                },
+                status: status,
                 isStaged: false,
                 addedLines: file.added,
                 removedLines: file.removed

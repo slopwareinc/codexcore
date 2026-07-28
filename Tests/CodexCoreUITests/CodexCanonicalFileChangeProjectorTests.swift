@@ -368,7 +368,8 @@ struct CodexCanonicalFileChangeProjectorTests {
                 return production.prepare(
                     changes: changes,
                     legacyDiff: legacyDiff,
-                    maximumRetainedUTF8Bytes: maximumBytes
+                    maximumRetainedUTF8Bytes: maximumBytes,
+                    checkpoint: {}
                 )
             }
         )
@@ -618,7 +619,8 @@ struct CodexCanonicalFileChangeProjectorTests {
         let alternatePreparation = CodexFileChangeDiffPreparer().prepare(
             changes: row.changes,
             legacyDiff: nil,
-            maximumRetainedUTF8Bytes: 8
+            maximumRetainedUTF8Bytes: 8,
+            checkpoint: {}
         )
         let semanticallyEqual = CodexFileChangeRowV2(
             id: row.id,

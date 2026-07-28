@@ -187,7 +187,8 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
     ) {
         let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: [],
-            legacyDiff: diff
+            legacyDiff: diff,
+            checkpoint: {}
         )
         var sourceHasher = CodexStableFingerprint()
         sourceHasher.combine("legacy-row")
@@ -213,7 +214,8 @@ public struct CodexFileChangeRowV2: Identifiable, Sendable, Equatable {
     ) {
         let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: changes,
-            legacyDiff: nil
+            legacyDiff: nil,
+            checkpoint: {}
         )
         self.id = id
         self.source = .canonical(

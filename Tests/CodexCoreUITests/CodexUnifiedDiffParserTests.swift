@@ -100,7 +100,8 @@ struct CodexUnifiedDiffParserTests {
 
         let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: [change],
-            legacyDiff: nil
+            legacyDiff: nil,
+            checkpoint: {}
         )
         let entry = try #require(prepared.entries.first)
 
@@ -162,7 +163,8 @@ struct CodexUnifiedDiffParserTests {
 
         let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: [],
-            legacyDiff: diff
+            legacyDiff: diff,
+            checkpoint: {}
         )
         let firstEntry = try #require(prepared.entries.first)
         let secondEntry = try #require(prepared.entries.dropFirst().first)
@@ -222,7 +224,8 @@ struct CodexUnifiedDiffParserTests {
         )
         let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: [],
-            legacyDiff: diff
+            legacyDiff: diff,
+            checkpoint: {}
         )
 
         #expect(diff.utf8.count == targetByteCount)
@@ -255,7 +258,8 @@ struct CodexUnifiedDiffParserTests {
         let entry = try #require(
             CodexFileChangeDiffPreparer().prepare(
                 changes: [change],
-                legacyDiff: nil
+                legacyDiff: nil,
+                checkpoint: {}
             ).entries.first
         )
 
@@ -283,7 +287,8 @@ struct CodexUnifiedDiffParserTests {
 
         let entries = CodexFileChangeDiffPreparer().prepare(
             changes: [added, deleted],
-            legacyDiff: nil
+            legacyDiff: nil,
+            checkpoint: {}
         ).entries
         let addedEntry = try #require(entries.first)
         let deletedEntry = try #require(entries.dropFirst().first)
@@ -318,7 +323,8 @@ struct CodexUnifiedDiffParserTests {
                         kind: .modified,
                         diff: payload
                     )],
-                    legacyDiff: nil
+                    legacyDiff: nil,
+                    checkpoint: {}
                 ).entries.first
             )
             let lines = entry.displayLines.map(\.text)
@@ -350,7 +356,8 @@ struct CodexUnifiedDiffParserTests {
                         kind: .renamed,
                         diff: payload
                     )],
-                    legacyDiff: nil
+                    legacyDiff: nil,
+                    checkpoint: {}
                 ).entries.first
             )
             let lines = entry.displayLines.map(\.text)
@@ -383,7 +390,8 @@ struct CodexUnifiedDiffParserTests {
 
         let prepared = CodexFileChangeDiffPreparer().prepare(
             changes: changes,
-            legacyDiff: nil
+            legacyDiff: nil,
+            checkpoint: {}
         )
         let entryLimit = CodexPreparedFileChangeSetV2.maximumPreparedEntryCount
 
@@ -412,7 +420,8 @@ struct CodexUnifiedDiffParserTests {
         let targetAlone = try #require(
             CodexFileChangeDiffPreparer().prepare(
                 changes: [target],
-                legacyDiff: nil
+                legacyDiff: nil,
+                checkpoint: {}
             ).entries.first
         )
         let budgetConsumer = CodexFileChangeV2(
@@ -424,7 +433,8 @@ struct CodexUnifiedDiffParserTests {
         let targetAfterLargeChange = try #require(
             CodexFileChangeDiffPreparer().prepare(
                 changes: [budgetConsumer, target],
-                legacyDiff: nil
+                legacyDiff: nil,
+                checkpoint: {}
             ).entries.last
         )
 
@@ -475,7 +485,8 @@ struct CodexUnifiedDiffParserTests {
 
         let entries = CodexFileChangeDiffPreparer().prepare(
             changes: [modified, added],
-            legacyDiff: nil
+            legacyDiff: nil,
+            checkpoint: {}
         ).entries
         let modifiedEntry = try #require(entries.first)
         let addedEntry = try #require(entries.dropFirst().first)
