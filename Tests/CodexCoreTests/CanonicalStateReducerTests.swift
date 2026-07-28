@@ -361,6 +361,62 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(partial.payload["status"], .string("completed"))
     }
 
+    func testNonArrayLiveFileChangesCannotMaskPartialPayloadRevision() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let key = itemKey(item: "patch")
+        let oldChanges: CodexJSONValue = .array([.dictionary([
+            "path": .string("Sources/App.swift"),
+            "kind": .dictionary(["type": .string("update")]),
+            "diff": .string("@@ -1 +1 @@\n-old\n+new"),
+        ])])
+        let newChanges: CodexJSONValue = .array([.dictionary([
+            "path": .string("Sources/App.swift"),
+            "kind": .dictionary(["type": .string("update")]),
+            "diff": .string("@@ -1 +1 @@\n-old\n+newer"),
+        ])])
+
+        _ = reducer.apply(.itemStarted(item(
+            key,
+            kind: .fileChange,
+            payload: ["changes": oldChanges]
+        )), to: &graph)
+        _ = reducer.apply(.itemLiveFieldReplaced(
+            item: key,
+            key: "fileChanges",
+            value: .dictionary(["malformed": .bool(true)])
+        ), to: &graph)
+        let priorContentRevision = try XCTUnwrap(
+            graph.items[key]?.fileChangeContentRevision
+        )
+
+        let completion = try XCTUnwrap(reducer.apply(.turnSnapshot(
+            CanonicalTurn(
+                key: key.turnKey,
+                status: .completed,
+                itemOrder: [key.itemID],
+                itemsCoverage: .summary,
+                itemsConsistency: .partial
+            ),
+            items: [item(
+                key,
+                kind: .fileChange,
+                payload: [
+                    "status": .string("completed"),
+                    "changes": newChanges,
+                ],
+                authority: .completed,
+                consistency: .partial
+            )],
+            itemPolicy: .mergePreservingExistingOrder
+        ), to: &graph))
+
+        let completed = try XCTUnwrap(graph.items[key])
+        XCTAssertEqual(completed.payload["changes"], newChanges)
+        XCTAssertGreaterThan(completed.fileChangeContentRevision, priorContentRevision)
+        XCTAssertEqual(completed.fileChangeContentRevision, completion.revision)
+    }
+
     func testCoverageNeverRegressesAndPartialEmptySnapshotDoesNotEraseItems() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()

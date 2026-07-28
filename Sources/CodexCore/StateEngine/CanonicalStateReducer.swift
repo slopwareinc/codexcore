@@ -1314,7 +1314,13 @@ private extension CanonicalStateReducer {
 
     func effectiveFileChangePayload(_ item: CanonicalItem) -> CodexJSONValue? {
         guard item.kind == .fileChange else { return nil }
-        return item.liveFields["fileChanges"] ?? item.payload["changes"]
+        if case .array = item.liveFields["fileChanges"] {
+            return item.liveFields["fileChanges"]
+        }
+        if case .array = item.payload["changes"] {
+            return item.payload["changes"]
+        }
+        return nil
     }
 
     func preserveOrAdvanceFileChangeContentRevision(
