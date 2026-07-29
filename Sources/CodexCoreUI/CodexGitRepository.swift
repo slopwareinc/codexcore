@@ -162,7 +162,11 @@ public actor CodexGitRepository {
            try await untrackedPaths().contains(relativePath) {
             return try untrackedPatch(url: safePath, relativePath: relativePath)
         }
-        let arguments = try await diffArguments(source: source, paths: [relativePath])
+        let arguments = try await diffArguments(
+            source: source,
+            paths: [relativePath],
+            outputOptions: ["--binary"]
+        )
         do {
             let result = try await run(
                 arguments,
@@ -252,9 +256,18 @@ public actor CodexGitRepository {
         upstream: String?,
         status: String
     ) async throws -> [CodexGitReviewFileChange] {
-        let arguments = try await diffArguments(source: source, paths: [])
-        async let namesResult = run(arguments + ["--name-status", "-z"])
-        async let statsResult = run(arguments + ["--numstat", "-z"])
+        let namesArguments = try await diffArguments(
+            source: source,
+            paths: [],
+            outputOptions: ["--name-status", "-z"]
+        )
+        let statsArguments = try await diffArguments(
+            source: source,
+            paths: [],
+            outputOptions: ["--numstat", "-z"]
+        )
+        async let namesResult = run(namesArguments)
+        async let statsResult = run(statsArguments)
         let names = try await parseNameStatus(namesResult.stdout)
         let stats = try await parseNumstat(statsResult.stdout)
         let stagedPaths: Set<String>
@@ -314,9 +327,13 @@ public actor CodexGitRepository {
 
     private func diffArguments(
         source: CodexGitReviewSource,
-        paths: [String]
+        paths: [String],
+        outputOptions: [String] = []
     ) async throws -> [String] {
-        var result = ["diff", "--no-ext-diff", "--find-renames", "--binary"]
+        // Output modes must precede the revision. Appending them after `HEAD`
+        // can make Git emit both a patch and metadata, needlessly filling the
+        // process pipe for binary files.
+        var result = ["diff", "--no-ext-diff", "--find-renames"] + outputOptions
         switch source {
         case .lastTurn:
             preconditionFailure("Last Turn is canonical transcript state")
@@ -600,6 +617,10 @@ private final class CodexBoundedProcess: @unchecked Sendable {
             process.standardError = standardError
             self.lock.withLock { self.process = process }
             try process.run()
+            // Process inherits duplicated write descriptors. Closing the
+            // parent's copies is required for the async readers to observe EOF.
+            try standardOutput.fileHandleForWriting.close()
+            try standardError.fileHandleForWriting.close()
             async let outputData = Self.readBounded(
                 standardOutput.fileHandleForReading,
                 limit: maximumOutputBytes
@@ -608,9 +629,9 @@ private final class CodexBoundedProcess: @unchecked Sendable {
                 standardError.fileHandleForReading,
                 limit: 128 * 1_024
             )
-            process.waitUntilExit()
             let output = try await outputData
             let error = try await errorData
+            process.waitUntilExit()
             self.lock.withLock { self.process = nil }
             try Task.checkCancellation()
             if output.wasTruncated, !allowTruncation {

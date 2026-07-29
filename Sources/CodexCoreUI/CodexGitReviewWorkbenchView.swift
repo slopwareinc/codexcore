@@ -66,13 +66,7 @@ public struct CodexGitReviewWorkbenchView: View {
             }
         }
         .background(theme.colors.canvas)
-        .onMoveCommand { direction in
-            switch direction {
-            case .up: workbench.moveSelection(-1)
-            case .down: workbench.moveSelection(1)
-            default: break
-            }
-        }
+        .onMoveCommand(perform: moveSelection)
         .alert("Revert tracked changes?", isPresented: $confirmsRevert) {
             Button("Cancel", role: .cancel) {}
             Button("Revert", role: .destructive) {
@@ -180,7 +174,7 @@ public struct CodexGitReviewWorkbenchView: View {
         case .loading:
             progressRow(title: "Refreshing repository…", cancellable: false)
         case .failed(let message):
-            noticeRow(message, systemImage: "exclamationmark.triangle", isError: true)
+            loadErrorRow(message)
         case .idle, .ready:
             EmptyView()
         }
@@ -192,6 +186,24 @@ public struct CodexGitReviewWorkbenchView: View {
         } else if let message = workbench.operationMessage {
             noticeRow(message, systemImage: "checkmark.circle", isError: false)
         }
+    }
+
+    private func loadErrorRow(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+            Text(message)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button("Retry") {
+                workbench.refresh()
+            }
+            .buttonStyle(.borderless)
+        }
+        .font(theme.fonts.caption)
+        .foregroundStyle(theme.colors.danger)
+        .padding(10)
+        .background(theme.colors.danger.opacity(0.08))
+        .accessibilityElement(children: .contain)
     }
 
     private func progressRow(title: String, cancellable: Bool) -> some View {
@@ -294,7 +306,24 @@ public struct CodexGitReviewWorkbenchView: View {
             .textFieldStyle(.roundedBorder)
             .font(theme.fonts.caption)
             .padding(8)
+            .onMoveCommand(perform: moveSelection)
+            .onKeyPress(.upArrow) {
+                workbench.moveSelection(-1)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                workbench.moveSelection(1)
+                return .handled
+            }
             .accessibilityIdentifier("codex.review.file-filter")
+    }
+
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        switch direction {
+        case .up: workbench.moveSelection(-1)
+        case .down: workbench.moveSelection(1)
+        default: break
+        }
     }
 
     private var emptyFiles: some View {
@@ -378,7 +407,17 @@ public struct CodexGitReviewWorkbenchView: View {
             Divider().overlay(theme.colors.border)
             switch workbench.patchState {
             case .idle:
-                emptyDiff("Select a file to inspect its patch.")
+                if workbench.files.isEmpty {
+                    emptyDiff(
+                        title: workbench.source.emptyTitle,
+                        detail: workbench.emptyDetail
+                    )
+                } else {
+                    emptyDiff(
+                        title: "Select a file",
+                        detail: "Choose a changed file to inspect its patch."
+                    )
+                }
             case .loading:
                 VStack(spacing: 10) {
                     ProgressView()
@@ -387,7 +426,7 @@ public struct CodexGitReviewWorkbenchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .foregroundStyle(theme.colors.textSecondary)
             case .failed(let message):
-                emptyDiff(message)
+                emptyDiff(title: "Diff unavailable", detail: message)
             case .ready(let patch):
                 CodexUnifiedReviewDiff(
                     patch: patch.displayText,
@@ -453,11 +492,11 @@ public struct CodexGitReviewWorkbenchView: View {
         }
     }
 
-    private func emptyDiff(_ message: String) -> some View {
+    private func emptyDiff(title: String, detail: String) -> some View {
         ContentUnavailableView(
-            "Diff unavailable",
+            title,
             systemImage: "doc.text.magnifyingglass",
-            description: Text(message)
+            description: Text(detail)
         )
     }
 
@@ -668,6 +707,7 @@ private struct CodexUnifiedReviewDiff: View {
                 }
             }
         }
+        .defaultScrollAnchor(.topLeading)
         .background(theme.colors.codeBackground)
         .accessibilityIdentifier("codex.review.unified-diff")
     }

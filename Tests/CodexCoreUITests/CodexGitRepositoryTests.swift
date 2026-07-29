@@ -58,6 +58,22 @@ final class CodexGitRepositoryTests: XCTestCase {
         XCTAssertTrue(patch.displayText.contains("+hello"))
     }
 
+    func testSnapshotDoesNotRequestBinaryPatchPayloadForMetadata() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        try fixture.write(Data(repeating: 0x41, count: 256 * 1_024), to: "asset.bin")
+        try fixture.git("add", "asset.bin")
+        try fixture.git("commit", "-q", "-m", "binary base")
+        try fixture.write(Data(repeating: 0x42, count: 256 * 1_024), to: "asset.bin")
+
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let started = ContinuousClock.now
+        let snapshot = try await repository.snapshot(source: .uncommitted)
+
+        XCTAssertEqual(snapshot.files.map(\.path), ["asset.bin"])
+        XCTAssertLessThan(started.duration(to: .now), .seconds(2))
+    }
+
     func testMutationRejectsStaleRevisionThenStagesWithFreshRevision() async throws {
         let fixture = try GitFixture()
         defer { fixture.remove() }
@@ -140,6 +156,10 @@ private final class GitFixture {
             atomically: true,
             encoding: .utf8
         )
+    }
+
+    func write(_ value: Data, to path: String) throws {
+        try value.write(to: url.appending(path: path), options: .atomic)
     }
 
     @discardableResult
