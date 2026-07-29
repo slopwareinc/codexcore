@@ -459,6 +459,9 @@ struct CodexCoreAppShell: View {
                 onSelectSubagentTranscript: {
                     model.runtimeSession.selectSubagentTranscript($0)
                 },
+                onStartReview: { target in
+                    Task { await model.startCodeReview(target) }
+                },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
                 onRefreshMCPServers: { Task { await model.refreshMCPServers() } },
                 onToggleSidebar: collapsePinnedSidebar,

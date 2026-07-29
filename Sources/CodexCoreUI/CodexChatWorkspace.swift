@@ -116,6 +116,7 @@ public struct CodexChatWorkspaceView: View {
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
     private let onCloseTranscriptMessage: ((UUID) -> Void)?
     private let onSelectSubagentTranscript: (String?) -> Void
+    private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenMCPDetails: (() -> Void)?
     private let onRefreshMCPServers: (() -> Void)?
     private let onToggleSidebar: () -> Void
@@ -202,6 +203,7 @@ public struct CodexChatWorkspaceView: View {
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
         onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
+        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenMCPDetails: (() -> Void)? = nil,
         onRefreshMCPServers: (() -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
@@ -280,6 +282,7 @@ public struct CodexChatWorkspaceView: View {
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onCloseTranscriptMessage = onCloseTranscriptMessage
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
+        self.onStartReview = onStartReview
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onRefreshMCPServers = onRefreshMCPServers
         self.onToggleSidebar = onToggleSidebar
@@ -647,11 +650,13 @@ public struct CodexChatWorkspaceView: View {
             mountedFilesSessions: mountedFilesSessions,
             mountedFilePreviewSessions: mountedFilePreviewSessions,
             modelOptions: modelOptions,
+            workspaceURL: URL(fileURLWithPath: workspacePath),
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
+            onStartReview: onStartReview,
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,

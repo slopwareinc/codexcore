@@ -1,4 +1,5 @@
 import SwiftUI
+import CodexCore
 
 public struct CodexFloatingSummaryPanel: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -375,10 +376,12 @@ public struct CodexAgentSidePanel: View {
     private let mountedFilesSessions: [CodexFilesSession]
     private let mountedFilePreviewSessions: [CodexFilePreviewSession]
     private let modelOptions: [CodexModelSelection]
+    private let workspaceURL: URL?
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
+    private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenTerminal: () -> Void
     private let onOpenBrowser: () -> Void
     private let onOpenFiles: () -> Void
@@ -406,11 +409,13 @@ public struct CodexAgentSidePanel: View {
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        workspaceURL: URL? = nil,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
+        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
@@ -437,10 +442,12 @@ public struct CodexAgentSidePanel: View {
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
         self.modelOptions = modelOptions
+        self.workspaceURL = workspaceURL
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onStartReview = onStartReview
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
@@ -468,11 +475,13 @@ public struct CodexAgentSidePanel: View {
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        workspaceURL: URL? = nil,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
+        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
@@ -499,10 +508,12 @@ public struct CodexAgentSidePanel: View {
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
         self.modelOptions = modelOptions
+        self.workspaceURL = workspaceURL
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onStartReview = onStartReview
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
@@ -598,7 +609,9 @@ public struct CodexAgentSidePanel: View {
                         canSendSideChatMessage: canSendSideChatMessage,
                         onSendSideChatMessage: onSendSideChatMessage,
                         onInterruptSideChatMessage: onInterruptSideChatMessage,
-                        modelOptions: modelOptions
+                        onStartReview: onStartReview,
+                        modelOptions: modelOptions,
+                        workspaceURL: workspaceURL
                     )
                 } else {
                     toolLauncher
@@ -1082,7 +1095,9 @@ private struct CodexAgentPanelContent: View {
     let canSendSideChatMessage: Bool
     let onSendSideChatMessage: () -> Void
     let onInterruptSideChatMessage: () -> Void
+    let onStartReview: (CodexReviewTarget) -> Void
     let modelOptions: [CodexModelSelection]
+    let workspaceURL: URL?
     @State private var agentDraft = ""
     @State private var agentApproval = CodexApprovalSelection.askForApproval
     @State private var agentModel = CodexModelSelection.appServerDefault
@@ -1108,7 +1123,15 @@ private struct CodexAgentPanelContent: View {
                     subagentHeader(subagent)
                 }
             case .review(let session):
-                reviewPanel(session)
+                if let workspaceURL {
+                    CodexGitReviewWorkbenchHost(
+                        workspaceURL: workspaceURL,
+                        lastTurnSession: session,
+                        onStartReview: onStartReview
+                    )
+                } else {
+                    reviewPanel(session)
+                }
             }
 
             compactComposer(for: tab)
