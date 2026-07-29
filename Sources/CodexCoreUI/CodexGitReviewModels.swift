@@ -1,5 +1,20 @@
 import Foundation
 
+public struct CodexGitReviewRevision: Hashable, Sendable {
+    public let sourceID: String
+    public let value: UInt64
+
+    public init(sourceID: String, value: UInt64) {
+        self.sourceID = sourceID
+        self.value = value
+    }
+
+    public static let manual = CodexGitReviewRevision(
+        sourceID: "manual",
+        value: 0
+    )
+}
+
 public enum CodexGitReviewFileStatus: String, Equatable, Sendable {
     case added
     case modified
@@ -23,25 +38,252 @@ public enum CodexGitReviewFileStatus: String, Equatable, Sendable {
     }
 }
 
-public struct CodexGitReviewFileChange: Equatable, Sendable {
-    public var path: String
-    public var status: CodexGitReviewFileStatus
-    public var isStaged: Bool
-    public var addedLines: Int
-    public var removedLines: Int
+public enum CodexGitStagingState: String, Equatable, Sendable {
+    case unstaged
+    case staged
+    case partiallyStaged
+
+    public var hasStagedChanges: Bool { self != .unstaged }
+    public var hasUnstagedChanges: Bool { self != .staged }
+}
+
+public struct CodexGitReviewPatchText: Equatable, Sendable {
+    public static let defaultMaximumDisplayUTF8Bytes = 128 * 1_024
+    public static let defaultMaximumDisplayLineCount = 800
+
+    private let fullTextStorage: CodexGitReviewFullPatchStorage
+    public let displayText: String
+    public let isTruncated: Bool
+
+    public var fullText: String {
+        fullTextStorage.materialized()
+    }
+
+    public var hasFullText: Bool {
+        fullTextStorage.hasText
+    }
 
     public init(
+        fullText: String,
+        displayText: String,
+        isTruncated: Bool
+    ) {
+        let boundedDisplay = Self.bounded(fullText: displayText)
+        self.fullTextStorage = .immediate(fullText)
+        self.displayText = boundedDisplay.displayText
+        self.isTruncated = isTruncated
+            || boundedDisplay.isTruncated
+            || displayText != fullText
+    }
+
+    public static func bounded(
+        fullText: String,
+        maximumDisplayUTF8Bytes: Int = defaultMaximumDisplayUTF8Bytes,
+        maximumDisplayLineCount: Int = defaultMaximumDisplayLineCount
+    ) -> Self {
+        let byteLimit = max(1, maximumDisplayUTF8Bytes)
+        let lineLimit = max(1, maximumDisplayLineCount)
+        let utf8 = fullText.utf8
+        var end = utf8.startIndex
+        var byteCount = 0
+        var lineCount = 1
+
+        while end != utf8.endIndex, byteCount < byteLimit {
+            let byte = utf8[end]
+            if byte == 0x0A, lineCount >= lineLimit {
+                break
+            }
+            utf8.formIndex(after: &end)
+            byteCount += 1
+            if byte == 0x0A {
+                lineCount += 1
+            }
+        }
+
+        guard end != utf8.endIndex else {
+            return Self(
+                uncheckedFullText: fullText,
+                displayText: fullText,
+                isTruncated: false
+            )
+        }
+
+        while end != utf8.startIndex,
+              String.Index(end, within: fullText) == nil {
+            utf8.formIndex(before: &end)
+        }
+        let stringEnd = String.Index(end, within: fullText)
+            ?? fullText.startIndex
+        return Self(
+            uncheckedFullText: fullText,
+            displayText: String(fullText[..<stringEnd]),
+            isTruncated: true
+        )
+    }
+
+    private init(
+        uncheckedFullText: String,
+        displayText: String,
+        isTruncated: Bool
+    ) {
+        self.fullTextStorage = .immediate(uncheckedFullText)
+        self.displayText = displayText
+        self.isTruncated = isTruncated
+    }
+
+    init(
+        deferredFullText: CodexGitReviewDeferredPatch,
+        displayText: String,
+        isTruncated: Bool
+    ) {
+        let boundedDisplay = Self.bounded(fullText: displayText)
+        self.fullTextStorage = .deferred(deferredFullText)
+        self.displayText = boundedDisplay.displayText
+        self.isTruncated = isTruncated || boundedDisplay.isTruncated
+    }
+}
+
+final class CodexGitReviewDeferredPatch: @unchecked Sendable {
+    let identity: String
+    let hasText: Bool
+    private let materialize: @Sendable () -> String
+
+    init(
+        identity: String,
+        hasText: Bool,
+        materialize: @escaping @Sendable () -> String
+    ) {
+        self.identity = identity
+        self.hasText = hasText
+        self.materialize = materialize
+    }
+
+    func materialized() -> String {
+        materialize()
+    }
+}
+
+private enum CodexGitReviewFullPatchStorage: @unchecked Sendable, Equatable {
+    case immediate(String)
+    case deferred(CodexGitReviewDeferredPatch)
+
+    var hasText: Bool {
+        switch self {
+        case .immediate(let text):
+            !text.isEmpty
+        case .deferred(let patch):
+            patch.hasText
+        }
+    }
+
+    func materialized() -> String {
+        switch self {
+        case .immediate(let text):
+            text
+        case .deferred(let patch):
+            patch.materialized()
+        }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.immediate(let lhsText), .immediate(let rhsText)):
+            lhsText == rhsText
+        case (.deferred(let lhsPatch), .deferred(let rhsPatch)):
+            lhsPatch.identity == rhsPatch.identity
+        default:
+            false
+        }
+    }
+}
+
+public struct CodexGitReviewFileChange: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let path: String
+    public let previousPath: String?
+    public let status: CodexGitReviewFileStatus
+    public let stagingState: CodexGitStagingState
+    public let addedLines: Int
+    public let removedLines: Int
+    public let patchText: CodexGitReviewPatchText
+    public let isBinary: Bool
+
+    public var unifiedPatch: String {
+        patchText.fullText
+    }
+
+    public var isStaged: Bool {
+        stagingState == .staged
+    }
+
+    public var displayPatch: String {
+        patchText.displayText
+    }
+
+    public var isPatchTruncated: Bool {
+        patchText.isTruncated
+    }
+
+    public var hasCopyablePatch: Bool {
+        patchText.hasFullText
+    }
+
+    public init(
+        id: String? = nil,
         path: String,
+        previousPath: String? = nil,
         status: CodexGitReviewFileStatus,
         isStaged: Bool,
+        stagingState: CodexGitStagingState? = nil,
         addedLines: Int = 0,
-        removedLines: Int = 0
+        removedLines: Int = 0,
+        unifiedPatch: String = "",
+        displayPatch: String? = nil,
+        isPatchTruncated: Bool = false,
+        isBinary: Bool = false
     ) {
+        self.id = id ?? "\(status.rawValue):\(path)"
         self.path = path
+        self.previousPath = previousPath
         self.status = status
-        self.isStaged = isStaged
+        self.stagingState = stagingState ?? (isStaged ? .staged : .unstaged)
         self.addedLines = max(0, addedLines)
         self.removedLines = max(0, removedLines)
+        if let displayPatch {
+            self.patchText = CodexGitReviewPatchText(
+                fullText: unifiedPatch,
+                displayText: displayPatch,
+                isTruncated: isPatchTruncated
+            )
+        } else {
+            self.patchText = CodexGitReviewPatchText.bounded(
+                fullText: unifiedPatch
+            )
+        }
+        self.isBinary = isBinary
+    }
+
+    public init(
+        id: String,
+        path: String,
+        previousPath: String? = nil,
+        status: CodexGitReviewFileStatus,
+        isStaged: Bool = false,
+        stagingState: CodexGitStagingState? = nil,
+        addedLines: Int,
+        removedLines: Int,
+        patchText: CodexGitReviewPatchText,
+        isBinary: Bool
+    ) {
+        self.id = id
+        self.path = path
+        self.previousPath = previousPath
+        self.status = status
+        self.stagingState = stagingState ?? (isStaged ? .staged : .unstaged)
+        self.addedLines = max(0, addedLines)
+        self.removedLines = max(0, removedLines)
+        self.patchText = patchText
+        self.isBinary = isBinary
     }
 }
 
@@ -183,30 +425,46 @@ public struct CodexGitCommitDraft: Equatable, Sendable {
 }
 
 public struct CodexGitReviewSnapshot: Equatable, Sendable {
-    public var branchName: String
-    public var upstreamBranchName: String?
-    public var branchOptions: [CodexGitBranchPickerOption]
-    public var files: [CodexGitReviewFileChange]
-    public var reviewFilePaths: [String]?
-    public var unpushedCommitCount: Int
-    public var pullRequestExists: Bool
+    public let revision: CodexGitReviewRevision
+    public let branchName: String
+    public let upstreamBranchName: String?
+    public let branchOptions: [CodexGitBranchPickerOption]
+    public let files: [CodexGitReviewFileChange]
+    public let diffStats: CodexGitReviewDiffStats
+    public let reviewFilePaths: [String]?
+    public let unpushedCommitCount: Int
+    public let pullRequestExists: Bool
+    public let ignoredChangeCount: Int
+    private let fileIndexByID: [String: Int]
 
     public init(
+        revision: CodexGitReviewRevision = .manual,
         branchName: String,
         upstreamBranchName: String? = nil,
         branchOptions: [CodexGitBranchPickerOption] = [],
         files: [CodexGitReviewFileChange] = [],
+        diffStats: CodexGitReviewDiffStats? = nil,
         reviewFilePaths: [String]? = nil,
         unpushedCommitCount: Int = 0,
-        pullRequestExists: Bool = false
+        pullRequestExists: Bool = false,
+        ignoredChangeCount: Int = 0
     ) {
+        self.revision = revision
         self.branchName = branchName.nilIfBlank ?? "HEAD"
         self.upstreamBranchName = upstreamBranchName?.nilIfBlank
         self.branchOptions = branchOptions
         self.files = files
+        self.diffStats = diffStats ?? CodexGitReviewDiffStats.from(files)
+        self.fileIndexByID = files.enumerated().reduce(into: [:]) {
+            result, entry in
+            if result[entry.element.id] == nil {
+                result[entry.element.id] = entry.offset
+            }
+        }
         self.reviewFilePaths = reviewFilePaths
         self.unpushedCommitCount = max(0, unpushedCommitCount)
         self.pullRequestExists = pullRequestExists
+        self.ignoredChangeCount = max(0, ignoredChangeCount)
     }
 
     public static func fromTurnDiff(
@@ -253,6 +511,11 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
 
     public var stagedFiles: [CodexGitReviewFileChange] {
         files.filter(\.isStaged)
+    }
+
+    public func file(id: String?) -> CodexGitReviewFileChange? {
+        guard let id, let index = fileIndexByID[id] else { return nil }
+        return files[index]
     }
 
     public var unstagedFiles: [CodexGitReviewFileChange] {
@@ -307,7 +570,9 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     }
 
     public func commitStats(includeUnstaged: Bool) -> CodexGitReviewDiffStats {
-        CodexGitReviewDiffStats.from(includeUnstaged ? files : stagedFiles)
+        includeUnstaged
+            ? diffStats
+            : CodexGitReviewDiffStats.from(stagedFiles)
     }
 
     public var reviewFileList: CodexGitReviewFileListPresentation {
@@ -344,6 +609,70 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         )
     }
 
+}
+
+public enum CodexLastTurnReviewState: Equatable, Sendable {
+    case empty(revision: CodexGitReviewRevision)
+    case malformed(revision: CodexGitReviewRevision, detail: String)
+    case tooLarge(
+        revision: CodexGitReviewRevision,
+        byteCount: Int,
+        maximumByteCount: Int
+    )
+    case ready(CodexGitReviewSession)
+
+    public var revision: CodexGitReviewRevision {
+        switch self {
+        case .empty(let revision),
+             .malformed(let revision, _),
+             .tooLarge(let revision, _, _):
+            return revision
+        case .ready(let session):
+            return session.snapshot.revision
+        }
+    }
+
+    public var session: CodexGitReviewSession? {
+        guard case .ready(let session) = self else { return nil }
+        return session
+    }
+
+    public var canOpenReview: Bool {
+        session != nil
+    }
+
+    public var unavailablePresentation: CodexGitReviewEmptyState? {
+        switch self {
+        case .ready:
+            return nil
+        case .empty:
+            return CodexGitReviewEmptyState(
+                title: "No changes in the last turn",
+                detail: "The latest turn did not produce file changes.",
+                isMismatch: false
+            )
+        case .malformed(_, let detail):
+            return CodexGitReviewEmptyState(
+                title: "Review unavailable",
+                detail: detail,
+                isMismatch: true
+            )
+        case .tooLarge(_, let byteCount, let maximumByteCount):
+            let limit = ByteCountFormatter.string(
+                fromByteCount: Int64(max(1, maximumByteCount)),
+                countStyle: .file
+            )
+            let size = ByteCountFormatter.string(
+                fromByteCount: Int64(max(0, byteCount)),
+                countStyle: .file
+            )
+            return CodexGitReviewEmptyState(
+                title: "Review too large",
+                detail: "The \(size) last-turn patch exceeds the \(limit) preview limit.",
+                isMismatch: true
+            )
+        }
+    }
 }
 
 public struct CodexGitReviewActionState: Equatable, Sendable {

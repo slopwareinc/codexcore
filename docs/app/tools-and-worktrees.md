@@ -31,10 +31,12 @@ Open **Browser** for manually navigated documentation and local previews. It is 
 
 ![Embedded browser showing Swift documentation](../assets/screenshots/browser-panel.png)
 
-## Experimental diff preview
+## Review workbench
 
-When the current turn emits a parseable unified diff, the workspace can expose a Review tab with changed-file counts and a file summary. This is a conditional preview, not a repository-wide Git review workflow.
+Open **Review changes** from the Environment summary or select the Review side-panel tab. Review offers Last Turn, Uncommitted, Unstaged, Staged, and Branch sources. Last Turn uses the immutable diff already projected for the current conversation; repository sources are refreshed explicitly from Git.
 
-Branch selection, review options, commit, push, and pull-request controls are intentionally unwired in the current reference app. Treat the working tree and normal Git tooling as authoritative.
+The changed-file navigator supports filtering, keyboard movement, rename metadata, line statistics, and per-file viewed state. It remains beside the unified diff at normal widths and collapses to a compact picker below 520 points. Patches load only for the selected file and are byte-bounded.
 
-The reference app omits worktree handoff, Git mutation controls, and the old demo bottom terminal. Use external Git tooling for worktrees and the workspace side panel for the real interactive Ghostty terminal.
+Stage, unstage, tracked-file revert, branch create/checkout, commit, push, and draft-PR actions are explicit. Rendering never mutates Git. Each mutation validates paths and rejects a stale repository revision; tracked revert requires confirmation and refuses untracked deletion.
+
+The reference app still omits worktree handoff and the old demo bottom terminal. Use external Git tooling for worktrees and the workspace side panel for the real interactive Ghostty terminal.
