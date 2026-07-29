@@ -49,6 +49,14 @@ struct CodexTranscriptAppKitIntegrationTests {
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: item.measuredHeight)
+        let window = NSWindow(
+            contentRect: cell.view.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = cell.view
+        defer { window.close() }
         var captured: [CodexResponseTextAnnotation] = []
         cell.configure(
             item: item,
@@ -73,6 +81,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
 
         #expect(cell.addSelectionToChatIsVisibleForTesting)
+        cell.view.layoutSubtreeIfNeeded()
+        #expect(cell.addSelectionToChatSizeForTesting == NSSize(width: 102, height: 32))
         cell.addSelectionToChatForTesting()
 
         let annotation = try #require(captured.first)
@@ -80,6 +90,12 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(annotation.anchor.renderItemID == item.id.rawValue)
         #expect(annotation.anchor.range == range)
         #expect(cell.responseAnnotationMarkerCountForTesting == 1)
+        #expect(cell.responseAnnotationEditorSizeForTesting == NSSize(width: 294, height: 44))
+        #expect(cell.responseAnnotationEditorIsCreatingForTesting)
+
+        cell.saveResponseAnnotationCommentForTesting("Explain this choice")
+        #expect(captured.last?.annotation == "Explain this choice")
+        #expect(cell.responseAnnotationEditorSizeForTesting == nil)
     }
 
     @Test func emptyAndPopulatedTranscriptReuseTheSameAppKitHost() throws {
