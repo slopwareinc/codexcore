@@ -79,6 +79,7 @@ public struct CodexChatWorkspaceView: View {
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var draft: String
     @Binding private var referencedFiles: [CodexReferencedFile]
+    @Binding private var responseAnnotations: [CodexResponseTextAnnotation]
     @Binding private var sideChatDraft: String
     private let isSending: Bool
     private let isSideChatSending: Bool
@@ -160,6 +161,7 @@ public struct CodexChatWorkspaceView: View {
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         draft: Binding<String>,
         referencedFiles: Binding<[CodexReferencedFile]> = .constant([]),
+        responseAnnotations: Binding<[CodexResponseTextAnnotation]> = .constant([]),
         sideChatDraft: Binding<String> = .constant(""),
         isSending: Bool,
         isSideChatSending: Bool = false,
@@ -232,6 +234,7 @@ public struct CodexChatWorkspaceView: View {
         self._reasoningSelection = reasoningSelection
         self._draft = draft
         self._referencedFiles = referencedFiles
+        self._responseAnnotations = responseAnnotations
         self._sideChatDraft = sideChatDraft
         self.isSending = isSending
         self.isSideChatSending = isSideChatSending
@@ -357,14 +360,30 @@ public struct CodexChatWorkspaceView: View {
                 bottomContentInset: composerOverlayHeight + 20,
                 supplementalTurns: supplementalTranscriptTurns,
                 supplementalPresentedAtByTurnID: supplementalTranscriptPresentedAtByTurnID,
+                responseAnnotations: responseAnnotations,
+                onUpsertResponseAnnotation: upsertResponseAnnotation,
+                onRemoveResponseAnnotation: removeResponseAnnotation,
                 onOpenSubagent: openPanelTab,
                 onEditUserMessage: { rawText in
-                    if let decoded = CodexFileReferencePromptCodec.decode(rawText) {
+                    if let decoded = CodexComposerPromptCodec.decode(rawText) {
                         draft = decoded.request
                         referencedFiles = decoded.files
+                        responseAnnotations = decoded.responseAnnotations.enumerated().map { index, content in
+                            CodexResponseTextAnnotation(
+                                id: "restored-\(index)-\(UUID().uuidString)",
+                                text: content.text,
+                                annotation: content.annotation,
+                                anchor: CodexResponseTextAnchor(
+                                    renderItemID: "",
+                                    startOffset: 0,
+                                    endOffset: 0
+                                )
+                            )
+                        }
                     } else {
                         draft = rawText
                         referencedFiles = []
+                        responseAnnotations = []
                     }
                 },
                 onForkChat: chatActions.forkChat,
@@ -452,6 +471,7 @@ public struct CodexChatWorkspaceView: View {
                     CodexComposerBar(
                         draft: $draft,
                         referencedFiles: $referencedFiles,
+                        responseAnnotations: $responseAnnotations,
                         approvalSelection: $approvalSelection,
                         isPlanModeEnabled: $isPlanModeEnabled,
                         isGoalPursuitEnabled: isGoalPursuitEnabled,
@@ -510,6 +530,18 @@ public struct CodexChatWorkspaceView: View {
 
     private var dockedOverviewContentShift: CGFloat {
         min(theme.spacing.summaryPanelWidth * 0.38, 120)
+    }
+
+    private func upsertResponseAnnotation(_ annotation: CodexResponseTextAnnotation) {
+        if let index = responseAnnotations.firstIndex(where: { $0.id == annotation.id }) {
+            responseAnnotations[index] = annotation
+        } else {
+            responseAnnotations.append(annotation)
+        }
+    }
+
+    private func removeResponseAnnotation(_ id: String) {
+        responseAnnotations.removeAll { $0.id == id }
     }
 
     private var panelTabs: [CodexAgentPanelTab] {

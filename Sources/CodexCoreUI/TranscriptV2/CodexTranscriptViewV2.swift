@@ -58,6 +58,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let bottomContentInset: CGFloat
     private let supplementalTurns: [CodexTurnV2]
     private let supplementalPresentedAtByTurnID: [String: Date]
+    private let responseAnnotations: [CodexResponseTextAnnotation]
+    private let onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void
+    private let onRemoveResponseAnnotation: (String) -> Void
     private let onOpenSubagent: (String) -> Void
     private let onEditUserMessage: (String) -> Void
     private let onForkChat: (() -> Void)?
@@ -75,6 +78,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         bottomContentInset: CGFloat = 170,
         supplementalTurns: [CodexTurnV2] = [],
         supplementalPresentedAtByTurnID: [String: Date] = [:],
+        responseAnnotations: [CodexResponseTextAnnotation] = [],
+        onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
+        onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
@@ -90,6 +96,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.contentHorizontalOffset = contentHorizontalOffset
         self.supplementalTurns = supplementalTurns
         self.supplementalPresentedAtByTurnID = supplementalPresentedAtByTurnID
+        self.responseAnnotations = responseAnnotations
+        self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
+        self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
@@ -110,6 +119,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         bottomContentInset: CGFloat = 170,
         supplementalTurns: [CodexTurnV2] = [],
         supplementalPresentedAtByTurnID: [String: Date] = [:],
+        responseAnnotations: [CodexResponseTextAnnotation] = [],
+        onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
+        onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
@@ -125,6 +137,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.contentHorizontalOffset = contentHorizontalOffset
         self.supplementalTurns = supplementalTurns
         self.supplementalPresentedAtByTurnID = supplementalPresentedAtByTurnID
+        self.responseAnnotations = responseAnnotations
+        self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
+        self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
         self.onOpenSubagent = onOpenSubagent
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
@@ -151,6 +166,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 presentationStore: presentationStore,
                 bottomContentInset: bottomContentInset,
                 contentHorizontalOffset: contentHorizontalOffset,
+                responseAnnotations: responseAnnotations,
+                onUpsertResponseAnnotation: onUpsertResponseAnnotation,
+                onRemoveResponseAnnotation: onRemoveResponseAnnotation,
                 productToolRenderer: productToolRenderer,
                 onOpenSubagent: onOpenSubagent,
                 onEditUserMessage: onEditUserMessage,

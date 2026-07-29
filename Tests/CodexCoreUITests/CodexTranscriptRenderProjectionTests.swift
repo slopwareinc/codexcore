@@ -55,6 +55,67 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func onlyCompletedAssistantResponseTextAllowsAnnotations() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let completed = try await projector.project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
+                id: "completed",
+                finalAnswer: .init(
+                    id: "answer",
+                    text: "Completed response with `inline code`.",
+                    isStreaming: false
+                ),
+                status: .done(durationMs: 1)
+            )])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let completedResponseItems = completed.itemsByID.values.filter {
+            $0.textRole == .finalAnswer
+        }
+        #expect(!completedResponseItems.isEmpty)
+        #expect(completedResponseItems.allSatisfy { $0.allowsResponseAnnotation })
+
+        let streaming = try await projector.project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
+                id: "streaming",
+                finalAnswer: .init(id: "answer-live", text: "Still streaming", isStreaming: true),
+                status: .working(since: 1)
+            )])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        #expect(streaming.itemsByID.values.allSatisfy { !$0.allowsResponseAnnotation })
+    }
+
+    @Test func annotationOnlyUserTurnRendersAttachmentWithoutHiddenPromptBubble() async throws {
+        let annotation = CodexResponseAnnotationContent(
+            text: "Selected response text",
+            annotation: "Please clarify"
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: .init(
+                    id: "user",
+                    text: "",
+                    rawText: "hidden envelope",
+                    responseAnnotations: [annotation]
+                ),
+                status: .done(durationMs: nil)
+            )])),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+
+        #expect(!snapshot.itemsByID.values.contains { $0.textRole == .user })
+        let attachment = try #require(snapshot.itemsByID.values.first {
+            $0.agentChips.first?.systemImage == "text.bubble"
+        })
+        #expect(attachment.agentChips.first?.label == "1 annotation")
+        #expect(attachment.agentChips.first?.taskSummary?.contains("Please clarify") == true)
+    }
+
     @Test func activityLabelsDescribeIntentWithoutRawToolMechanics() {
         let read = CodexWorkRowV2.command(.init(
             id: "read-skill",

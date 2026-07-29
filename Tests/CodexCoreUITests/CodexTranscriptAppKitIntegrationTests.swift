@@ -26,6 +26,62 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.hoverTrackingAreaCountForTesting == 1)
     }
 
+    @Test func completedAssistantSelectionAddsAnchoredResponseAnnotation() async throws {
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "annotation-thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    finalAnswer: .init(
+                        id: "answer",
+                        text: "Select this response text.",
+                        isStreaming: false
+                    ),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let item = try #require(
+            snapshot.itemsByID.values.first { $0.allowsResponseAnnotation }
+        )
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: item.measuredHeight)
+        var captured: [CodexResponseTextAnnotation] = []
+        cell.configure(
+            item: item,
+            appKitTheme: .init(.officialDark),
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            upsertResponseAnnotation: { captured.append($0) },
+            selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+
+        let textView = cell.selectableTextViewForTesting
+        let range = (textView.string as NSString).range(of: "response")
+        textView.setSelectedRange(range)
+        cell.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
+
+        #expect(cell.addSelectionToChatIsVisibleForTesting)
+        cell.addSelectionToChatForTesting()
+
+        let annotation = try #require(captured.first)
+        #expect(annotation.text == "response")
+        #expect(annotation.anchor.renderItemID == item.id.rawValue)
+        #expect(annotation.anchor.range == range)
+        #expect(cell.responseAnnotationMarkerCountForTesting == 1)
+    }
+
     @Test func emptyAndPopulatedTranscriptReuseTheSameAppKitHost() throws {
         let model = TranscriptHostIdentityModel()
         let hosting = NSHostingView(rootView: TranscriptHostIdentityHarness(model: model))
