@@ -241,6 +241,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var responseAnnotationEditorEventMonitor: Any?
     private var responseAnnotationEditorID: String?
     private var responseAnnotationEditorIsCreating = false
+    private var pendingResponseAnnotation: CodexResponseTextAnnotation?
     private var responseAnnotations: [CodexResponseTextAnnotation] = []
     private let backgroundView = NSView()
     private var textControlsInstalled = false
@@ -577,6 +578,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         clearDiffTabs()
         closeAgentPreview()
         closeResponseAnnotationEditor()
+        pendingResponseAnnotation = nil
         clearResponseAnnotationMarkers()
         responseSelectionActionHost?.isHidden = true
         if textControlsInstalled {
@@ -664,6 +666,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         clearDiffTabs()
         closeAgentPreview()
         closeResponseAnnotationEditor()
+        pendingResponseAnnotation = nil
         clearResponseAnnotationMarkers()
         responseSelectionActionHost?.rootView = responseSelectionActionView()
         responseSelectionActionHost?.isHidden = true
@@ -1766,7 +1769,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
         let selection = selectableTextView.selectedRange()
         let length = selectableTextView.textStorage?.length ?? 0
-        responseSelectionActionHost?.isHidden = selection.length == 0
+        responseSelectionActionHost?.isHidden = pendingResponseAnnotation != nil
+            || selection.length == 0
             || selection.location == NSNotFound
             || NSMaxRange(selection) > length
     }
@@ -1873,12 +1877,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 endOffset: NSMaxRange(range)
             )
         )
-        responseAnnotations.append(annotation)
-        upsertResponseAnnotation?(annotation)
-        updateResponseAnnotationChrome()
-        layoutResponseAnnotationChrome()
+        pendingResponseAnnotation = annotation
+        responseSelectionActionHost?.isHidden = true
         showResponseAnnotationEditor(annotation, isCreating: true)
-        selectableTextView.setSelectedRange(NSRange(location: 0, length: 0))
     }
 
     @objc private func openResponseAnnotationEditor(_ sender: NSButton) {
@@ -1892,10 +1893,17 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         isCreating: Bool
     ) {
         closeResponseAnnotationEditor()
-        guard let parentWindow = view.window,
-              let ordinal = responseAnnotations.firstIndex(where: { $0.id == annotation.id }),
-              let marker = responseAnnotationMarkerButtons.first(where: { $0.tag == ordinal })
-        else { return }
+        guard let parentWindow = view.window else { return }
+        let anchorRect: NSRect?
+        if isCreating, let selectionRect = textRect(for: annotation.anchor.range) {
+            anchorRect = selectableTextView.convert(selectionRect, to: view)
+        } else if let ordinal = responseAnnotations.firstIndex(where: { $0.id == annotation.id }),
+                  let marker = responseAnnotationMarkerButtons.first(where: { $0.tag == ordinal }) {
+            anchorRect = marker.frame
+        } else {
+            anchorRect = nil
+        }
+        guard let anchorRect else { return }
 
         let panelSize = NSSize(width: 294, height: 44)
         let panel = CodexResponseAnnotationEditorPanel(
@@ -1924,7 +1932,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             .codexAgentTheme(swiftUITheme)
         ))
         panel.setFrameOrigin(responseAnnotationEditorOrigin(
-            marker: marker,
+            anchorRect: anchorRect,
             panelSize: panelSize,
             parentWindow: parentWindow
         ))
@@ -1971,6 +1979,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 return nil
             }
             if event.type != .keyDown, event.window !== panel {
+                if self.responseAnnotationEditorIsCreating {
+                    self.pendingResponseAnnotation = nil
+                    self.selectableTextView.setSelectedRange(NSRange(location: 0, length: 0))
+                }
                 self.closeResponseAnnotationEditor()
             }
             return event
@@ -1978,14 +1990,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func responseAnnotationEditorOrigin(
-        marker: NSButton,
+        anchorRect: NSRect,
         panelSize: NSSize,
         parentWindow: NSWindow
     ) -> NSPoint {
-        let markerInWindow = marker.convert(marker.bounds, to: nil)
+        let anchorInWindow = view.convert(anchorRect, to: nil)
         let convertedCenter = parentWindow.convertPoint(toScreen: NSPoint(
-            x: markerInWindow.midX,
-            y: markerInWindow.midY
+            x: anchorInWindow.midX,
+            y: anchorInWindow.midY
         ))
         let parentFrame = parentWindow.frame
         let placementFrame = parentFrame.origin.x.isFinite
@@ -2021,6 +2033,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func deleteResponseAnnotation(_ id: String) {
+        if pendingResponseAnnotation?.id == id {
+            pendingResponseAnnotation = nil
+            selectableTextView.setSelectedRange(NSRange(location: 0, length: 0))
+            closeResponseAnnotationEditor()
+            updateAddSelectionToChatButton()
+            return
+        }
         responseAnnotations.removeAll { $0.id == id }
         removeResponseAnnotation?(id)
         closeResponseAnnotationEditor()
@@ -2029,6 +2048,17 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func saveResponseAnnotation(id: String, note: String) {
+        if var annotation = pendingResponseAnnotation, annotation.id == id {
+            annotation.annotation = note
+            pendingResponseAnnotation = nil
+            responseAnnotations.append(annotation)
+            upsertResponseAnnotation?(annotation)
+            selectableTextView.setSelectedRange(NSRange(location: 0, length: 0))
+            closeResponseAnnotationEditor()
+            updateResponseAnnotationChrome()
+            view.needsLayout = true
+            return
+        }
         guard let index = responseAnnotations.firstIndex(where: { $0.id == id }) else {
             return
         }

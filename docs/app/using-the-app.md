@@ -92,12 +92,13 @@ the normal expandable **Worked for …** disclosure.
 The transcript groups user input, agent work, tool calls, subagents, approvals, plans, diffs, and final answers into canonical turns. Expanded heavy details are materialized on demand.
 
 Select text in a completed assistant response and choose **Add to chat** to attach
-that excerpt to the current composer. Each selection receives a numbered marker;
-you can add an optional comment, edit or remove individual annotations from the
-composer attachment, or remove the attachment as a whole. Annotation source
-locations remain local presentation state. On send, Codex receives the numbered
-selections and comments as hidden context while the visible user message remains
-the request you typed.
+that excerpt to the current composer. Confirm the optional comment editor—an
+empty comment is valid—to create the attachment. Each confirmed selection keeps
+a numbered marker in the response; you can edit or remove individual annotations
+from the composer attachment, or remove the attachment as a whole. Annotation
+source locations remain local presentation state. On send, Codex receives the
+numbered selections and comments as hidden context while the visible user
+message remains the request you typed.
 
 ![A completed task with expanded command activity and a subagent](../assets/screenshots/subagent-activity.png)
 

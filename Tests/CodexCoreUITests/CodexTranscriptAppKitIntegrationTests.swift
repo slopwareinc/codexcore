@@ -26,7 +26,10 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.hoverTrackingAreaCountForTesting == 1)
     }
 
-    @Test func completedAssistantSelectionAddsAnchoredResponseAnnotation() async throws {
+    @Test(arguments: ["", "Explain this choice"])
+    func completedAssistantSelectionCommitsOnlyAfterConfirmingComment(
+        comment: String
+    ) async throws {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "annotation-thread",
@@ -85,16 +88,18 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.addSelectionToChatSizeForTesting == NSSize(width: 102, height: 32))
         cell.addSelectionToChatForTesting()
 
-        let annotation = try #require(captured.first)
-        #expect(annotation.text == "response")
-        #expect(annotation.anchor.renderItemID == item.id.rawValue)
-        #expect(annotation.anchor.range == range)
-        #expect(cell.responseAnnotationMarkerCountForTesting == 1)
+        #expect(captured.isEmpty)
+        #expect(cell.responseAnnotationMarkerCountForTesting == 0)
         #expect(cell.responseAnnotationEditorSizeForTesting == NSSize(width: 294, height: 44))
         #expect(cell.responseAnnotationEditorIsCreatingForTesting)
 
-        cell.saveResponseAnnotationCommentForTesting("Explain this choice")
-        #expect(captured.last?.annotation == "Explain this choice")
+        cell.saveResponseAnnotationCommentForTesting(comment)
+        let annotation = try #require(captured.first)
+        #expect(annotation.text == "response")
+        #expect(annotation.annotation == (comment.isEmpty ? nil : comment))
+        #expect(annotation.anchor.renderItemID == item.id.rawValue)
+        #expect(annotation.anchor.range == range)
+        #expect(cell.responseAnnotationMarkerCountForTesting == 1)
         #expect(cell.responseAnnotationEditorSizeForTesting == nil)
     }
 
