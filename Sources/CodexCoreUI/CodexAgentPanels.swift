@@ -695,66 +695,96 @@ public struct CodexAgentSidePanel: View {
             || !filePreviewSessions.isEmpty || !tabs.isEmpty
     }
 
+    private var orderedTabIDs: [String] {
+        terminalSessions.map(\.id)
+            + browserSessions.map(\.id)
+            + filesSessions.map(\.id)
+            + filePreviewSessions.map(\.id)
+            + tabs.map(\.id)
+    }
+
     private var tabBar: some View {
         HStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(terminalSessions) { session in
-                        AgentPanelTabButton(
-                            title: session.title,
-                            systemImage: "terminal",
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseTerminal(session.id) }
-                        ) {
-                            selectedTabID = session.id
-                        }
-                    }
+            GeometryReader { geometry in
+                let tabWidth = CodexAgentPanelTabStripLayout.tabWidth(
+                    availableWidth: geometry.size.width,
+                    tabCount: orderedTabIDs.count
+                )
 
-                    ForEach(browserSessions) { session in
-                        BrowserPanelTabButton(
-                            session: session,
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseBrowser(session.id) }
-                        ) {
-                            selectedTabID = session.id
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(terminalSessions) { session in
+                            AgentPanelTabButton(
+                                title: session.title,
+                                systemImage: "terminal",
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseTerminal(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
                         }
-                    }
 
-                    ForEach(filesSessions) { session in
-                        AgentPanelTabButton(
-                            title: session.title,
-                            systemImage: "folder",
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseFiles(session.id) }
-                        ) {
-                            selectedTabID = session.id
+                        ForEach(browserSessions) { session in
+                            BrowserPanelTabButton(
+                                session: session,
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseBrowser(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
                         }
-                    }
 
-                    ForEach(filePreviewSessions) { session in
-                        AgentPanelTabButton(
-                            title: session.title,
-                            systemImage: "doc.text",
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseFilePreview(session.id) }
-                        ) {
-                            selectedTabID = session.id
+                        ForEach(filesSessions) { session in
+                            AgentPanelTabButton(
+                                title: session.title,
+                                systemImage: "folder",
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseFiles(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
                         }
-                    }
 
-                    ForEach(tabs) { tab in
-                        AgentPanelTabButton(
-                            title: tab.title,
-                            systemImage: tab.systemImage,
-                            isSelected: tab.id == selectedTab?.id,
-                            closeAction: tab.isSubagent ? { onCloseSubagent(tab.id) } : nil
-                        ) {
-                            selectedTabID = tab.id
+                        ForEach(filePreviewSessions) { session in
+                            AgentPanelTabButton(
+                                title: session.title,
+                                systemImage: "doc.text",
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseFilePreview(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
+                        }
+
+                        ForEach(tabs) { tab in
+                            AgentPanelTabButton(
+                                title: tab.title,
+                                systemImage: tab.systemImage,
+                                isSelected: tab.id == selectedTab?.id,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: tab.id),
+                                closeAction: tab.isSubagent ? { onCloseSubagent(tab.id) } : nil
+                            ) {
+                                selectedTabID = tab.id
+                            }
                         }
                     }
                 }
-                .padding(.horizontal, 8)
+                .background(
+                    theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity * 0.42),
+                    in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                )
             }
+            .frame(height: 34)
+            .padding(.leading, 8)
 
             HStack(spacing: 8) {
                 Menu {
@@ -799,6 +829,17 @@ public struct CodexAgentSidePanel: View {
             .padding(.trailing, 8)
         }
         .frame(height: theme.spacing.toolbarHeight)
+    }
+
+    private func showsLeadingDivider(for tabID: String) -> Bool {
+        guard let index = orderedTabIDs.firstIndex(of: tabID), index > 0 else {
+            return false
+        }
+        return CodexAgentPanelTabStripLayout.showsLeadingDivider(
+            tabID: tabID,
+            precedingTabID: orderedTabIDs[index - 1],
+            selectedTabID: selectedTabID
+        )
     }
 
     private var toolLauncher: some View {
@@ -860,17 +901,39 @@ public struct CodexAgentSidePanel: View {
     }
 }
 
+struct CodexAgentPanelTabStripLayout {
+    static let minimumTabWidth: CGFloat = 112
+
+    static func tabWidth(availableWidth: CGFloat, tabCount: Int) -> CGFloat {
+        guard tabCount > 0 else { return availableWidth }
+        return max(minimumTabWidth, floor(availableWidth / CGFloat(tabCount)))
+    }
+
+    static func showsLeadingDivider(
+        tabID: String,
+        precedingTabID: String?,
+        selectedTabID: String?
+    ) -> Bool {
+        precedingTabID != nil
+            && tabID != selectedTabID
+            && precedingTabID != selectedTabID
+    }
+}
+
 private struct AgentPanelTabButton: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let title: String
     let systemImage: String
     let isSelected: Bool
+    let width: CGFloat
+    let showsLeadingDivider: Bool
     let closeAction: (() -> Void)?
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
+        ZStack(alignment: .trailing) {
             Button(action: action) {
                 HStack(spacing: 6) {
                     Image(systemName: systemImage)
@@ -880,9 +943,8 @@ private struct AgentPanelTabButton: View {
                         .lineLimit(1)
                 }
                 .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                .padding(.leading, 9)
-                .padding(.trailing, closeAction == nil ? 9 : 2)
-                .frame(height: 28)
+                .padding(.horizontal, closeAction == nil ? 10 : 30)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .buttonStyle(.plain)
 
@@ -896,13 +958,39 @@ private struct AgentPanelTabButton: View {
                 .buttonStyle(.plain)
                 .help("Close \(title)")
                 .accessibilityLabel("Close \(title)")
-                .padding(.trailing, 4)
+                .padding(.trailing, 5)
             }
         }
+        .frame(width: width, height: 30)
         .background(
-            isSelected ? theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity) : .clear,
+            tabBackground,
             in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
         )
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(theme.colors.border.opacity(0.72), lineWidth: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            if showsLeadingDivider {
+                Rectangle()
+                    .fill(theme.colors.border.opacity(0.58))
+                    .frame(width: 1, height: 16)
+            }
+        }
+        .padding(.vertical, 2)
+        .onHover { isHovered = $0 }
+    }
+
+    private var tabBackground: Color {
+        if isSelected {
+            return theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity)
+        }
+        if isHovered {
+            return theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity * 0.5)
+        }
+        return .clear
     }
 }
 
@@ -910,6 +998,8 @@ private struct BrowserPanelTabButton: View {
     @ObservedObject var session: CodexBrowserSession
 
     let isSelected: Bool
+    let width: CGFloat
+    let showsLeadingDivider: Bool
     let closeAction: () -> Void
     let action: () -> Void
 
@@ -918,6 +1008,8 @@ private struct BrowserPanelTabButton: View {
             title: session.title,
             systemImage: "globe",
             isSelected: isSelected,
+            width: width,
+            showsLeadingDivider: showsLeadingDivider,
             closeAction: closeAction,
             action: action
         )
