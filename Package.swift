@@ -22,6 +22,10 @@ let package = Package(
         .executable(
             name: "codex-core-app",
             targets: ["CodexCoreApp"]
+        ),
+        .executable(
+            name: "codex-ui-gallery",
+            targets: ["CodexUIGallery"]
         )
     ],
     dependencies: [
@@ -87,6 +91,12 @@ let package = Package(
             dependencies: ["CodexCore", "CodexCoreUI"],
             path: "Sources/CodexCoreApp",
             exclude: ["Info.plist", "Resources"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(
+            name: "CodexUIGallery",
+            dependencies: ["CodexCore", "CodexCoreUI"],
+            path: "Sources/CodexUIGallery",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
