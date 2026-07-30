@@ -374,7 +374,7 @@ final class CodexSessionStateTests: XCTestCase {
         session.attachSkill(skill)
         session.attachSkill(skill)
         XCTAssertEqual(session.attachedSkills, [skill])
-        XCTAssertEqual(session.draft, "Review this")
+        XCTAssertEqual(session.draft, "  Inspect @Store.swift  ")
 
         session.draft = "  Inspect @Store.swift  "
         session.setMentionResults([mention])
@@ -425,7 +425,7 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(skillRoute.activities.map(\.detail), ["Thermo Review"])
         XCTAssertEqual(skillRoute.hostActions, [])
         XCTAssertEqual(session.attachedSkills, [skill])
-        XCTAssertEqual(session.draft, "Review this")
+        XCTAssertEqual(session.draft, "Inspect @Store.swift")
 
         let sideRoute = session.routeSlashCommand(CodexSlashCommand(
             id: "side",
@@ -434,7 +434,7 @@ final class CodexSessionStateTests: XCTestCase {
             systemImage: "sidebar.right"
         ))
         XCTAssertEqual(sideRoute.hostActions, [.openSideChat])
-        XCTAssertEqual(session.draft, "")
+        XCTAssertEqual(session.draft, "Inspect @Store.swift")
 
         let mcpRoute = session.routeSlashCommand(CodexSlashCommand(
             id: "mcp",
@@ -452,7 +452,7 @@ final class CodexSessionStateTests: XCTestCase {
             systemImage: "sparkles"
         ))
         XCTAssertEqual(modelRoute.hostActions, [.openModelSelector])
-        XCTAssertEqual(session.draft, "")
+        XCTAssertEqual(session.draft, "/model")
 
         session.draft = "/reasoning"
         let reasoningRoute = session.routeSlashCommand(CodexSlashCommand(
@@ -462,17 +462,33 @@ final class CodexSessionStateTests: XCTestCase {
             systemImage: "brain"
         ))
         XCTAssertEqual(reasoningRoute.hostActions, [.openReasoningSelector])
-        XCTAssertEqual(session.draft, "")
+        XCTAssertEqual(session.draft, "/reasoning")
 
-        let draftRoute = session.routeSlashCommand(CodexSlashCommand(
-            id: "feedback",
-            title: "Feedback",
-            detail: "Send feedback",
-            systemImage: "bubble.left",
-            draftText: "I have feedback: "
+        session.draft = "Keep this"
+        let statusRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "status",
+            title: "Status",
+            detail: "Show status",
+            systemImage: "waveform.path.ecg"
         ))
-        XCTAssertEqual(draftRoute.activities.map(\.detail), ["Prepared Feedback"])
-        XCTAssertEqual(session.draft, "I have feedback: ")
+        XCTAssertEqual(statusRoute.hostActions, [.presentStatus])
+        XCTAssertEqual(session.draft, "Keep this")
+
+        let goalRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "goal",
+            title: "Goal",
+            detail: "Enable goal pursuit",
+            systemImage: "target"
+        ))
+        XCTAssertEqual(goalRoute.hostActions, [.enableGoalPursuit])
+
+        let planRoute = session.routeSlashCommand(CodexSlashCommand(
+            id: "plan",
+            title: "Plan mode",
+            detail: "Enable plan mode",
+            systemImage: "map"
+        ))
+        XCTAssertEqual(planRoute.hostActions, [.enablePlanMode])
     }
 
     func testActivityLogSessionOwnsClippingOrderingAndCapacity() {

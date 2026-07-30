@@ -2399,19 +2399,28 @@ final class CodexCoreAppModel {
         clipboardService.copy(text)
     }
 
-    func handleSlashCommand(_ command: CodexSlashCommand, presentMCPStatus: (() -> Void)? = nil) {
+    func handleSlashCommand(
+        _ command: CodexSlashCommand,
+        presentStatus: (() -> Void)? = nil,
+        presentMCPStatus: (() -> Void)? = nil
+    ) {
         syncComposerThreadID()
         let route = composerSession.routeSlashCommand(command)
         for activity in route.activities {
             appendActivity(activity)
         }
         for action in route.hostActions {
-            applySlashCommandHostAction(action, presentMCPStatus: presentMCPStatus)
+            applySlashCommandHostAction(
+                action,
+                presentStatus: presentStatus,
+                presentMCPStatus: presentMCPStatus
+            )
         }
     }
 
     private func applySlashCommandHostAction(
         _ action: CodexComposerSlashCommandHostAction,
+        presentStatus: (() -> Void)?,
         presentMCPStatus: (() -> Void)?
     ) {
         switch action {
@@ -2425,12 +2434,16 @@ final class CodexCoreAppModel {
             appendActivity(.notice, title: "Model", detail: "Use the composer model selector")
         case .openReasoningSelector:
             appendActivity(.notice, title: "Reasoning", detail: "Use the composer reasoning selector")
-        case .showCurrentStatus:
-            appendActivity(.notice, title: "Status", detail: connectionState.label)
         case .forkCurrentChat:
             Task { await forkCurrentChat() }
         case .compactCurrentChat:
             Task { await compactCurrentChat() }
+        case .enableGoalPursuit:
+            setGoalPursuitEnabled(true)
+        case .enablePlanMode:
+            configurationSession.setPlanModeEnabled(true)
+        case .presentStatus:
+            presentStatus?()
         case .presentMCPStatus:
             presentMCPStatus?()
         case .refreshMCPServers:
@@ -2504,6 +2517,13 @@ final class CodexCoreAppModel {
             tokenUsageSummary: currentTokenUsageSummary,
             rateLimitSummary: accountRateLimitsSnapshot.map(CodexRateLimitPresentation.summary),
             gitBranch: gitBranch
+        )
+    }
+
+    var statusPanelModel: CodexStatusPanelModel {
+        CodexStatusPanelModel(
+            context: statusSummaryContext,
+            rateLimits: accountRateLimitsSnapshot
         )
     }
 

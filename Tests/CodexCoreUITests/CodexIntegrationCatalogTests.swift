@@ -5,16 +5,12 @@ import XCTest
 final class CodexIntegrationCatalogTests: XCTestCase {
     func testSlashCommandsMatchObservedCodexPaletteAndFilter() throws {
         XCTAssertEqual(CodexSlashCommand.observedCommands.map(\.title), [
-            "Code review",
             "Compact",
             "Fast",
-            "Feedback",
             "Fork",
             "Goal",
             "MCP",
             "Model",
-            "Personality",
-            "Pet",
             "Plan mode",
             "Reasoning",
             "Side",
@@ -22,12 +18,24 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         ])
         let compact = try XCTUnwrap(CodexSlashCommand.observedCommands.first { $0.id == "compact" })
         XCTAssertNil(compact.draftText)
+        XCTAssertTrue(compact.requiresEmptyComposer)
         let mcp = try XCTUnwrap(CodexSlashCommand.observedCommands.first { $0.id == "mcp" })
         XCTAssertNil(mcp.draftText)
+        XCTAssertFalse(mcp.requiresEmptyComposer)
 
         XCTAssertEqual(CodexSlashCommand.query(from: "/sta"), "sta")
         XCTAssertEqual(CodexSlashCommand.query(from: "  /side please"), "side")
-        XCTAssertNil(CodexSlashCommand.query(from: "Ask about /status"))
+        XCTAssertEqual(CodexSlashCommand.query(from: "Ask about /status"), "status")
+        XCTAssertNil(CodexSlashCommand.query(from: "https://example.com/status"))
+
+        XCTAssertEqual(
+            CodexSlashCommand.invocation(from: "Ask about /status")?.replacementDraft,
+            "Ask about"
+        )
+        XCTAssertEqual(
+            CodexSlashCommand.invocation(from: "/side please")?.replacementDraft,
+            "please"
+        )
 
         XCTAssertEqual(
             CodexSlashCommand.filteredCommands(matching: "/sta").map(\.title),
@@ -40,6 +48,22 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(
             CodexSlashCommand.filteredCommands(matching: "/").map(\.title),
             CodexSlashCommand.observedCommands.map(\.title)
+        )
+        XCTAssertFalse(
+            CodexSlashCommand.filteredCommands(matching: "Keep this /")
+                .contains(where: { $0.id == "compact" || $0.id == "fork" })
+        )
+        XCTAssertTrue(
+            CodexSlashCommand.filteredCommands(matching: "Keep this /")
+                .contains(where: { $0.id == "status" || $0.id == "model" })
+        )
+
+        let disabledStatus = try XCTUnwrap(
+            CodexSlashCommand.observedCommands.first(where: { $0.id == "status" })
+        ).withAvailability(false)
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: [disabledStatus], matching: "/"),
+            []
         )
 
         let personalSkill = CodexSlashCommand(

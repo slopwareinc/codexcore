@@ -266,12 +266,6 @@ public struct CodexComposerBar: View {
             reconcilePaletteSelections()
         }
         .onChange(of: draft) { _, _ in
-            if activeCommandSelector != nil, !draft.isEmpty {
-                activeCommandSelector = nil
-            }
-            if isMCPStatusPalettePresented, !draft.isEmpty {
-                isMCPStatusPalettePresented = false
-            }
             isSlashPaletteDismissed = false
             reconcilePaletteSelections()
         }
@@ -489,8 +483,14 @@ public struct CodexComposerBar: View {
     }
 
     private func selectSlashCommand(_ command: CodexSlashCommand) {
+        guard command.isEnabled,
+              let invocation = CodexSlashCommand.invocation(from: draft),
+              !command.requiresEmptyComposer || !invocation.hasOtherContent else {
+            return
+        }
         slashPaletteSelection.clear()
         isSlashPaletteDismissed = false
+        draft = invocation.replacementDraft
 
         switch command.id {
         case "model":
@@ -502,20 +502,17 @@ public struct CodexComposerBar: View {
         default:
             activeCommandSelector = nil
             isMCPStatusPalettePresented = false
-            draft = command.draftText ?? ""
             onSlashCommandSelected?(command)
         }
     }
 
     private func openCommandSelector(_ selector: CodexComposerCommandSelector) {
-        draft = ""
         isMCPStatusPalettePresented = false
         activeCommandSelector = selector
         commandSelectorSelection.reconcile(availableIDs: selectorRows(for: selector).filter(\.isEnabled).map(\.id))
     }
 
     private func openMCPStatusPalette(_ command: CodexSlashCommand) {
-        draft = ""
         activeCommandSelector = nil
         isMCPStatusPalettePresented = true
         onSlashCommandSelected?(command)

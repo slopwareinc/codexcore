@@ -7,6 +7,7 @@ struct CodexCoreAppShell: View {
     @Bindable var model: CodexCoreAppModel
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
+    @State private var isStatusSheetPresented = false
     @State private var renameDraft = ""
     @State private var projectEditTarget: CodexProjectSummary?
     @State private var projectNameDraft = ""
@@ -202,6 +203,13 @@ struct CodexCoreAppShell: View {
                 errorMessage: model.mcpErrorMessage,
                 onClose: { isMCPStatusSheetPresented = false },
                 onRefresh: { Task { await model.refreshMCPServers() } }
+            )
+            .codexAgentTheme(model.theme)
+        }
+        .sheet(isPresented: $isStatusSheetPresented) {
+            CodexStatusSheet(
+                model: model.statusPanelModel,
+                onClose: { isStatusSheetPresented = false }
             )
             .codexAgentTheme(model.theme)
         }
@@ -459,9 +467,11 @@ struct CodexCoreAppShell: View {
                 onToggleSidebar: collapsePinnedSidebar,
                 onDisconnect: { Task { await model.disconnect() } },
                 onSlashCommandSelected: { command in
-                    model.handleSlashCommand(command) {
-                        isMCPStatusSheetPresented = true
-                    }
+                    model.handleSlashCommand(
+                        command,
+                        presentStatus: { isStatusSheetPresented = true },
+                        presentMCPStatus: { isMCPStatusSheetPresented = true }
+                    )
                 },
                 approvalPrompts: model.approvalPrompts,
                 onResolveApproval: { id, approved in
