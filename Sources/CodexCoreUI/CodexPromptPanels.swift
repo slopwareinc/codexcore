@@ -25,10 +25,10 @@ public struct CodexTurnPlanPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "list.bullet.rectangle")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.accent)
                 Text("Plan")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer(minLength: 0)
                 if !steps.isEmpty {
@@ -48,7 +48,7 @@ public struct CodexTurnPlanPanel: View {
             ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: statusImage(step.status))
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(theme.fonts.micro)
                         .foregroundStyle(statusColor(step.status))
                         .frame(width: 16)
                     Text(step.step)
@@ -64,7 +64,7 @@ public struct CodexTurnPlanPanel: View {
                 Divider().overlay(theme.colors.border)
                 HStack(spacing: 8) {
                     Image(systemName: "plusminus")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(theme.fonts.micro)
                         .foregroundStyle(theme.colors.textSecondary)
                         .frame(width: 16)
                     Text(diffSummary(diff))
@@ -76,7 +76,7 @@ public struct CodexTurnPlanPanel: View {
                         onCopyDiff?(diff)
                     } label: {
                         Image(systemName: "doc.on.doc")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(theme.fonts.micro)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.colors.textTertiary)
@@ -155,10 +155,10 @@ public struct CodexApprovalRequestsPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.warning)
                 Text("Approval needed")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer(minLength: 0)
                 Text("\(prompts.count)")
@@ -208,12 +208,12 @@ private struct CodexApprovalPromptRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: prompt.kind.systemImage)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(theme.fonts.caption.weight(.semibold))
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(prompt.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(1)
                     Text(prompt.detail)
@@ -226,7 +226,7 @@ private struct CodexApprovalPromptRow: View {
 
             if let primary = prompt.primaryValue, !primary.isEmpty {
                 Text(primary)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(theme.fonts.code)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(3)
                     .truncationMode(.middle)
@@ -326,10 +326,10 @@ public struct CodexInteractivePromptsPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "questionmark.bubble")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.accent)
                 Text("Input needed")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer(minLength: 0)
                 if prompts.count > 1 {
@@ -384,12 +384,12 @@ private struct CodexInteractivePromptRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: prompt.kind.systemImage)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(theme.fonts.caption.weight(.semibold))
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(prompt.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(1)
                     if prompt.questions.isEmpty {
@@ -414,7 +414,7 @@ private struct CodexInteractivePromptRow: View {
                 }
             } else if let serverName = prompt.serverName {
                 Text(serverName)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(theme.fonts.code)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -498,7 +498,7 @@ private struct CodexInteractivePromptRow: View {
         VStack(alignment: .leading, spacing: 6) {
             if let header = question.header {
                 Text(header)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(theme.fonts.caption.weight(.semibold))
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
             }
@@ -524,9 +524,9 @@ private struct CodexInteractivePromptRow: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: otherQuestionIDs.contains(question.id) ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(theme.fonts.micro)
                             Text("Other")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(theme.fonts.chipLabel)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 8)
@@ -611,10 +611,10 @@ private struct CodexFlexibleOptionButtons: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: selectedAnswer == option.label ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(theme.fonts.micro)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(option.label)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(theme.fonts.chipLabel)
                                 .foregroundStyle(theme.colors.textPrimary)
                                 .lineLimit(1)
                             if let description = option.description {

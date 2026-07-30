@@ -45,17 +45,17 @@ public struct CodexCommandPaletteOverlay: View {
             .padding(.top, 72)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .codexScrim(onTap: onClose)
-        .onAppear { isFocused = true }
-        .onDisappear {
-            searchTask?.cancel()
-            onClearSearchResults()
-        }
-        .onExitCommand(perform: onClose)
-        #if canImport(AppKit)
-        .background(CommandPaletteEscapeMonitor(onEscape: onClose))
-        #endif
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Command menu")
+            .onAppear { isFocused = true }
+            .onDisappear {
+                searchTask?.cancel()
+                onClearSearchResults()
+            }
+            .onExitCommand(perform: onClose)
+            #if canImport(AppKit)
+            .background(CommandPaletteEscapeMonitor(onEscape: onClose))
+            #endif
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Command menu")
     }
 
     private var palette: some View {
@@ -76,7 +76,7 @@ public struct CodexCommandPaletteOverlay: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Command menu")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(theme.fonts.sheetTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                 Text("Search commands and past chats.")
                     .font(theme.fonts.caption)
@@ -85,7 +85,7 @@ public struct CodexCommandPaletteOverlay: View {
             Spacer(minLength: 8)
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(theme.fonts.micro)
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 28, height: 28)
             }
@@ -98,7 +98,7 @@ public struct CodexCommandPaletteOverlay: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 13, weight: .medium))
+                .font(theme.fonts.caption.weight(.medium))
                 .foregroundStyle(theme.colors.textTertiary)
             TextField("Search chats or run a command", text: $query)
                 .textFieldStyle(.plain)
@@ -241,13 +241,13 @@ private struct PaletteRowButton: View {
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: row.systemImage)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textTertiary)
                     .frame(width: 18, height: 20)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(row.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(1)
                     Text(row.detail)

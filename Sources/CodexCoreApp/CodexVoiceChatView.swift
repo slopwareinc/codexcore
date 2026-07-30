@@ -17,7 +17,7 @@ struct CodexVoiceMiniControl: View {
                     )
                     .frame(width: 34, height: 34)
                     Text(session.isMuted ? "Voice muted" : "Voice active")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.textPrimary)
                 }
             }
@@ -25,7 +25,7 @@ struct CodexVoiceMiniControl: View {
 
             Button(role: .destructive, action: onEnd) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(theme.fonts.caption.weight(.semibold))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
@@ -95,7 +95,7 @@ private struct CodexVoiceComposer: View {
             HStack(spacing: 12) {
                 Button(action: {}) {
                     Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(theme.fonts.actionIcon)
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
@@ -103,7 +103,7 @@ private struct CodexVoiceComposer: View {
                 .accessibilityLabel("Add to voice chat")
 
                 Label("Approve for me", systemImage: "shield.lefthalf.filled")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textTertiary)
 
                 Spacer(minLength: 12)
@@ -126,7 +126,7 @@ private struct CodexVoiceComposer: View {
 
                 Button(action: onEnd) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(Color.black.opacity(0.82))
                         .frame(width: 34, height: 34)
                         .background(Color.white.opacity(0.94), in: Circle())

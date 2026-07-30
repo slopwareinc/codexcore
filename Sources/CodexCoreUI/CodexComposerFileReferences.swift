@@ -78,7 +78,7 @@ struct CodexReferencedFilePreview: View {
                     .scaledToFill()
             } else {
                 Image(systemName: file.isImage ? "photo" : file.kind == .directory ? "folder" : "doc")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(file.isImage ? theme.colors.accent : theme.colors.textTertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(theme.colors.surface.opacity(0.7))

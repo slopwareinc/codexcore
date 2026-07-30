@@ -193,7 +193,7 @@ public struct CodexSettingsAboutRouteView: View {
                 .settingsBackButton(theme: theme)
             } else {
                 Text("Settings")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(theme.fonts.sheetTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                     .padding(.horizontal, 10)
                     .frame(height: 30, alignment: .leading)
@@ -370,7 +370,7 @@ public struct CodexSettingsPageTitle: View {
 
     public var body: some View {
         Text(title)
-            .font(.system(size: 22, weight: .semibold))
+            .font(theme.fonts.routeTitle)
             .foregroundStyle(theme.colors.textPrimary)
     }
 }
@@ -762,7 +762,7 @@ public struct CodexThemePresetPicker: View {
                             VStack(spacing: 8) {
                                 CodexPresetSwatch(preset: option, isSelected: preset == option)
                                 Text(option.displayName)
-                                    .font(.system(size: 11))
+                                    .font(theme.fonts.caption)
                                     .foregroundStyle(preset == option ? theme.colors.textPrimary : theme.colors.textTertiary)
                                     .lineLimit(1)
                             }

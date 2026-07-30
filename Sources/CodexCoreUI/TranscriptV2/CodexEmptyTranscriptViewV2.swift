@@ -26,7 +26,7 @@ public struct CodexEmptyTranscriptView: View {
     public var body: some View {
         VStack(spacing: 18) {
             Text("What should we work on?")
-                .font(.system(size: 22, weight: .semibold))
+                .font(theme.fonts.routeTitle)
                 .foregroundStyle(theme.colors.textPrimary)
 
             VStack(spacing: 8) {

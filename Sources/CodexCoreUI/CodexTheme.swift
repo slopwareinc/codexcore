@@ -204,6 +204,15 @@ private extension CodexAgentTheme.Fonts {
             label: text.font(size: max(10, bodySize - 1), weight: .semibold),
             code: mono.font(size: codeSize),
             micro: mono.font(size: max(8, bodySize - 3), weight: .semibold),
+            // Headings resolve in the user's chosen text family too, at the same
+            // offsets as `Fonts.official(baseTextSize:)`.
+            routeTitle: text.font(size: bodySize + 5, weight: .semibold),
+            sheetTitle: text.font(size: bodySize + 3, weight: .semibold),
+            panelTitle: text.font(size: bodySize + 1, weight: .semibold),
+            panelLabel: text.font(size: max(10, bodySize - 1), weight: .semibold),
+            heroTitle: text.font(size: bodySize + 8, weight: .semibold),
+            actionIcon: text.font(size: bodySize + 2, weight: .medium),
+            chipLabel: text.font(size: max(9, bodySize - 2), weight: .medium),
             sidebar: sidebar,
             // Backing NSFonts drive prose/code markdown styling. Stay nil for the
             // system font (the prose views fall back to `fonts.chat`), and carry
@@ -439,6 +448,24 @@ public struct CodexAgentTheme {
         public var label: Font
         public var code: Font
         public var micro: Font
+        /// Page and route headings. One token, where the app previously used
+        /// three sizes (18, 22, 24) for the same role.
+        public var routeTitle: Font
+        /// Sheet, overlay, and popover headings.
+        public var sheetTitle: Font
+        /// Headings inside a panel or card.
+        public var panelTitle: Font
+        /// Small section labels inside a panel.
+        public var panelLabel: Font
+        /// Empty states and onboarding headlines. Deliberately the largest token
+        /// in the app, and deliberately much smaller than a marketing headline:
+        /// this is chrome, not a landing page.
+        public var heroTitle: Font
+        /// Toolbar and action glyphs. Replaces `.title2` and friends, which
+        /// ignore the user's interface font size.
+        public var actionIcon: Font
+        /// Inline chips and pills.
+        public var chipLabel: Font
         public var sidebar: SidebarTypography
         /// Optional platform font backing `chat`. When set, the prose
         /// cache bakes this font into each `AttributedString` run and
@@ -459,6 +486,13 @@ public struct CodexAgentTheme {
             label: Font,
             code: Font,
             micro: Font,
+            routeTitle: Font? = nil,
+            sheetTitle: Font? = nil,
+            panelTitle: Font? = nil,
+            panelLabel: Font? = nil,
+            heroTitle: Font? = nil,
+            actionIcon: Font? = nil,
+            chipLabel: Font? = nil,
             sidebar: SidebarTypography = .official,
             chatNSFont: NSFont? = nil,
             codeNSFont: NSFont? = nil
@@ -469,19 +503,50 @@ public struct CodexAgentTheme {
             self.label = label
             self.code = code
             self.micro = micro
+            // The heading tokens fall back to the nearest generic token rather
+            // than to a fixed point size, so a caller that supplies only the
+            // base six still gets a coherent scale.
+            self.routeTitle = routeTitle ?? label
+            self.sheetTitle = sheetTitle ?? label
+            self.panelTitle = panelTitle ?? label
+            self.panelLabel = panelLabel ?? label
+            self.heroTitle = heroTitle ?? label
+            self.actionIcon = actionIcon ?? body
+            self.chipLabel = chipLabel ?? caption
             self.sidebar = sidebar
             self.chatNSFont = chatNSFont
             self.codeNSFont = codeNSFont
         }
 
         public static var official: Fonts {
-            Fonts(
-                body: .body,
-                chat: .callout,
-                caption: .caption,
-                label: .subheadline.weight(.semibold),
-                code: .system(.footnote, design: .monospaced),
-                micro: .system(.caption2, design: .monospaced).weight(.semibold)
+            .official(baseTextSize: SidebarTypography.defaultBaseTextSize)
+        }
+
+        /// The full scale at a given interface font size. Offsets are relative to
+        /// the base so every token tracks the user's slider; only the sidebar did
+        /// before.
+        public static func official(baseTextSize requestedSize: Double) -> Fonts {
+            let base = CGFloat(
+                min(
+                    max(requestedSize, CodexAppearanceSettings.uiFontSizeRange.lowerBound),
+                    CodexAppearanceSettings.uiFontSizeRange.upperBound
+                )
+            )
+            return Fonts(
+                body: .system(size: base),
+                chat: .system(size: base + 1),
+                caption: .system(size: max(9, base - 2)),
+                label: .system(size: max(10, base - 1), weight: .semibold),
+                code: .system(size: max(10, base - 1), design: .monospaced),
+                micro: .system(size: max(8, base - 3), design: .monospaced).weight(.semibold),
+                routeTitle: .system(size: base + 5, weight: .semibold),
+                sheetTitle: .system(size: base + 3, weight: .semibold),
+                panelTitle: .system(size: base + 1, weight: .semibold),
+                panelLabel: .system(size: max(10, base - 1), weight: .semibold),
+                heroTitle: .system(size: base + 8, weight: .semibold),
+                actionIcon: .system(size: base + 2, weight: .medium),
+                chipLabel: .system(size: max(9, base - 2), weight: .medium),
+                sidebar: .official(baseTextSize: requestedSize)
             )
         }
 
@@ -651,6 +716,25 @@ public struct CodexAgentTheme {
         public var iconLarge: CGFloat
         public var chatLineSpacing: CGFloat
 
+        // A spacing ramp. `Spacing` previously held only widths, icon sizes and
+        // a line height, so padding was picked per view: the app used every
+        // value from 2 to 34 as a raw literal.
+        public var xxs: CGFloat
+        public var xs: CGFloat
+        public var sm: CGFloat
+        public var md: CGFloat
+        public var lg: CGFloat
+        public var xl: CGFloat
+        public var xxl: CGFloat
+        /// Inset inside a panel or card.
+        public var panelPadding: CGFloat
+        /// Inset inside a sheet or modal.
+        public var sheetPadding: CGFloat
+        /// Horizontal inset of a list row.
+        public var rowPadding: CGFloat
+        /// Gap between titled sections.
+        public var sectionGap: CGFloat
+
         public init(
             transcriptMaxWidth: CGFloat,
             composerMaxWidth: CGFloat,
@@ -665,7 +749,18 @@ public struct CodexAgentTheme {
             iconSmall: CGFloat = 13,
             iconMedium: CGFloat = 16,
             iconLarge: CGFloat = 28,
-            chatLineSpacing: CGFloat = 4.8
+            chatLineSpacing: CGFloat = 4.8,
+            xxs: CGFloat = 2,
+            xs: CGFloat = 4,
+            sm: CGFloat = 8,
+            md: CGFloat = 12,
+            lg: CGFloat = 16,
+            xl: CGFloat = 24,
+            xxl: CGFloat = 32,
+            panelPadding: CGFloat = 14,
+            sheetPadding: CGFloat = 20,
+            rowPadding: CGFloat = 10,
+            sectionGap: CGFloat = 18
         ) {
             self.transcriptMaxWidth = transcriptMaxWidth
             self.composerMaxWidth = composerMaxWidth
@@ -681,6 +776,17 @@ public struct CodexAgentTheme {
             self.iconMedium = iconMedium
             self.iconLarge = iconLarge
             self.chatLineSpacing = chatLineSpacing
+            self.xxs = xxs
+            self.xs = xs
+            self.sm = sm
+            self.md = md
+            self.lg = lg
+            self.xl = xl
+            self.xxl = xxl
+            self.panelPadding = panelPadding
+            self.sheetPadding = sheetPadding
+            self.rowPadding = rowPadding
+            self.sectionGap = sectionGap
         }
 
         public static var official: Spacing {

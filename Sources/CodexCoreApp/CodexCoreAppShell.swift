@@ -564,7 +564,7 @@ private struct RenameChatSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(theme.fonts.sheetTitle)
                 .foregroundStyle(theme.colors.textPrimary)
 
             TextField(placeholder, text: $name)
@@ -588,7 +588,7 @@ private struct RenameChatSheet: View {
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(20)
+        .padding(theme.spacing.sheetPadding)
         .frame(width: 360)
         .codexGlass(
             RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
@@ -609,15 +609,15 @@ private struct EditProjectSheet: View {
     let onSave: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: theme.spacing.sectionGap) {
             HStack {
                 Text("Edit project")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(theme.fonts.routeTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer()
                 Button(action: onCancel) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(theme.fonts.chat)
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
@@ -631,22 +631,22 @@ private struct EditProjectSheet: View {
                 Divider()
                 TextField("Project name", text: $name)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 17))
+                    .font(theme.fonts.chat)
                     .padding(.horizontal, 14)
             }
-            .frame(height: 48)
+            .frame(height: 34)
             .background(
                 theme.colors.surfaceElevated.opacity(0.55),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                     .stroke(theme.colors.border, lineWidth: 1)
             )
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(sourceFolders.count == 1 ? "Source folder" : "Source folders")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
 
                 VStack(spacing: 0) {
@@ -661,20 +661,20 @@ private struct EditProjectSheet: View {
                     }
                     Button(action: onAddFolders) {
                         Label("Add folder", systemImage: "folder.badge.plus")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(theme.fonts.chat)
                             .foregroundStyle(theme.colors.textPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 14)
-                            .frame(height: 50)
+                            .frame(height: 34)
                     }
                     .buttonStyle(.plain)
                 }
                 .background(
                     theme.colors.surfaceElevated.opacity(0.30),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                         .stroke(theme.colors.border.opacity(0.8), lineWidth: 1)
                 )
             }
@@ -698,7 +698,7 @@ private struct EditProjectSheet: View {
                     )
             }
         }
-        .padding(24)
+        .padding(theme.spacing.sheetPadding)
         .frame(width: 560)
         .codexGlass(
             RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
@@ -712,7 +712,7 @@ private struct EditProjectSheet: View {
                 .foregroundStyle(theme.colors.textSecondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(URL(fileURLWithPath: path).lastPathComponent)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
                 Text(CodexPathFormatter.abbreviatingHome(path))

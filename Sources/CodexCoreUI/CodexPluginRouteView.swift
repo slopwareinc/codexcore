@@ -84,7 +84,7 @@ public struct CodexPluginRouteView: View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Plugins")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(theme.fonts.routeTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                 Text("Inspect available plugins, apps, MCPs, and skills.")
                     .font(theme.fonts.caption)
@@ -107,7 +107,7 @@ public struct CodexPluginRouteView: View {
 
             Button(action: onRefresh) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.label)
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
@@ -151,7 +151,7 @@ public struct CodexPluginRouteView: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 13, weight: .medium))
+                .font(theme.fonts.caption.weight(.medium))
                 .foregroundStyle(theme.colors.textTertiary)
             TextField("Search plugins", text: $searchQuery)
                 .textFieldStyle(.plain)
@@ -297,7 +297,7 @@ public struct CodexPluginRouteView: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Select a plugin")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(theme.fonts.sheetTitle)
                 Text("Marketplace and Skills details appear here.")
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
@@ -352,11 +352,11 @@ private struct PluginCatalogRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: plugin.installed ? "checkmark.circle.fill" : "puzzlepiece.extension")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(plugin.installed ? theme.colors.success : theme.colors.textTertiary)
                         .frame(width: 18)
                     Text(plugin.displayName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(1)
                     Spacer()
@@ -414,7 +414,7 @@ private struct SkillCatalogRow: View {
                     Image(systemName: "hammer")
                         .foregroundStyle(theme.colors.textTertiary)
                     Text(skill.displayName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(theme.fonts.label)
                         .lineLimit(1)
                     Spacer()
                     Text(skill.statusLabel)
@@ -451,7 +451,7 @@ private struct PluginDetailPane: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(detail.title)
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(theme.fonts.routeTitle)
                         .foregroundStyle(theme.colors.textPrimary)
                     Text(detail.detail)
                         .font(theme.fonts.chat)

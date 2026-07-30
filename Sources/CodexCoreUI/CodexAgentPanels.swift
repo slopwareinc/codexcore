@@ -169,10 +169,10 @@ private struct SummarySection<Content: View>: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(theme.fonts.micro)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         Text(title)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(theme.fonts.body)
                     }
                     .foregroundStyle(theme.colors.textTertiary)
                     .contentShape(Rectangle())
@@ -183,7 +183,7 @@ private struct SummarySection<Content: View>: View {
 
                 if showsAddButton {
                     Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(theme.fonts.actionIcon)
                         .foregroundStyle(theme.colors.textTertiary)
                         .frame(width: 24, height: 24)
                         .opacity(isHovered ? 1 : 0.72)
@@ -262,11 +262,11 @@ private struct SummaryRow: View {
     private var rowContent: some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .regular))
+                .font(theme.fonts.actionIcon)
                 .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 24, height: 24)
             Text(title)
-                .font(.system(size: 14, weight: .regular))
+                .font(theme.fonts.body)
                 .foregroundStyle(theme.colors.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -275,7 +275,7 @@ private struct SummaryRow: View {
                 trailing
             } else if let trailingSystemImage {
                 Image(systemName: trailingSystemImage)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textTertiary)
             }
         }
@@ -298,7 +298,7 @@ private struct SummaryDiffStats: View {
             Text("-\(removed)")
                 .foregroundStyle(theme.colors.danger)
         }
-        .font(.system(size: 13, weight: .medium, design: .monospaced))
+        .font(theme.fonts.code)
     }
 }
 
@@ -309,7 +309,7 @@ private struct SummaryEmptyRow: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 13))
+            .font(theme.fonts.caption)
             .foregroundStyle(theme.colors.textTertiary)
             .frame(height: 30)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -332,7 +332,7 @@ private struct SummarySourceRow: View {
                         .stroke(theme.colors.border.opacity(0.65), lineWidth: 1)
                 }
             Text(source.displayName)
-                .font(.system(size: 14))
+                .font(theme.fonts.body)
                 .foregroundStyle(theme.colors.textSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1184,7 +1184,7 @@ private struct AgentPanelComposer: View {
 
             Button(action: isSending ? onInterrupt : submit) {
                 Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
-                    .font(.title2)
+                    .font(theme.fonts.actionIcon)
                     .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
             }
             .buttonStyle(.plain)

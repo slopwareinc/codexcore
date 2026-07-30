@@ -2378,7 +2378,7 @@ private struct CodexTranscriptAgentPill: View {
                 } else {
                     VStack(spacing: 3) {
                         Image(systemName: "photo")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(theme.fonts.chat.weight(.medium))
                             .foregroundStyle(theme.colors.textSecondary)
                         Text(chip.label)
                             .font(.system(size: 8, weight: .medium))
@@ -2392,7 +2392,7 @@ private struct CodexTranscriptAgentPill: View {
                 }
             } else if chip.threadID == nil {
                 Image(systemName: chip.systemImage ?? "doc")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textSecondary)
             } else {
                 Circle()

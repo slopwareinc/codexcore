@@ -575,7 +575,7 @@ private struct SidebarAttentionIndicator: View {
                     .accessibilityLabel("Running")
             case .failed:
                 Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(theme.fonts.caption.weight(.medium))
                     .foregroundStyle(theme.colors.danger)
                     .accessibilityLabel("Failed")
             }
@@ -754,7 +754,7 @@ private struct ProjectSidebarGroupView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 24, height: 24)
                     .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -769,7 +769,7 @@ private struct ProjectSidebarGroupView: View {
                     onStartProjectChat(group.project.workspacePath)
                 } label: {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(theme.fonts.chipLabel)
                         .foregroundStyle(theme.colors.textSecondary)
                         .frame(width: 24, height: 24)
                         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

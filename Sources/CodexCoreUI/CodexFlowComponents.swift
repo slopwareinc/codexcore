@@ -15,10 +15,10 @@ public struct CodexGlassPanel<Content: View>: View {
 
     public var body: some View {
         content
-            .padding(34)
+            .padding(theme.spacing.xl)
             .frame(maxWidth: 540)
             .codexGlass(RoundedRectangle(cornerRadius: theme.radii.panel, style: .continuous), role: .panel)
-            .padding(28)
+            .padding(theme.spacing.xl)
     }
 }
 
@@ -34,7 +34,7 @@ public struct CodexErrorBanner: View {
     public var body: some View {
         Label {
             Text(message)
-                .font(.system(size: 12))
+                .font(theme.fonts.caption)
                 .textSelection(.enabled)
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -62,10 +62,10 @@ public struct CodexDeviceCodeCard: View {
     public var body: some View {
         VStack(spacing: 10) {
             Text("Enter this code in your browser")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(theme.fonts.panelLabel)
                 .foregroundStyle(theme.colors.textSecondary)
             Text(code)
-                .font(.system(size: 26, weight: .bold, design: .monospaced))
+                .font(theme.fonts.heroTitle.monospaced())
                 .foregroundStyle(theme.colors.textPrimary)
                 .tracking(3)
                 .padding(.horizontal, 18)
@@ -78,7 +78,7 @@ public struct CodexDeviceCodeCard: View {
             if let urlString, let url = URL(string: urlString) {
                 Button("Open sign-in page") { openURL(url) }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.accent)
             }
         }

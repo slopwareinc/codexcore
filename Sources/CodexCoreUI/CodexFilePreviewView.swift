@@ -259,7 +259,7 @@ struct CodexFilePreviewView: View {
     private func placeholder(_ message: String, symbol: String) -> some View {
         VStack(spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 22))
+                .font(theme.fonts.heroTitle.weight(.regular))
                 .foregroundStyle(theme.colors.textTertiary)
             Text(message)
                 .font(theme.fonts.caption)
