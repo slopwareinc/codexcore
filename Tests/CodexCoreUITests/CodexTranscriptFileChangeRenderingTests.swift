@@ -34,7 +34,7 @@ struct CodexTranscriptFileChangeRenderingTests {
                 selectedDiffFileIndexByRowID: ["files": 1]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
         let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange })
         #expect(row.workRow?.label == "Edited 2 files · +2 −1")
@@ -58,7 +58,7 @@ struct CodexTranscriptFileChangeRenderingTests {
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: panel.measuredHeight)
         cell.configure(
             item: panel,
-            appKitTheme: .init(.officialDark),
+            appKitTheme: .init(.officialDark, colorScheme: .dark),
             swiftUITheme: .officialDark,
             contentHorizontalOffset: 0,
             productToolRenderer: nil,
@@ -103,7 +103,7 @@ struct CodexTranscriptFileChangeRenderingTests {
                 expandedRowIDs: ["work", "files"]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
 
         #expect(row.diff == nil)
@@ -228,7 +228,7 @@ struct CodexTranscriptFileChangeRenderingTests {
             )
         }
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let first = try await projector.project(
             presentation: presentation(siblingPath: "Sources/Before.swift"),
             availableWidth: 860,
@@ -256,7 +256,7 @@ struct CodexTranscriptFileChangeRenderingTests {
     }
 
     @Test func preparedDiffMaterializesDisplayLinesDirectly() throws {
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let prepared = CodexPreparedFileChangeV2(
             sourceIndex: 0,
             summary: .init(
@@ -304,7 +304,7 @@ struct CodexTranscriptFileChangeRenderingTests {
 
     @Test func preparedTextCacheRetainsOnlyTheMostRecentDiffPanel() async throws {
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         func presentation(_ index: Int) -> CodexThreadUIPresentation {
             let patch = "@@ -1 +1 @@\n-old \(index)\n+new \(index)"
             let row = CodexFileChangeRowV2(
@@ -388,7 +388,7 @@ struct CodexTranscriptFileChangeRenderingTests {
                 expandedRowIDs: ["work"]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
 
         #expect(collapsed.itemsByID.values.allSatisfy { $0.diffPanel == nil })
@@ -414,7 +414,7 @@ struct CodexTranscriptFileChangeRenderingTests {
                 expandedRowIDs: ["work", "files"]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
         let panel = try #require(expanded.itemsByID.values.first { $0.diffPanel != nil })
 

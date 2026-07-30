@@ -25,7 +25,7 @@ struct CodexTranscriptRenderProjectionTests {
         )
         #expect(CodexTranscriptColumnMetrics.topContentInset == 72)
 
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         #expect(theme.bubbleRadius == 16)
         #expect(theme.transcriptOuterMaxWidth == 768)
         #expect(CodexTranscriptColumnMetrics(viewportWidth: 1_200).outerWidth(theme) == 768)
@@ -179,7 +179,7 @@ struct CodexTranscriptRenderProjectionTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let items = snapshot.itemsByID.values
 
@@ -209,7 +209,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: nil)
             )])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
         let attachments = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
@@ -236,7 +236,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: nil)
             )])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
 
         let user = try #require(snapshot.itemsByID.values.first { $0.textRole == .user })
@@ -274,7 +274,7 @@ struct CodexTranscriptRenderProjectionTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let orderedItems = snapshot.orderedItemIDs.compactMap { snapshot.itemsByID[$0] }
         let userItems = orderedItems.filter { $0.textRole == .user }
@@ -313,7 +313,7 @@ struct CodexTranscriptRenderProjectionTests {
     }
 
     @Test func expandedWorkProseUsesTheFinalAnswerForeground() async throws {
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let turn = CodexTurnV2(
             id: "turn",
             narrative: [.prose(.init(id: "work", text: "Inspecting the implementation", isStreaming: false))],
@@ -350,7 +350,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: 1)
             )])),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
         let content = snapshot.orderedItemIDs.compactMap { snapshot.itemsByID[$0] }.filter { $0.footer == nil }
         #expect(content.count == 3)
@@ -378,7 +378,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: 1)
             )])
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
 
         let first = try await projector.project(
             presentation: presentation,
@@ -426,7 +426,7 @@ struct CodexTranscriptRenderProjectionTests {
         let snapshot = try await projector.project(
             presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
         let summaries = snapshot.itemsByID.values.filter { $0.workRow?.style == .activitySummary }
         #expect(summaries.count == 1)
@@ -456,7 +456,7 @@ struct CodexTranscriptRenderProjectionTests {
                 )])
             )
         }
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let first = try await projector.project(
             presentation: presentation(label: "Researching the musical building blocks", status: .inProgress),
             availableWidth: 860,
@@ -495,7 +495,7 @@ struct CodexTranscriptRenderProjectionTests {
             status: .done(durationMs: 1_000)
         )
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
 
         let collapsed = try await projector.project(
             presentation: .init(
@@ -561,7 +561,7 @@ struct CodexTranscriptRenderProjectionTests {
                 transcript: .init(turns: [turn])
             ),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
 
         let preview = try #require(snapshot.itemsByID.values.first {
@@ -589,7 +589,7 @@ struct CodexTranscriptRenderProjectionTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
 
         let preview = try #require(snapshot.itemsByID.values.first {
@@ -635,7 +635,7 @@ struct CodexTranscriptRenderProjectionTests {
             action: .run,
             status: .inProgress
         ))
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let first = try await projector.project(
             presentation: presentation(rows: [read]),
             availableWidth: 860,
@@ -703,7 +703,7 @@ struct CodexTranscriptRenderProjectionTests {
                 expandedRowIDs: ["group"]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
         let actionRows = snapshot.itemsByID.values
             .filter { $0.id.rawValue.contains(":row:exec:") }
@@ -744,7 +744,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: 1)
             )])
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(
             presentation: presentation,
             availableWidth: 860,
@@ -785,7 +785,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .working(since: 1)
             )])
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(
             presentation: presentation,
             availableWidth: 860,
@@ -808,7 +808,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: 1)
             )])
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(
             presentation: presentation,
             availableWidth: 860,
@@ -834,7 +834,7 @@ struct CodexTranscriptRenderProjectionTests {
         let snapshot = try await projector.project(
             presentation: presentation,
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
 
         #expect(snapshot.sectionIDs == ["thread:turn:turn"])
@@ -892,7 +892,7 @@ struct CodexTranscriptRenderProjectionTests {
                 presentedAtByTurnID: ["turn": date]
             )
         }
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let first = try await projector.project(presentation: presentation(answer: "Hello"), availableWidth: 860, theme: theme)
         let second = try await projector.project(presentation: presentation(answer: "Hello world"), availableWidth: 860, theme: theme)
         let firstFinal = try #require(first.orderedItemIDs.first {
@@ -916,7 +916,7 @@ struct CodexTranscriptRenderProjectionTests {
             expandedWorkTurnIDs: ["turn"],
             presentedAtByTurnID: ["turn": Date(timeIntervalSince1970: 100)]
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let first = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
         let second = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
 

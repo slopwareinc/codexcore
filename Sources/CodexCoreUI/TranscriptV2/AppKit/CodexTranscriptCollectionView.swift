@@ -21,6 +21,7 @@ struct CodexTranscriptCollectionDiagnostics: Sendable, Equatable {
 struct CodexTranscriptListHost: NSViewRepresentable {
     @Environment(\.codexAgentTheme) private var swiftUITheme
     @Environment(\.codexClipboardService) private var clipboardService
+    @Environment(\.colorScheme) private var colorScheme
 
     var presentation: CodexThreadUIPresentation
     var renderUpdate: CodexCanonicalTranscriptRenderUpdate?
@@ -59,6 +60,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onUpsertResponseAnnotation: onUpsertResponseAnnotation,
             onRemoveResponseAnnotation: onRemoveResponseAnnotation,
             swiftUITheme: swiftUITheme,
+            colorScheme: colorScheme,
             clipboardService: clipboardService,
             productToolRenderer: productToolRenderer,
             onOpenSubagent: onOpenSubagent,
@@ -197,6 +199,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
             onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
             swiftUITheme: CodexAgentTheme,
+            colorScheme: ColorScheme,
             clipboardService: any CodexClipboardService,
             productToolRenderer: CodexProductToolRendererV2?,
             onOpenSubagent: @escaping (String) -> Void,
@@ -222,7 +225,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 presentation.selectedDiffFileIndexByRowID =
                     currentPresentation.selectedDiffFileIndexByRowID
             }
-            let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme)
+            let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme, colorScheme: colorScheme)
             let annotationsChanged = self.responseAnnotations != responseAnnotations
             if appKitTheme?.fingerprint != nextTheme.fingerprint
                 || self.contentHorizontalOffset != contentHorizontalOffset {

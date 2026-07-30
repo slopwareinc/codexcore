@@ -1,6 +1,7 @@
 import AppKit
 import CodexCore
 import Foundation
+import SwiftUI
 
 struct CodexTranscriptRenderItemID: Hashable, Sendable {
     var rawValue: String
@@ -285,32 +286,49 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
     var transcriptOuterMaxWidth: CGFloat
     var fingerprint: String
 
+    /// - Parameter colorScheme: The appearance to resolve against. Required
+    ///   because `NSColor(someAdaptiveSwiftUIColor)` resolves against the
+    ///   process appearance, not this window's, so an app pinned to light while
+    ///   the system is dark would render the transcript in the wrong palette.
     @MainActor
-    init(_ theme: CodexAgentTheme) {
+    init(_ theme: CodexAgentTheme, colorScheme: ColorScheme) {
+        // Flatten every color to a static sRGB value for `colorScheme`. Two
+        // reasons, both load-bearing:
+        //
+        // 1. Correctness. Theme colors are appearance-adaptive, and a dynamic
+        //    NSColor resolves against the *process* appearance when drawn by
+        //    AppKit. An app pinned to Light while the system is Dark would draw
+        //    the transcript from the dark palette.
+        // 2. Stability. `fingerprint` gates a full reconfigure of every cell.
+        //    A dynamic NSColor's `description` is not stable across equal
+        //    values, so fingerprinting one made the transcript reconfigure all
+        //    items on every single update.
+        let resolve = CodexTranscriptAppKitTheme.staticColorResolver(for: colorScheme)
+
         bodyFont = theme.fonts.chatNSFont ?? .systemFont(ofSize: 15)
         codeFont = theme.fonts.codeNSFont ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
         captionFont = .systemFont(ofSize: max(10, bodyFont.pointSize - 2))
         microFont = .monospacedSystemFont(ofSize: max(9, bodyFont.pointSize - 3), weight: .semibold)
-        textPrimary = NSColor(theme.colors.textPrimary)
-        textSecondary = NSColor(theme.colors.textSecondary)
-        textTertiary = NSColor(theme.colors.textTertiary)
-        userBubble = NSColor(theme.colors.userBubble)
-        userBubbleStroke = NSColor(theme.colors.userBubbleStroke)
-        codeBackground = NSColor(theme.colors.codeBackground)
-        codeHeader = NSColor(theme.colors.codeHeader)
-        codeText = NSColor(theme.colors.codeText)
-        codeFaint = NSColor(theme.colors.codeFaint)
-        surfaceSunken = NSColor(theme.colors.surfaceSunken)
-        border = NSColor(theme.colors.border)
-        success = NSColor(theme.colors.success)
-        danger = NSColor(theme.colors.danger)
-        running = NSColor(theme.colors.running)
-        warning = NSColor(theme.colors.warning)
-        accent = NSColor(theme.colors.accent)
-        codeKeyword = NSColor(theme.colors.codeKeyword)
-        codeString = NSColor(theme.colors.codeString)
-        codeComment = NSColor(theme.colors.codeComment)
-        codeNumber = NSColor(theme.colors.codeNumber)
+        textPrimary = resolve(theme.colors.textPrimary)
+        textSecondary = resolve(theme.colors.textSecondary)
+        textTertiary = resolve(theme.colors.textTertiary)
+        userBubble = resolve(theme.colors.userBubble)
+        userBubbleStroke = resolve(theme.colors.userBubbleStroke)
+        codeBackground = resolve(theme.colors.codeBackground)
+        codeHeader = resolve(theme.colors.codeHeader)
+        codeText = resolve(theme.colors.codeText)
+        codeFaint = resolve(theme.colors.codeFaint)
+        surfaceSunken = resolve(theme.colors.surfaceSunken)
+        border = resolve(theme.colors.border)
+        success = resolve(theme.colors.success)
+        danger = resolve(theme.colors.danger)
+        running = resolve(theme.colors.running)
+        warning = resolve(theme.colors.warning)
+        accent = resolve(theme.colors.accent)
+        codeKeyword = resolve(theme.colors.codeKeyword)
+        codeString = resolve(theme.colors.codeString)
+        codeComment = resolve(theme.colors.codeComment)
+        codeNumber = resolve(theme.colors.codeNumber)
         bubbleRadius = theme.radii.bubble
         cardRadius = theme.radii.medium
         lineSpacing = theme.spacing.chatLineSpacing
@@ -318,6 +336,7 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
         userBubbleMaxWidth = theme.spacing.userBubbleMaxWidth
         transcriptOuterMaxWidth = theme.spacing.transcriptOuterMaxWidth
         fingerprint = [
+            String(describing: colorScheme),
             bodyFont.fontName, String(describing: bodyFont.pointSize), codeFont.fontName,
             String(describing: codeFont.pointSize), String(describing: textPrimary),
             String(describing: userBubble), String(describing: codeHeader),
@@ -325,6 +344,26 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
             String(describing: codeComment), String(describing: codeNumber),
             String(describing: accent), String(describing: warning), String(describing: lineSpacing)
         ].joined(separator: ":")
+    }
+
+    /// Returns a function that flattens a SwiftUI `Color` — adaptive or not —
+    /// into a static sRGB `NSColor` for the given appearance.
+    @MainActor
+    static func staticColorResolver(for colorScheme: ColorScheme) -> (Color) -> NSColor {
+        let appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+        return { color in
+            let dynamic = NSColor(color)
+            guard let appearance else {
+                return dynamic.usingColorSpace(.sRGB) ?? dynamic
+            }
+            // `usingColorSpace` resolves a dynamic catalog color against the
+            // current drawing appearance, so this pins it to the one we want.
+            var resolved = dynamic
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = dynamic.usingColorSpace(.sRGB) ?? dynamic
+            }
+            return resolved
+        }
     }
 }
 

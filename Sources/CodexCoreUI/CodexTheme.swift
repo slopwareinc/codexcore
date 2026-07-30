@@ -77,6 +77,9 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     public static let uiFontSizeRange: ClosedRange<Double> = 11...18
 
     public var preset: CodexAgentThemePreset
+    /// Whether to follow the system appearance or pin light/dark. Themes render
+    /// in both, so this is independent of the preset.
+    public var appearanceMode: CodexAppearanceMode
     public var reduceMotion: Bool
     public var uiFontSize: Double
     public var diffMarkerStyle: CodexDiffMarkerStyle
@@ -88,6 +91,7 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
 
     public init(
         preset: CodexAgentThemePreset = .officialDark,
+        appearanceMode: CodexAppearanceMode? = nil,
         reduceMotion: Bool = false,
         uiFontSize: Double = 14,
         diffMarkerStyle: CodexDiffMarkerStyle = .color,
@@ -96,6 +100,9 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         monoFontFamily: String? = nil
     ) {
         self.preset = preset
+        // Absent an explicit choice, honor the appearance the preset's name used
+        // to imply, so an existing "Official Dark" install stays dark.
+        self.appearanceMode = appearanceMode ?? preset.impliedAppearance
         self.reduceMotion = reduceMotion
         self.uiFontSize = min(max(uiFontSize, Self.uiFontSizeRange.lowerBound), Self.uiFontSizeRange.upperBound)
         self.diffMarkerStyle = diffMarkerStyle
@@ -104,19 +111,48 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         self.monoFontFamily = monoFontFamily?.nilIfBlank
     }
 
+    /// Decodes key by key. The synthesized decoder does not apply property
+    /// defaults for absent keys, so adding any field would have failed the whole
+    /// decode and silently reset every stored appearance preference.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let preset = try container.decodeIfPresent(CodexAgentThemePreset.self, forKey: .preset) ?? .officialDark
+        self.init(
+            preset: preset,
+            appearanceMode: try container.decodeIfPresent(CodexAppearanceMode.self, forKey: .appearanceMode),
+            reduceMotion: try container.decodeIfPresent(Bool.self, forKey: .reduceMotion) ?? false,
+            uiFontSize: try container.decodeIfPresent(Double.self, forKey: .uiFontSize) ?? 14,
+            diffMarkerStyle: try container.decodeIfPresent(CodexDiffMarkerStyle.self, forKey: .diffMarkerStyle) ?? .color,
+            dockIconVariant: try container.decodeIfPresent(CodexDockIconVariant.self, forKey: .dockIconVariant) ?? .default,
+            textFontFamily: try container.decodeIfPresent(String.self, forKey: .textFontFamily),
+            monoFontFamily: try container.decodeIfPresent(String.self, forKey: .monoFontFamily)
+        )
+    }
+
     public static var official: CodexAppearanceSettings {
         CodexAppearanceSettings()
     }
 
     public func agentTheme(uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
-        let base = preset.theme
-        var theme = base
+        var theme = preset.theme
         theme.fonts = .official.scaled(
             baseTextSize: uiFontSize,
             textFamily: textFontFamily,
             monoFamily: monoFontFamily
         )
         theme.animations = reduceMotion ? .reduced : .official
+        return theme
+    }
+
+    /// The theme with colors resolved for a known appearance, for AppKit-backed
+    /// views that must not resolve adaptive colors themselves.
+    public func agentTheme(
+        uiFontSize: Double,
+        reduceMotion: Bool,
+        resolvedFor scheme: ColorScheme
+    ) -> CodexAgentTheme {
+        var theme = agentTheme(uiFontSize: uiFontSize, reduceMotion: reduceMotion)
+        theme.colors = CodexAgentTheme.Colors(spec: preset.palette, resolvedFor: scheme)
         return theme
     }
 }
@@ -954,145 +990,13 @@ public struct CodexAgentTheme {
 }
 
 public extension CodexAgentTheme {
-    static var officialDark: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0x0F0F0F),
-            surface: codexHex(0x111111),
-            surfaceSunken: codexHex(0x171717),
-            surfaceElevated: codexHex(0x242424),
-            textPrimary: codexHex(0xFCFCFC),
-            textSecondary: codexHex(0xFCFCFC).opacity(0.68),
-            textTertiary: codexHex(0xFCFCFC).opacity(0.55),
-            accent: codexHex(0x7C84FF),
-            accentSoft: codexHex(0x242844),
-            onAccent: .white,
-            border: codexHex(0xFCFCFC).opacity(0.075),
-            borderStrong: codexHex(0xFCFCFC).opacity(0.16),
-            userBubble: codexHex(0xFCFCFC).opacity(0.05),
-            userBubbleStroke: codexHex(0xFCFCFC).opacity(0.075),
-            codeBackground: codexHex(0x0C0E13),
-            codeHeader: codexHex(0x15181F),
-            codeText: codexHex(0xD6DBE4),
-            codeFaint: codexHex(0x8A93A4),
-            success: codexHex(0x44D17E),
-            warning: codexHex(0xE7A23C),
-            danger: codexHex(0xFF6B66),
-            running: codexHex(0x5C9BFF),
-            tool: codexHex(0xA78BFA)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.85, glowOpacity: 0.35))
-    }
-
-    static var nativeLight: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0xF5F6FA),
-            surface: .white,
-            surfaceSunken: codexHex(0xEEF0F5),
-            surfaceElevated: codexHex(0xFFFFFF).opacity(0.96),
-            textPrimary: codexHex(0x111318),
-            textSecondary: codexHex(0x4E5562),
-            textTertiary: codexHex(0x838A96),
-            accent: codexHex(0x4F46E5),
-            accentSoft: codexHex(0xE9E8FF),
-            onAccent: .white,
-            border: .black.opacity(0.08),
-            borderStrong: .black.opacity(0.14),
-            userBubble: codexHex(0xE9E8FF),
-            userBubbleStroke: codexHex(0x4F46E5).opacity(0.16),
-            codeBackground: codexHex(0x111827),
-            codeHeader: codexHex(0x1F2937),
-            codeText: codexHex(0xE5E7EB),
-            codeFaint: codexHex(0x9CA3AF),
-            success: codexHex(0x15803D),
-            warning: codexHex(0xB45309),
-            danger: codexHex(0xDC2626),
-            running: codexHex(0x2563EB),
-            tool: codexHex(0x7C3AED)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.88, glowOpacity: 0.10))
-    }
-
-    static var midnight: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0x070A12),
-            surface: codexHex(0x0B1020),
-            surfaceSunken: codexHex(0x0E1528),
-            surfaceElevated: codexHex(0x18213A),
-            textPrimary: codexHex(0xF4F7FF),
-            textSecondary: codexHex(0xB4BED4),
-            textTertiary: codexHex(0x707B94),
-            accent: codexHex(0x6EE7F9),
-            accentSoft: codexHex(0x12303A),
-            onAccent: codexHex(0x071016),
-            border: .white.opacity(0.08),
-            borderStrong: .white.opacity(0.18),
-            userBubble: codexHex(0x14223B),
-            userBubbleStroke: codexHex(0x6EE7F9).opacity(0.16),
-            codeBackground: codexHex(0x050814),
-            codeHeader: codexHex(0x0D1426),
-            codeText: codexHex(0xDBEAFE),
-            codeFaint: codexHex(0x74819C),
-            success: codexHex(0x34D399),
-            warning: codexHex(0xFBBF24),
-            danger: codexHex(0xFB7185),
-            running: codexHex(0x38BDF8),
-            tool: codexHex(0xC084FC)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.88, glowOpacity: 0.20))
-    }
-
-    static var warmMinimal: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0x171412),
-            surface: codexHex(0x1D1916),
-            surfaceSunken: codexHex(0x241F1B),
-            surfaceElevated: codexHex(0x312A24),
-            textPrimary: codexHex(0xFFF8EF),
-            textSecondary: codexHex(0xD8C9B8),
-            textTertiary: codexHex(0x9A8976),
-            accent: codexHex(0xF4A261),
-            accentSoft: codexHex(0x3B2B20),
-            onAccent: codexHex(0x20130B),
-            border: codexHex(0xFFF8EF).opacity(0.08),
-            borderStrong: codexHex(0xFFF8EF).opacity(0.18),
-            userBubble: codexHex(0x2A241F),
-            userBubbleStroke: codexHex(0xF4A261).opacity(0.14),
-            codeBackground: codexHex(0x120F0D),
-            codeHeader: codexHex(0x201A16),
-            codeText: codexHex(0xF8E8D5),
-            codeFaint: codexHex(0x9A8976),
-            success: codexHex(0x74C69D),
-            warning: codexHex(0xF4A261),
-            danger: codexHex(0xE76F51),
-            running: codexHex(0x90CAF9),
-            tool: codexHex(0xC4A7E7)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.12))
-    }
-
-    static var highContrast: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: .black,
-            surface: .black,
-            surfaceSunken: codexHex(0x101010),
-            surfaceElevated: codexHex(0x1A1A1A),
-            textPrimary: .white,
-            textSecondary: .white.opacity(0.82),
-            textTertiary: .white.opacity(0.64),
-            accent: codexHex(0xFFD84D),
-            accentSoft: codexHex(0x332A00),
-            onAccent: .black,
-            border: .white.opacity(0.22),
-            borderStrong: .white.opacity(0.42),
-            userBubble: .white.opacity(0.12),
-            userBubbleStroke: .white.opacity(0.32),
-            codeBackground: .black,
-            codeHeader: codexHex(0x111111),
-            codeText: .white,
-            codeFaint: .white.opacity(0.72),
-            success: codexHex(0x00FF8A),
-            warning: codexHex(0xFFD84D),
-            danger: codexHex(0xFF4D4D),
-            running: codexHex(0x4DD2FF),
-            tool: codexHex(0xD98CFF)
-        ), effects: .init(usesLiquidGlass: false, surfaceOpacity: 1, glowOpacity: 0))
-    }
+    /// The default theme. Kept as a name because it is the environment default
+    /// and is referenced widely, including by tests.
+    static var officialDark: CodexAgentTheme { CodexAgentThemePreset.officialDark.theme }
+    static var nativeLight: CodexAgentTheme { CodexAgentThemePreset.nativeLight.theme }
+    static var midnight: CodexAgentTheme { CodexAgentThemePreset.midnight.theme }
+    static var warmMinimal: CodexAgentTheme { CodexAgentThemePreset.warmMinimal.theme }
+    static var highContrast: CodexAgentTheme { CodexAgentThemePreset.highContrast.theme }
 }
 
 private struct CodexAgentThemeKey: EnvironmentKey {
@@ -1112,32 +1016,128 @@ public extension View {
     }
 }
 
+/// The built-in theme families. Each renders in both light and dark, so the
+/// preset chooses character and `CodexAppearanceMode` chooses appearance.
+///
+/// The raw values of the original five are preserved because they are persisted
+/// in the stored appearance settings; `officialDark` and `nativeLight` now name
+/// the same neutral family, which is why both map to `.slate`.
 public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, Sendable {
     case officialDark
     case nativeLight
     case midnight
     case warmMinimal
+    case sage
+    case rose
+    case violet
     case highContrast
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
-        case .officialDark: return "Official Dark"
-        case .nativeLight: return "Native Light"
+        case .officialDark: return "Slate"
+        case .nativeLight: return "Paper"
         case .midnight: return "Midnight"
-        case .warmMinimal: return "Warm Minimal"
+        case .warmMinimal: return "Warm Sand"
+        case .sage: return "Sage"
+        case .rose: return "Rose"
+        case .violet: return "Violet"
         case .highContrast: return "High Contrast"
         }
     }
 
-    public var theme: CodexAgentTheme {
+    /// A one-line character description for the settings picker.
+    public var summary: String {
         switch self {
-        case .officialDark: return .officialDark
-        case .nativeLight: return .nativeLight
+        case .officialDark: return "Neutral graphite. Nothing competes with syntax."
+        case .nativeLight: return "Neutral, biased bright."
+        case .midnight: return "Deep cool blue with a cyan accent."
+        case .warmMinimal: return "Paper and lamplight."
+        case .sage: return "Muted green. The calmest family."
+        case .rose: return "Dusty rose, warm without yellow."
+        case .violet: return "Cool violet, low chroma."
+        case .highContrast: return "Maximum contrast for legibility."
+        }
+    }
+
+    public var palette: CodexPaletteSpec {
+        switch self {
+        case .officialDark, .nativeLight: return .slate
         case .midnight: return .midnight
-        case .warmMinimal: return .warmMinimal
+        case .warmMinimal: return .warmSand
+        case .sage: return .sage
+        case .rose: return .rose
+        case .violet: return .violet
         case .highContrast: return .highContrast
+        }
+    }
+
+    /// The appearance this family is shown in when the user has not chosen one.
+    /// Only meaningful for the two legacy presets, whose names carried an
+    /// appearance before palettes became dual.
+    public var impliedAppearance: CodexAppearanceMode {
+        switch self {
+        case .officialDark: return .dark
+        case .nativeLight: return .light
+        default: return .system
+        }
+    }
+
+    public var theme: CodexAgentTheme {
+        CodexAgentTheme(
+            colors: CodexAgentTheme.Colors(spec: palette),
+            effects: effects
+        )
+    }
+
+    /// The same theme with colors resolved for one known appearance, for
+    /// AppKit-backed views that cannot use adaptive colors.
+    public func theme(resolvedFor scheme: ColorScheme) -> CodexAgentTheme {
+        CodexAgentTheme(
+            colors: CodexAgentTheme.Colors(spec: palette, resolvedFor: scheme),
+            effects: effects
+        )
+    }
+
+    private var effects: CodexAgentTheme.Effects {
+        switch self {
+        case .highContrast:
+            // The only family that opts out of glass, because its whole purpose
+            // is flat maximum contrast. Reduce Transparency covers every other
+            // family independently of this choice.
+            return .init(usesLiquidGlass: false, surfaceOpacity: 1, glowOpacity: 0)
+        case .midnight:
+            return .init(usesLiquidGlass: true, surfaceOpacity: 0.88, glowOpacity: 0.20)
+        case .warmMinimal:
+            return .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.12)
+        case .officialDark, .nativeLight, .sage, .rose, .violet:
+            return .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.14)
+        }
+    }
+}
+
+/// Whether the app follows the system appearance or pins one.
+public enum CodexAppearanceMode: String, CaseIterable, Codable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    public var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
         }
     }
 }

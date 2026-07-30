@@ -33,7 +33,7 @@ struct CodexTranscriptAppKitPerformanceTests {
             presentedAtByTurnID: Dictionary(uniqueKeysWithValues: turns.map { ($0.id, date) })
         )
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let initial = try await projector.project(presentation: presentation, availableWidth: 1_000, theme: theme)
 
         #expect(initial.orderedItemIDs.count == 1_085)
