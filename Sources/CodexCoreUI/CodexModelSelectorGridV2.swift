@@ -175,9 +175,10 @@ public struct CodexModelSelectorGridV2: View {
             }
         }
         .padding(4)
-        .background(theme.colors.surfaceElevated)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous).stroke(theme.colors.border))
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
+        )
     }
 
     private func cellButton(_ cell: CodexModelGridV2.Cell, appearance: CodexModelGridV2.Column.Appearance) -> some View {

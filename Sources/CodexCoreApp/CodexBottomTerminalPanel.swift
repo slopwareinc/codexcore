@@ -18,7 +18,7 @@ struct CodexBottomTerminalPanel: View {
         }
         .frame(height: model.bottomTerminalHeight)
         .frame(maxWidth: .infinity)
-        .background(theme.colors.surfaceSunken.opacity(0.88))
+        .codexGlass(Rectangle(), role: .chrome)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(theme.colors.border)

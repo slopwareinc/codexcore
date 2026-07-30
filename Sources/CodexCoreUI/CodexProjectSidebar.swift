@@ -512,10 +512,10 @@ private struct SidebarCommandRow: View {
 
     private var rowFill: Color {
         if isSelected {
-            return theme.colors.surfaceElevated.opacity(0.50)
+            return theme.colors.selection.opacity(theme.effects.selectionOpacity)
         }
         if isHovered {
-            return theme.colors.surfaceElevated.opacity(0.22)
+            return theme.colors.hover.opacity(theme.effects.hoverOpacity)
         }
         return .clear
     }
@@ -790,7 +790,7 @@ private struct ProjectSidebarGroupView: View {
         } else if group.isSelected && !hasSelectedThread {
             SidebarSelectionBackground()
         } else if isHovered {
-            shape.fill(theme.colors.surfaceElevated.opacity(0.18))
+            shape.fill(theme.colors.hover.opacity(theme.effects.hoverOpacity))
         }
     }
 }
