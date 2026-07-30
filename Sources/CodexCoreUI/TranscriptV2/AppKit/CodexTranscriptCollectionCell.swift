@@ -1738,12 +1738,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         for annotation in matching {
             selectableTextView.layoutManager?.addTemporaryAttribute(
                 .backgroundColor,
-                value: NSColor(
-                    srgbRed: 18 / 255,
-                    green: 141 / 255,
-                    blue: 1,
-                    alpha: 0.4
-                ),
+                value: (appKitTheme?.accent ?? .controlAccentColor).withAlphaComponent(0.28),
                 forCharacterRange: annotation.anchor.range
             )
         }
@@ -1785,6 +1780,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             }
             let button = CodexResponseAnnotationMarkerButton(frame: .zero)
             button.title = "\(ordinal + 1)"
+            button.markerColor = appKitTheme?.accent ?? .controlAccentColor
             button.target = self
             button.action = #selector(openResponseAnnotationEditor(_:))
             button.tag = ordinal
@@ -2326,15 +2322,7 @@ private struct CodexTranscriptGlassSurface: View {
 
     var body: some View {
         Color.clear
-            .codexGlass(
-                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous),
-                tint: theme.colors.surface.opacity(0.34)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                    .stroke(theme.colors.borderStrong.opacity(0.58), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), role: .panel)
     }
 }
 
@@ -2386,7 +2374,7 @@ private struct CodexTranscriptAgentPill: View {
                 } else {
                     VStack(spacing: 3) {
                         Image(systemName: "photo")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(theme.fonts.chat.weight(.medium))
                             .foregroundStyle(theme.colors.textSecondary)
                         Text(chip.label)
                             .font(.system(size: 8, weight: .medium))
@@ -2400,7 +2388,7 @@ private struct CodexTranscriptAgentPill: View {
                 }
             } else if chip.threadID == nil {
                 Image(systemName: chip.systemImage ?? "doc")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textSecondary)
             } else {
                 Circle()
@@ -2470,14 +2458,15 @@ private struct CodexTranscriptAgentPillChrome: ViewModifier {
             content
         } else {
             content
-                .codexGlass(
-                    AnyShape(Capsule()),
-                    tint: tint,
-                    interactive: isInteractive
-                )
+                .background(tint, in: Capsule())
                 .overlay {
                     Capsule()
-                        .stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1)
+                        .stroke(
+                            isInteractive
+                                ? theme.colors.borderStrong.opacity(0.65)
+                                : theme.colors.border.opacity(0.65),
+                            lineWidth: 1
+                        )
                 }
         }
     }
@@ -2535,14 +2524,6 @@ private struct CodexTranscriptAgentHoverPreview: View {
         }
         .padding(12)
         .frame(width: 300, alignment: .leading)
-        .codexGlass(
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous),
-            tint: theme.colors.surface.opacity(0.38)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                .stroke(theme.colors.borderStrong.opacity(0.6), lineWidth: 1)
-        }
         .onHover(perform: onHover)
     }
 

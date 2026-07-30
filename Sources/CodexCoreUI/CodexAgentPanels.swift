@@ -136,15 +136,7 @@ public struct CodexFloatingSummaryPanel: View {
         .padding(.vertical, 18)
         .frame(width: theme.spacing.summaryPanelWidth, alignment: .topLeading)
         .fixedSize(horizontal: true, vertical: false)
-        .codexGlass(
-            RoundedRectangle(cornerRadius: 22, style: .continuous),
-            tint: theme.colors.surface.opacity(0.54)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.52), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.22), radius: 24, y: 10)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
     }
 }
 
@@ -177,10 +169,10 @@ private struct SummarySection<Content: View>: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(theme.fonts.micro)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         Text(title)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(theme.fonts.body)
                     }
                     .foregroundStyle(theme.colors.textTertiary)
                     .contentShape(Rectangle())
@@ -191,7 +183,7 @@ private struct SummarySection<Content: View>: View {
 
                 if showsAddButton {
                     Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(theme.fonts.actionIcon)
                         .foregroundStyle(theme.colors.textTertiary)
                         .frame(width: 24, height: 24)
                         .opacity(isHovered ? 1 : 0.72)
@@ -270,11 +262,11 @@ private struct SummaryRow: View {
     private var rowContent: some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .regular))
+                .font(theme.fonts.actionIcon)
                 .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 24, height: 24)
             Text(title)
-                .font(.system(size: 14, weight: .regular))
+                .font(theme.fonts.body)
                 .foregroundStyle(theme.colors.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -283,7 +275,7 @@ private struct SummaryRow: View {
                 trailing
             } else if let trailingSystemImage {
                 Image(systemName: trailingSystemImage)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textTertiary)
             }
         }
@@ -306,7 +298,7 @@ private struct SummaryDiffStats: View {
             Text("-\(removed)")
                 .foregroundStyle(theme.colors.danger)
         }
-        .font(.system(size: 13, weight: .medium, design: .monospaced))
+        .font(theme.fonts.code)
     }
 }
 
@@ -317,7 +309,7 @@ private struct SummaryEmptyRow: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 13))
+            .font(theme.fonts.caption)
             .foregroundStyle(theme.colors.textTertiary)
             .frame(height: 30)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -340,7 +332,7 @@ private struct SummarySourceRow: View {
                         .stroke(theme.colors.border.opacity(0.65), lineWidth: 1)
                 }
             Text(source.displayName)
-                .font(.system(size: 14))
+                .font(theme.fonts.body)
                 .foregroundStyle(theme.colors.textSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -397,6 +389,7 @@ public struct CodexAgentSidePanel: View {
     private let onCloseFilePreview: (String) -> Void
     private let onCloseSubagent: (String) -> Void
     private let onSelectSubagentTranscript: (String?) -> Void
+    private let showsCloseButton: Bool
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
     @State private var liveResizeWidth: CGFloat?
@@ -428,6 +421,7 @@ public struct CodexAgentSidePanel: View {
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
+        showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -457,6 +451,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
+        self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
 
@@ -488,6 +483,7 @@ public struct CodexAgentSidePanel: View {
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
+        showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -517,6 +513,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
+        self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
 
@@ -532,7 +529,6 @@ public struct CodexAgentSidePanel: View {
         .overlay(alignment: .leading) {
             resizeHandle
         }
-        .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 24, x: -8)
         .animation(nil, value: panelWidth)
         .onAppear {
             ensureSelection()
@@ -699,104 +695,151 @@ public struct CodexAgentSidePanel: View {
             || !filePreviewSessions.isEmpty || !tabs.isEmpty
     }
 
+    private var orderedTabIDs: [String] {
+        terminalSessions.map(\.id)
+            + browserSessions.map(\.id)
+            + filesSessions.map(\.id)
+            + filePreviewSessions.map(\.id)
+            + tabs.map(\.id)
+    }
+
     private var tabBar: some View {
         HStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(terminalSessions) { session in
-                        AgentPanelTabButton(
-                            title: session.title,
-                            systemImage: "terminal",
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseTerminal(session.id) }
-                        ) {
-                            selectedTabID = session.id
-                        }
-                    }
+            GeometryReader { geometry in
+                let tabWidth = CodexAgentPanelTabStripLayout.tabWidth(
+                    availableWidth: geometry.size.width,
+                    tabCount: orderedTabIDs.count
+                )
 
-                    ForEach(browserSessions) { session in
-                        BrowserPanelTabButton(
-                            session: session,
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseBrowser(session.id) }
-                        ) {
-                            selectedTabID = session.id
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(terminalSessions) { session in
+                            AgentPanelTabButton(
+                                title: session.title,
+                                systemImage: "terminal",
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseTerminal(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
                         }
-                    }
 
-                    ForEach(filesSessions) { session in
-                        AgentPanelTabButton(
-                            title: session.title,
-                            systemImage: "folder",
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseFiles(session.id) }
-                        ) {
-                            selectedTabID = session.id
+                        ForEach(browserSessions) { session in
+                            BrowserPanelTabButton(
+                                session: session,
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseBrowser(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
                         }
-                    }
 
-                    ForEach(filePreviewSessions) { session in
-                        AgentPanelTabButton(
-                            title: session.title,
-                            systemImage: "doc.text",
-                            isSelected: session.id == selectedTabID,
-                            closeAction: { onCloseFilePreview(session.id) }
-                        ) {
-                            selectedTabID = session.id
+                        ForEach(filesSessions) { session in
+                            AgentPanelTabButton(
+                                title: session.title,
+                                systemImage: "folder",
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseFiles(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
                         }
-                    }
 
-                    ForEach(tabs) { tab in
-                        AgentPanelTabButton(
-                            title: tab.title,
-                            systemImage: tab.systemImage,
-                            isSelected: tab.id == selectedTab?.id,
-                            closeAction: tab.isSubagent ? { onCloseSubagent(tab.id) } : nil
-                        ) {
-                            selectedTabID = tab.id
+                        ForEach(filePreviewSessions) { session in
+                            AgentPanelTabButton(
+                                title: session.title,
+                                systemImage: "doc.text",
+                                isSelected: session.id == selectedTabID,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: session.id),
+                                closeAction: { onCloseFilePreview(session.id) }
+                            ) {
+                                selectedTabID = session.id
+                            }
+                        }
+
+                        ForEach(tabs) { tab in
+                            AgentPanelTabButton(
+                                title: tab.title,
+                                systemImage: tab.systemImage,
+                                isSelected: tab.id == selectedTab?.id,
+                                width: tabWidth,
+                                showsLeadingDivider: showsLeadingDivider(for: tab.id),
+                                closeAction: tab.isSubagent ? { onCloseSubagent(tab.id) } : nil
+                            ) {
+                                selectedTabID = tab.id
+                            }
                         }
                     }
                 }
-                .padding(.horizontal, 8)
+                .background(
+                    theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity * 0.42),
+                    in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                )
             }
+            .frame(height: 34)
+            .padding(.leading, 8)
 
-            Menu {
-                ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
-                    Button {
-                        openTool(option.id)
-                    } label: {
-                        Label(option.title, systemImage: option.systemImage)
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
+                        Button {
+                            openTool(option.id)
+                        } label: {
+                            Label(option.title, systemImage: option.systemImage)
+                        }
+                        .disabled(!option.isEnabled)
                     }
-                    .disabled(!option.isEnabled)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(theme.fonts.label)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                        .contentShape(Circle())
                 }
-            } label: {
-                Image(systemName: "plus")
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                    .contentShape(Circle())
-            }
-            // Strip the default macOS pop-up bezel + disclosure arrow so the
-            // glyph sits cleanly on the liquid-glass bubble like the close control.
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .buttonStyle(.plain)
-            .codexGlass(Circle(), interactive: true)
-            .help("Open tool")
-            .accessibilityLabel("Open tool")
+                // The launcher is deliberately plain chrome. Making this a lone
+                // interactive glass surface causes the compositor to flex its
+                // bubble whenever the pointer crosses it.
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .buttonStyle(.plain)
+                .help("Open tool")
+                .accessibilityLabel("Open tool")
 
-            Button(action: onClose) {
-                Image(systemName: "sidebar.right")
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                if showsCloseButton {
+                    Button(action: onClose) {
+                        Image(systemName: "sidebar.right")
+                            .font(theme.fonts.label)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                    }
+                    .buttonStyle(.plain)
+                    .codexGlass(Circle(), role: .control)
+                    .help("Close side panel")
+                    .accessibilityLabel("Close side panel")
+                }
             }
-            .buttonStyle(.plain)
-            .codexGlass(Circle(), interactive: true)
             .padding(.trailing, 8)
         }
         .frame(height: theme.spacing.toolbarHeight)
+    }
+
+    private func showsLeadingDivider(for tabID: String) -> Bool {
+        guard let index = orderedTabIDs.firstIndex(of: tabID), index > 0 else {
+            return false
+        }
+        return CodexAgentPanelTabStripLayout.showsLeadingDivider(
+            tabID: tabID,
+            precedingTabID: orderedTabIDs[index - 1],
+            selectedTabID: selectedTabID
+        )
     }
 
     private var toolLauncher: some View {
@@ -858,29 +901,51 @@ public struct CodexAgentSidePanel: View {
     }
 }
 
+struct CodexAgentPanelTabStripLayout {
+    static let minimumTabWidth: CGFloat = 112
+
+    static func tabWidth(availableWidth: CGFloat, tabCount: Int) -> CGFloat {
+        guard tabCount > 0 else { return availableWidth }
+        return max(minimumTabWidth, floor(availableWidth / CGFloat(tabCount)))
+    }
+
+    static func showsLeadingDivider(
+        tabID: String,
+        precedingTabID: String?,
+        selectedTabID: String?
+    ) -> Bool {
+        precedingTabID != nil
+            && tabID != selectedTabID
+            && precedingTabID != selectedTabID
+    }
+}
+
 private struct AgentPanelTabButton: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let title: String
     let systemImage: String
     let isSelected: Bool
+    let width: CGFloat
+    let showsLeadingDivider: Bool
     let closeAction: (() -> Void)?
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
+        ZStack(alignment: .trailing) {
             Button(action: action) {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     Image(systemName: systemImage)
                         .font(theme.fonts.caption)
                     Text(title)
-                        .font(theme.fonts.chat)
+                        .font(theme.fonts.label)
                         .lineLimit(1)
                 }
                 .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                .padding(.leading, 9)
-                .padding(.trailing, closeAction == nil ? 9 : 2)
-                .frame(height: 28)
+                .padding(.leading, 7)
+                .padding(.trailing, closeAction == nil ? 7 : 25)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .buttonStyle(.plain)
 
@@ -894,13 +959,39 @@ private struct AgentPanelTabButton: View {
                 .buttonStyle(.plain)
                 .help("Close \(title)")
                 .accessibilityLabel("Close \(title)")
-                .padding(.trailing, 4)
+                .padding(.trailing, 5)
             }
         }
+        .frame(width: width, height: 30)
         .background(
-            isSelected ? theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity) : .clear,
+            tabBackground,
             in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
         )
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+                    .stroke(theme.colors.border.opacity(0.72), lineWidth: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            if showsLeadingDivider {
+                Rectangle()
+                    .fill(theme.colors.border.opacity(0.58))
+                    .frame(width: 1, height: 16)
+            }
+        }
+        .padding(.vertical, 2)
+        .onHover { isHovered = $0 }
+    }
+
+    private var tabBackground: Color {
+        if isSelected {
+            return theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity)
+        }
+        if isHovered {
+            return theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity * 0.5)
+        }
+        return .clear
     }
 }
 
@@ -908,6 +999,8 @@ private struct BrowserPanelTabButton: View {
     @ObservedObject var session: CodexBrowserSession
 
     let isSelected: Bool
+    let width: CGFloat
+    let showsLeadingDivider: Bool
     let closeAction: () -> Void
     let action: () -> Void
 
@@ -916,6 +1009,8 @@ private struct BrowserPanelTabButton: View {
             title: session.title,
             systemImage: "globe",
             isSelected: isSelected,
+            width: width,
+            showsLeadingDivider: showsLeadingDivider,
             closeAction: closeAction,
             action: action
         )
@@ -1188,7 +1283,7 @@ private struct AgentPanelComposer: View {
 
             Button(action: isSending ? onInterrupt : submit) {
                 Image(systemName: isSending ? "stop.circle.fill" : "arrow.up.circle.fill")
-                    .font(.title2)
+                    .font(theme.fonts.actionIcon)
                     .foregroundStyle((isSending || canSend) ? theme.colors.accent : theme.colors.textTertiary)
             }
             .buttonStyle(.plain)
@@ -1199,8 +1294,7 @@ private struct AgentPanelComposer: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), interactive: true)
-        .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 18, x: 0, y: 8)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private func composerToolButton(systemImage: String, help: String) -> some View {

@@ -77,6 +77,9 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     public static let uiFontSizeRange: ClosedRange<Double> = 11...18
 
     public var preset: CodexAgentThemePreset
+    /// Whether to follow the system appearance or pin light/dark. Themes render
+    /// in both, so this is independent of the preset.
+    public var appearanceMode: CodexAppearanceMode
     public var reduceMotion: Bool
     public var uiFontSize: Double
     public var diffMarkerStyle: CodexDiffMarkerStyle
@@ -88,6 +91,7 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
 
     public init(
         preset: CodexAgentThemePreset = .officialDark,
+        appearanceMode: CodexAppearanceMode? = nil,
         reduceMotion: Bool = false,
         uiFontSize: Double = 14,
         diffMarkerStyle: CodexDiffMarkerStyle = .color,
@@ -96,6 +100,9 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         monoFontFamily: String? = nil
     ) {
         self.preset = preset
+        // Absent an explicit choice, honor the appearance the preset's name used
+        // to imply, so an existing "Official Dark" install stays dark.
+        self.appearanceMode = appearanceMode ?? preset.impliedAppearance
         self.reduceMotion = reduceMotion
         self.uiFontSize = min(max(uiFontSize, Self.uiFontSizeRange.lowerBound), Self.uiFontSizeRange.upperBound)
         self.diffMarkerStyle = diffMarkerStyle
@@ -104,19 +111,48 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         self.monoFontFamily = monoFontFamily?.nilIfBlank
     }
 
+    /// Decodes key by key. The synthesized decoder does not apply property
+    /// defaults for absent keys, so adding any field would have failed the whole
+    /// decode and silently reset every stored appearance preference.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let preset = try container.decodeIfPresent(CodexAgentThemePreset.self, forKey: .preset) ?? .officialDark
+        self.init(
+            preset: preset,
+            appearanceMode: try container.decodeIfPresent(CodexAppearanceMode.self, forKey: .appearanceMode),
+            reduceMotion: try container.decodeIfPresent(Bool.self, forKey: .reduceMotion) ?? false,
+            uiFontSize: try container.decodeIfPresent(Double.self, forKey: .uiFontSize) ?? 14,
+            diffMarkerStyle: try container.decodeIfPresent(CodexDiffMarkerStyle.self, forKey: .diffMarkerStyle) ?? .color,
+            dockIconVariant: try container.decodeIfPresent(CodexDockIconVariant.self, forKey: .dockIconVariant) ?? .default,
+            textFontFamily: try container.decodeIfPresent(String.self, forKey: .textFontFamily),
+            monoFontFamily: try container.decodeIfPresent(String.self, forKey: .monoFontFamily)
+        )
+    }
+
     public static var official: CodexAppearanceSettings {
         CodexAppearanceSettings()
     }
 
     public func agentTheme(uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
-        let base = preset.theme
-        var theme = base
+        var theme = preset.theme
         theme.fonts = .official.scaled(
             baseTextSize: uiFontSize,
             textFamily: textFontFamily,
             monoFamily: monoFontFamily
         )
         theme.animations = reduceMotion ? .reduced : .official
+        return theme
+    }
+
+    /// The theme with colors resolved for a known appearance, for AppKit-backed
+    /// views that must not resolve adaptive colors themselves.
+    public func agentTheme(
+        uiFontSize: Double,
+        reduceMotion: Bool,
+        resolvedFor scheme: ColorScheme
+    ) -> CodexAgentTheme {
+        var theme = agentTheme(uiFontSize: uiFontSize, reduceMotion: reduceMotion)
+        theme.colors = CodexAgentTheme.Colors(spec: preset.palette, resolvedFor: scheme)
         return theme
     }
 }
@@ -204,7 +240,18 @@ private extension CodexAgentTheme.Fonts {
             label: text.font(size: max(10, bodySize - 1), weight: .semibold),
             code: mono.font(size: codeSize),
             micro: mono.font(size: max(8, bodySize - 3), weight: .semibold),
-            sidebar: sidebar,
+            // Headings resolve in the user's chosen text family too, at the same
+            // offsets as `Fonts.official(baseTextSize:)`.
+            routeTitle: text.font(size: bodySize + 5, weight: .semibold),
+            sheetTitle: text.font(size: bodySize + 3, weight: .semibold),
+            panelTitle: text.font(size: bodySize + 1, weight: .semibold),
+            panelLabel: text.font(size: max(10, bodySize - 1), weight: .semibold),
+            heroTitle: text.font(size: bodySize + 8, weight: .semibold),
+            actionIcon: text.font(size: bodySize + 2, weight: .medium),
+            chipLabel: text.font(size: max(9, bodySize - 2), weight: .medium),
+            // Mirrors the app's own size and family exactly — see
+            // SidebarTypography.official(baseTextSize:textFamily:).
+            sidebar: .official(baseTextSize: baseTextSize, textFamily: textFamily),
             // Backing NSFonts drive prose/code markdown styling. Stay nil for the
             // system font (the prose views fall back to `fonts.chat`), and carry
             // the resolved family + scaled size for a custom pick.
@@ -290,6 +337,22 @@ public struct CodexAgentTheme {
         public var codeString: Color
         public var codeComment: Color
         public var codeNumber: Color
+        /// Dimming behind modal surfaces. Applied at `Effects.scrimOpacity`.
+        public var scrim: Color
+        /// Base color for every drop shadow. Derived from the theme so shadows
+        /// stay visible on dark canvases, where a fixed black vanishes.
+        public var shadow: Color
+        /// Pointer-hover and press emphasis, applied at the matching
+        /// `Effects.hoverOpacity` / `pressedOpacity`.
+        public var hover: Color
+        /// Selected-row emphasis, applied at `Effects.selectionOpacity`.
+        public var selection: Color
+        /// A deeper accent for pressed and active accent states.
+        public var accentStrong: Color
+        /// An accent legible as *text on the page*, which the fill accent often
+        /// is not. Keeping this separate is what lets a pastel or dark accent
+        /// theme stay readable.
+        public var accentText: Color
 
         public init(
             canvas: Color,
@@ -318,7 +381,13 @@ public struct CodexAgentTheme {
             codeKeyword: Color? = nil,
             codeString: Color? = nil,
             codeComment: Color? = nil,
-            codeNumber: Color? = nil
+            codeNumber: Color? = nil,
+            scrim: Color? = nil,
+            shadow: Color? = nil,
+            hover: Color? = nil,
+            selection: Color? = nil,
+            accentStrong: Color? = nil,
+            accentText: Color? = nil
         ) {
             self.canvas = canvas
             self.surface = surface
@@ -347,6 +416,15 @@ public struct CodexAgentTheme {
             self.codeString = codeString ?? success
             self.codeComment = codeComment ?? codeFaint
             self.codeNumber = codeNumber ?? warning
+            // Scrims and shadows key off the canvas rather than a fixed black,
+            // so a light theme dims toward its own darkest neutral instead of
+            // punching a grey hole in the window.
+            self.scrim = scrim ?? .black
+            self.shadow = shadow ?? .black
+            self.hover = hover ?? textPrimary
+            self.selection = selection ?? accent
+            self.accentStrong = accentStrong ?? accent
+            self.accentText = accentText ?? accent
         }
     }
 
@@ -386,14 +464,27 @@ public struct CodexAgentTheme {
         public var size: CGFloat
         public var weight: FontWeightToken
         public var design: FontDesignToken
+        /// The user's chosen interface text family, threaded through so the
+        /// sidebar renders in the same font as the rest of the app rather than
+        /// being permanently stuck on the system font. `nil` = system.
+        public var family: String?
 
-        public init(size: CGFloat, weight: FontWeightToken = .regular, design: FontDesignToken = .system) {
+        public init(
+            size: CGFloat,
+            weight: FontWeightToken = .regular,
+            design: FontDesignToken = .system,
+            family: String? = nil
+        ) {
             self.size = size
             self.weight = weight
             self.design = design
+            self.family = family
         }
 
         public var font: Font {
+            if let family, !family.isEmpty {
+                return CodexFontFamily.text(family).font(size: size, weight: weight.fontWeight)
+            }
             if let fontDesign = design.fontDesign {
                 return .system(size: size, weight: weight.fontWeight, design: fontDesign)
             }
@@ -408,6 +499,24 @@ public struct CodexAgentTheme {
         public var label: Font
         public var code: Font
         public var micro: Font
+        /// Page and route headings. One token, where the app previously used
+        /// three sizes (18, 22, 24) for the same role.
+        public var routeTitle: Font
+        /// Sheet, overlay, and popover headings.
+        public var sheetTitle: Font
+        /// Headings inside a panel or card.
+        public var panelTitle: Font
+        /// Small section labels inside a panel.
+        public var panelLabel: Font
+        /// Empty states and onboarding headlines. Deliberately the largest token
+        /// in the app, and deliberately much smaller than a marketing headline:
+        /// this is chrome, not a landing page.
+        public var heroTitle: Font
+        /// Toolbar and action glyphs. Replaces `.title2` and friends, which
+        /// ignore the user's interface font size.
+        public var actionIcon: Font
+        /// Inline chips and pills.
+        public var chipLabel: Font
         public var sidebar: SidebarTypography
         /// Optional platform font backing `chat`. When set, the prose
         /// cache bakes this font into each `AttributedString` run and
@@ -428,6 +537,13 @@ public struct CodexAgentTheme {
             label: Font,
             code: Font,
             micro: Font,
+            routeTitle: Font? = nil,
+            sheetTitle: Font? = nil,
+            panelTitle: Font? = nil,
+            panelLabel: Font? = nil,
+            heroTitle: Font? = nil,
+            actionIcon: Font? = nil,
+            chipLabel: Font? = nil,
             sidebar: SidebarTypography = .official,
             chatNSFont: NSFont? = nil,
             codeNSFont: NSFont? = nil
@@ -438,19 +554,51 @@ public struct CodexAgentTheme {
             self.label = label
             self.code = code
             self.micro = micro
+            // The heading tokens fall back to the nearest generic token rather
+            // than to a fixed point size, so a caller that supplies only the
+            // base six still gets a coherent scale.
+            self.routeTitle = routeTitle ?? label
+            self.sheetTitle = sheetTitle ?? label
+            self.panelTitle = panelTitle ?? label
+            self.panelLabel = panelLabel ?? label
+            self.heroTitle = heroTitle ?? label
+            self.actionIcon = actionIcon ?? body
+            self.chipLabel = chipLabel ?? caption
             self.sidebar = sidebar
             self.chatNSFont = chatNSFont
             self.codeNSFont = codeNSFont
         }
 
         public static var official: Fonts {
-            Fonts(
-                body: .body,
-                chat: .callout,
-                caption: .caption,
-                label: .subheadline.weight(.semibold),
-                code: .system(.footnote, design: .monospaced),
-                micro: .system(.caption2, design: .monospaced).weight(.semibold)
+            .official(baseTextSize: SidebarTypography.defaultBaseTextSize)
+        }
+
+        /// The full scale at a given interface font size. Offsets are relative to
+        /// the base so every token tracks the user's slider; the sidebar shares
+        /// the same base size and family rather than scaling independently.
+        public static func official(baseTextSize requestedSize: Double, textFamily: String? = nil) -> Fonts {
+            let base = CGFloat(
+                min(
+                    max(requestedSize, CodexAppearanceSettings.uiFontSizeRange.lowerBound),
+                    CodexAppearanceSettings.uiFontSizeRange.upperBound
+                )
+            )
+            let text = CodexFontFamily.text(textFamily)
+            return Fonts(
+                body: text.font(size: base),
+                chat: text.font(size: base + 1),
+                caption: text.font(size: max(9, base - 2)),
+                label: text.font(size: max(10, base - 1), weight: .semibold),
+                code: .system(size: max(10, base - 1), design: .monospaced),
+                micro: .system(size: max(8, base - 3), design: .monospaced).weight(.semibold),
+                routeTitle: text.font(size: base + 5, weight: .semibold),
+                sheetTitle: text.font(size: base + 3, weight: .semibold),
+                panelTitle: text.font(size: base + 1, weight: .semibold),
+                panelLabel: text.font(size: max(10, base - 1), weight: .semibold),
+                heroTitle: text.font(size: base + 8, weight: .semibold),
+                actionIcon: text.font(size: base + 2, weight: .medium),
+                chipLabel: text.font(size: max(9, base - 2), weight: .medium),
+                sidebar: .official(baseTextSize: requestedSize, textFamily: textFamily)
             )
         }
 
@@ -571,11 +719,15 @@ public struct CodexAgentTheme {
                 official(baseTextSize: defaultBaseTextSize)
             }
 
-            public static func official(baseTextSize requestedSize: Double) -> SidebarTypography {
+            /// - Parameter textFamily: The same family used for the rest of the
+            ///   app's interface text. The sidebar has no font-family setting of
+            ///   its own; it mirrors this one so it isn't stuck on the system
+            ///   font when the user picks a custom app font.
+            public static func official(baseTextSize requestedSize: Double, textFamily: String? = nil) -> SidebarTypography {
                 let baseTextSize = min(max(requestedSize, baseTextSizeRange.lowerBound), baseTextSizeRange.upperBound)
 
                 func token(_ offset: Double, weight: FontWeightToken = .regular) -> FontToken {
-                    FontToken(size: CGFloat(max(8, baseTextSize + offset)), weight: weight)
+                    FontToken(size: CGFloat(max(8, baseTextSize + offset)), weight: weight, family: textFamily)
                 }
 
                 return SidebarTypography(
@@ -620,6 +772,25 @@ public struct CodexAgentTheme {
         public var iconLarge: CGFloat
         public var chatLineSpacing: CGFloat
 
+        // A spacing ramp. `Spacing` previously held only widths, icon sizes and
+        // a line height, so padding was picked per view: the app used every
+        // value from 2 to 34 as a raw literal.
+        public var xxs: CGFloat
+        public var xs: CGFloat
+        public var sm: CGFloat
+        public var md: CGFloat
+        public var lg: CGFloat
+        public var xl: CGFloat
+        public var xxl: CGFloat
+        /// Inset inside a panel or card.
+        public var panelPadding: CGFloat
+        /// Inset inside a sheet or modal.
+        public var sheetPadding: CGFloat
+        /// Horizontal inset of a list row.
+        public var rowPadding: CGFloat
+        /// Gap between titled sections.
+        public var sectionGap: CGFloat
+
         public init(
             transcriptMaxWidth: CGFloat,
             composerMaxWidth: CGFloat,
@@ -634,7 +805,18 @@ public struct CodexAgentTheme {
             iconSmall: CGFloat = 13,
             iconMedium: CGFloat = 16,
             iconLarge: CGFloat = 28,
-            chatLineSpacing: CGFloat = 4.8
+            chatLineSpacing: CGFloat = 4.8,
+            xxs: CGFloat = 2,
+            xs: CGFloat = 4,
+            sm: CGFloat = 8,
+            md: CGFloat = 12,
+            lg: CGFloat = 16,
+            xl: CGFloat = 24,
+            xxl: CGFloat = 32,
+            panelPadding: CGFloat = 14,
+            sheetPadding: CGFloat = 20,
+            rowPadding: CGFloat = 10,
+            sectionGap: CGFloat = 18
         ) {
             self.transcriptMaxWidth = transcriptMaxWidth
             self.composerMaxWidth = composerMaxWidth
@@ -650,6 +832,17 @@ public struct CodexAgentTheme {
             self.iconMedium = iconMedium
             self.iconLarge = iconLarge
             self.chatLineSpacing = chatLineSpacing
+            self.xxs = xxs
+            self.xs = xs
+            self.sm = sm
+            self.md = md
+            self.lg = lg
+            self.xl = xl
+            self.xxl = xxl
+            self.panelPadding = panelPadding
+            self.sheetPadding = sheetPadding
+            self.rowPadding = rowPadding
+            self.sectionGap = sectionGap
         }
 
         public static var official: Spacing {
@@ -711,12 +904,48 @@ public struct CodexAgentTheme {
     }
 
     public struct Effects {
+        /// One shadow recipe for the whole app. Replaces the five hand-rolled
+        /// `.black.opacity(...)` variants that were scattered across panels and
+        /// overlays; a fixed black shadow disappears against a dark canvas, so
+        /// the color is derived from the theme instead.
+        public struct Shadow: Equatable, Sendable {
+            public var opacity: Double
+            public var radius: CGFloat
+            public var y: CGFloat
+
+            public init(opacity: Double, radius: CGFloat, y: CGFloat) {
+                self.opacity = opacity
+                self.radius = radius
+                self.y = y
+            }
+
+            public func color(for theme: CodexAgentTheme) -> Color {
+                theme.colors.shadow.opacity(opacity)
+            }
+
+            public static var panel: Shadow { Shadow(opacity: 0.28, radius: 20, y: 12) }
+            public static var card: Shadow { Shadow(opacity: 0.16, radius: 12, y: 4) }
+        }
+
         public var usesLiquidGlass: Bool
         public var surfaceOpacity: Double
         public var glowOpacity: Double
         public var glassOpacity: Double
         public var textFaintOpacity: Double
         public var textDimOpacity: Double
+        /// Shadow used by floating surfaces, and by the opaque glass fallback to
+        /// stand in for the shadow real glass draws for itself.
+        public var shadow: Shadow
+        /// Dimming behind a modal surface.
+        public var scrimOpacity: Double
+        /// How far a tint pulls the opaque glass fallback toward the tint color.
+        public var tintStrength: Double
+        /// Pointer-hover emphasis on rows and controls.
+        public var hoverOpacity: Double
+        /// Press emphasis.
+        public var pressedOpacity: Double
+        /// Selected-row emphasis.
+        public var selectionOpacity: Double
 
         public init(
             usesLiquidGlass: Bool,
@@ -724,7 +953,13 @@ public struct CodexAgentTheme {
             glowOpacity: Double,
             glassOpacity: Double = 0.72,
             textFaintOpacity: Double = 0.6,
-            textDimOpacity: Double = 0.82
+            textDimOpacity: Double = 0.82,
+            shadow: Shadow = .panel,
+            scrimOpacity: Double = 0.38,
+            tintStrength: Double = 0.18,
+            hoverOpacity: Double = 0.08,
+            pressedOpacity: Double = 0.14,
+            selectionOpacity: Double = 0.20
         ) {
             self.usesLiquidGlass = usesLiquidGlass
             self.surfaceOpacity = surfaceOpacity
@@ -732,6 +967,12 @@ public struct CodexAgentTheme {
             self.glassOpacity = glassOpacity
             self.textFaintOpacity = textFaintOpacity
             self.textDimOpacity = textDimOpacity
+            self.shadow = shadow
+            self.scrimOpacity = scrimOpacity
+            self.tintStrength = tintStrength
+            self.hoverOpacity = hoverOpacity
+            self.pressedOpacity = pressedOpacity
+            self.selectionOpacity = selectionOpacity
         }
 
         public static var official: Effects {
@@ -769,145 +1010,13 @@ public struct CodexAgentTheme {
 }
 
 public extension CodexAgentTheme {
-    static var officialDark: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0x0F0F0F),
-            surface: codexHex(0x111111),
-            surfaceSunken: codexHex(0x171717),
-            surfaceElevated: codexHex(0x242424),
-            textPrimary: codexHex(0xFCFCFC),
-            textSecondary: codexHex(0xFCFCFC).opacity(0.68),
-            textTertiary: codexHex(0xFCFCFC).opacity(0.55),
-            accent: codexHex(0x7C84FF),
-            accentSoft: codexHex(0x242844),
-            onAccent: .white,
-            border: codexHex(0xFCFCFC).opacity(0.075),
-            borderStrong: codexHex(0xFCFCFC).opacity(0.16),
-            userBubble: codexHex(0xFCFCFC).opacity(0.05),
-            userBubbleStroke: codexHex(0xFCFCFC).opacity(0.075),
-            codeBackground: codexHex(0x0C0E13),
-            codeHeader: codexHex(0x15181F),
-            codeText: codexHex(0xD6DBE4),
-            codeFaint: codexHex(0x8A93A4),
-            success: codexHex(0x44D17E),
-            warning: codexHex(0xE7A23C),
-            danger: codexHex(0xFF6B66),
-            running: codexHex(0x5C9BFF),
-            tool: codexHex(0xA78BFA)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.85, glowOpacity: 0.35))
-    }
-
-    static var nativeLight: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0xF5F6FA),
-            surface: .white,
-            surfaceSunken: codexHex(0xEEF0F5),
-            surfaceElevated: codexHex(0xFFFFFF).opacity(0.96),
-            textPrimary: codexHex(0x111318),
-            textSecondary: codexHex(0x4E5562),
-            textTertiary: codexHex(0x838A96),
-            accent: codexHex(0x4F46E5),
-            accentSoft: codexHex(0xE9E8FF),
-            onAccent: .white,
-            border: .black.opacity(0.08),
-            borderStrong: .black.opacity(0.14),
-            userBubble: codexHex(0xE9E8FF),
-            userBubbleStroke: codexHex(0x4F46E5).opacity(0.16),
-            codeBackground: codexHex(0x111827),
-            codeHeader: codexHex(0x1F2937),
-            codeText: codexHex(0xE5E7EB),
-            codeFaint: codexHex(0x9CA3AF),
-            success: codexHex(0x15803D),
-            warning: codexHex(0xB45309),
-            danger: codexHex(0xDC2626),
-            running: codexHex(0x2563EB),
-            tool: codexHex(0x7C3AED)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.88, glowOpacity: 0.10))
-    }
-
-    static var midnight: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0x070A12),
-            surface: codexHex(0x0B1020),
-            surfaceSunken: codexHex(0x0E1528),
-            surfaceElevated: codexHex(0x18213A),
-            textPrimary: codexHex(0xF4F7FF),
-            textSecondary: codexHex(0xB4BED4),
-            textTertiary: codexHex(0x707B94),
-            accent: codexHex(0x6EE7F9),
-            accentSoft: codexHex(0x12303A),
-            onAccent: codexHex(0x071016),
-            border: .white.opacity(0.08),
-            borderStrong: .white.opacity(0.18),
-            userBubble: codexHex(0x14223B),
-            userBubbleStroke: codexHex(0x6EE7F9).opacity(0.16),
-            codeBackground: codexHex(0x050814),
-            codeHeader: codexHex(0x0D1426),
-            codeText: codexHex(0xDBEAFE),
-            codeFaint: codexHex(0x74819C),
-            success: codexHex(0x34D399),
-            warning: codexHex(0xFBBF24),
-            danger: codexHex(0xFB7185),
-            running: codexHex(0x38BDF8),
-            tool: codexHex(0xC084FC)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.88, glowOpacity: 0.20))
-    }
-
-    static var warmMinimal: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: codexHex(0x171412),
-            surface: codexHex(0x1D1916),
-            surfaceSunken: codexHex(0x241F1B),
-            surfaceElevated: codexHex(0x312A24),
-            textPrimary: codexHex(0xFFF8EF),
-            textSecondary: codexHex(0xD8C9B8),
-            textTertiary: codexHex(0x9A8976),
-            accent: codexHex(0xF4A261),
-            accentSoft: codexHex(0x3B2B20),
-            onAccent: codexHex(0x20130B),
-            border: codexHex(0xFFF8EF).opacity(0.08),
-            borderStrong: codexHex(0xFFF8EF).opacity(0.18),
-            userBubble: codexHex(0x2A241F),
-            userBubbleStroke: codexHex(0xF4A261).opacity(0.14),
-            codeBackground: codexHex(0x120F0D),
-            codeHeader: codexHex(0x201A16),
-            codeText: codexHex(0xF8E8D5),
-            codeFaint: codexHex(0x9A8976),
-            success: codexHex(0x74C69D),
-            warning: codexHex(0xF4A261),
-            danger: codexHex(0xE76F51),
-            running: codexHex(0x90CAF9),
-            tool: codexHex(0xC4A7E7)
-        ), effects: .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.12))
-    }
-
-    static var highContrast: CodexAgentTheme {
-        CodexAgentTheme(colors: .init(
-            canvas: .black,
-            surface: .black,
-            surfaceSunken: codexHex(0x101010),
-            surfaceElevated: codexHex(0x1A1A1A),
-            textPrimary: .white,
-            textSecondary: .white.opacity(0.82),
-            textTertiary: .white.opacity(0.64),
-            accent: codexHex(0xFFD84D),
-            accentSoft: codexHex(0x332A00),
-            onAccent: .black,
-            border: .white.opacity(0.22),
-            borderStrong: .white.opacity(0.42),
-            userBubble: .white.opacity(0.12),
-            userBubbleStroke: .white.opacity(0.32),
-            codeBackground: .black,
-            codeHeader: codexHex(0x111111),
-            codeText: .white,
-            codeFaint: .white.opacity(0.72),
-            success: codexHex(0x00FF8A),
-            warning: codexHex(0xFFD84D),
-            danger: codexHex(0xFF4D4D),
-            running: codexHex(0x4DD2FF),
-            tool: codexHex(0xD98CFF)
-        ), effects: .init(usesLiquidGlass: false, surfaceOpacity: 1, glowOpacity: 0))
-    }
+    /// The default theme. Kept as a name because it is the environment default
+    /// and is referenced widely, including by tests.
+    static var officialDark: CodexAgentTheme { CodexAgentThemePreset.officialDark.theme }
+    static var nativeLight: CodexAgentTheme { CodexAgentThemePreset.nativeLight.theme }
+    static var midnight: CodexAgentTheme { CodexAgentThemePreset.midnight.theme }
+    static var warmMinimal: CodexAgentTheme { CodexAgentThemePreset.warmMinimal.theme }
+    static var highContrast: CodexAgentTheme { CodexAgentThemePreset.highContrast.theme }
 }
 
 private struct CodexAgentThemeKey: EnvironmentKey {
@@ -927,71 +1036,128 @@ public extension View {
     }
 }
 
+/// The built-in theme families. Each renders in both light and dark, so the
+/// preset chooses character and `CodexAppearanceMode` chooses appearance.
+///
+/// The raw values of the original five are preserved because they are persisted
+/// in the stored appearance settings; `officialDark` and `nativeLight` now name
+/// the same neutral family, which is why both map to `.slate`.
 public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, Sendable {
     case officialDark
     case nativeLight
     case midnight
     case warmMinimal
+    case sage
+    case rose
+    case violet
     case highContrast
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
-        case .officialDark: return "Official Dark"
-        case .nativeLight: return "Native Light"
+        case .officialDark: return "Slate"
+        case .nativeLight: return "Paper"
         case .midnight: return "Midnight"
-        case .warmMinimal: return "Warm Minimal"
+        case .warmMinimal: return "Warm Sand"
+        case .sage: return "Sage"
+        case .rose: return "Rose"
+        case .violet: return "Violet"
         case .highContrast: return "High Contrast"
         }
     }
 
-    public var theme: CodexAgentTheme {
+    /// A one-line character description for the settings picker.
+    public var summary: String {
         switch self {
-        case .officialDark: return .officialDark
-        case .nativeLight: return .nativeLight
+        case .officialDark: return "Neutral graphite. Nothing competes with syntax."
+        case .nativeLight: return "Neutral, biased bright."
+        case .midnight: return "Deep cool blue with a cyan accent."
+        case .warmMinimal: return "Paper and lamplight."
+        case .sage: return "Muted green. The calmest family."
+        case .rose: return "Dusty rose, warm without yellow."
+        case .violet: return "Cool violet, low chroma."
+        case .highContrast: return "Maximum contrast for legibility."
+        }
+    }
+
+    public var palette: CodexPaletteSpec {
+        switch self {
+        case .officialDark, .nativeLight: return .slate
         case .midnight: return .midnight
-        case .warmMinimal: return .warmMinimal
+        case .warmMinimal: return .warmSand
+        case .sage: return .sage
+        case .rose: return .rose
+        case .violet: return .violet
         case .highContrast: return .highContrast
+        }
+    }
+
+    /// The appearance this family is shown in when the user has not chosen one.
+    /// Only meaningful for the two legacy presets, whose names carried an
+    /// appearance before palettes became dual.
+    public var impliedAppearance: CodexAppearanceMode {
+        switch self {
+        case .officialDark: return .dark
+        case .nativeLight: return .light
+        default: return .system
+        }
+    }
+
+    public var theme: CodexAgentTheme {
+        CodexAgentTheme(
+            colors: CodexAgentTheme.Colors(spec: palette),
+            effects: effects
+        )
+    }
+
+    /// The same theme with colors resolved for one known appearance, for
+    /// AppKit-backed views that cannot use adaptive colors.
+    public func theme(resolvedFor scheme: ColorScheme) -> CodexAgentTheme {
+        CodexAgentTheme(
+            colors: CodexAgentTheme.Colors(spec: palette, resolvedFor: scheme),
+            effects: effects
+        )
+    }
+
+    private var effects: CodexAgentTheme.Effects {
+        switch self {
+        case .highContrast:
+            // The only family that opts out of glass, because its whole purpose
+            // is flat maximum contrast. Reduce Transparency covers every other
+            // family independently of this choice.
+            return .init(usesLiquidGlass: false, surfaceOpacity: 1, glowOpacity: 0)
+        case .midnight:
+            return .init(usesLiquidGlass: true, surfaceOpacity: 0.88, glowOpacity: 0.20)
+        case .warmMinimal:
+            return .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.12)
+        case .officialDark, .nativeLight, .sage, .rose, .violet:
+            return .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.14)
         }
     }
 }
 
-@available(macOS 26.0, iOS 26.0, *)
-private func makeCodexGlass(tint: Color?, interactive: Bool) -> Glass {
-    var glass: Glass = .regular
-    if let tint { glass = glass.tint(tint) }
-    if interactive { glass = glass.interactive() }
-    return glass
-}
+/// Whether the app follows the system appearance or pins one.
+public enum CodexAppearanceMode: String, CaseIterable, Codable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
 
-public extension View {
-    /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
-    @ViewBuilder
-    func codexGlass<S: Shape>(
-        _ shape: S,
-        tint: Color? = nil,
-        interactive: Bool = false
-    ) -> some View {
-        modifier(CodexGlassModifier(shape: shape, tint: tint, interactive: interactive))
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
     }
-}
 
-private struct CodexGlassModifier<S: Shape>: ViewModifier {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let shape: S
-    let tint: Color?
-    let interactive: Bool
-
-    func body(content: Content) -> some View {
-        if theme.effects.usesLiquidGlass, #available(macOS 26.0, iOS 26.0, *) {
-            content.glassEffect(makeCodexGlass(tint: tint, interactive: interactive), in: shape)
-        } else {
-            content
-                .background(.regularMaterial, in: shape)
-                .background(theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity), in: shape)
-                .overlay(shape.stroke(theme.colors.border, lineWidth: 1))
+    public var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
         }
     }
 }

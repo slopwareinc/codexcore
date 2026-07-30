@@ -27,10 +27,10 @@ public struct CodexMobileRouteView: View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(state.title)
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(theme.fonts.routeTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                 Text(state.subtitle)
-                    .font(.system(size: 14))
+                    .font(theme.fonts.body)
                     .foregroundStyle(theme.colors.textSecondary)
             }
 
@@ -118,11 +118,11 @@ private struct CodexMobileBenefitRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
+                .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.accent)
                 .frame(width: 18)
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(theme.fonts.caption.weight(.medium))
                 .foregroundStyle(theme.colors.textPrimary)
         }
     }
@@ -138,7 +138,7 @@ private struct CodexPhoneMockView: View {
                     .fill(theme.colors.success)
                     .frame(width: 8, height: 8)
                 Text("Codex")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.label)
                 Spacer()
             }
             .foregroundStyle(theme.colors.textPrimary)
@@ -148,13 +148,13 @@ private struct CodexPhoneMockView: View {
                     .font(theme.fonts.caption.weight(.semibold))
                     .foregroundStyle(theme.colors.textTertiary)
                 Text("CodexCore")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(theme.fonts.caption.weight(.medium))
                     .foregroundStyle(theme.colors.textPrimary)
                 Text("Chats")
                     .font(theme.fonts.caption.weight(.semibold))
                     .foregroundStyle(theme.colors.textTertiary)
                 Text("Continue release plan")
-                    .font(.system(size: 13))
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
             }
         }
@@ -184,10 +184,10 @@ private struct CodexMobilePermissionGate: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(state.permissionTitle)
-                .font(.system(size: 18, weight: .semibold))
+                .font(theme.fonts.sheetTitle)
                 .foregroundStyle(theme.colors.textPrimary)
             Text(state.permissionQuestion)
-                .font(.system(size: 15, weight: .semibold))
+                .font(theme.fonts.panelTitle)
                 .foregroundStyle(theme.colors.textPrimary)
             Text(state.permissionDetail)
                 .font(theme.fonts.caption)

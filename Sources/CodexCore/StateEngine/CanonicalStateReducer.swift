@@ -1252,6 +1252,12 @@ private extension CanonicalStateReducer {
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
     ) {
+        reconcileHydratedAgentMessageAlias(
+            for: incoming,
+            revision: revision,
+            graph: &graph,
+            changes: &changes
+        )
         ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
         let previous = graph.items[incoming.key]
         var completed = incoming
@@ -1286,6 +1292,70 @@ private extension CanonicalStateReducer {
         }
         changes.append(.itemCompleted(incoming.key))
         reconcileSubmissionIntent(for: completed, revision: revision, graph: &graph, changes: &changes)
+    }
+
+    mutating func reconcileHydratedAgentMessageAlias(
+        for incoming: CanonicalItem,
+        revision: StateRevision,
+        graph: inout CanonicalStateGraph,
+        changes: inout [CanonicalStateChange]
+    ) {
+        guard incoming.kind == .agentMessage,
+              !Self.isHydratedItemAliasID(incoming.key.itemID),
+              case .some(.string(let text)) = incoming.payload["text"],
+              !text.isEmpty,
+              let streamed = graph.items[incoming.key],
+              streamed.authority == .started,
+              !streamed.liveOverlay.agentMessage.isEmpty,
+              var turn = graph.turns[incoming.key.turnKey]
+        else {
+            return
+        }
+
+        // Rollout hydration assigns positional `item-N` identities to messages
+        // whose live notifications use durable `msg_…` identities. Reconcile
+        // only a partial hydrated item against a message we actually streamed.
+        let aliasID = turn.itemOrder.first { itemID in
+            guard Self.isHydratedItemAliasID(itemID) else { return false }
+            let key = ItemKey(
+                threadID: incoming.key.threadID,
+                turnID: incoming.key.turnID,
+                itemID: itemID
+            )
+            guard let candidate = graph.items[key],
+                  candidate.kind == incoming.kind,
+                  candidate.consistency != .authoritative,
+                  candidate.payload["text"] == incoming.payload["text"],
+                  candidate.payload["phase"] == incoming.payload["phase"]
+            else {
+                return false
+            }
+            return true
+        }
+        guard let aliasID else { return }
+
+        let aliasKey = ItemKey(
+            threadID: incoming.key.threadID,
+            turnID: incoming.key.turnID,
+            itemID: aliasID
+        )
+        graph.items.removeValue(forKey: aliasKey)
+        discardOrphans(for: aliasKey)
+        changes.append(.itemRemoved(aliasKey))
+
+        turn.itemOrder = turn.itemOrder.map {
+            $0 == aliasID ? incoming.key.itemID : $0
+        }.removingDuplicates()
+        turn.lastChangedRevision = revision
+        graph.turns[incoming.key.turnKey] = turn
+        changes.append(.turnUpdated(incoming.key.turnKey))
+    }
+
+    static func isHydratedItemAliasID(_ itemID: ItemID) -> Bool {
+        let rawValue = itemID.rawValue
+        guard rawValue.hasPrefix("item-") else { return false }
+        let suffix = rawValue.dropFirst("item-".count)
+        return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
     }
 
     mutating func replaceItemsAuthoritatively(

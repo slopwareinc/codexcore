@@ -43,6 +43,10 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     public var usesOverlaySidePanel: Bool {
         !usesPersistentSidePanel
     }
+
+    var showsCloseButtonInsideSidePanel: Bool {
+        usesOverlaySidePanel
+    }
 }
 
 /// A complete reusable Codex chat workspace: transcript, header, composer, and agent panels.
@@ -126,7 +130,6 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
-    @State private var hiddenSubagentTabIDs: Set<String> = []
 
     /// Creates a workspace and reports the subagent transcript currently visible
     /// in its side panel through `onSelectSubagentTranscript`.
@@ -301,7 +304,10 @@ public struct CodexChatWorkspaceView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if panelState.usesPersistentSidePanel, panel.isAgentPanelOpen {
-                        agentSidePanel(resizable: true)
+                        agentSidePanel(
+                            resizable: true,
+                            showsCloseButton: panelState.showsCloseButtonInsideSidePanel
+                        )
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -325,7 +331,10 @@ public struct CodexChatWorkspaceView: View {
                     }
                     .transition(.opacity)
 
-                    agentSidePanel(resizable: true)
+                    agentSidePanel(
+                        resizable: true,
+                        showsCloseButton: panelState.showsCloseButtonInsideSidePanel
+                    )
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -553,11 +562,11 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private var panelTabs: [CodexAgentPanelTab] {
-        var tabs: [CodexAgentPanelTab] = []
-        if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
-        if let sideChat { tabs.append(.sideChat(sideChat)) }
-        tabs.append(contentsOf: subagents.map(CodexAgentPanelTab.subagent).filter { !hiddenSubagentTabIDs.contains($0.id) })
-        return tabs
+        panel.agentTabs(
+            sideChat: sideChat,
+            subagents: subagents,
+            gitReviewSession: gitReviewSession
+        )
     }
 
     private var workspaceChatActions: CodexChatActionHandlers {
@@ -609,7 +618,7 @@ public struct CodexChatWorkspaceView: View {
         return (mountedPanels + [panel]).flatMap(\.filePreviewSessions).filter { seen.insert($0.id).inserted }
     }
 
-    private func agentSidePanel(resizable: Bool) -> some View {
+    private func agentSidePanel(resizable: Bool, showsCloseButton: Bool) -> some View {
         CodexAgentSidePanel(
             tabs: panelTabs,
             selectedTabID: $panel.selectedTabID,
@@ -638,6 +647,7 @@ public struct CodexChatWorkspaceView: View {
             onCloseFilePreview: closeFilePreviewTab,
             onCloseSubagent: closeSubagentTab,
             onSelectSubagentTranscript: onSelectSubagentTranscript,
+            showsCloseButton: showsCloseButton,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
         )
     }
@@ -649,8 +659,11 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func openPanelTab(_ id: String) {
-        hiddenSubagentTabIDs.remove(id)
-        panel.selectedTabID = id
+        if subagents.contains(where: { $0.id == id }) {
+            panel.openSubagent(id: id)
+        } else {
+            panel.selectedTabID = id
+        }
         isCompactSummaryPanelPresented = false
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen = true
@@ -658,8 +671,7 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func closeSubagentTab(_ id: String) {
-        hiddenSubagentTabIDs.insert(id)
-        panel.selectedTabID = panelTabs.first?.id
+        panel.closeSubagent(id: id, fallbackTabIDs: panelTabs.map(\.id))
     }
 
     private func toggleAgentPanel() {
@@ -837,6 +849,10 @@ public struct CodexChatHeader: View {
     }
 
     private var controlsRow: some View {
+        // One container for every bubble in the row, so the system renders them
+        // in a single pass. Zero merge spacing keeps separated controls distinct
+        // at rest while still allowing overlapping transition shapes to morph.
+        CodexGlassGroup(spacing: 0) {
         HStack(spacing: 8) {
             if leadingTitlebarInset > 0 {
                 Color.clear
@@ -906,13 +922,16 @@ public struct CodexChatHeader: View {
         .contentShape(Rectangle())
         .gesture(WindowDragGesture())
         .allowsWindowActivationEvents(true)
+        }
     }
 }
 
 /// A floating glass capsule that groups one or more header controls, à la the
 /// macOS Notes/Reminders toolbar bubbles.
+///
+/// Carries no stroke and no shadow of its own: Liquid Glass draws both, and
+/// hand-drawn copies on top are what make glass read as an imitation.
 private struct HeaderBubble<Content: View>: View {
-    @Environment(\.codexAgentTheme) private var theme
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -921,9 +940,7 @@ private struct HeaderBubble<Content: View>: View {
         }
         .padding(.horizontal, 4)
         .frame(height: 34)
-        .codexGlass(Capsule(), tint: theme.colors.surface.opacity(0.42))
-        .overlay(Capsule().stroke(theme.colors.border.opacity(0.4), lineWidth: 1))
-        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        .codexGlass(Capsule(), role: .controlGroup)
     }
 }
 

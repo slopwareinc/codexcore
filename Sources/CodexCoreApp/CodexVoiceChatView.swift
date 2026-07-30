@@ -17,7 +17,7 @@ struct CodexVoiceMiniControl: View {
                     )
                     .frame(width: 34, height: 34)
                     Text(session.isMuted ? "Voice muted" : "Voice active")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(theme.colors.textPrimary)
                 }
             }
@@ -25,7 +25,7 @@ struct CodexVoiceMiniControl: View {
 
             Button(role: .destructive, action: onEnd) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(theme.fonts.caption.weight(.semibold))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
@@ -33,8 +33,7 @@ struct CodexVoiceMiniControl: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .codexGlass(Capsule())
-        .shadow(color: .black.opacity(0.24), radius: 18, y: 8)
+        .codexGlass(Capsule(), role: .control)
     }
 }
 
@@ -96,7 +95,7 @@ private struct CodexVoiceComposer: View {
             HStack(spacing: 12) {
                 Button(action: {}) {
                     Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(theme.fonts.actionIcon)
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
@@ -104,7 +103,7 @@ private struct CodexVoiceComposer: View {
                 .accessibilityLabel("Add to voice chat")
 
                 Label("Approve for me", systemImage: "shield.lefthalf.filled")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textTertiary)
 
                 Spacer(minLength: 12)
@@ -127,7 +126,7 @@ private struct CodexVoiceComposer: View {
 
                 Button(action: onEnd) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(theme.fonts.label)
                         .foregroundStyle(Color.black.opacity(0.82))
                         .frame(width: 34, height: 34)
                         .background(Color.white.opacity(0.94), in: Circle())
@@ -140,15 +139,10 @@ private struct CodexVoiceComposer: View {
         .padding(.top, 14)
         .padding(.bottom, 12)
         .frame(minHeight: 94)
-        .background(
-            theme.colors.surfaceElevated.opacity(0.86),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.44), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
         .onAppear { isFocused = true }
     }
 

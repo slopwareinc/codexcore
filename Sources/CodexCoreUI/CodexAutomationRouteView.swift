@@ -37,13 +37,13 @@ public struct CodexAutomationRouteView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: CodexAppRoute.automations.systemImage)
-                .font(.system(size: 17, weight: .semibold))
+                .font(theme.fonts.sheetTitle)
                 .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 24, height: 28)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     Text(state.headerTitle)
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(theme.fonts.routeTitle)
                         .foregroundStyle(theme.colors.textPrimary)
                     Button {
                         onAction(.learnMore)
@@ -100,7 +100,7 @@ public struct CodexAutomationRouteView: View {
     private var emptyTemplates: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(state.emptyTitle)
-                .font(.system(size: 17, weight: .semibold))
+                .font(theme.fonts.sheetTitle)
                 .foregroundStyle(theme.colors.textPrimary)
 
             HStack(spacing: 10) {
@@ -160,10 +160,10 @@ private struct CodexAutomationTemplateButton: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: template.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(theme.fonts.panelTitle)
                     .foregroundStyle(theme.colors.textSecondary)
                 Text(template.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(template.isDraftBacked ? theme.colors.textPrimary : theme.colors.textTertiary)
                     .lineLimit(1)
             }

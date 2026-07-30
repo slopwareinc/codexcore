@@ -26,7 +26,7 @@ public struct CodexEmptyTranscriptView: View {
     public var body: some View {
         VStack(spacing: 18) {
             Text("What should we work on?")
-                .font(.system(size: 22, weight: .semibold))
+                .font(theme.fonts.routeTitle)
                 .foregroundStyle(theme.colors.textPrimary)
 
             VStack(spacing: 8) {
@@ -62,7 +62,7 @@ public struct CodexEmptyTranscriptView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 11)
                         .frame(maxWidth: 420, alignment: .leading)
-                        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), interactive: true)
+                        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), role: .control)
                     }
                     .buttonStyle(.plain)
                 }

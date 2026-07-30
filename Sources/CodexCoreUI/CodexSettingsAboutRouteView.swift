@@ -124,7 +124,6 @@ public struct CodexSettingsAboutRouteView: View {
     public let onBackToApp: (() -> Void)?
 
     @Binding private var appearanceSettings: CodexAppearanceSettings
-    @Binding private var sidebarFontSize: Double
     @Binding private var approvalSelection: CodexApprovalSelection
     private let approvalOptions: [CodexApprovalSelection]
     @Binding private var modelSelection: CodexModelSelection
@@ -134,14 +133,10 @@ public struct CodexSettingsAboutRouteView: View {
     @Binding private var gitSettings: CodexGitSettings
     @Binding private var newThreadHistoryMode: CodexNewThreadHistoryMode
 
-    private let sidebarFontSizeRange: ClosedRange<Double>
-
     public init(
         metadata: CodexAboutMetadata,
         accountSummary: CodexAccountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available"),
         appearanceSettings: Binding<CodexAppearanceSettings>,
-        sidebarFontSize: Binding<Double> = .constant(CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize),
-        sidebarFontSizeRange: ClosedRange<Double> = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
@@ -159,8 +154,6 @@ public struct CodexSettingsAboutRouteView: View {
         self.metadata = metadata
         self.accountSummary = accountSummary
         self._appearanceSettings = appearanceSettings
-        self._sidebarFontSize = sidebarFontSize
-        self.sidebarFontSizeRange = sidebarFontSizeRange
         self._approvalSelection = approvalSelection
         self.approvalOptions = approvalOptions
         self._modelSelection = modelSelection
@@ -193,7 +186,7 @@ public struct CodexSettingsAboutRouteView: View {
                 .settingsBackButton(theme: theme)
             } else {
                 Text("Settings")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(theme.fonts.sheetTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                     .padding(.horizontal, 10)
                     .frame(height: 30, alignment: .leading)
@@ -243,7 +236,7 @@ public struct CodexSettingsAboutRouteView: View {
         .padding(.top, 34)
         .padding(.horizontal, 14)
         .frame(minWidth: 250, idealWidth: 250, maxWidth: 250, maxHeight: .infinity, alignment: .topLeading)
-        .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.16))
+        .codexGlass(Rectangle(), role: .chrome)
     }
 
     private var contentPane: some View {
@@ -275,11 +268,7 @@ public struct CodexSettingsAboutRouteView: View {
                 isBottomPanelVisible: $isBottomPanelVisible
             )
         case .appearance:
-            CodexAppearanceSettingsView(
-                settings: $appearanceSettings,
-                sidebarFontSize: $sidebarFontSize,
-                sidebarFontSizeRange: sidebarFontSizeRange
-            )
+            CodexAppearanceSettingsView(settings: $appearanceSettings)
         case .profile:
             CodexSettingsProfilePage(accountSummary: accountSummary, serverName: metadata.serverName)
         case .configuration:
@@ -370,7 +359,7 @@ public struct CodexSettingsPageTitle: View {
 
     public var body: some View {
         Text(title)
-            .font(.system(size: 22, weight: .semibold))
+            .font(theme.fonts.routeTitle)
             .foregroundStyle(theme.colors.textPrimary)
     }
 }
@@ -598,17 +587,9 @@ public struct CodexAppearanceSettingsView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     @Binding private var settings: CodexAppearanceSettings
-    @Binding private var sidebarFontSize: Double
-    private let sidebarFontSizeRange: ClosedRange<Double>
 
-    public init(
-        settings: Binding<CodexAppearanceSettings>,
-        sidebarFontSize: Binding<Double>,
-        sidebarFontSizeRange: ClosedRange<Double> = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
-    ) {
+    public init(settings: Binding<CodexAppearanceSettings>) {
         self._settings = settings
-        self._sidebarFontSize = sidebarFontSize
-        self.sidebarFontSizeRange = sidebarFontSizeRange
     }
 
     public var body: some View {
@@ -616,16 +597,13 @@ public struct CodexAppearanceSettingsView: View {
             CodexSettingsPageTitle("Appearance")
             CodexThemePresetPicker(preset: $settings.preset)
             VStack(spacing: 0) {
+                CodexAppearanceModeRow(mode: $settings.appearanceMode)
                 CodexSettingsSliderRow(
                     title: "UI font size",
-                    detail: "Adjust the base size used for CodexCore UI",
+                    detail: "Adjust the base size used across CodexCore, including the sidebar",
                     value: $settings.uiFontSize,
                     range: CodexAppearanceSettings.uiFontSizeRange,
                     suffix: "px"
-                )
-                CodexSidebarFontSizeControl(
-                    fontSize: $sidebarFontSize,
-                    range: sidebarFontSizeRange
                 )
                 CodexFontFamilyPickerRow(
                     title: "App font",
@@ -748,30 +726,37 @@ public struct CodexThemePresetPicker: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Theme")
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textPrimary)
+        VStack(alignment: .leading, spacing: theme.spacing.md) {
+            Text("Theme")
+                .font(theme.fonts.label)
+                .foregroundStyle(theme.colors.textPrimary)
 
-                HStack(spacing: 8) {
-                    ForEach(CodexAgentThemePreset.allCases) { option in
-                        Button {
-                            preset = option
-                        } label: {
-                            VStack(spacing: 8) {
-                                CodexPresetSwatch(preset: option, isSelected: preset == option)
-                                Text(option.displayName)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(preset == option ? theme.colors.textPrimary : theme.colors.textTertiary)
-                                    .lineLimit(1)
-                            }
-                            .frame(maxWidth: .infinity)
+            // A grid, not a row: eight families do not fit side by side, and a
+            // horizontally squeezed swatch stops previewing anything.
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: theme.spacing.sm),
+                    count: 4
+                ),
+                spacing: theme.spacing.md
+            ) {
+                ForEach(CodexAgentThemePreset.allCases) { option in
+                    Button {
+                        preset = option
+                    } label: {
+                        VStack(spacing: theme.spacing.sm) {
+                            CodexPresetSwatch(preset: option, isSelected: preset == option)
+                            Text(option.displayName)
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(preset == option ? theme.colors.textPrimary : theme.colors.textTertiary)
+                                .lineLimit(1)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(option.displayName) preset")
-                        .accessibilityAddTraits(preset == option ? .isSelected : [])
+                        .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.plain)
+                    .help(option.summary)
+                    .accessibilityLabel("\(option.displayName) theme. \(option.summary)")
+                    .accessibilityAddTraits(preset == option ? .isSelected : [])
                 }
             }
         }
@@ -779,7 +764,11 @@ public struct CodexThemePresetPicker: View {
     }
 }
 
+/// Previews a family as a split tile: light rendering on the left, dark on the
+/// right. Each theme now works in both appearances, and the swatch says so.
 public struct CodexPresetSwatch: View {
+    @Environment(\.codexAgentTheme) private var theme
+
     let preset: CodexAgentThemePreset
     let isSelected: Bool
 
@@ -789,31 +778,39 @@ public struct CodexPresetSwatch: View {
     }
 
     public var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(swatchBackground)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(isSelected ? Color.accentColor : .white.opacity(0.1), lineWidth: isSelected ? 2.2 : 0.8)
-                }
+        let palette = preset.palette
+        let shape = RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
 
-            VStack(spacing: 5) {
-                Circle()
-                    .fill(preset.theme.colors.accent)
-                    .frame(width: 12, height: 12)
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(preset.theme.colors.textPrimary.opacity(0.55))
-                    .frame(width: 24, height: 3)
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(preset.theme.colors.textSecondary)
-                    .frame(width: 16, height: 3)
-            }
+        return HStack(spacing: 0) {
+            half(palette, scheme: .light)
+            half(palette, scheme: .dark)
         }
-        .frame(height: 64)
+        .clipShape(shape)
+        .overlay {
+            shape.stroke(
+                isSelected ? theme.colors.accent : theme.colors.border,
+                lineWidth: isSelected ? 2 : 1
+            )
+        }
+        .frame(height: 58)
     }
 
-    private var swatchBackground: Color {
-        preset.theme.colors.canvas
+    private func half(_ palette: CodexPaletteSpec, scheme: ColorScheme) -> some View {
+        // Colors are resolved explicitly per half rather than left adaptive, so
+        // both renderings show at once regardless of the current appearance.
+        VStack(spacing: 4) {
+            Circle()
+                .fill(palette.accent.resolved(scheme))
+                .frame(width: 10, height: 10)
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                .fill(palette.textPrimary.resolved(scheme).opacity(0.7))
+                .frame(width: 18, height: 2.5)
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                .fill(palette.textSecondary.resolved(scheme))
+                .frame(width: 12, height: 2.5)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(palette.canvas.resolved(scheme))
     }
 }
 
@@ -935,35 +932,6 @@ public struct CodexSettingsMenuRow<MenuContent: View>: View {
     }
 }
 
-public struct CodexSidebarFontSizeControl: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    @Binding private var fontSize: Double
-    private let range: ClosedRange<Double>
-
-    public init(
-        fontSize: Binding<Double>,
-        range: ClosedRange<Double> = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
-    ) {
-        self._fontSize = fontSize
-        self.range = range
-    }
-
-    public var body: some View {
-        HStack(spacing: 18) {
-            CodexSettingsRowLabel(title: "Sidebar font", detail: "Controls sidebar row text size", isEnabled: true)
-            Spacer(minLength: 12)
-            Slider(value: $fontSize, in: range, step: 1)
-                .frame(width: 150)
-            Text("\(Int(fontSize.rounded())) px")
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: 52, alignment: .trailing)
-        }
-        .settingsRowFrame()
-    }
-}
-
 public struct CodexSettingsToggleRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -1046,6 +1014,38 @@ public struct CodexSettingsEnumRow: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 124)
+        }
+        .settingsRowFrame()
+    }
+}
+
+/// Light / dark / follow-the-system. Separate from the theme picker because a
+/// theme is a hue family that renders in both appearances, not an appearance.
+public struct CodexAppearanceModeRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    @Binding private var mode: CodexAppearanceMode
+
+    public init(mode: Binding<CodexAppearanceMode>) {
+        self._mode = mode
+    }
+
+    public var body: some View {
+        HStack(spacing: 18) {
+            CodexSettingsRowLabel(
+                title: "Appearance",
+                detail: "Every theme renders in both light and dark",
+                isEnabled: true
+            )
+            Spacer()
+            Picker("Appearance", selection: $mode) {
+                ForEach(CodexAppearanceMode.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 186)
         }
         .settingsRowFrame()
     }

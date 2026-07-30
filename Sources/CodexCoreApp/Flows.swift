@@ -11,15 +11,15 @@ struct WelcomeFlowView: View {
 
     var body: some View {
         CodexGlassPanel {
-            VStack(spacing: 24) {
-                CodexBrandMark(size: 60)
+            VStack(spacing: theme.spacing.xl) {
+                CodexBrandMark(size: theme.spacing.iconLarge + 12)
 
                 VStack(spacing: 8) {
                     Text(model.isConnecting ? "Starting Codex" : "Codex is ready to start")
-                        .font(.system(size: 30, weight: .semibold))
+                        .font(theme.fonts.heroTitle)
                         .foregroundStyle(theme.colors.textPrimary)
                     Text("Codex opens with your default workspace and keeps recent projects available in the sidebar.")
-                        .font(.system(size: 14))
+                        .font(theme.fonts.body)
                         .foregroundStyle(theme.colors.textSecondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 460)
@@ -36,10 +36,10 @@ struct WelcomeFlowView: View {
                         if model.isConnecting {
                             ProgressView().controlSize(.small).tint(theme.colors.onAccent)
                         } else {
-                            Image(systemName: "bolt.fill").font(.system(size: 13))
+                            Image(systemName: "bolt.fill").font(theme.fonts.caption)
                         }
                         Text(model.isConnecting ? "Connecting…" : "Retry")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(theme.fonts.label)
                     }
                     .foregroundStyle(theme.colors.onAccent)
                     .frame(maxWidth: 460)
@@ -50,7 +50,7 @@ struct WelcomeFlowView: View {
                 .disabled(model.isConnecting)
 
                 Text("Uses CODEX_HOME=\(model.codexHome.path) for isolated auth and state.")
-                    .font(.system(size: 11))
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
             }
         }
@@ -67,15 +67,15 @@ struct SignInFlowView: View {
 
     var body: some View {
         CodexGlassPanel {
-            VStack(spacing: 24) {
-                CodexBrandMark(systemImage: "person.badge.key.fill", size: 60)
+            VStack(spacing: theme.spacing.xl) {
+                CodexBrandMark(systemImage: "person.badge.key.fill", size: theme.spacing.iconLarge + 12)
 
                 VStack(spacing: 8) {
                     Text("Sign in to continue")
-                        .font(.system(size: 28, weight: .semibold))
+                        .font(theme.fonts.heroTitle)
                         .foregroundStyle(theme.colors.textPrimary)
                     Text("Codex didn't find a usable ChatGPT account or API key. Complete one step, then your chat opens automatically.")
-                        .font(.system(size: 14))
+                        .font(theme.fonts.body)
                         .foregroundStyle(theme.colors.textSecondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 440)
@@ -86,9 +86,9 @@ struct SignInFlowView: View {
                         Task { await model.startDeviceCodeLogin() }
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "sparkles").font(.system(size: 13))
+                            Image(systemName: "sparkles").font(theme.fonts.caption)
                             Text(model.deviceCode == nil ? "Continue with ChatGPT" : "Device login in progress")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(theme.fonts.label)
                         }
                         .foregroundStyle(theme.colors.onAccent)
                         .frame(maxWidth: .infinity)
@@ -104,7 +104,7 @@ struct SignInFlowView: View {
                     HStack(spacing: 10) {
                         Rectangle().fill(theme.colors.border).frame(height: 1)
                         Text("or use an API key")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(theme.fonts.chipLabel)
                             .foregroundStyle(theme.colors.textTertiary)
                             .fixedSize()
                         Rectangle().fill(theme.colors.border).frame(height: 1)
@@ -121,7 +121,7 @@ struct SignInFlowView: View {
 
                 Button("Disconnect") { Task { await model.disconnect() } }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
             }
         }

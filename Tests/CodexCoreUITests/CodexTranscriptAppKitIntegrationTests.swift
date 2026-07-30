@@ -44,7 +44,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 )])
             ),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let item = try #require(
             snapshot.itemsByID.values.first { $0.allowsResponseAnnotation }
@@ -63,7 +63,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         var captured: [CodexResponseTextAnnotation] = []
         cell.configure(
             item: item,
-            appKitTheme: .init(.officialDark),
+            appKitTheme: .init(.officialDark, colorScheme: .dark),
             swiftUITheme: .officialDark,
             contentHorizontalOffset: 0,
             productToolRenderer: nil,
@@ -145,7 +145,7 @@ struct CodexTranscriptAppKitIntegrationTests {
     }
 
     @Test func transcriptCellCentersAgainstLiveViewportBeforeDeferredReprojection() async throws {
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "resize-thread",
@@ -225,7 +225,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 pendingApprovals: [prompt]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
         let approval = try #require(snapshot.itemsByID.values.first { $0.approval != nil })
         #expect(approval.approval?.summary == "swift test")
@@ -234,7 +234,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         _ = cell.view
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: approval.measuredHeight)
         cell.configure(
-            item: approval, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            item: approval, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
             contentHorizontalOffset: 0, productToolRenderer: nil,
             performAction: { actions.append($0) }, copy: { _ in }, editUserMessage: { _ in },
             forkChat: nil, selectionChanged: { _, _ in }
@@ -248,7 +248,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         ])
         let workRow = try #require(snapshot.itemsByID.values.first { $0.workRow != nil })
         cell.configure(
-            item: workRow, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            item: workRow, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
             contentHorizontalOffset: 0, productToolRenderer: nil,
             performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
             forkChat: nil, selectionChanged: { _, _ in }
@@ -258,7 +258,7 @@ struct CodexTranscriptAppKitIntegrationTests {
 
     @Test func defaultWorkGroupUsesOneCompactSemanticSummary() async throws {
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let presentation = CodexThreadUIPresentation(
             threadID: "thread",
             transcript: .init(turns: [.init(
@@ -319,7 +319,7 @@ struct CodexTranscriptAppKitIntegrationTests {
 
     @Test func compactActivityShimmersOnlyWhileActiveAndStopsOnReuse() async throws {
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
 
@@ -395,7 +395,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 )])
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
 
         let item = try #require(snapshot.itemsByID.values.first {
@@ -419,7 +419,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             status: .working(since: 1)
         )
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
 
         let collapsed = try await projector.project(
             presentation: .init(
@@ -511,6 +511,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 0,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: CodexNoopClipboardService(),
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -530,6 +531,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 0,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: CodexNoopClipboardService(),
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -550,7 +552,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             "Hello world—again! 🌍",
         ]
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
 
         for (index, reply) in replies.enumerated() {
             let snapshot = try await projector.project(
@@ -592,7 +594,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             ))]))],
             status: .done(durationMs: 10)
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
                 threadID: "thread",
@@ -661,7 +663,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 agentDisplayNameByThreadID: ["thread-2": "Ramanujan"]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
 
         let cluster = try #require(snapshot.itemsByID.values.first { !$0.agentChips.isEmpty })
@@ -677,7 +679,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         _ = cell.view
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: cluster.measuredHeight)
         cell.configure(
-            item: cluster, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            item: cluster, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
             contentHorizontalOffset: 0, productToolRenderer: nil,
             performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
             forkChat: nil, selectionChanged: { _, _ in }
@@ -692,7 +694,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(preview.latestUpdate == "Updated the AppKit cell")
 
         cell.configure(
-            item: cluster, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            item: cluster, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
             contentHorizontalOffset: 0, productToolRenderer: nil,
             performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
             forkChat: nil, selectionChanged: { _, _ in }
@@ -757,7 +759,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 expandedWorkTurnIDs: [turn.id], expandedRowIDs: ["work", "files"]
             ),
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
         let panel = try #require(snapshot.itemsByID.values.first { $0.diffPanel != nil })
         let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .fileChange })
@@ -769,7 +771,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         _ = cell.view
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: panel.measuredHeight)
         cell.configure(
-            item: panel, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            item: panel, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
             contentHorizontalOffset: 0, productToolRenderer: nil,
             performAction: { action = $0 }, copy: { _ in }, editUserMessage: { _ in },
             forkChat: nil, selectionChanged: { _, _ in }
@@ -791,14 +793,14 @@ struct CodexTranscriptAppKitIntegrationTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
         cell.configure(
-            item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            item: header, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
             contentHorizontalOffset: 0, productToolRenderer: nil,
             performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
             forkChat: nil, selectionChanged: { _, _ in }
@@ -819,14 +821,14 @@ struct CodexTranscriptAppKitIntegrationTests {
             let snapshot = try await CodexTranscriptRenderProjector().project(
                 presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
                 availableWidth: 860,
-                theme: .init(.officialDark)
+                theme: .init(.officialDark, colorScheme: .dark)
             )
             let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
             let cell = CodexTranscriptCollectionItem()
             _ = cell.view
             cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
             cell.configure(
-                item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+                item: header, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
                 contentHorizontalOffset: 0, productToolRenderer: nil,
                 performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
                 forkChat: nil, selectionChanged: { _, _ in }
@@ -846,14 +848,14 @@ struct CodexTranscriptAppKitIntegrationTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
         cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: header.measuredHeight)
         cell.configure(
-            item: header, appKitTheme: .init(.officialDark), swiftUITheme: .officialDark,
+            item: header, appKitTheme: .init(.officialDark, colorScheme: .dark), swiftUITheme: .officialDark,
             contentHorizontalOffset: 0, productToolRenderer: nil,
             performAction: { _ in }, copy: { _ in }, editUserMessage: { _ in },
             forkChat: nil, selectionChanged: { _, _ in }
@@ -869,7 +871,7 @@ struct CodexTranscriptAppKitIntegrationTests {
 
     @Test func workHeaderStopsShimmeringOnCompletionAndRestartsOnReuse() async throws {
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
 
@@ -906,7 +908,7 @@ struct CodexTranscriptAppKitIntegrationTests {
 
     @Test func codeBlockUsesHeaderBandAndCopyConfirmation() async throws {
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let presentation = CodexThreadUIPresentation(
             threadID: "thread",
             transcript: .init(turns: [.init(
@@ -953,7 +955,7 @@ struct CodexTranscriptAppKitIntegrationTests {
 
     @Test func userBubbleIsRightAlignedWithinCenteredTranscriptColumn() async throws {
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let presentation = CodexThreadUIPresentation(
             threadID: "thread",
             transcript: .init(turns: [.init(
@@ -1016,6 +1018,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 0,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: CodexNoopClipboardService(),
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -1067,6 +1070,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: CodexNoopClipboardService(),
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -1106,6 +1110,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 bottomContentInset: 170,
                 contentHorizontalOffset: 0,
                 swiftUITheme: .officialDark,
+                colorScheme: .dark,
                 clipboardService: CodexNoopClipboardService(),
                 productToolRenderer: nil,
                 onOpenSubagent: { _ in },
@@ -1134,6 +1139,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 190,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: clipboard,
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -1159,6 +1165,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 190,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: clipboard,
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -1193,7 +1200,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             )]),
             presentedAtByTurnID: ["turn": Date(timeIntervalSince1970: 100)]
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
         let finalID = try #require(snapshot.orderedItemIDs.first { $0.rawValue.contains(":final:final:selection-surface:") })
         var item = try #require(snapshot.itemsByID[finalID])
@@ -1271,7 +1278,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             transcript: .init(turns: [completed, streaming]),
             presentedAtByTurnID: ["completed": .distantPast, "streaming": .distantPast]
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let liveSnapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
 
         let olderTextItems = liveSnapshot.itemsByID.values.filter {
@@ -1325,7 +1332,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             )]),
             presentedAtByTurnID: ["turn": Date(timeIntervalSince1970: 100)]
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
         let footerID = try #require(snapshot.orderedItemIDs.first { $0.rawValue.hasSuffix(":final-timestamp") })
         let footer = try #require(snapshot.itemsByID[footerID])
@@ -1378,7 +1385,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 status: .done(durationMs: 10)
             )])
         )
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
         let answerItems = snapshot.itemsByID.values.filter {
             $0.turnID == "turn" && ($0.textRole == .finalAnswer || $0.code != nil)
@@ -1437,6 +1444,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: clipboard,
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -1466,6 +1474,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: clipboard,
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -1486,6 +1495,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: clipboard,
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -1526,7 +1536,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             status: .done(durationMs: 100)
         )
         let projector = CodexTranscriptRenderProjector()
-        let theme = CodexTranscriptAppKitTheme(.officialDark)
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(
             presentation: .init(
                 threadID: "thread",
@@ -1619,6 +1629,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 bottomContentInset: 190,
                 contentHorizontalOffset: 0,
                 swiftUITheme: .officialDark,
+                colorScheme: .dark,
                 clipboardService: clipboard,
                 productToolRenderer: nil,
                 onOpenSubagent: { _ in },

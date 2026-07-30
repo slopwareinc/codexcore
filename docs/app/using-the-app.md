@@ -59,6 +59,12 @@ The composer supports:
 - slash commands;
 - queued follow-ups, explicit steering, and turn interruption.
 
+Type `/` after existing text or in an empty composer to open the command
+palette. Model, reasoning, speed, Goal, Plan, MCP, Status, and Side commands
+preserve any text already in the composer. Compact and Fork are offered only
+for an existing idle task with no other composer text. Skill commands attach
+the skill without replacing an existing prompt.
+
 While a turn is running, each send adds another follow-up card above the composer. Choose **Steer** to inject that exact message into the active turn, edit or remove it from the card, or leave the FIFO queue alone. A steered message becomes a new user bubble inside the active turn; it never edits or replaces the turn's original prompt. CodexCore starts exactly one queued message when the current turn completes; any remaining messages wait for each new turn to complete in order.
 
 Steer actions are serialized. If the active turn ends at the same moment you choose **Steer**, the app starts the message as the next turn immediately; it does not leave the message stuck waiting for another completion event.

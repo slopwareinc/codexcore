@@ -63,9 +63,11 @@ public enum CodexComposerSlashCommandHostAction: Equatable, Sendable {
     case cycleReasoning
     case openModelSelector
     case openReasoningSelector
-    case showCurrentStatus
     case forkCurrentChat
     case compactCurrentChat
+    case enableGoalPursuit
+    case enablePlanMode
+    case presentStatus
     case presentMCPStatus
     case refreshMCPServers
 }
@@ -393,7 +395,9 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     }
 
     public mutating func attachSkill(_ command: CodexSlashCommand) {
-        draft = command.draftText ?? ""
+        if trimmedDraft.isEmpty, let draftText = command.draftText {
+            draft = draftText
+        }
         guard let skillName = command.skillName, let skillPath = command.skillPath else { return }
         if !attachedSkills.contains(where: { $0.skillName == skillName && $0.skillPath == skillPath }) {
             attachedSkills.append(command)
@@ -408,38 +412,32 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
         switch command.id {
         case "side":
-            clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.openSideChat])
         case "fast":
-            clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.applyFastMode])
         case "reasoning":
-            clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.openReasoningSelector])
         case "model":
-            clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.openModelSelector])
         case "status":
-            clearDraft()
-            return CodexComposerSlashCommandRoute(hostActions: [.showCurrentStatus])
+            return CodexComposerSlashCommandRoute(hostActions: [.presentStatus])
         case "fork":
-            clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.forkCurrentChat])
         case "compact":
-            clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.compactCurrentChat])
+        case "goal":
+            return CodexComposerSlashCommandRoute(hostActions: [.enableGoalPursuit])
+        case "plan":
+            return CodexComposerSlashCommandRoute(hostActions: [.enablePlanMode])
         case "mcp":
-            clearDraft()
             return CodexComposerSlashCommandRoute(hostActions: [.refreshMCPServers])
-        case "pet":
-            clearDraft()
-            return route(activityTitle: "Pet", detail: "Pet controls are not available in this example yet")
         default:
             if let draftText = command.draftText {
-                draft = draftText
+                if trimmedDraft.isEmpty {
+                    draft = draftText
+                }
                 return route(activityTitle: "Slash command", detail: "Prepared \(command.title)")
             }
-            clearDraft()
             return route(activityTitle: "Slash command", detail: command.title)
         }
     }

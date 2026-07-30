@@ -786,9 +786,10 @@ struct CodexCanonicalTranscriptProjectorTests {
         }
         items.append(item(threadID, turnID, "wait", .collabAgentToolCall, [
             "tool": .string("wait"),
+            "status": .string("completed"),
             "receiverThreadIds": .array(agentIDs.map(CodexJSONValue.string)),
             "agentsStates": .dictionary(Dictionary(uniqueKeysWithValues: agentIDs.map {
-                ($0, .dictionary(["status": .string("completed")]))
+                ($0, .dictionary(["status": .string("running")]))
             })),
         ]))
         let snapshot = state(
@@ -797,6 +798,7 @@ struct CodexCanonicalTranscriptProjectorTests {
             turns: [turn(
                 turnID,
                 threadID: threadID,
+                status: .inProgress,
                 itemIDs: items.map(\.key.itemID),
                 revision: 8
             )],
@@ -817,8 +819,103 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(agents.count == 5)
         #expect(Set(agents.map(\.id)).count == 5)
         #expect(Set(agents.flatMap(\.agentThreadIDs)) == Set(agentIDs))
-        #expect(agents.allSatisfy { $0.action == .waited && $0.status == .completed })
+        #expect(agents.allSatisfy {
+            $0.action == .started
+                && $0.status == .completed
+                && $0.displayStatus == .done
+        })
         #expect(Set(agents.flatMap(\.agentNames)) == Set(names))
+    }
+
+    @Test func receiverlessTerminalWaitReconcilesAgentsWithoutRenderingASecondGroup() throws {
+        let threadID: ThreadID = "parent"
+        let turnID: TurnID = "turn"
+        let agentIDs = ["child-1", "child-2", "child-3"]
+        let names = ["Poincare", "Ampere", "Leibniz"]
+        var items = zip(agentIDs, names).enumerated().map { index, pair in
+            item(threadID, turnID, ItemID("started-\(index)"), .subAgentActivity, [
+                "kind": .string("started"),
+                "agentThreadId": .string(pair.0),
+                "agentPath": .string("/root/\(pair.1.lowercased())"),
+            ])
+        }
+        items.append(item(threadID, turnID, "wait", .collabAgentToolCall, [
+            "tool": .string("wait"),
+            "status": .string("completed"),
+            "receiverThreadIds": .array([]),
+            "agentsStates": .dictionary([:]),
+        ]))
+        let snapshot = state(
+            revision: 8,
+            threadID: threadID,
+            turns: [turn(
+                turnID,
+                threadID: threadID,
+                itemIDs: items.map(\.key.itemID),
+                revision: 8
+            )],
+            items: items
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(
+                snapshot: snapshot,
+                threadID: threadID
+            ).presentation.transcript.turns.first
+        )
+        let groups = projected.narrative.compactMap(\.workGroup)
+        let agents = groups.flatMap(\.rows).compactMap { row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let agent) = row else { return nil }
+            return agent
+        }
+
+        #expect(groups.count == 1)
+        #expect(agents.count == 3)
+        #expect(Set(agents.flatMap(\.agentThreadIDs)) == Set(agentIDs))
+        #expect(Set(agents.flatMap(\.agentNames)) == Set(names))
+        #expect(agents.allSatisfy {
+            $0.action == .started
+                && $0.status == .completed
+                && $0.displayStatus == .done
+        })
+    }
+
+    @Test func completedV2ActivitySignalStaysWorkingWhileParentTurnIsLive() throws {
+        let threadID: ThreadID = "parent"
+        let turnID: TurnID = "turn"
+        let activity = item(threadID, turnID, "started", .subAgentActivity, [
+            "kind": .string("started"),
+            "agentThreadId": .string("child"),
+            "agentPath": .string("/root/curie"),
+        ])
+        let snapshot = state(
+            revision: 8,
+            threadID: threadID,
+            turns: [turn(
+                turnID,
+                threadID: threadID,
+                status: .inProgress,
+                itemIDs: [activity.key.itemID],
+                revision: 8
+            )],
+            items: [activity]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(
+                snapshot: snapshot,
+                threadID: threadID
+            ).presentation.transcript.turns.first
+        )
+        let agent = try #require(projected.narrative.flatMap(\.workRows).compactMap {
+            row -> CodexCollabAgentRowV2? in
+            guard case .collabAgent(let agent) = row else { return nil }
+            return agent
+        }.first)
+
+        #expect(agent.action == .started)
+        #expect(agent.status == .inProgress)
+        #expect(agent.displayStatus == .working)
     }
 
     @Test func staleCanonicalRevisionCannotRegressPresentation() throws {
@@ -883,13 +980,14 @@ private extension CodexCanonicalTranscriptProjectorTests {
     func turn(
         _ id: TurnID,
         threadID: ThreadID,
+        status: CanonicalTurnStatus = .completed,
         itemIDs: [ItemID] = [],
         extensions: [String: CodexJSONValue] = [:],
         revision: UInt64
     ) -> CanonicalTurn {
         .init(
             key: .init(threadID: threadID, turnID: id),
-            status: .completed,
+            status: status,
             duration: DurationMilliseconds(20),
             itemOrder: itemIDs,
             itemsCoverage: .full,

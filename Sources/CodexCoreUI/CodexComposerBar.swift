@@ -255,7 +255,7 @@ public struct CodexComposerBar: View {
                 }
             }
             .padding(isCompact ? 6 : 10)
-            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
+            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
             .codexFileDropTarget(
                 isTargeted: $isFileDropTargeted,
                 isEnabled: onFilesDropped != nil,
@@ -266,12 +266,6 @@ public struct CodexComposerBar: View {
             reconcilePaletteSelections()
         }
         .onChange(of: draft) { _, _ in
-            if activeCommandSelector != nil, !draft.isEmpty {
-                activeCommandSelector = nil
-            }
-            if isMCPStatusPalettePresented, !draft.isEmpty {
-                isMCPStatusPalettePresented = false
-            }
             isSlashPaletteDismissed = false
             reconcilePaletteSelections()
         }
@@ -489,8 +483,14 @@ public struct CodexComposerBar: View {
     }
 
     private func selectSlashCommand(_ command: CodexSlashCommand) {
+        guard command.isEnabled,
+              let invocation = CodexSlashCommand.invocation(from: draft),
+              !command.requiresEmptyComposer || !invocation.hasOtherContent else {
+            return
+        }
         slashPaletteSelection.clear()
         isSlashPaletteDismissed = false
+        draft = invocation.replacementDraft
 
         switch command.id {
         case "model":
@@ -502,20 +502,17 @@ public struct CodexComposerBar: View {
         default:
             activeCommandSelector = nil
             isMCPStatusPalettePresented = false
-            draft = command.draftText ?? ""
             onSlashCommandSelected?(command)
         }
     }
 
     private func openCommandSelector(_ selector: CodexComposerCommandSelector) {
-        draft = ""
         isMCPStatusPalettePresented = false
         activeCommandSelector = selector
         commandSelectorSelection.reconcile(availableIDs: selectorRows(for: selector).filter(\.isEnabled).map(\.id))
     }
 
     private func openMCPStatusPalette(_ command: CodexSlashCommand) {
-        draft = ""
         activeCommandSelector = nil
         isMCPStatusPalettePresented = true
         onSlashCommandSelected?(command)
@@ -1052,7 +1049,7 @@ private struct CodexMentionPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 280, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 }
 
@@ -1127,7 +1124,7 @@ private struct CodexSlashCommandPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private var sectionNames: [String] {
@@ -1214,7 +1211,7 @@ private struct CodexComposerMCPStatusPalette: View {
             }
         }
         .frame(maxWidth: 736, alignment: .leading)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private func serverRow(_ row: CodexMCPStatusPanelServerRow) -> some View {
@@ -1329,7 +1326,7 @@ private struct CodexComposerInlineSelectorPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private var sectionNames: [String] {
@@ -1429,7 +1426,7 @@ struct CodexQueuedFollowUpStack: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 

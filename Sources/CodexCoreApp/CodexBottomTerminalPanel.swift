@@ -18,7 +18,7 @@ struct CodexBottomTerminalPanel: View {
         }
         .frame(height: model.bottomTerminalHeight)
         .frame(maxWidth: .infinity)
-        .background(theme.colors.surfaceSunken.opacity(0.88))
+        .background(theme.colors.surface.opacity(theme.effects.surfaceOpacity))
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(theme.colors.border)
@@ -56,11 +56,11 @@ struct CodexBottomTerminalPanel: View {
     private var panelToolbar: some View {
         HStack(spacing: 10) {
             Label("Terminal", systemImage: "terminal.fill")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.textPrimary)
 
             Text(model.bottomTerminalStatus)
-                .font(.system(size: 11))
+                .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textTertiary)
                 .lineLimit(1)
 
@@ -73,7 +73,7 @@ struct CodexBottomTerminalPanel: View {
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(.plain)
-            .font(.system(size: 11.5, weight: .medium))
+            .font(theme.fonts.chipLabel)
             .foregroundStyle(theme.colors.accent)
             .disabled(model.isBottomTerminalRunning)
 
@@ -84,7 +84,7 @@ struct CodexBottomTerminalPanel: View {
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(.plain)
-            .font(.system(size: 11.5, weight: .medium))
+            .font(theme.fonts.chipLabel)
             .foregroundStyle(theme.colors.textSecondary)
             .help("Clear output")
         }
@@ -95,7 +95,7 @@ struct CodexBottomTerminalPanel: View {
     private var outputView: some View {
         ScrollView {
             Text(terminalText)
-                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                .font(theme.fonts.code)
                 .foregroundStyle(theme.colors.textPrimary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

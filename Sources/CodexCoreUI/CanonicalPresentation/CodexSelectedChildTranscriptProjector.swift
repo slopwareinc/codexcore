@@ -40,6 +40,7 @@ extension CodexCanonicalTranscriptProjector {
         snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
         previous: CodexCanonicalTranscriptPresentation?,
+        excludingTurnIDs excludedTurnIDs: Set<TurnID> = [],
         displayCostLimit: Int
     ) throws -> CodexSelectedChildProjectionOutput {
         try Task.checkCancellation()
@@ -61,6 +62,7 @@ extension CodexCanonicalTranscriptProjector {
             snapshot: snapshot,
             threadID: threadID,
             previous: previous,
+            excludedTurnIDs: excludedTurnIDs,
             selectedTurnCostRecording: costRecording,
             checkpoint: { try Task.checkCancellation() }
         )

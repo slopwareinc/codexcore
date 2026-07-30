@@ -7,6 +7,7 @@ struct CodexCoreAppShell: View {
     @Bindable var model: CodexCoreAppModel
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
+    @State private var isStatusSheetPresented = false
     @State private var renameDraft = ""
     @State private var projectEditTarget: CodexProjectSummary?
     @State private var projectNameDraft = ""
@@ -47,7 +48,11 @@ struct CodexCoreAppShell: View {
                             snapshot: expandedSnapshot(from: sidebarSnapshot),
                             width: sidebarWidth
                         )
-                        .shadow(color: .black.opacity(0.34), radius: 24, x: 8, y: 0)
+                        .shadow(
+                            color: model.theme.effects.shadow.color(for: model.theme),
+                            radius: model.theme.effects.shadow.radius,
+                            x: 8
+                        )
                         .onHover { isInside in
                             if isInside {
                                 sidebarOverlaySession.pointerEnteredRevealRegion()
@@ -201,6 +206,13 @@ struct CodexCoreAppShell: View {
             )
             .codexAgentTheme(model.theme)
         }
+        .sheet(isPresented: $isStatusSheetPresented) {
+            CodexStatusSheet(
+                model: model.statusPanelModel,
+                onClose: { isStatusSheetPresented = false }
+            )
+            .codexAgentTheme(model.theme)
+        }
     }
 
     @ViewBuilder
@@ -327,8 +339,6 @@ struct CodexCoreAppShell: View {
                 ),
                 accountSummary: model.accountMenuSummary,
                 appearanceSettings: $model.appearanceSettings,
-                sidebarFontSize: $model.sidebarFontSize,
-                sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange,
                 approvalSelection: $model.approvalSelection,
                 approvalOptions: model.approvalOptions,
                 modelSelection: $model.modelSelection,
@@ -457,9 +467,11 @@ struct CodexCoreAppShell: View {
                 onToggleSidebar: collapsePinnedSidebar,
                 onDisconnect: { Task { await model.disconnect() } },
                 onSlashCommandSelected: { command in
-                    model.handleSlashCommand(command) {
-                        isMCPStatusSheetPresented = true
-                    }
+                    model.handleSlashCommand(
+                        command,
+                        presentStatus: { isStatusSheetPresented = true },
+                        presentMCPStatus: { isMCPStatusSheetPresented = true }
+                    )
                 },
                 approvalPrompts: model.approvalPrompts,
                 onResolveApproval: { id, approved in
@@ -560,7 +572,7 @@ private struct RenameChatSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(theme.fonts.sheetTitle)
                 .foregroundStyle(theme.colors.textPrimary)
 
             TextField(placeholder, text: $name)
@@ -584,9 +596,8 @@ private struct RenameChatSheet: View {
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(20)
+        .padding(theme.spacing.sheetPadding)
         .frame(width: 360)
-        .background(theme.colors.surface)
         .onAppear { isFocused = true }
     }
 }
@@ -602,15 +613,15 @@ private struct EditProjectSheet: View {
     let onSave: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: theme.spacing.sectionGap) {
             HStack {
                 Text("Edit project")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(theme.fonts.routeTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer()
                 Button(action: onCancel) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(theme.fonts.chat)
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
@@ -624,22 +635,22 @@ private struct EditProjectSheet: View {
                 Divider()
                 TextField("Project name", text: $name)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 17))
+                    .font(theme.fonts.chat)
                     .padding(.horizontal, 14)
             }
-            .frame(height: 48)
+            .frame(height: 34)
             .background(
                 theme.colors.surfaceElevated.opacity(0.55),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                     .stroke(theme.colors.border, lineWidth: 1)
             )
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(sourceFolders.count == 1 ? "Source folder" : "Source folders")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
 
                 VStack(spacing: 0) {
@@ -654,20 +665,20 @@ private struct EditProjectSheet: View {
                     }
                     Button(action: onAddFolders) {
                         Label("Add folder", systemImage: "folder.badge.plus")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(theme.fonts.chat)
                             .foregroundStyle(theme.colors.textPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 14)
-                            .frame(height: 50)
+                            .frame(height: 34)
                     }
                     .buttonStyle(.plain)
                 }
                 .background(
                     theme.colors.surfaceElevated.opacity(0.30),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                         .stroke(theme.colors.border.opacity(0.8), lineWidth: 1)
                 )
             }
@@ -691,9 +702,8 @@ private struct EditProjectSheet: View {
                     )
             }
         }
-        .padding(24)
+        .padding(theme.spacing.sheetPadding)
         .frame(width: 560)
-        .background(theme.colors.surface)
     }
 
     private func sourceFolderRow(path: String, index: Int) -> some View {
@@ -702,7 +712,7 @@ private struct EditProjectSheet: View {
                 .foregroundStyle(theme.colors.textSecondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(URL(fileURLWithPath: path).lastPathComponent)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
                 Text(CodexPathFormatter.abbreviatingHome(path))

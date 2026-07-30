@@ -41,26 +41,21 @@ public struct CodexCommandPaletteOverlay: View {
     }
 
     public var body: some View {
-        ZStack {
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
-
-            palette
-                .padding(.top, 72)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .onAppear { isFocused = true }
-        .onDisappear {
-            searchTask?.cancel()
-            onClearSearchResults()
-        }
-        .onExitCommand(perform: onClose)
-        #if canImport(AppKit)
-        .background(CommandPaletteEscapeMonitor(onEscape: onClose))
-        #endif
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Command menu")
+        palette
+            .padding(.top, 72)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .codexScrim(onTap: onClose)
+            .onAppear { isFocused = true }
+            .onDisappear {
+                searchTask?.cancel()
+                onClearSearchResults()
+            }
+            .onExitCommand(perform: onClose)
+            #if canImport(AppKit)
+            .background(CommandPaletteEscapeMonitor(onEscape: onClose))
+            #endif
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Command menu")
     }
 
     private var palette: some View {
@@ -71,19 +66,17 @@ public struct CodexCommandPaletteOverlay: View {
         }
         .padding(14)
         .frame(width: 620, height: 540, alignment: .top)
-        .background(theme.colors.surface.opacity(0.98), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
         )
-        .shadow(color: .black.opacity(0.32), radius: 28, x: 0, y: 18)
     }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Command menu")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(theme.fonts.sheetTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                 Text("Search commands and past chats.")
                     .font(theme.fonts.caption)
@@ -92,7 +85,7 @@ public struct CodexCommandPaletteOverlay: View {
             Spacer(minLength: 8)
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(theme.fonts.micro)
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 28, height: 28)
             }
@@ -105,7 +98,7 @@ public struct CodexCommandPaletteOverlay: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 13, weight: .medium))
+                .font(theme.fonts.caption.weight(.medium))
                 .foregroundStyle(theme.colors.textTertiary)
             TextField("Search chats or run a command", text: $query)
                 .textFieldStyle(.plain)
@@ -184,44 +177,7 @@ public struct CodexCommandPaletteOverlay: View {
     }
 
     private func rowButton(_ row: CodexCommandPaletteRow) -> some View {
-        Button {
-            select(row)
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: row.systemImage)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: 18, height: 20)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(row.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(theme.colors.textPrimary)
-                        .lineLimit(1)
-                    Text(row.detail)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .lineLimit(2)
-                }
-
-                Spacer(minLength: 8)
-
-                if let shortcut = row.shortcutBadge {
-                    Text(shortcut)
-                        .font(theme.fonts.micro.weight(.semibold))
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .contentShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .background(theme.colors.surfaceElevated.opacity(0.34), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        .accessibilityLabel(row.accessibilityLabel)
+        PaletteRowButton(row: row, select: select)
     }
 
     private func emptyCategoryRow(_ title: String) -> some View {
@@ -231,7 +187,10 @@ public struct CodexCommandPaletteOverlay: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.colors.surfaceElevated.opacity(0.18), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .background(
+                theme.colors.hover.opacity(theme.effects.hoverOpacity * 0.5),
+                in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+            )
     }
 
     private func statusRow(_ title: String, isError: Bool) -> some View {
@@ -263,6 +222,66 @@ public struct CodexCommandPaletteOverlay: View {
     private func isErrorStatus(_ status: CodexCommandPaletteStatus) -> Bool {
         if case .error = status { return true }
         return false
+    }
+}
+
+/// A palette row. Split out so each row owns its own hover state — a command
+/// palette whose rows do not respond to the pointer reads as a static list.
+private struct PaletteRowButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let row: CodexCommandPaletteRow
+    let select: (CodexCommandPaletteRow) -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            select(row)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: row.systemImage)
+                    .font(theme.fonts.chipLabel)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .frame(width: 18, height: 20)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.title)
+                        .font(theme.fonts.label)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .lineLimit(1)
+                    Text(row.detail)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 8)
+
+                if let shortcut = row.shortcutBadge {
+                    Text(shortcut)
+                        .font(theme.fonts.micro.weight(.semibold))
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(theme.colors.surfaceSunken.opacity(theme.effects.glassOpacity), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .contentShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(
+            theme.colors.hover.opacity(isHovered ? theme.effects.hoverOpacity : 0),
+            in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+        )
+        .onHover { isHovered = $0 }
+        .animation(
+            .easeOut(duration: theme.animations.snappyDuration),
+            value: isHovered
+        )
+        .accessibilityLabel(row.accessibilityLabel)
     }
 }
 

@@ -33,20 +33,11 @@ final class CodexCoreAppModel {
             CodexNewThreadHistoryModeStorage.save(newThreadHistoryMode, to: preferenceStore)
         }
     }
-    var sidebarFontSize: Double = CodexSidebarFontSizeStorage.defaultFontSize {
-        didSet {
-            let clamped = CodexSidebarFontSizeStorage.clamped(sidebarFontSize)
-            if sidebarFontSize != clamped {
-                sidebarFontSize = clamped
-                return
-            }
-            CodexSidebarFontSizeStorage.saveSidebarFontSize(clamped, to: preferenceStore)
-        }
-    }
+    // The sidebar has no font-size or font-family setting of its own; it
+    // mirrors the app-wide `appearanceSettings.uiFontSize` / `textFontFamily`
+    // exactly, threaded through `agentTheme(uiFontSize:reduceMotion:)`.
     var theme: CodexAgentTheme {
-        var theme = appearanceSettings.agentTheme(uiFontSize: appearanceSettings.uiFontSize, reduceMotion: appearanceSettings.reduceMotion)
-        theme.fonts.sidebar = .official(baseTextSize: sidebarFontSize)
-        return theme
+        appearanceSettings.agentTheme(uiFontSize: appearanceSettings.uiFontSize, reduceMotion: appearanceSettings.reduceMotion)
     }
     private(set) var gitBranch: String?
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
@@ -131,7 +122,6 @@ final class CodexCoreAppModel {
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
-        self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         self.unreadState = CodexThreadUnreadState(
             unreadThreadIDs: CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)
@@ -2409,19 +2399,28 @@ final class CodexCoreAppModel {
         clipboardService.copy(text)
     }
 
-    func handleSlashCommand(_ command: CodexSlashCommand, presentMCPStatus: (() -> Void)? = nil) {
+    func handleSlashCommand(
+        _ command: CodexSlashCommand,
+        presentStatus: (() -> Void)? = nil,
+        presentMCPStatus: (() -> Void)? = nil
+    ) {
         syncComposerThreadID()
         let route = composerSession.routeSlashCommand(command)
         for activity in route.activities {
             appendActivity(activity)
         }
         for action in route.hostActions {
-            applySlashCommandHostAction(action, presentMCPStatus: presentMCPStatus)
+            applySlashCommandHostAction(
+                action,
+                presentStatus: presentStatus,
+                presentMCPStatus: presentMCPStatus
+            )
         }
     }
 
     private func applySlashCommandHostAction(
         _ action: CodexComposerSlashCommandHostAction,
+        presentStatus: (() -> Void)?,
         presentMCPStatus: (() -> Void)?
     ) {
         switch action {
@@ -2435,12 +2434,16 @@ final class CodexCoreAppModel {
             appendActivity(.notice, title: "Model", detail: "Use the composer model selector")
         case .openReasoningSelector:
             appendActivity(.notice, title: "Reasoning", detail: "Use the composer reasoning selector")
-        case .showCurrentStatus:
-            appendActivity(.notice, title: "Status", detail: connectionState.label)
         case .forkCurrentChat:
             Task { await forkCurrentChat() }
         case .compactCurrentChat:
             Task { await compactCurrentChat() }
+        case .enableGoalPursuit:
+            setGoalPursuitEnabled(true)
+        case .enablePlanMode:
+            configurationSession.setPlanModeEnabled(true)
+        case .presentStatus:
+            presentStatus?()
         case .presentMCPStatus:
             presentMCPStatus?()
         case .refreshMCPServers:
@@ -2514,6 +2517,13 @@ final class CodexCoreAppModel {
             tokenUsageSummary: currentTokenUsageSummary,
             rateLimitSummary: accountRateLimitsSnapshot.map(CodexRateLimitPresentation.summary),
             gitBranch: gitBranch
+        )
+    }
+
+    var statusPanelModel: CodexStatusPanelModel {
+        CodexStatusPanelModel(
+            context: statusSummaryContext,
+            rateLimits: accountRateLimitsSnapshot
         )
     }
 

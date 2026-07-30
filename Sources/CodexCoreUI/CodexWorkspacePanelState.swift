@@ -17,6 +17,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
     @Published public var isAgentPanelOpen: Bool = false
     @Published public var selectedTabID: String?
     @Published public var panelWidth: CGFloat
+    @Published private(set) var openSubagentTabID: String?
 
     private var nextTerminalNumber = 1
     private var nextBrowserNumber = 1
@@ -28,6 +29,35 @@ public final class CodexWorkspacePanelState: ObservableObject {
     public var hasOpenTools: Bool {
         !terminalSessions.isEmpty || !browserSessions.isEmpty || filesSession != nil
             || !filePreviewSessions.isEmpty
+    }
+
+    func agentTabs(
+        sideChat: CodexSideChatState? = nil,
+        subagents: [CodexSubagentState],
+        gitReviewSession: CodexGitReviewSession? = nil
+    ) -> [CodexAgentPanelTab] {
+        var tabs: [CodexAgentPanelTab] = []
+        if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
+        if let sideChat { tabs.append(.sideChat(sideChat)) }
+        if let openSubagentTabID,
+           let subagent = subagents.first(where: { $0.id == openSubagentTabID })
+        {
+            tabs.append(.subagent(subagent))
+        }
+        return tabs
+    }
+
+    func openSubagent(id: String) {
+        openSubagentTabID = id
+        selectedTabID = id
+    }
+
+    func closeSubagent(id: String, fallbackTabIDs: [String]) {
+        guard openSubagentTabID == id else { return }
+        openSubagentTabID = nil
+        if selectedTabID == id {
+            selectedTabID = firstAvailableTabID(fallbackTabIDs.filter { $0 != id })
+        }
     }
 
     // MARK: - Tool lifecycle
@@ -121,6 +151,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
         terminalSessions.removeAll()
         filesSession = nil
         filePreviewSessions.removeAll()
+        openSubagentTabID = nil
         selectedTabID = nil
         isAgentPanelOpen = false
     }

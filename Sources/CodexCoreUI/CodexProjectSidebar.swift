@@ -5,7 +5,6 @@ import AppKit
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
-    @Environment(\.controlActiveState) private var controlActiveState
     @State private var showsOlderProjects = false
     @State private var isPinnedSectionExpanded = true
     @State private var isChatsSectionExpanded = true
@@ -114,15 +113,9 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
-        .background {
-            ZStack {
-                Rectangle().fill(.regularMaterial)
-                Rectangle().fill(
-                    theme.colors.surface.opacity(controlActiveState == .inactive ? 0.34 : 0.22)
-                )
-            }
-        }
-        .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.18))
+        // Glass samples what is behind the window, so nothing may be layered
+        // underneath it: an opaque material stack here would be all it sees.
+        .codexGlass(Rectangle(), role: .chrome)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.colors.border.opacity(0.45))
@@ -519,10 +512,10 @@ private struct SidebarCommandRow: View {
 
     private var rowFill: Color {
         if isSelected {
-            return theme.colors.surfaceElevated.opacity(0.50)
+            return theme.colors.selection.opacity(theme.effects.selectionOpacity)
         }
         if isHovered {
-            return theme.colors.surfaceElevated.opacity(0.22)
+            return theme.colors.hover.opacity(theme.effects.hoverOpacity)
         }
         return .clear
     }
@@ -582,7 +575,7 @@ private struct SidebarAttentionIndicator: View {
                     .accessibilityLabel("Running")
             case .failed:
                 Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(theme.fonts.caption.weight(.medium))
                     .foregroundStyle(theme.colors.danger)
                     .accessibilityLabel("Failed")
             }
@@ -761,7 +754,7 @@ private struct ProjectSidebarGroupView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 24, height: 24)
                     .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -776,7 +769,7 @@ private struct ProjectSidebarGroupView: View {
                     onStartProjectChat(group.project.workspacePath)
                 } label: {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(theme.fonts.chipLabel)
                         .foregroundStyle(theme.colors.textSecondary)
                         .frame(width: 24, height: 24)
                         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -797,7 +790,7 @@ private struct ProjectSidebarGroupView: View {
         } else if group.isSelected && !hasSelectedThread {
             SidebarSelectionBackground()
         } else if isHovered {
-            shape.fill(theme.colors.surfaceElevated.opacity(0.18))
+            shape.fill(theme.colors.hover.opacity(theme.effects.hoverOpacity))
         }
     }
 }
@@ -828,6 +821,8 @@ private struct SidebarChatRow: View {
 }
 
 private struct SidebarChatRowHost: NSViewRepresentable {
+    @Environment(\.controlActiveState) private var controlActiveState
+
     let row: CodexSidebarThreadRow
     let indentation: CGFloat
     let showsRecency: Bool
@@ -847,9 +842,6 @@ private struct SidebarChatRowHost: NSViewRepresentable {
     }
 
     private func update(_ container: SidebarChatRowContainerView) {
-        let base = NSColor(theme.colors.canvas)
-        let elevated = NSColor(theme.colors.surfaceElevated)
-        let hovered = base.blended(withFraction: 0.22, of: elevated) ?? elevated
         container.configure(
             content: AnyView(
                 SidebarChatRowContent(
@@ -871,8 +863,18 @@ private struct SidebarChatRowHost: NSViewRepresentable {
                 .codexAgentTheme(theme)
                 .accessibilityHidden(true)
             ),
-            baseColor: base,
-            hoverColor: hovered
+            // Chrome colors are handed over as SwiftUI Colors, not pre-resolved
+            // NSColors: they are theme-adaptive, and resolving them here —
+            // inside SwiftUI's updateNSView, not a draw pass — would freeze
+            // them against whatever appearance happened to be
+            // current, which is not necessarily this window's. The container
+            // resolves them itself, against its own live effectiveAppearance,
+            // every time it actually needs to paint. See CodexAppKitColor.
+            hoverColor: theme.colors.hover.opacity(theme.effects.hoverOpacity),
+            selectionColor: theme.colors.textPrimary.opacity(
+                controlActiveState == .key ? 0.055 : 0.03
+            ),
+            isSelected: row.isSelected
         )
     }
 }
@@ -903,11 +905,7 @@ private struct SidebarChatRowContent: View {
         .padding(.leading, 6 + indentation)
         .padding(.trailing, 8)
         .frame(height: theme.fonts.sidebar.chatRowHeight)
-        .background {
-            if row.isSelected {
-                SidebarSelectionBackground()
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
@@ -1044,12 +1042,16 @@ private struct SidebarChatRowActions: View {
 @MainActor
 final class SidebarChatRowContainerView: NSView {
     private let contentHost = NSHostingView(rootView: AnyView(EmptyView()))
-    private let actionBackdrop = NSView()
     private let actionsHost = NSHostingView(rootView: AnyView(EmptyView()))
     private var trackingAreaReference: NSTrackingArea?
     private var isHovered = false
-    private var baseColor = NSColor.clear
-    private var hoverColor = NSColor.clear
+    // Held as SwiftUI Colors and resolved to NSColor lazily in updateChrome(),
+    // against this view's own live effectiveAppearance. Pre-resolving in
+    // configure() is what caused the wrong-appearance freeze; see
+    // SidebarChatRowHost.update(_:) and CodexAppKitColor.
+    private var hoverColor: Color = .clear
+    private var selectionColor: Color = .clear
+    private var isSelected = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1057,11 +1059,8 @@ final class SidebarChatRowContainerView: NSView {
         layer?.cornerRadius = 10
         layer?.masksToBounds = true
         contentHost.setAccessibilityElement(false)
-        actionBackdrop.wantsLayer = true
-        actionBackdrop.isHidden = true
         actionsHost.isHidden = true
         addSubview(contentHost)
-        addSubview(actionBackdrop)
         addSubview(actionsHost)
     }
 
@@ -1073,28 +1072,34 @@ final class SidebarChatRowContainerView: NSView {
     func configure(
         content: AnyView,
         actions: AnyView,
-        baseColor: NSColor,
-        hoverColor: NSColor
+        hoverColor: Color,
+        selectionColor: Color,
+        isSelected: Bool
     ) {
         contentHost.rootView = content
         actionsHost.rootView = actions
-        self.baseColor = baseColor
         self.hoverColor = hoverColor
+        self.selectionColor = selectionColor
+        self.isSelected = isSelected
         updateChrome()
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
-        contentHost.frame = bounds
         let actionsWidth = min(60, bounds.width)
+        contentHost.frame = NSRect(
+            x: bounds.minX,
+            y: bounds.minY,
+            width: max(0, bounds.width - (isHovered ? actionsWidth : 0)),
+            height: bounds.height
+        )
         let actionsFrame = NSRect(
             x: bounds.maxX - actionsWidth,
             y: bounds.minY,
             width: actionsWidth,
             height: bounds.height
         )
-        actionBackdrop.frame = actionsFrame
         actionsHost.frame = actionsFrame
     }
 
@@ -1112,29 +1117,50 @@ final class SidebarChatRowContainerView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        updateChrome()
+        setHovered(true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        isHovered = false
+        setHovered(false)
+    }
+
+    /// A live appearance flip — system dark/light toggle, or this window's
+    /// appearance override changing — does not by itself change `isHovered`
+    /// or trigger SwiftUI's `updateNSView`, so nothing else would repaint
+    /// this layer. Repaint explicitly.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
         updateChrome()
     }
 
     var contentHostIdentityForTesting: ObjectIdentifier { ObjectIdentifier(contentHost) }
+    var contentHostWidthForTesting: CGFloat { contentHost.frame.width }
     var actionControlsAreVisibleForTesting: Bool { !actionsHost.isHidden }
-
+    var backgroundColorForTesting: NSColor {
+        NSColor(cgColor: layer?.backgroundColor ?? NSColor.clear.cgColor) ?? .clear
+    }
     func setHoveredForTesting(_ hovered: Bool) {
+        setHovered(hovered)
+    }
+
+    private func setHovered(_ hovered: Bool) {
+        guard isHovered != hovered else { return }
         isHovered = hovered
         updateChrome()
+        needsLayout = true
     }
 
     private func updateChrome() {
         let showsActions = isHovered
-        let background = isHovered ? hoverColor : NSColor.clear
+        let appearance = effectiveAppearance
+        let resolvedHover = appearance.codexResolve(hoverColor)
+        let resolvedSelection = appearance.codexResolve(selectionColor)
+        // These remain translucent semantic tints. The sidebar's live glass
+        // stays underneath instead of being flattened into an opaque surface.
+        let background = isSelected
+            ? resolvedSelection
+            : (isHovered ? resolvedHover : NSColor.clear)
         layer?.backgroundColor = background.cgColor
-        actionBackdrop.layer?.backgroundColor = (isHovered ? hoverColor : baseColor).cgColor
-        actionBackdrop.isHidden = !showsActions
         actionsHost.isHidden = !showsActions
     }
 }

@@ -268,6 +268,8 @@ struct CodexCoreAppRootView: View {
         }
         .codexAgentTheme(model.theme)
         .tint(model.theme.colors.accent)
+        // Themes render in both appearances, so the mode is what pins one.
+        .preferredColorScheme(model.appearanceSettings.appearanceMode.preferredColorScheme)
         .task {
             guard !didStartInitialConnection else { return }
             didStartInitialConnection = true
@@ -295,8 +297,6 @@ private struct CodexSettingsWindowView: View {
             ),
             accountSummary: model.accountMenuSummary,
             appearanceSettings: $model.appearanceSettings,
-            sidebarFontSize: $model.sidebarFontSize,
-            sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange,
             approvalSelection: $model.approvalSelection,
             approvalOptions: model.approvalOptions,
             modelSelection: $model.modelSelection,
@@ -311,5 +311,6 @@ private struct CodexSettingsWindowView: View {
         .frame(minWidth: 700, minHeight: 500, alignment: .topLeading)
         .codexAgentTheme(model.theme)
         .tint(model.theme.colors.accent)
+        .preferredColorScheme(model.appearanceSettings.appearanceMode.preferredColorScheme)
     }
 }

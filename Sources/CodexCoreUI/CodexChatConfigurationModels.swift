@@ -694,6 +694,8 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
     public var draftText: String?
     public var skillName: String?
     public var skillPath: String?
+    public var requiresEmptyComposer: Bool
+    public var isEnabled: Bool
 
     public init(
         id: String,
@@ -704,7 +706,9 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         scopeBadge: String? = nil,
         draftText: String? = nil,
         skillName: String? = nil,
-        skillPath: String? = nil
+        skillPath: String? = nil,
+        requiresEmptyComposer: Bool = false,
+        isEnabled: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -715,21 +719,17 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         self.draftText = draftText
         self.skillName = skillName
         self.skillPath = skillPath
+        self.requiresEmptyComposer = requiresEmptyComposer
+        self.isEnabled = isEnabled
     }
 
     public static let observedCommands: [CodexSlashCommand] = [
         CodexSlashCommand(
-            id: "code-review",
-            title: "Code review",
-            detail: "Review the current changes",
-            systemImage: "doc.text.magnifyingglass",
-            draftText: "Review the current changes."
-        ),
-        CodexSlashCommand(
             id: "compact",
             title: "Compact",
             detail: "Compact the current thread context",
-            systemImage: "rectangle.compress.vertical"
+            systemImage: "rectangle.compress.vertical",
+            requiresEmptyComposer: true
         ),
         CodexSlashCommand(
             id: "fast",
@@ -738,24 +738,17 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             systemImage: "bolt.fill"
         ),
         CodexSlashCommand(
-            id: "feedback",
-            title: "Feedback",
-            detail: "Send feedback about this response",
-            systemImage: "bubble.left.and.bubble.right",
-            draftText: "I have feedback: "
-        ),
-        CodexSlashCommand(
             id: "fork",
             title: "Fork",
-            detail: "Fork the conversation from here",
-            systemImage: "arrow.triangle.branch"
+            detail: "Continue this chat in a new task",
+            systemImage: "arrow.triangle.branch",
+            requiresEmptyComposer: true
         ),
         CodexSlashCommand(
             id: "goal",
             title: "Goal",
             detail: "Pursue a longer-running objective",
-            systemImage: "target",
-            draftText: "Pursue this goal: "
+            systemImage: "target"
         ),
         CodexSlashCommand(
             id: "mcp",
@@ -770,24 +763,10 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             systemImage: "sparkles"
         ),
         CodexSlashCommand(
-            id: "personality",
-            title: "Personality",
-            detail: "Adjust response style",
-            systemImage: "person.crop.circle",
-            draftText: "Adjust response style: "
-        ),
-        CodexSlashCommand(
-            id: "pet",
-            title: "Pet",
-            detail: "Show pet controls",
-            systemImage: "pawprint"
-        ),
-        CodexSlashCommand(
             id: "plan",
             title: "Plan mode",
             detail: "Plan before editing",
-            systemImage: "map",
-            draftText: "Plan before making changes: "
+            systemImage: "map"
         ),
         CodexSlashCommand(
             id: "reasoning",
@@ -804,25 +783,54 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         CodexSlashCommand(
             id: "status",
             title: "Status",
-            detail: "Show current status",
+            detail: "Show chat ID, context usage, and rate limits",
             systemImage: "waveform.path.ecg"
         )
     ]
 
     public static func query(from draft: String) -> String? {
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/") else { return nil }
-        return String(trimmed.dropFirst())
-            .split(whereSeparator: \.isWhitespace)
-            .first
-            .map(String.init) ?? ""
+        invocation(from: draft)?.query
+    }
+
+    public static func invocation(from draft: String) -> CodexSlashCommandInvocation? {
+        guard !draft.isEmpty else { return nil }
+
+        var tokenStart: String.Index?
+        var index = draft.startIndex
+        while index < draft.endIndex {
+            if draft[index] == "/" {
+                let isTokenBoundary = index == draft.startIndex || draft[draft.index(before: index)].isWhitespace
+                if isTokenBoundary {
+                    tokenStart = index
+                }
+            }
+            index = draft.index(after: index)
+        }
+
+        guard let start = tokenStart else { return nil }
+        let queryStart = draft.index(after: start)
+        let end = draft[queryStart...].firstIndex(where: \.isWhitespace) ?? draft.endIndex
+        let query = String(draft[queryStart..<end])
+        let replacementRange = replacementRange(for: start..<end, in: draft)
+        let replacementDraft = String(draft[..<replacementRange.lowerBound] + draft[replacementRange.upperBound...])
+
+        return CodexSlashCommandInvocation(
+            query: query,
+            replacementDraft: replacementDraft,
+            hasOtherContent: !replacementDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
     }
 
     public static func filteredCommands(
         from commands: [CodexSlashCommand] = CodexSlashCommand.observedCommands,
         matching draft: String
     ) -> [CodexSlashCommand] {
-        guard let query = query(from: draft), !query.isEmpty else { return commands }
+        guard let invocation = invocation(from: draft) else { return [] }
+        let commands = commands.filter {
+            $0.isEnabled && (!$0.requiresEmptyComposer || !invocation.hasOtherContent)
+        }
+        let query = invocation.query
+        guard !query.isEmpty else { return commands }
         let needle = query.lowercased()
 
         let prefixMatches = commands.filter { command in
@@ -840,6 +848,28 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         return commands.filter { command in
             command.detail.lowercased().contains(needle)
         }
+    }
+
+    public func withAvailability(_ isEnabled: Bool) -> CodexSlashCommand {
+        var copy = self
+        copy.isEnabled = isEnabled
+        return copy
+    }
+
+    private static func replacementRange(
+        for commandRange: Range<String.Index>,
+        in draft: String
+    ) -> Range<String.Index> {
+        if commandRange.lowerBound > draft.startIndex {
+            let preceding = draft.index(before: commandRange.lowerBound)
+            if draft[preceding].isWhitespace {
+                return preceding..<commandRange.upperBound
+            }
+        }
+        if commandRange.upperBound < draft.endIndex, draft[commandRange.upperBound].isWhitespace {
+            return commandRange.lowerBound..<draft.index(after: commandRange.upperBound)
+        }
+        return commandRange
     }
 
     public static func skillCommands(from response: CodexJSONValue) -> [CodexSlashCommand] {
@@ -925,5 +955,17 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
     private static func dictionary(in object: [String: CodexJSONValue], key: String) -> [String: CodexJSONValue]? {
         guard case .dictionary(let dictionary)? = object[key] else { return nil }
         return dictionary
+    }
+}
+
+public struct CodexSlashCommandInvocation: Equatable, Sendable {
+    public var query: String
+    public var replacementDraft: String
+    public var hasOtherContent: Bool
+
+    public init(query: String, replacementDraft: String, hasOtherContent: Bool) {
+        self.query = query
+        self.replacementDraft = replacementDraft
+        self.hasOtherContent = hasOtherContent
     }
 }

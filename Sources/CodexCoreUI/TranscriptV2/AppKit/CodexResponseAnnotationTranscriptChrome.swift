@@ -3,6 +3,10 @@ import SwiftUI
 
 @MainActor
 final class CodexResponseAnnotationMarkerButton: NSButton {
+    var markerColor: NSColor = .controlAccentColor {
+        didSet { needsDisplay = true }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -32,16 +36,16 @@ final class CodexResponseAnnotationMarkerButton: NSButton {
         tail.line(to: NSPoint(x: 7.7 * scale, y: 3.0 * scale))
         tail.close()
 
-        NSColor(srgbRed: 2 / 255, green: 133 / 255, blue: 1, alpha: 1).setFill()
+        markerColor.setFill()
         tail.fill()
         body.fill()
-        NSColor.white.withAlphaComponent(0.96).setStroke()
+        NSColor.selectedControlTextColor.withAlphaComponent(0.86).setStroke()
         body.lineWidth = 1.5
         body.stroke()
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor.selectedControlTextColor
         ]
         let label = title as NSString
         let size = label.size(withAttributes: attributes)
@@ -78,17 +82,8 @@ struct CodexResponseSelectionActionView: View {
                 .padding(.horizontal, 12)
                 .frame(height: 32)
         }
-        .buttonStyle(.plain)
+        .codexGlassButtonStyle()
         .accessibilityLabel("Add selected response text to chat")
-        .codexGlass(
-            RoundedRectangle(cornerRadius: 8, style: .continuous),
-            tint: theme.colors.surface.opacity(0.5)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.colors.borderStrong.opacity(0.7), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
     }
 }
 
@@ -139,7 +134,7 @@ struct CodexResponseAnnotationNoteEditor: View {
                 onSave(note)
             } label: {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(theme.fonts.label.weight(.semibold))
                     .foregroundStyle(theme.colors.canvas)
                     .frame(width: 34, height: 34)
                     .background(theme.colors.textPrimary, in: Circle())
@@ -153,13 +148,8 @@ struct CodexResponseAnnotationNoteEditor: View {
         .frame(width: 294, height: 44)
         .codexGlass(
             Capsule(),
-            tint: theme.colors.surface.opacity(0.55)
+            role: .panel
         )
-        .overlay {
-            Capsule()
-                .stroke(theme.colors.borderStrong.opacity(0.72), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.24), radius: 10, y: 4)
         .onAppear { isFocused = true }
     }
 }

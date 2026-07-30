@@ -19,6 +19,16 @@ struct CodexWorkspaceResponsivePanelTests {
         #expect(CodexWorkspaceResponsivePanelState(availableWidth: 1_740).supportsDockedOverviewWithSidePanel)
     }
 
+    @Test func onlyAnOverlaySidePanelOwnsAnInternalCloseButton() {
+        let overlay = CodexWorkspaceResponsivePanelState(availableWidth: 979)
+        #expect(overlay.usesOverlaySidePanel)
+        #expect(overlay.showsCloseButtonInsideSidePanel)
+
+        let persistent = CodexWorkspaceResponsivePanelState(availableWidth: 980)
+        #expect(persistent.usesPersistentSidePanel)
+        #expect(!persistent.showsCloseButtonInsideSidePanel)
+    }
+
     @Test func loadingChatNeverEscapesItsLiveTranscriptViewportAtAnySupportedWidth() {
         let maximumContentWidth = CodexAgentTheme.officialDark.spacing.transcriptMaxWidth
         for width in stride(from: CGFloat(540), through: 2_500, by: 17) {

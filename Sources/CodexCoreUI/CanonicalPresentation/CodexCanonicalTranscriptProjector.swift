@@ -31,6 +31,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         requests: [CodexPendingInteractionSnapshot] = [],
         requestRevision: UInt64 = 0,
         previous: CodexCanonicalTranscriptPresentation?,
+        excludedTurnIDs: Set<TurnID> = [],
         selectedTurnCostRecording: CodexSelectedTurnDisplayCostRecording? = nil,
         checkpoint: () throws -> Void
     ) rethrows -> CodexCanonicalTranscriptProjectionResult {
@@ -52,7 +53,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
             threadID: threadID,
             intents: visibleIntents,
             checkpoint: checkpoint
-        )
+        ).filter { !excludedTurnIDs.contains($0) }
         let pendingRequests = requestPresentations(requests, threadID: threadID)
 
         let oldIDs = Set(old?.turnOrder ?? [])
@@ -298,8 +299,21 @@ private extension CodexCanonicalTranscriptProjector {
                         turn.generatedImages.append(image)
                     }
                 }
-            case .commandExecution, .fileChange, .mcpToolCall, .collabAgentToolCall,
-                    .subAgentActivity, .webSearch:
+            case .collabAgentToolCall:
+                let state = workStatus(item, completed: completed)
+                if item.payload.string("tool") == "wait" {
+                    reconcileAgentWait(item, state: state, narrative: &turn.narrative)
+                    continue
+                }
+                for row in try makeWorkRows(
+                    item,
+                    completed: completed,
+                    previousFileRow: previousFileRows[item.key.itemID.rawValue],
+                    checkpoint: checkpoint
+                ) {
+                    appendWorkRow(row, to: &turn)
+                }
+            case .commandExecution, .fileChange, .mcpToolCall, .subAgentActivity, .webSearch:
                 for row in try makeWorkRows(
                     item,
                     completed: completed,
@@ -582,6 +596,15 @@ private extension CodexCanonicalTranscriptProjector {
                 narrative[index] = .prose(prose)
             case .workGroup(var group):
                 group.isLive = false
+                for rowIndex in group.rows.indices {
+                    guard case .collabAgent(var agent) = group.rows[rowIndex],
+                          agent.displayStatus == .starting || agent.displayStatus == .working
+                    else { continue }
+                    agent.status = .completed
+                    agent.displayStatus = .done
+                    group.rows[rowIndex] = .collabAgent(agent)
+                }
+                refresh(&group)
                 narrative[index] = .workGroup(group)
             case .inlineActivity(var activity):
                 if activity.status == .inProgress {
@@ -705,7 +728,7 @@ private extension CodexCanonicalTranscriptProjector {
     ) -> [CodexCollabAgentRowV2] {
         let action: CodexCollabActionV2 = switch item.payload.string("tool") {
         case "spawnAgent": .created
-        case "sendInput": .sentInput
+        case "sendInput", "resumeAgent": .sentInput
         case "closeAgent": .closed
         default: .waited
         }
@@ -746,7 +769,7 @@ private extension CodexCanonicalTranscriptProjector {
 
     func subagentActivityRow(
         _ item: CanonicalItem,
-        state: CodexWorkItemStatusV2
+        state _: CodexWorkItemStatusV2
     ) -> CodexCollabAgentRowV2? {
         let action: CodexCollabActionV2
         switch item.payload.string("kind") {
@@ -763,9 +786,65 @@ private extension CodexCanonicalTranscriptProjector {
             agentNames: [name],
             agentThreadIDs: threadID.map { [$0] } ?? [],
             instructions: nil,
-            status: state,
-            displayStatus: action == .interrupted ? .failed : .working
+            status: action == .interrupted ? .completed : .inProgress,
+            displayStatus: action == .interrupted ? .done : .working
         )
+    }
+
+    /// The official renderer treats v1 `wait` as lifecycle input, never as a
+    /// second visible activity. It reconciles the stable per-thread rows built
+    /// from v1 spawn/send calls and v2 activity events.
+    func reconcileAgentWait(
+        _ item: CanonicalItem,
+        state: CodexWorkItemStatusV2,
+        narrative: inout [CodexNarrativeEntry]
+    ) {
+        let states = item.payload.object("agentsStates") ?? [:]
+        let receiverIDs = orderedUnion(
+            item.payload.array("receiverThreadIds")?.compactMap(\.stringValue) ?? [],
+            states.keys.sorted()
+        )
+        let waitCompleted = item.payload.string("status") == "completed" || state == .completed
+
+        for entryIndex in narrative.indices {
+            guard case .workGroup(var group) = narrative[entryIndex] else { continue }
+            var changed = false
+            for rowIndex in group.rows.indices {
+                guard case .collabAgent(var agent) = group.rows[rowIndex] else { continue }
+                let matchingIDs = agent.agentThreadIDs.filter(receiverIDs.contains)
+
+                var resolvedStatus: CodexWorkItemStatusV2?
+                var resolvedDisplayStatus: CodexAgentDisplayStatusV2?
+                for threadID in matchingIDs {
+                    guard let rawState = states[threadID]?.object else { continue }
+                    resolvedStatus = agentWorkStatus(rawState.string("status"), fallback: state)
+                    resolvedDisplayStatus = agentDisplayStatus(rawState.string("status"), fallback: state)
+                    if let message = rawState.string("message"), !message.isEmpty {
+                        let name = agent.agentNames.first ?? shortAgentName(threadID)
+                        agent.agentMessages[name] = message
+                    }
+                }
+
+                // The official bundle applies a completed wait after ingesting
+                // `agentsStates` and resolves every still-live child, even if a
+                // stale state snapshot still says `running`.
+                let effectiveDisplayStatus = resolvedDisplayStatus ?? agent.displayStatus
+                if waitCompleted,
+                   effectiveDisplayStatus == .starting || effectiveDisplayStatus == .working {
+                    resolvedStatus = .completed
+                    resolvedDisplayStatus = .done
+                }
+                guard let resolvedStatus, let resolvedDisplayStatus else { continue }
+                agent.status = resolvedStatus
+                agent.displayStatus = resolvedDisplayStatus
+                group.rows[rowIndex] = .collabAgent(agent)
+                changed = true
+            }
+            if changed {
+                refresh(&group)
+                narrative[entryIndex] = .workGroup(group)
+            }
+        }
     }
 
     func appendWorkRow(_ row: CodexWorkRowV2, to turn: inout CodexTurnV2) {
@@ -897,7 +976,8 @@ private extension CodexCanonicalTranscriptProjector {
         guard let rawStatus else { return fallback }
         return switch rawStatus.lowercased() {
         case "completed", "done", "shutdown", "closed": .completed
-        case "errored", "error", "failed", "interrupted": .failed
+        case "errored", "error", "failed": .failed
+        case "interrupted": .completed
         case "declined": .declined
         case "pendinginit", "pending_init", "running", "working": .inProgress
         default: .unknown(rawStatus)
@@ -913,7 +993,8 @@ private extension CodexCanonicalTranscriptProjector {
         case "running", "working": .working
         case "completed", "done": .done
         case "shutdown", "closed", "cancelled", "canceled": .closed
-        case "errored", "error", "failed", "interrupted": .failed
+        case "errored", "error", "failed": .failed
+        case "interrupted": .done
         case .some:
             .failed
         default:

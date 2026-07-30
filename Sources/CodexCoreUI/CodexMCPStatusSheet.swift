@@ -27,15 +27,15 @@ public struct CodexMCPStatusSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image(systemName: "server.rack")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(theme.fonts.panelTitle)
                     .foregroundStyle(theme.colors.textSecondary)
                 Text("MCP servers")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(theme.fonts.sheetTitle)
                     .foregroundStyle(theme.colors.textPrimary)
                 Spacer()
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(theme.fonts.caption.weight(.semibold))
                         .foregroundStyle(theme.colors.textSecondary)
                         .frame(width: 28, height: 28)
                 }
@@ -43,7 +43,7 @@ public struct CodexMCPStatusSheet: View {
                 .help("Refresh")
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(theme.fonts.micro)
                         .foregroundStyle(theme.colors.textSecondary)
                         .frame(width: 28, height: 28)
                 }
@@ -80,7 +80,6 @@ public struct CodexMCPStatusSheet: View {
         }
         .padding(18)
         .frame(width: 560, height: 460)
-        .background(theme.colors.surface)
     }
 }
 
@@ -93,11 +92,11 @@ private struct MCPServerStatusRow: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: statusImage)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(statusColor)
                     .frame(width: 18)
                 Text(server.displayName)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
                 if let version = server.version?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {

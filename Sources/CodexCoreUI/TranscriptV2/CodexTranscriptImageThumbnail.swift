@@ -168,7 +168,7 @@ struct CodexTranscriptImageThumbnail: View {
             } else {
                 VStack(spacing: 3) {
                     Image(systemName: "photo")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(theme.fonts.chat.weight(.medium))
                         .foregroundStyle(theme.colors.textSecondary)
                     Text(label)
                         .font(.system(size: 8, weight: .medium))

@@ -26,7 +26,7 @@ struct CodexTranscriptTurnMinimapTests {
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: presentation,
             availableWidth: 860,
-            theme: CodexTranscriptAppKitTheme(.officialDark)
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
 
         let entry = try #require(
@@ -77,6 +77,7 @@ struct CodexTranscriptTurnMinimapTests {
             bottomContentInset: 80,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: CodexNoopClipboardService(),
             productToolRenderer: nil,
             onOpenSubagent: { _ in },
@@ -216,6 +217,7 @@ struct CodexTranscriptTurnMinimapTests {
             bottomContentInset: 170,
             contentHorizontalOffset: 0,
             swiftUITheme: .officialDark,
+            colorScheme: .dark,
             clipboardService: CodexNoopClipboardService(),
             productToolRenderer: nil,
             onOpenSubagent: { _ in },

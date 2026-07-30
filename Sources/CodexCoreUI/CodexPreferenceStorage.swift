@@ -138,40 +138,6 @@ public enum CodexNewThreadHistoryModeStorage {
     }
 }
 
-public enum CodexSidebarFontSizeStorage {
-    public static let defaultFontSize = CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize
-    public static let fontSizeRange = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
-    private static let sidebarFontSizeKey = "CodexCoreApp.sidebarFontSize.v3"
-    private static let legacySidebarFontSizeKey = "CodexCoreApp.sidebarFontSize.v2"
-    private static let legacyFontSizeIncrease: Double = 2
-
-    public static func loadSidebarFontSize(from store: any CodexStringListPreferenceStore) -> Double {
-        if let stored = store.loadStrings(forKey: sidebarFontSizeKey).first,
-           let value = Double(stored) {
-            return clamped(value)
-        }
-
-        if let stored = store.loadStrings(forKey: legacySidebarFontSizeKey).first,
-           let value = Double(stored) {
-            return clamped(value + legacyFontSizeIncrease)
-        }
-
-        return defaultFontSize
-    }
-
-    public static func saveSidebarFontSize(
-        _ fontSize: Double,
-        to store: any CodexStringListPreferenceStore
-    ) {
-        store.saveStrings([String(Int(clamped(fontSize).rounded()))], forKey: sidebarFontSizeKey)
-    }
-
-    public static func clamped(_ fontSize: Double) -> Double {
-        guard fontSize.isFinite else { return defaultFontSize }
-        return min(max(fontSize, fontSizeRange.lowerBound), fontSizeRange.upperBound)
-    }
-}
-
 public enum CodexExpandedProjectStorage {
     private static let expandedProjectStorageKey = "CodexCoreApp.expandedProjectIDs"
     private static let persistedMarker = "__codex_expanded_project_state_v2__"

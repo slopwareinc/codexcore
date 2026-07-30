@@ -43,6 +43,7 @@ public final class CodexSubagentPresentationCoordinator {
         CanonicalStateSnapshot,
         ThreadID,
         CodexCanonicalTranscriptPresentation?,
+        Set<TurnID>,
         Int
     ) throws -> CodexSelectedChildProjectionOutput
     @ObservationIgnored var store = CodexSubagentStoreV2()
@@ -99,12 +100,22 @@ public final class CodexSubagentPresentationCoordinator {
             CanonicalStateSnapshot,
             ThreadID,
             CodexCanonicalTranscriptPresentation?,
+            Set<TurnID>,
             Int
         ) throws -> CodexSelectedChildProjectionOutput
     ) {
         self.codex = codex
         self.projectionByteCapacity = max(0, projectionByteCapacity)
         self.projectionOperation = projectionOperation
+    }
+
+    func inheritedTurnIDs(for parentThreadID: ThreadID?) -> Set<TurnID> {
+        guard let parentThreadID,
+              let parent = latestParentSnapshot?.threads[parentThreadID]
+        else {
+            return []
+        }
+        return Set(parent.turnOrder)
     }
 
     isolated deinit {

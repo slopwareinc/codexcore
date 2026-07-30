@@ -387,6 +387,7 @@ public struct CodexSubagentStoreV2: Sendable {
         _ snapshot: CanonicalStateSnapshot,
         threadID: ThreadID,
         previous: CodexCanonicalTranscriptPresentation?,
+        excludingTurnIDs excludedTurnIDs: Set<TurnID> = [],
         displayCostLimit: Int
     ) throws -> CodexSelectedChildProjectionOutput {
         let projector = CodexCanonicalTranscriptProjector()
@@ -395,6 +396,7 @@ public struct CodexSubagentStoreV2: Sendable {
                 snapshot: snapshot,
                 threadID: threadID,
                 previous: previous,
+                excludingTurnIDs: excludedTurnIDs,
                 displayCostLimit: displayCostLimit
             )
         } catch is CancellationError {
@@ -409,6 +411,7 @@ public struct CodexSubagentStoreV2: Sendable {
                 snapshot: snapshot,
                 threadID: threadID,
                 previous: nil,
+                excludingTurnIDs: excludedTurnIDs,
                 displayCostLimit: displayCostLimit
             )
         }

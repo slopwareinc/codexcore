@@ -209,6 +209,79 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(graph.items[key]?.liveOverlay.agentMessage.joined(), "samesame")
     }
 
+    func testLiveCompletionReconcilesHydratedAgentMessageAlias() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let hydratedKey = itemKey(item: "item-3")
+        let liveKey = itemKey(item: "msg_live")
+        let payload: [String: CodexJSONValue] = [
+            "phase": .string("commentary"),
+            "text": .string("Inspecting the repository"),
+        ]
+
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(
+                key: hydratedKey.turnKey,
+                status: .inProgress,
+                itemOrder: [hydratedKey.itemID],
+                itemsCoverage: .full,
+                itemsConsistency: .partial
+            ),
+            items: [item(
+                hydratedKey,
+                payload: payload,
+                authority: .started,
+                consistency: .partial
+            )],
+            itemPolicy: .authoritativeReplacement
+        ), to: &graph)
+        _ = reducer.apply(.itemStarted(item(
+            liveKey,
+            payload: [
+                "phase": .string("commentary"),
+                "text": .string(""),
+            ]
+        )), to: &graph)
+        _ = reducer.apply(
+            .itemDelta(key: liveKey, delta: .agentMessage("Inspecting the repository")),
+            to: &graph
+        )
+        _ = reducer.apply(.itemCompleted(item(
+            liveKey,
+            payload: payload,
+            authority: .completed,
+            consistency: .authoritative
+        )), to: &graph)
+
+        XCTAssertNil(graph.items[hydratedKey])
+        XCTAssertEqual(graph.items[liveKey]?.payload, payload)
+        XCTAssertEqual(graph.turns[liveKey.turnKey]?.itemOrder, [liveKey.itemID])
+    }
+
+    func testDistinctLiveAgentMessagesWithEqualTextRemainDistinct() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let first = itemKey(item: "msg_first")
+        let second = itemKey(item: "msg_second")
+        let payload: [String: CodexJSONValue] = [
+            "phase": .string("commentary"),
+            "text": .string("Still inspecting"),
+        ]
+
+        for key in [first, second] {
+            _ = reducer.apply(.itemCompleted(item(
+                key,
+                payload: payload,
+                authority: .completed,
+                consistency: .authoritative
+            )), to: &graph)
+        }
+
+        XCTAssertNotNil(graph.items[first])
+        XCTAssertNotNil(graph.items[second])
+        XCTAssertEqual(graph.turns[first.turnKey]?.itemOrder, [first.itemID, second.itemID])
+    }
+
     func testItemOnlyDeltaBumpsItsAggregateTurnRevisionWithoutTouchingOtherTurns() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()

@@ -276,7 +276,16 @@ extension CodexCoreAppModel {
     }
 
     var slashCommands: [CodexSlashCommand] {
-        configurationSession.slashCommands
+        configurationSession.slashCommands.map { command in
+            switch command.id {
+            case "compact", "fork":
+                return command.withAvailability(currentThreadID != nil && !isSending)
+            case "plan":
+                return command.withAvailability(configurationSession.canUsePlanMode)
+            default:
+                return command
+            }
+        }
     }
 
     var isConnected: Bool {

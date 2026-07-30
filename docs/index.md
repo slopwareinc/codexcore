@@ -23,6 +23,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Activity presentation](ui/live-activity.md)
 - [Custom tool cards](ui/custom-tool-cards.md)
 - [Theming and host boundaries](ui/theming-and-hosts.md)
+- [Design tokens and Liquid Glass](ui/design-tokens.md)
 
 ## Use the app
 
@@ -58,5 +59,6 @@ Read only the pages needed for the task. Source-of-truth routing:
 | Reference host wiring | `Sources/CodexCoreApp/CodexCoreAppModel.swift` |
 | Generated methods and types | `Sources/CodexCore/Generated/`, `CodexSessionCommands.swift` |
 | Build/test commands | `justfile`, `CONTRIBUTING.md` |
+| Design tokens, glass, themes | `docs/ui/design-tokens.md`, `Sources/CodexCoreUI/CodexTheme.swift`, `CodexGlass.swift`, `CodexThemePresets.swift` |
 
 Do not infer current API shape from historical plans when production source or tests disagree.

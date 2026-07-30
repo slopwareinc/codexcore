@@ -175,9 +175,6 @@ public struct CodexModelSelectorGridV2: View {
             }
         }
         .padding(4)
-        .background(theme.colors.surfaceElevated)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous).stroke(theme.colors.border))
     }
 
     private func cellButton(_ cell: CodexModelGridV2.Cell, appearance: CodexModelGridV2.Column.Appearance) -> some View {
@@ -263,7 +260,7 @@ public struct ComposerModelGridPicker: View {
                 Text("\(model.displayName) \(reasoning.displayName)")
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
+                    .font(theme.fonts.micro)
                     .foregroundStyle(.secondary)
             }
             .foregroundStyle(modelTint)
@@ -274,7 +271,7 @@ public struct ComposerModelGridPicker: View {
                 Toggle("Show older models", isOn: $showOlderModels)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
-                    .font(.caption)
+                    .font(theme.fonts.caption)
                     .padding(.horizontal, 4)
 
                 if !model.serviceTiers.isEmpty {
@@ -288,7 +285,7 @@ public struct ComposerModelGridPicker: View {
                     }
                     .pickerStyle(.segmented)
                     .controlSize(.small)
-                    .font(.caption)
+                    .font(theme.fonts.caption)
                     .padding(.horizontal, 4)
                 }
 
