@@ -837,6 +837,9 @@ public struct CodexChatHeader: View {
     }
 
     private var controlsRow: some View {
+        // One container for every bubble in the row, so the system renders them
+        // in a single pass and lets neighbours merge as the row reflows.
+        CodexGlassGroup(spacing: 12) {
         HStack(spacing: 8) {
             if leadingTitlebarInset > 0 {
                 Color.clear
@@ -906,13 +909,16 @@ public struct CodexChatHeader: View {
         .contentShape(Rectangle())
         .gesture(WindowDragGesture())
         .allowsWindowActivationEvents(true)
+        }
     }
 }
 
 /// A floating glass capsule that groups one or more header controls, à la the
 /// macOS Notes/Reminders toolbar bubbles.
+///
+/// Carries no stroke and no shadow of its own: Liquid Glass draws both, and
+/// hand-drawn copies on top are what make glass read as an imitation.
 private struct HeaderBubble<Content: View>: View {
-    @Environment(\.codexAgentTheme) private var theme
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -921,9 +927,7 @@ private struct HeaderBubble<Content: View>: View {
         }
         .padding(.horizontal, 4)
         .frame(height: 34)
-        .codexGlass(Capsule(), tint: theme.colors.surface.opacity(0.42))
-        .overlay(Capsule().stroke(theme.colors.border.opacity(0.4), lineWidth: 1))
-        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        .codexGlass(Capsule(), role: .control)
     }
 }
 

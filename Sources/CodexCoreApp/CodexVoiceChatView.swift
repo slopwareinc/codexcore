@@ -33,8 +33,7 @@ struct CodexVoiceMiniControl: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .codexGlass(Capsule())
-        .shadow(color: .black.opacity(0.24), radius: 18, y: 8)
+        .codexGlass(Capsule(), role: .control)
     }
 }
 
@@ -140,15 +139,10 @@ private struct CodexVoiceComposer: View {
         .padding(.top, 14)
         .padding(.bottom, 12)
         .frame(minHeight: 94)
-        .background(
-            theme.colors.surfaceElevated.opacity(0.86),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.44), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
         .onAppear { isFocused = true }
     }
 

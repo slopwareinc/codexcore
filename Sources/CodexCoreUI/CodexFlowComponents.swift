@@ -17,7 +17,7 @@ public struct CodexGlassPanel<Content: View>: View {
         content
             .padding(34)
             .frame(maxWidth: 540)
-            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.panel, style: .continuous))
+            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.panel, style: .continuous), role: .panel)
             .padding(28)
     }
 }

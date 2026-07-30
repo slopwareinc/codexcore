@@ -136,15 +136,7 @@ public struct CodexFloatingSummaryPanel: View {
         .padding(.vertical, 18)
         .frame(width: theme.spacing.summaryPanelWidth, alignment: .topLeading)
         .fixedSize(horizontal: true, vertical: false)
-        .codexGlass(
-            RoundedRectangle(cornerRadius: 22, style: .continuous),
-            tint: theme.colors.surface.opacity(0.54)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.52), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.22), radius: 24, y: 10)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
     }
 }
 
@@ -532,7 +524,11 @@ public struct CodexAgentSidePanel: View {
         .overlay(alignment: .leading) {
             resizeHandle
         }
-        .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 24, x: -8)
+        .shadow(
+            color: theme.effects.shadow.color(for: theme),
+            radius: theme.effects.shadow.radius,
+            x: -8
+        )
         .animation(nil, value: panelWidth)
         .onAppear {
             ensureSelection()
@@ -782,7 +778,7 @@ public struct CodexAgentSidePanel: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .buttonStyle(.plain)
-            .codexGlass(Circle(), interactive: true)
+            .codexGlass(Circle(), role: .control)
             .help("Open tool")
             .accessibilityLabel("Open tool")
 
@@ -793,7 +789,7 @@ public struct CodexAgentSidePanel: View {
                     .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
             }
             .buttonStyle(.plain)
-            .codexGlass(Circle(), interactive: true)
+            .codexGlass(Circle(), role: .control)
             .padding(.trailing, 8)
         }
         .frame(height: theme.spacing.toolbarHeight)
@@ -1199,8 +1195,7 @@ private struct AgentPanelComposer: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), interactive: true)
-        .shadow(color: .black.opacity(theme.effects.glowOpacity), radius: 18, x: 0, y: 8)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .control)
     }
 
     private func composerToolButton(systemImage: String, help: String) -> some View {

@@ -80,7 +80,10 @@ public struct CodexMCPStatusSheet: View {
         }
         .padding(18)
         .frame(width: 560, height: 460)
-        .background(theme.colors.surface)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .sheet
+        )
     }
 }
 

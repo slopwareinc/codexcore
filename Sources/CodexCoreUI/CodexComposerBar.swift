@@ -255,7 +255,7 @@ public struct CodexComposerBar: View {
                 }
             }
             .padding(isCompact ? 6 : 10)
-            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
+            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
             .codexFileDropTarget(
                 isTargeted: $isFileDropTargeted,
                 isEnabled: onFilesDropped != nil,
@@ -1052,7 +1052,7 @@ private struct CodexMentionPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 280, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 }
 
@@ -1127,7 +1127,7 @@ private struct CodexSlashCommandPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private var sectionNames: [String] {
@@ -1214,7 +1214,7 @@ private struct CodexComposerMCPStatusPalette: View {
             }
         }
         .frame(maxWidth: 736, alignment: .leading)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private func serverRow(_ row: CodexMCPStatusPanelServerRow) -> some View {
@@ -1329,7 +1329,7 @@ private struct CodexComposerInlineSelectorPalette: View {
         }
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 320, alignment: .top)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private var sectionNames: [String] {
@@ -1429,7 +1429,7 @@ struct CodexQueuedFollowUpStack: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 

@@ -87,12 +87,10 @@ public struct CodexTurnPlanPanel: View {
         }
         .padding(12)
         .frame(width: 360)
-        .background(theme.colors.surfaceElevated.opacity(0.96), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
         )
-        .shadow(color: .black.opacity(0.28), radius: 18, x: 0, y: 12)
     }
 
     private func statusImage(_ status: TurnPlanStepStatus) -> String {
@@ -179,12 +177,10 @@ public struct CodexApprovalRequestsPanel: View {
         }
         .padding(12)
         .frame(width: 360)
-        .background(theme.colors.surfaceElevated.opacity(0.96), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
         )
-        .shadow(color: .black.opacity(0.28), radius: 18, x: 0, y: 12)
     }
 }
 
@@ -355,12 +351,10 @@ public struct CodexInteractivePromptsPanel: View {
         }
         .padding(12)
         .frame(width: 360)
-        .background(theme.colors.surfaceElevated.opacity(0.96), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
         )
-        .shadow(color: .black.opacity(0.28), radius: 18, x: 0, y: 12)
     }
 }
 

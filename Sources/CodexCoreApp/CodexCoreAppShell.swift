@@ -47,7 +47,11 @@ struct CodexCoreAppShell: View {
                             snapshot: expandedSnapshot(from: sidebarSnapshot),
                             width: sidebarWidth
                         )
-                        .shadow(color: .black.opacity(0.34), radius: 24, x: 8, y: 0)
+                        .shadow(
+                            color: model.theme.effects.shadow.color(for: model.theme),
+                            radius: model.theme.effects.shadow.radius,
+                            x: 8
+                        )
                         .onHover { isInside in
                             if isInside {
                                 sidebarOverlaySession.pointerEnteredRevealRegion()
@@ -586,7 +590,10 @@ private struct RenameChatSheet: View {
         }
         .padding(20)
         .frame(width: 360)
-        .background(theme.colors.surface)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .sheet
+        )
         .onAppear { isFocused = true }
     }
 }
@@ -693,7 +700,10 @@ private struct EditProjectSheet: View {
         }
         .padding(24)
         .frame(width: 560)
-        .background(theme.colors.surface)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .sheet
+        )
     }
 
     private func sourceFolderRow(path: String, index: Int) -> some View {

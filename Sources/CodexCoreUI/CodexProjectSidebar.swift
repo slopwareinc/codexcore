@@ -5,7 +5,6 @@ import AppKit
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
-    @Environment(\.controlActiveState) private var controlActiveState
     @State private var showsOlderProjects = false
     @State private var isPinnedSectionExpanded = true
     @State private var isChatsSectionExpanded = true
@@ -114,15 +113,9 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
-        .background {
-            ZStack {
-                Rectangle().fill(.regularMaterial)
-                Rectangle().fill(
-                    theme.colors.surface.opacity(controlActiveState == .inactive ? 0.34 : 0.22)
-                )
-            }
-        }
-        .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.18))
+        // Glass samples what is behind the window, so nothing may be layered
+        // underneath it: an opaque material stack here would be all it sees.
+        .codexGlass(Rectangle(), role: .chrome)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.colors.border.opacity(0.45))

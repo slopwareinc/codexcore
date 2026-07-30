@@ -41,15 +41,10 @@ public struct CodexCommandPaletteOverlay: View {
     }
 
     public var body: some View {
-        ZStack {
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
-
-            palette
-                .padding(.top, 72)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
+        palette
+            .padding(.top, 72)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .codexScrim(onTap: onClose)
         .onAppear { isFocused = true }
         .onDisappear {
             searchTask?.cancel()
@@ -71,12 +66,10 @@ public struct CodexCommandPaletteOverlay: View {
         }
         .padding(14)
         .frame(width: 620, height: 540, alignment: .top)
-        .background(theme.colors.surface.opacity(0.98), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous)
-                .stroke(theme.colors.border, lineWidth: 1)
+        .codexGlass(
+            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
+            role: .panel
         )
-        .shadow(color: .black.opacity(0.32), radius: 28, x: 0, y: 18)
     }
 
     private var header: some View {
@@ -184,6 +177,65 @@ public struct CodexCommandPaletteOverlay: View {
     }
 
     private func rowButton(_ row: CodexCommandPaletteRow) -> some View {
+        PaletteRowButton(row: row, select: select)
+    }
+
+    private func emptyCategoryRow(_ title: String) -> some View {
+        Text(title == "Chats" ? "Search past chats by title, project, or transcript." : "No quick actions")
+            .font(theme.fonts.caption)
+            .foregroundStyle(theme.colors.textTertiary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                theme.colors.hover.opacity(theme.effects.hoverOpacity * 0.5),
+                in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+            )
+    }
+
+    private func statusRow(_ title: String, isError: Bool) -> some View {
+        Text(title)
+            .font(theme.fonts.caption)
+            .foregroundStyle(isError ? theme.colors.danger : theme.colors.textTertiary)
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func runSearch(_ value: String) {
+        searchTask?.cancel()
+        searchTask = Task {
+            await onSearchChats(value)
+        }
+    }
+
+    private func select(_ row: CodexCommandPaletteRow) {
+        switch row.kind {
+        case .command(let action):
+            onClose()
+            onSelectCommand(action)
+        case .chat(let result):
+            onClose()
+            onSelectChat(result)
+        }
+    }
+
+    private func isErrorStatus(_ status: CodexCommandPaletteStatus) -> Bool {
+        if case .error = status { return true }
+        return false
+    }
+}
+
+/// A palette row. Split out so each row owns its own hover state — a command
+/// palette whose rows do not respond to the pointer reads as a static list.
+private struct PaletteRowButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let row: CodexCommandPaletteRow
+    let select: (CodexCommandPaletteRow) -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
         Button {
             select(row)
         } label: {
@@ -220,49 +272,16 @@ public struct CodexCommandPaletteOverlay: View {
             .contentShape(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
         }
         .buttonStyle(.plain)
-        .background(theme.colors.surfaceElevated.opacity(0.34), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .background(
+            theme.colors.hover.opacity(isHovered ? theme.effects.hoverOpacity : 0),
+            in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
+        )
+        .onHover { isHovered = $0 }
+        .animation(
+            .easeOut(duration: theme.animations.snappyDuration),
+            value: isHovered
+        )
         .accessibilityLabel(row.accessibilityLabel)
-    }
-
-    private func emptyCategoryRow(_ title: String) -> some View {
-        Text(title == "Chats" ? "Search past chats by title, project, or transcript." : "No quick actions")
-            .font(theme.fonts.caption)
-            .foregroundStyle(theme.colors.textTertiary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.colors.surfaceElevated.opacity(0.18), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-    }
-
-    private func statusRow(_ title: String, isError: Bool) -> some View {
-        Text(title)
-            .font(theme.fonts.caption)
-            .foregroundStyle(isError ? theme.colors.danger : theme.colors.textTertiary)
-            .padding(.horizontal, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func runSearch(_ value: String) {
-        searchTask?.cancel()
-        searchTask = Task {
-            await onSearchChats(value)
-        }
-    }
-
-    private func select(_ row: CodexCommandPaletteRow) {
-        switch row.kind {
-        case .command(let action):
-            onClose()
-            onSelectCommand(action)
-        case .chat(let result):
-            onClose()
-            onSelectChat(result)
-        }
-    }
-
-    private func isErrorStatus(_ status: CodexCommandPaletteStatus) -> Bool {
-        if case .error = status { return true }
-        return false
     }
 }
 

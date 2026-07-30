@@ -243,7 +243,7 @@ public struct CodexSettingsAboutRouteView: View {
         .padding(.top, 34)
         .padding(.horizontal, 14)
         .frame(minWidth: 250, idealWidth: 250, maxWidth: 250, maxHeight: .infinity, alignment: .topLeading)
-        .codexGlass(Rectangle(), tint: theme.colors.surface.opacity(0.16))
+        .codexGlass(Rectangle(), role: .chrome)
     }
 
     private var contentPane: some View {

@@ -2326,15 +2326,7 @@ private struct CodexTranscriptGlassSurface: View {
 
     var body: some View {
         Color.clear
-            .codexGlass(
-                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous),
-                tint: theme.colors.surface.opacity(0.34)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                    .stroke(theme.colors.borderStrong.opacity(0.58), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), role: .panel)
     }
 }
 
@@ -2470,15 +2462,9 @@ private struct CodexTranscriptAgentPillChrome: ViewModifier {
             content
         } else {
             content
-                .codexGlass(
-                    AnyShape(Capsule()),
-                    tint: tint,
-                    interactive: isInteractive
-                )
-                .overlay {
-                    Capsule()
-                        .stroke(theme.colors.borderStrong.opacity(0.55), lineWidth: 1)
-                }
+                // The status tint is meaningful here, so it stays. Glass draws
+                // its own edge; no stroke is layered on top.
+                .codexGlass(AnyShape(Capsule()), role: isInteractive ? .chip : .panel, tint: tint)
         }
     }
 }
@@ -2535,10 +2521,7 @@ private struct CodexTranscriptAgentHoverPreview: View {
         }
         .padding(12)
         .frame(width: 300, alignment: .leading)
-        .codexGlass(
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous),
-            tint: theme.colors.surface.opacity(0.38)
-        )
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), role: .panel)
         .overlay {
             RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                 .stroke(theme.colors.borderStrong.opacity(0.6), lineWidth: 1)

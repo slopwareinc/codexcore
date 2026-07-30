@@ -62,7 +62,7 @@ public struct CodexEmptyTranscriptView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 11)
                         .frame(maxWidth: 420, alignment: .leading)
-                        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), interactive: true)
+                        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), role: .control)
                     }
                     .buttonStyle(.plain)
                 }

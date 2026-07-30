@@ -290,6 +290,22 @@ public struct CodexAgentTheme {
         public var codeString: Color
         public var codeComment: Color
         public var codeNumber: Color
+        /// Dimming behind modal surfaces. Applied at `Effects.scrimOpacity`.
+        public var scrim: Color
+        /// Base color for every drop shadow. Derived from the theme so shadows
+        /// stay visible on dark canvases, where a fixed black vanishes.
+        public var shadow: Color
+        /// Pointer-hover and press emphasis, applied at the matching
+        /// `Effects.hoverOpacity` / `pressedOpacity`.
+        public var hover: Color
+        /// Selected-row emphasis, applied at `Effects.selectionOpacity`.
+        public var selection: Color
+        /// A deeper accent for pressed and active accent states.
+        public var accentStrong: Color
+        /// An accent legible as *text on the page*, which the fill accent often
+        /// is not. Keeping this separate is what lets a pastel or dark accent
+        /// theme stay readable.
+        public var accentText: Color
 
         public init(
             canvas: Color,
@@ -318,7 +334,13 @@ public struct CodexAgentTheme {
             codeKeyword: Color? = nil,
             codeString: Color? = nil,
             codeComment: Color? = nil,
-            codeNumber: Color? = nil
+            codeNumber: Color? = nil,
+            scrim: Color? = nil,
+            shadow: Color? = nil,
+            hover: Color? = nil,
+            selection: Color? = nil,
+            accentStrong: Color? = nil,
+            accentText: Color? = nil
         ) {
             self.canvas = canvas
             self.surface = surface
@@ -347,6 +369,15 @@ public struct CodexAgentTheme {
             self.codeString = codeString ?? success
             self.codeComment = codeComment ?? codeFaint
             self.codeNumber = codeNumber ?? warning
+            // Scrims and shadows key off the canvas rather than a fixed black,
+            // so a light theme dims toward its own darkest neutral instead of
+            // punching a grey hole in the window.
+            self.scrim = scrim ?? .black
+            self.shadow = shadow ?? .black
+            self.hover = hover ?? textPrimary
+            self.selection = selection ?? accent
+            self.accentStrong = accentStrong ?? accent
+            self.accentText = accentText ?? accent
         }
     }
 
@@ -711,12 +742,48 @@ public struct CodexAgentTheme {
     }
 
     public struct Effects {
+        /// One shadow recipe for the whole app. Replaces the five hand-rolled
+        /// `.black.opacity(...)` variants that were scattered across panels and
+        /// overlays; a fixed black shadow disappears against a dark canvas, so
+        /// the color is derived from the theme instead.
+        public struct Shadow: Equatable, Sendable {
+            public var opacity: Double
+            public var radius: CGFloat
+            public var y: CGFloat
+
+            public init(opacity: Double, radius: CGFloat, y: CGFloat) {
+                self.opacity = opacity
+                self.radius = radius
+                self.y = y
+            }
+
+            public func color(for theme: CodexAgentTheme) -> Color {
+                theme.colors.shadow.opacity(opacity)
+            }
+
+            public static var panel: Shadow { Shadow(opacity: 0.28, radius: 20, y: 12) }
+            public static var card: Shadow { Shadow(opacity: 0.16, radius: 12, y: 4) }
+        }
+
         public var usesLiquidGlass: Bool
         public var surfaceOpacity: Double
         public var glowOpacity: Double
         public var glassOpacity: Double
         public var textFaintOpacity: Double
         public var textDimOpacity: Double
+        /// Shadow used by floating surfaces, and by the opaque glass fallback to
+        /// stand in for the shadow real glass draws for itself.
+        public var shadow: Shadow
+        /// Dimming behind a modal surface.
+        public var scrimOpacity: Double
+        /// How far a tint pulls the opaque glass fallback toward the tint color.
+        public var tintStrength: Double
+        /// Pointer-hover emphasis on rows and controls.
+        public var hoverOpacity: Double
+        /// Press emphasis.
+        public var pressedOpacity: Double
+        /// Selected-row emphasis.
+        public var selectionOpacity: Double
 
         public init(
             usesLiquidGlass: Bool,
@@ -724,7 +791,13 @@ public struct CodexAgentTheme {
             glowOpacity: Double,
             glassOpacity: Double = 0.72,
             textFaintOpacity: Double = 0.6,
-            textDimOpacity: Double = 0.82
+            textDimOpacity: Double = 0.82,
+            shadow: Shadow = .panel,
+            scrimOpacity: Double = 0.38,
+            tintStrength: Double = 0.18,
+            hoverOpacity: Double = 0.08,
+            pressedOpacity: Double = 0.14,
+            selectionOpacity: Double = 0.20
         ) {
             self.usesLiquidGlass = usesLiquidGlass
             self.surfaceOpacity = surfaceOpacity
@@ -732,6 +805,12 @@ public struct CodexAgentTheme {
             self.glassOpacity = glassOpacity
             self.textFaintOpacity = textFaintOpacity
             self.textDimOpacity = textDimOpacity
+            self.shadow = shadow
+            self.scrimOpacity = scrimOpacity
+            self.tintStrength = tintStrength
+            self.hoverOpacity = hoverOpacity
+            self.pressedOpacity = pressedOpacity
+            self.selectionOpacity = selectionOpacity
         }
 
         public static var official: Effects {
@@ -953,45 +1032,6 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
         case .midnight: return .midnight
         case .warmMinimal: return .warmMinimal
         case .highContrast: return .highContrast
-        }
-    }
-}
-
-@available(macOS 26.0, iOS 26.0, *)
-private func makeCodexGlass(tint: Color?, interactive: Bool) -> Glass {
-    var glass: Glass = .regular
-    if let tint { glass = glass.tint(tint) }
-    if interactive { glass = glass.interactive() }
-    return glass
-}
-
-public extension View {
-    /// Applies native Liquid Glass when available, with a material fallback on older OS versions.
-    @ViewBuilder
-    func codexGlass<S: Shape>(
-        _ shape: S,
-        tint: Color? = nil,
-        interactive: Bool = false
-    ) -> some View {
-        modifier(CodexGlassModifier(shape: shape, tint: tint, interactive: interactive))
-    }
-}
-
-private struct CodexGlassModifier<S: Shape>: ViewModifier {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let shape: S
-    let tint: Color?
-    let interactive: Bool
-
-    func body(content: Content) -> some View {
-        if theme.effects.usesLiquidGlass, #available(macOS 26.0, iOS 26.0, *) {
-            content.glassEffect(makeCodexGlass(tint: tint, interactive: interactive), in: shape)
-        } else {
-            content
-                .background(.regularMaterial, in: shape)
-                .background(theme.colors.surfaceElevated.opacity(theme.effects.surfaceOpacity), in: shape)
-                .overlay(shape.stroke(theme.colors.border, lineWidth: 1))
         }
     }
 }

@@ -211,10 +211,13 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                         projectionRetryRevision &+= 1
                     }
                 }
-                .font(.caption)
+                .font(theme.fonts.caption)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .codexGlass(
+                    RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous),
+                    role: .panel
+                )
                 .padding(.top, 12)
             }
         }
