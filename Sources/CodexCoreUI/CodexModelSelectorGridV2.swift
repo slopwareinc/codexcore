@@ -175,10 +175,6 @@ public struct CodexModelSelectorGridV2: View {
             }
         }
         .padding(4)
-        .codexGlass(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
-            role: .panel
-        )
     }
 
     private func cellButton(_ cell: CodexModelGridV2.Cell, appearance: CodexModelGridV2.Column.Appearance) -> some View {

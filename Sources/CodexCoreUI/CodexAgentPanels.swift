@@ -751,40 +751,44 @@ public struct CodexAgentSidePanel: View {
                 .padding(.horizontal, 8)
             }
 
-            Menu {
-                ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
-                    Button {
-                        openTool(option.id)
+            CodexGlassGroup(spacing: 8) {
+                HStack(spacing: 8) {
+                    Menu {
+                        ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
+                            Button {
+                                openTool(option.id)
+                            } label: {
+                                Label(option.title, systemImage: option.systemImage)
+                            }
+                            .disabled(!option.isEnabled)
+                        }
                     } label: {
-                        Label(option.title, systemImage: option.systemImage)
+                        Image(systemName: "plus")
+                            .font(theme.fonts.label)
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                            .contentShape(Circle())
                     }
-                    .disabled(!option.isEnabled)
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                    .contentShape(Circle())
-            }
-            // Strip the default macOS pop-up bezel + disclosure arrow so the
-            // glyph sits cleanly on the liquid-glass bubble like the close control.
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .buttonStyle(.plain)
-            .codexGlass(Circle(), role: .control)
-            .help("Open tool")
-            .accessibilityLabel("Open tool")
+                    // Strip the default macOS pop-up bezel + disclosure arrow so the
+                    // glyph sits cleanly on the liquid-glass bubble like the close control.
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .buttonStyle(.plain)
+                    .codexGlass(Circle(), role: .control)
+                    .help("Open tool")
+                    .accessibilityLabel("Open tool")
 
-            Button(action: onClose) {
-                Image(systemName: "sidebar.right")
-                    .font(theme.fonts.label)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                    Button(action: onClose) {
+                        Image(systemName: "sidebar.right")
+                            .font(theme.fonts.label)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                    }
+                    .buttonStyle(.plain)
+                    .codexGlass(Circle(), role: .control)
+                }
             }
-            .buttonStyle(.plain)
-            .codexGlass(Circle(), role: .control)
             .padding(.trailing, 8)
         }
         .frame(height: theme.spacing.toolbarHeight)
@@ -1190,7 +1194,7 @@ private struct AgentPanelComposer: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .control)
+        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
     private func composerToolButton(systemImage: String, help: String) -> some View {

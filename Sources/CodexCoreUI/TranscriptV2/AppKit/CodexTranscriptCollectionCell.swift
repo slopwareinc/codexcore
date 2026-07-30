@@ -2458,9 +2458,16 @@ private struct CodexTranscriptAgentPillChrome: ViewModifier {
             content
         } else {
             content
-                // The status tint is meaningful here, so it stays. Glass draws
-                // its own edge; no stroke is layered on top.
-                .codexGlass(AnyShape(Capsule()), role: isInteractive ? .chip : .panel, tint: tint)
+                .background(tint, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(
+                            isInteractive
+                                ? theme.colors.borderStrong.opacity(0.65)
+                                : theme.colors.border.opacity(0.65),
+                            lineWidth: 1
+                        )
+                }
         }
     }
 }
