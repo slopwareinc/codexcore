@@ -27,6 +27,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var presentationStore: CodexPresentationStore?
     var bottomContentInset: CGFloat
     var contentHorizontalOffset: CGFloat
+    var responseAnnotations: [CodexResponseTextAnnotation]
+    var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void
+    var onRemoveResponseAnnotation: (String) -> Void
     var productToolRenderer: CodexProductToolRendererV2?
     var onOpenSubagent: (String) -> Void
     var onEditUserMessage: (String) -> Void
@@ -52,6 +55,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             presentationStore: presentationStore,
             bottomContentInset: bottomContentInset,
             contentHorizontalOffset: contentHorizontalOffset,
+            responseAnnotations: responseAnnotations,
+            onUpsertResponseAnnotation: onUpsertResponseAnnotation,
+            onRemoveResponseAnnotation: onRemoveResponseAnnotation,
             swiftUITheme: swiftUITheme,
             clipboardService: clipboardService,
             productToolRenderer: productToolRenderer,
@@ -98,6 +104,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var swiftUITheme = CodexAgentTheme.officialDark
         private var clipboardService: any CodexClipboardService = CodexNoopClipboardService()
         private var productToolRenderer: CodexProductToolRendererV2?
+        private var responseAnnotations: [CodexResponseTextAnnotation] = []
+        private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
+        private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
         private var onOpenSubagent: (String) -> Void = { _ in }
         private var onEditUserMessage: (String) -> Void = { _ in }
         private var onForkChat: (() -> Void)?
@@ -184,6 +193,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             presentationStore: CodexPresentationStore?,
             bottomContentInset: CGFloat,
             contentHorizontalOffset: CGFloat,
+            responseAnnotations: [CodexResponseTextAnnotation] = [],
+            onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
+            onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
             swiftUITheme: CodexAgentTheme,
             clipboardService: any CodexClipboardService,
             productToolRenderer: CodexProductToolRendererV2?,
@@ -211,6 +223,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     currentPresentation.selectedDiffFileIndexByRowID
             }
             let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme)
+            let annotationsChanged = self.responseAnnotations != responseAnnotations
             if appKitTheme?.fingerprint != nextTheme.fingerprint
                 || self.contentHorizontalOffset != contentHorizontalOffset {
                 forceReconfigureAll = true
@@ -221,11 +234,17 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.swiftUITheme = swiftUITheme
             self.clipboardService = clipboardService
             self.productToolRenderer = productToolRenderer
+            self.responseAnnotations = responseAnnotations
+            self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
+            self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
             self.onOpenSubagent = onOpenSubagent
             self.onEditUserMessage = onEditUserMessage
             self.onForkChat = onForkChat
             self.onResolveApproval = onResolveApproval
             self.onProjectionError = onProjectionError
+            if annotationsChanged {
+                reconfigureVisibleResponseAnnotationItems()
+            }
             let shouldRetry = retryRevision != self.retryRevision
             self.retryRevision = retryRevision
             self.contentHorizontalOffset = contentHorizontalOffset
@@ -385,6 +404,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
                 editUserMessage: { [weak self] text in self?.onEditUserMessage(text) },
                 forkChat: onForkChat,
+                responseAnnotations: responseAnnotations,
+                upsertResponseAnnotation: onUpsertResponseAnnotation,
+                removeResponseAnnotation: onRemoveResponseAnnotation,
                 selectionChanged: { [weak self] id, selecting in self?.selectionChanged(id: id, selecting: selecting) },
                 preferredHeightChanged: { [weak self] id, revision, height in
                     self?.preferredHeightChanged(id: id, revision: revision, height: height)
@@ -507,6 +529,22 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             }
             guard !indexPaths.isEmpty else { return }
             invalidateLayoutMetrics(at: Set(indexPaths), in: container)
+        }
+
+        private func reconfigureVisibleResponseAnnotationItems() {
+            guard let snapshot = currentSnapshot,
+                  let dataSource,
+                  let container
+            else { return }
+            for id in snapshot.orderedItemIDs {
+                guard snapshot.itemsByID[id]?.allowsResponseAnnotation == true,
+                      let indexPath = dataSource.indexPath(for: id),
+                      let collectionItem = container.collectionView.item(at: indexPath)
+                        as? CodexTranscriptCollectionItem,
+                      let item = snapshot.itemsByID[id]
+                else { continue }
+                configure(collectionItem, with: item)
+            }
         }
 
         private func preferredHeightChanged(

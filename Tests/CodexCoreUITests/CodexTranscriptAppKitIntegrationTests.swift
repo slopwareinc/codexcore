@@ -26,6 +26,83 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(cell.hoverTrackingAreaCountForTesting == 1)
     }
 
+    @Test(arguments: ["", "Explain this choice"])
+    func completedAssistantSelectionCommitsOnlyAfterConfirmingComment(
+        comment: String
+    ) async throws {
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "annotation-thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    finalAnswer: .init(
+                        id: "answer",
+                        text: "Select this response text.",
+                        isStreaming: false
+                    ),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark)
+        )
+        let item = try #require(
+            snapshot.itemsByID.values.first { $0.allowsResponseAnnotation }
+        )
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: item.measuredHeight)
+        let window = NSWindow(
+            contentRect: cell.view.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = cell.view
+        defer { window.close() }
+        var captured: [CodexResponseTextAnnotation] = []
+        cell.configure(
+            item: item,
+            appKitTheme: .init(.officialDark),
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            upsertResponseAnnotation: { captured.append($0) },
+            selectionChanged: { _, _ in }
+        )
+        cell.view.layoutSubtreeIfNeeded()
+
+        let textView = cell.selectableTextViewForTesting
+        let range = (textView.string as NSString).range(of: "response")
+        textView.setSelectedRange(range)
+        cell.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
+
+        #expect(cell.addSelectionToChatIsVisibleForTesting)
+        cell.view.layoutSubtreeIfNeeded()
+        #expect(cell.addSelectionToChatSizeForTesting == NSSize(width: 102, height: 32))
+        cell.addSelectionToChatForTesting()
+
+        #expect(captured.isEmpty)
+        #expect(cell.responseAnnotationMarkerCountForTesting == 0)
+        #expect(cell.responseAnnotationEditorSizeForTesting == NSSize(width: 294, height: 44))
+        #expect(cell.responseAnnotationEditorIsCreatingForTesting)
+
+        cell.saveResponseAnnotationCommentForTesting(comment)
+        let annotation = try #require(captured.first)
+        #expect(annotation.text == "response")
+        #expect(annotation.annotation == (comment.isEmpty ? nil : comment))
+        #expect(annotation.anchor.renderItemID == item.id.rawValue)
+        #expect(annotation.anchor.range == range)
+        #expect(cell.responseAnnotationMarkerCountForTesting == 1)
+        #expect(cell.responseAnnotationEditorSizeForTesting == nil)
+    }
+
     @Test func emptyAndPopulatedTranscriptReuseTheSameAppKitHost() throws {
         let model = TranscriptHostIdentityModel()
         let hosting = NSHostingView(rootView: TranscriptHostIdentityHarness(model: model))

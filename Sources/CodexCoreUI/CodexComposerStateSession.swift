@@ -4,6 +4,7 @@ import CodexCore
 public struct CodexComposerSubmission: Equatable, Sendable {
     public var prompt: String
     public var referencedFiles: [CodexReferencedFile]
+    public var responseAnnotations: [CodexResponseTextAnnotation]
     public var skills: [CodexSlashCommand]
     public var mentions: [CodexInput]
     public var clientID: String
@@ -12,6 +13,7 @@ public struct CodexComposerSubmission: Equatable, Sendable {
     public init(
         prompt: String,
         referencedFiles: [CodexReferencedFile] = [],
+        responseAnnotations: [CodexResponseTextAnnotation] = [],
         skills: [CodexSlashCommand] = [],
         mentions: [CodexInput] = [],
         clientID: String = UUID().uuidString,
@@ -19,6 +21,7 @@ public struct CodexComposerSubmission: Equatable, Sendable {
     ) {
         self.prompt = prompt
         self.referencedFiles = referencedFiles
+        self.responseAnnotations = responseAnnotations
         self.skills = skills
         self.mentions = mentions
         self.clientID = clientID
@@ -37,12 +40,17 @@ public struct CodexComposerSubmission: Equatable, Sendable {
         skills.compactMap { command -> CodexInput? in
             guard let name = command.skillName, let path = command.skillPath else { return nil }
             return .skill(name: name, path: path)
-        } + mentions + [.text(CodexFileReferencePromptCodec.encode(files: referencedFiles, request: prompt))]
+        } + mentions + [.text(CodexComposerPromptCodec.encode(
+            files: referencedFiles,
+            responseAnnotations: responseAnnotations,
+            request: prompt
+        ))]
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.prompt == rhs.prompt
             && lhs.referencedFiles == rhs.referencedFiles
+            && lhs.responseAnnotations == rhs.responseAnnotations
             && lhs.skills == rhs.skills
             && lhs.mentions == rhs.mentions
             && lhs.threadID == rhs.threadID
@@ -81,6 +89,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     private var activeThreadID: String?
     private var draftByThreadID: [String: String]
     private var referencedFilesByThreadID: [String: [CodexReferencedFile]]
+    private var responseAnnotationsByThreadID: [String: [CodexResponseTextAnnotation]]
 
     public var draft: String {
         get { draft(for: activeThreadID) }
@@ -90,6 +99,11 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public var referencedFiles: [CodexReferencedFile] {
         get { referencedFiles(for: activeThreadID) }
         set { setReferencedFiles(newValue, for: activeThreadID) }
+    }
+
+    public var responseAnnotations: [CodexResponseTextAnnotation] {
+        get { responseAnnotations(for: activeThreadID) }
+        set { setResponseAnnotations(newValue, for: activeThreadID) }
     }
 
     public var sideChatDraft: String
@@ -112,7 +126,8 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         selectedMentionsByName: [String: FuzzyFileSearchResult] = [:],
         activeThreadID: String? = nil,
         draftByThreadID: [String: String] = [:],
-        referencedFilesByThreadID: [String: [CodexReferencedFile]] = [:]
+        referencedFilesByThreadID: [String: [CodexReferencedFile]] = [:],
+        responseAnnotationsByThreadID: [String: [CodexResponseTextAnnotation]] = [:]
     ) {
         self.activeThreadID = Self.normalizedThreadID(activeThreadID)
         var drafts = draftByThreadID
@@ -122,6 +137,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         }
         self.draftByThreadID = drafts
         self.referencedFilesByThreadID = referencedFilesByThreadID
+        self.responseAnnotationsByThreadID = responseAnnotationsByThreadID
         self.sideChatDraft = sideChatDraft
         self.followUpBehavior = followUpBehavior
         self.mentionResults = mentionResults
@@ -176,6 +192,22 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         setReferencedFiles(referencedFiles(for: threadID).filter { $0.id != id }, for: threadID)
     }
 
+    public func responseAnnotations(for threadID: String?) -> [CodexResponseTextAnnotation] {
+        responseAnnotationsByThreadID[Self.draftKey(for: threadID)] ?? []
+    }
+
+    public mutating func setResponseAnnotations(
+        _ annotations: [CodexResponseTextAnnotation],
+        for threadID: String?
+    ) {
+        let key = Self.draftKey(for: threadID)
+        if annotations.isEmpty {
+            responseAnnotationsByThreadID.removeValue(forKey: key)
+        } else {
+            responseAnnotationsByThreadID[key] = annotations
+        }
+    }
+
     public mutating func setDraft(_ draft: String, for threadID: String?) {
         let key = Self.draftKey(for: threadID)
         if draft.isEmpty {
@@ -219,26 +251,36 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public mutating func consumeDraftForFollowUp() -> CodexComposerSubmission? {
         let prompt = trimmedDraft
         let files = referencedFiles
-        guard !prompt.isEmpty || !files.isEmpty else { return nil }
-        let submission = CodexComposerSubmission(prompt: prompt, referencedFiles: files, threadID: activeThreadID)
+        let annotations = responseAnnotations
+        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty else { return nil }
+        let submission = CodexComposerSubmission(
+            prompt: prompt,
+            referencedFiles: files,
+            responseAnnotations: annotations,
+            threadID: activeThreadID
+        )
         draft = ""
         referencedFiles = []
+        responseAnnotations = []
         return submission
     }
 
     public mutating func consumeDraftForTurn() -> CodexComposerSubmission? {
         let prompt = trimmedDraft
         let files = referencedFiles
-        guard !prompt.isEmpty || !files.isEmpty else { return nil }
+        let annotations = responseAnnotations
+        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty else { return nil }
         let submission = CodexComposerSubmission(
             prompt: prompt,
             referencedFiles: files,
+            responseAnnotations: annotations,
             skills: attachedSkills,
             mentions: mentionInputs(for: prompt),
             threadID: activeThreadID
         )
         draft = ""
         referencedFiles = []
+        responseAnnotations = []
         attachedSkills = []
         selectedMentionsByName = [:]
         mentionResults = []
@@ -248,15 +290,18 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public mutating func consumeDraftForGoal() -> CodexComposerSubmission? {
         let prompt = trimmedDraft
         let files = referencedFiles
-        guard !prompt.isEmpty || !files.isEmpty else { return nil }
+        let annotations = responseAnnotations
+        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty else { return nil }
         let submission = CodexComposerSubmission(
             prompt: prompt,
             referencedFiles: files,
+            responseAnnotations: annotations,
             skills: attachedSkills,
             threadID: activeThreadID
         )
         draft = ""
         referencedFiles = []
+        responseAnnotations = []
         attachedSkills = []
         return submission
     }
@@ -276,6 +321,11 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             submission.referencedFiles + referencedFiles(for: targetThreadID),
             for: targetThreadID
         )
+        var restoredAnnotations = submission.responseAnnotations
+        restoredAnnotations.append(contentsOf: responseAnnotations(for: targetThreadID).filter { current in
+            !restoredAnnotations.contains(where: { $0.id == current.id })
+        })
+        setResponseAnnotations(restoredAnnotations, for: targetThreadID)
         attachedSkills = submission.skills + attachedSkills
     }
 
@@ -416,6 +466,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         let key = Self.draftKey(for: threadID)
         draftByThreadID.removeValue(forKey: key)
         referencedFilesByThreadID.removeValue(forKey: key)
+        responseAnnotationsByThreadID.removeValue(forKey: key)
         queuedFollowUpSubmissionsByThreadID.removeValue(forKey: key)
     }
 

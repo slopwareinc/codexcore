@@ -55,6 +55,7 @@ The composer supports:
 - click or hold microphone dictation, with insert, transcribe-and-send, and retry actions;
 - Goal and Plan modes;
 - file/folder attachments and mentions;
+- response text annotations with optional comments;
 - slash commands;
 - queued follow-ups, explicit steering, and turn interruption.
 
@@ -90,6 +91,15 @@ the normal expandable **Worked for …** disclosure.
 ## Transcript
 
 The transcript groups user input, agent work, tool calls, subagents, approvals, plans, diffs, and final answers into canonical turns. Expanded heavy details are materialized on demand.
+
+Select text in a completed assistant response and choose **Add to chat** to attach
+that excerpt to the current composer. Confirm the optional comment editor—an
+empty comment is valid—to create the attachment. Each confirmed selection keeps
+a numbered marker in the response; you can edit or remove individual annotations
+from the composer attachment, or remove the attachment as a whole. Annotation
+source locations remain local presentation state. On send, Codex receives the
+numbered selections and comments as hidden context while the visible user
+message remains the request you typed.
 
 ![A completed task with expanded command activity and a subagent](../assets/screenshots/subagent-activity.png)
 

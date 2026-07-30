@@ -23,6 +23,14 @@ extension CodexCoreAppModel {
         }
     }
 
+    var responseAnnotations: [CodexResponseTextAnnotation] {
+        get { composerSession.responseAnnotations(for: currentThreadID) }
+        set {
+            composerSession.setActiveThreadID(currentThreadID)
+            composerSession.setResponseAnnotations(newValue, for: currentThreadID)
+        }
+    }
+
     var sideChatDraft: String {
         get { composerSession.sideChatDraft }
         set { composerSession.sideChatDraft = newValue }
@@ -307,7 +315,11 @@ extension CodexCoreAppModel {
     var canSend: Bool {
         if case .connected = connectionState,
            isAuthenticated,
-           (!composerSession.trimmedDraft(for: currentThreadID).isEmpty || !referencedFiles.isEmpty),
+           (
+               !composerSession.trimmedDraft(for: currentThreadID).isEmpty
+                   || !referencedFiles.isEmpty
+                   || !responseAnnotations.isEmpty
+           ),
            !isSending || canSendFollowUp {
             return true
         }

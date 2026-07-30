@@ -235,6 +235,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private lazy var footerCopyItemButton = NSButton()
     private lazy var footerCopyTurnButton = NSButton()
     private lazy var footerContextButton = NSButton()
+    private var responseSelectionActionHost: NSHostingView<AnyView>?
+    private var responseAnnotationMarkerButtons: [CodexResponseAnnotationMarkerButton] = []
+    private var responseAnnotationEditorPanel: CodexResponseAnnotationEditorPanel?
+    private var responseAnnotationEditorEventMonitor: Any?
+    private var responseAnnotationEditorID: String?
+    private var responseAnnotationEditorIsCreating = false
+    private var pendingResponseAnnotation: CodexResponseTextAnnotation?
+    private var responseAnnotations: [CodexResponseTextAnnotation] = []
     private let backgroundView = NSView()
     private var textControlsInstalled = false
     private var actionControlInstalled = false
@@ -256,6 +264,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var copy: ((String) -> Void)?
     private var editUserMessage: ((String) -> Void)?
     private var forkChat: (() -> Void)?
+    private var upsertResponseAnnotation: ((CodexResponseTextAnnotation) -> Void)?
+    private var removeResponseAnnotation: ((String) -> Void)?
     private var selectionChanged: ((CodexTranscriptRenderItemID, Bool) -> Void)?
     private var preferredHeightChanged: ((CodexTranscriptRenderItemID, Int, CGFloat) -> Void)?
     private var lastReportedPreferredHeight: CGFloat?
@@ -312,6 +322,25 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var hasVerticalScrollerForTesting: Bool { textControlsInstalled && textScrollView.hasVerticalScroller }
     var hasHorizontalScrollerForTesting: Bool { textControlsInstalled && textScrollView.hasHorizontalScroller }
     var copyButtonIsVisibleForTesting: Bool { copyControlInstalled && !copyButton.isHidden }
+    var addSelectionToChatIsVisibleForTesting: Bool {
+        responseSelectionActionHost?.isHidden == false
+    }
+    var addSelectionToChatSizeForTesting: NSSize? {
+        guard responseSelectionActionHost?.isHidden == false else { return nil }
+        return responseSelectionActionHost?.frame.size
+    }
+    var responseAnnotationMarkerCountForTesting: Int { responseAnnotationMarkerButtons.count }
+    var responseAnnotationEditorSizeForTesting: NSSize? {
+        responseAnnotationEditorPanel?.frame.size
+    }
+    var responseAnnotationEditorIsCreatingForTesting: Bool {
+        responseAnnotationEditorPanel != nil && responseAnnotationEditorIsCreating
+    }
+    func addSelectionToChatForTesting() { addSelectionToChat() }
+    func saveResponseAnnotationCommentForTesting(_ comment: String) {
+        guard let id = responseAnnotationEditorID else { return }
+        saveResponseAnnotation(id: id, note: comment)
+    }
     var agentChipCountForTesting: Int { agentChipHosts.count }
     var agentChipHostCreationCountForTesting: Int { agentChipHostCreationCount }
     var agentChipTitlesForTesting: [String] {
@@ -400,6 +429,20 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         textScrollView.autohidesScrollers = true
         textScrollView.isHidden = true
         view.addSubview(textScrollView)
+
+        let actionHost = NSHostingView(rootView: responseSelectionActionView())
+        actionHost.isHidden = true
+        responseSelectionActionHost = actionHost
+        view.addSubview(actionHost)
+    }
+
+    private func responseSelectionActionView() -> AnyView {
+        AnyView(
+            CodexResponseSelectionActionView { [weak self] in
+                self?.addSelectionToChat()
+            }
+            .codexAgentTheme(swiftUITheme)
+        )
     }
 
     private func ensureActionControl() {
@@ -534,6 +577,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         clearGlassBackground()
         clearDiffTabs()
         closeAgentPreview()
+        closeResponseAnnotationEditor()
+        pendingResponseAnnotation = nil
+        clearResponseAnnotationMarkers()
+        responseSelectionActionHost?.isHidden = true
         if textControlsInstalled {
             selectableTextView.string = ""
             selectableTextView.isSelectable = false
@@ -589,6 +636,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         copy: @escaping (String) -> Void,
         editUserMessage: @escaping (String) -> Void,
         forkChat: (() -> Void)?,
+        responseAnnotations: [CodexResponseTextAnnotation] = [],
+        upsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
+        removeResponseAnnotation: @escaping (String) -> Void = { _ in },
         selectionChanged: @escaping (CodexTranscriptRenderItemID, Bool) -> Void,
         preferredHeightChanged: @escaping (CodexTranscriptRenderItemID, Int, CGFloat) -> Void = { _, _, _ in }
     ) {
@@ -605,6 +655,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.copy = copy
         self.editUserMessage = editUserMessage
         self.forkChat = forkChat
+        self.responseAnnotations = responseAnnotations
+        self.upsertResponseAnnotation = upsertResponseAnnotation
+        self.removeResponseAnnotation = removeResponseAnnotation
         self.selectionChanged = selectionChanged
         self.preferredHeightChanged = preferredHeightChanged
         hostedView?.removeFromSuperview()
@@ -612,6 +665,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         clearGlassBackground()
         clearDiffTabs()
         closeAgentPreview()
+        closeResponseAnnotationEditor()
+        pendingResponseAnnotation = nil
+        clearResponseAnnotationMarkers()
+        responseSelectionActionHost?.rootView = responseSelectionActionView()
+        responseSelectionActionHost?.isHidden = true
         backgroundView.isHidden = true
         if textControlsInstalled { textScrollView.isHidden = true }
         if actionControlInstalled {
@@ -815,6 +873,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
 
         updateFooterChromeVisibility()
+        updateResponseAnnotationChrome()
         view.needsLayout = true
     }
 
@@ -985,6 +1044,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 }
             }
         }
+        layoutResponseAnnotationChrome()
     }
 
     private func liveTranscriptViewportWidth(fallback: CGFloat) -> CGFloat {
@@ -1505,10 +1565,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         swiftUITheme: CodexAgentTheme
     ) -> AnyView {
         let isAttachment = chip.threadID == nil && chip.taskSummary != nil
+        let isResponseAnnotation = chip.systemImage == "text.bubble"
         let pill = CodexTranscriptAgentPill(
             chip: chip,
             onHover: { [weak self] hovered in
-                guard !isAttachment else {
+                guard !isAttachment || isResponseAnnotation else {
                     if hovered { self?.closeAgentPreview() }
                     return
                 }
@@ -1619,7 +1680,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             rootView: AnyView(preview.codexAgentTheme(swiftUITheme))
         )
         let hasDetails = chip.taskSummary != nil || chip.latestUpdate != nil
-        popover.contentSize = NSSize(width: 300, height: hasDetails ? 142 : 92)
+        let isResponseAnnotation = chip.systemImage == "text.bubble"
+        popover.contentSize = NSSize(
+            width: 300,
+            height: isResponseAnnotation ? 210 : (hasDetails ? 142 : 92)
+        )
         agentPreviewPopover = popover
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
     }
@@ -1650,6 +1715,358 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func textViewDidChangeSelection(_ notification: Notification) {
         guard let id = item?.id else { return }
         selectionChanged?(id, selectableTextView.selectedRange().length > 0)
+        updateAddSelectionToChatButton()
+        view.needsLayout = true
+    }
+
+    private func updateResponseAnnotationChrome() {
+        guard textControlsInstalled, let item, item.allowsResponseAnnotation else {
+            if textControlsInstalled {
+                clearResponseAnnotationHighlights()
+                responseSelectionActionHost?.isHidden = true
+            }
+            return
+        }
+
+        clearResponseAnnotationHighlights()
+        let matching = responseAnnotations.filter {
+            $0.anchor.renderItemID == item.id.rawValue
+                && $0.anchor.range.location != NSNotFound
+                && NSMaxRange($0.anchor.range) <= (selectableTextView.textStorage?.length ?? 0)
+                && $0.anchor.range.length > 0
+        }
+        for annotation in matching {
+            selectableTextView.layoutManager?.addTemporaryAttribute(
+                .backgroundColor,
+                value: NSColor(
+                    srgbRed: 18 / 255,
+                    green: 141 / 255,
+                    blue: 1,
+                    alpha: 0.4
+                ),
+                forCharacterRange: annotation.anchor.range
+            )
+        }
+        configureResponseAnnotationMarkers(matching)
+        updateAddSelectionToChatButton()
+    }
+
+    private func clearResponseAnnotationHighlights() {
+        let length = selectableTextView.textStorage?.length ?? 0
+        guard length > 0 else { return }
+        selectableTextView.layoutManager?.removeTemporaryAttribute(
+            .backgroundColor,
+            forCharacterRange: NSRange(location: 0, length: length)
+        )
+    }
+
+    private func updateAddSelectionToChatButton() {
+        guard textControlsInstalled,
+              item?.allowsResponseAnnotation == true
+        else {
+            responseSelectionActionHost?.isHidden = true
+            return
+        }
+        let selection = selectableTextView.selectedRange()
+        let length = selectableTextView.textStorage?.length ?? 0
+        responseSelectionActionHost?.isHidden = pendingResponseAnnotation != nil
+            || selection.length == 0
+            || selection.location == NSNotFound
+            || NSMaxRange(selection) > length
+    }
+
+    private func configureResponseAnnotationMarkers(
+        _ annotations: [CodexResponseTextAnnotation]
+    ) {
+        clearResponseAnnotationMarkers()
+        for annotation in annotations {
+            guard let ordinal = responseAnnotations.firstIndex(where: { $0.id == annotation.id }) else {
+                continue
+            }
+            let button = CodexResponseAnnotationMarkerButton(frame: .zero)
+            button.title = "\(ordinal + 1)"
+            button.target = self
+            button.action = #selector(openResponseAnnotationEditor(_:))
+            button.tag = ordinal
+            button.toolTip = annotation.annotation ?? annotation.text
+            button.setAccessibilityLabel("Annotation \(ordinal + 1)")
+            responseAnnotationMarkerButtons.append(button)
+            view.addSubview(button)
+        }
+    }
+
+    private func clearResponseAnnotationMarkers() {
+        responseAnnotationMarkerButtons.forEach { $0.removeFromSuperview() }
+        responseAnnotationMarkerButtons.removeAll(keepingCapacity: true)
+    }
+
+    private func layoutResponseAnnotationChrome() {
+        guard textControlsInstalled else { return }
+        if let responseSelectionActionHost,
+           !responseSelectionActionHost.isHidden,
+           let selectionRect = textRect(for: selectableTextView.selectedRange()) {
+            let rect = selectableTextView.convert(selectionRect, to: view)
+            let width: CGFloat = 102
+            let height: CGFloat = 32
+            let proposedY = view.isFlipped
+                ? rect.minY - height - 8
+                : rect.maxY + 8
+            responseSelectionActionHost.frame = NSRect(
+                x: min(max(0, rect.minX), max(0, view.bounds.width - width)),
+                y: min(max(0, proposedY), max(0, view.bounds.height - height)),
+                width: width,
+                height: height
+            )
+        }
+
+        let matching = responseAnnotations.filter {
+            $0.anchor.renderItemID == item?.id.rawValue
+                && $0.anchor.range.location != NSNotFound
+                && NSMaxRange($0.anchor.range) <= (selectableTextView.textStorage?.length ?? 0)
+                && $0.anchor.range.length > 0
+        }
+        for (button, annotation) in zip(responseAnnotationMarkerButtons, matching) {
+            guard let markerRect = textRect(for: annotation.anchor.range) else { continue }
+            let rect = selectableTextView.convert(markerRect, to: view)
+            let size: CGFloat = 25
+            let proposedY = view.isFlipped ? rect.minY - size : rect.maxY
+            button.frame = NSRect(
+                x: min(max(0, rect.maxX - size / 2), max(0, view.bounds.width - size)),
+                y: min(max(0, proposedY), max(0, view.bounds.height - size)),
+                width: size,
+                height: size
+            )
+        }
+    }
+
+    private func textRect(for characterRange: NSRange) -> NSRect? {
+        guard characterRange.location != NSNotFound,
+              characterRange.length > 0,
+              let layoutManager = selectableTextView.layoutManager,
+              let textContainer = selectableTextView.textContainer,
+              NSMaxRange(characterRange) <= (selectableTextView.textStorage?.length ?? 0)
+        else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: characterRange,
+            actualCharacterRange: nil
+        )
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        rect.origin.x += selectableTextView.textContainerOrigin.x
+        rect.origin.y += selectableTextView.textContainerOrigin.y
+        return rect
+    }
+
+    @objc private func addSelectionToChat() {
+        guard let item, item.allowsResponseAnnotation else { return }
+        let range = selectableTextView.selectedRange()
+        guard range.location != NSNotFound,
+              range.length > 0,
+              NSMaxRange(range) <= (selectableTextView.textStorage?.length ?? 0)
+        else { return }
+        let text = (selectableTextView.string as NSString)
+            .substring(with: range)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        let annotation = CodexResponseTextAnnotation(
+            text: text,
+            anchor: CodexResponseTextAnchor(
+                renderItemID: item.id.rawValue,
+                startOffset: range.location,
+                endOffset: NSMaxRange(range)
+            )
+        )
+        pendingResponseAnnotation = annotation
+        responseSelectionActionHost?.isHidden = true
+        showResponseAnnotationEditor(annotation, isCreating: true)
+    }
+
+    @objc private func openResponseAnnotationEditor(_ sender: NSButton) {
+        guard responseAnnotations.indices.contains(sender.tag) else { return }
+        let annotation = responseAnnotations[sender.tag]
+        showResponseAnnotationEditor(annotation, isCreating: false)
+    }
+
+    private func showResponseAnnotationEditor(
+        _ annotation: CodexResponseTextAnnotation,
+        isCreating: Bool
+    ) {
+        closeResponseAnnotationEditor()
+        guard let parentWindow = view.window else { return }
+        let anchorRect: NSRect?
+        if isCreating, let selectionRect = textRect(for: annotation.anchor.range) {
+            anchorRect = selectableTextView.convert(selectionRect, to: view)
+        } else if let ordinal = responseAnnotations.firstIndex(where: { $0.id == annotation.id }),
+                  let marker = responseAnnotationMarkerButtons.first(where: { $0.tag == ordinal }) {
+            anchorRect = marker.frame
+        } else {
+            anchorRect = nil
+        }
+        guard let anchorRect else { return }
+
+        let panelSize = NSSize(width: 294, height: 44)
+        let panel = CodexResponseAnnotationEditorPanel(
+            contentRect: NSRect(origin: .zero, size: panelSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.isFloatingPanel = true
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .utilityWindow
+        panel.contentView = NSHostingView(rootView: AnyView(
+            CodexResponseAnnotationNoteEditor(
+                initialNote: annotation.annotation ?? "",
+                isCreating: isCreating,
+                onSave: { [weak self] note in
+                    self?.saveResponseAnnotation(id: annotation.id, note: note)
+                },
+                onDelete: { [weak self] in
+                    self?.deleteResponseAnnotation(annotation.id)
+                }
+            )
+            .codexAgentTheme(swiftUITheme)
+        ))
+        panel.setFrameOrigin(responseAnnotationEditorOrigin(
+            anchorRect: anchorRect,
+            panelSize: panelSize,
+            parentWindow: parentWindow
+        ))
+        responseAnnotationEditorPanel = panel
+        responseAnnotationEditorID = annotation.id
+        responseAnnotationEditorIsCreating = isCreating
+        parentWindow.addChildWindow(panel, ordered: .above)
+        panel.makeKeyAndOrderFront(nil)
+        installResponseAnnotationEditorEventMonitor(panel)
+    }
+
+    private func closeResponseAnnotationEditor() {
+        if let monitor = responseAnnotationEditorEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            responseAnnotationEditorEventMonitor = nil
+        }
+        guard let panel = responseAnnotationEditorPanel else { return }
+        let parent = panel.parent
+        let restoresParentFocus = panel.isKeyWindow
+        parent?.removeChildWindow(panel)
+        panel.orderOut(nil)
+        responseAnnotationEditorPanel = nil
+        responseAnnotationEditorID = nil
+        responseAnnotationEditorIsCreating = false
+        if restoresParentFocus {
+            parent?.makeKey()
+        }
+    }
+
+    private func installResponseAnnotationEditorEventMonitor(
+        _ panel: CodexResponseAnnotationEditorPanel
+    ) {
+        responseAnnotationEditorEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .keyDown]
+        ) { [weak self, weak panel] event in
+            guard let self, let panel else { return event }
+            if event.type == .keyDown, event.keyCode == 53 {
+                let id = self.responseAnnotationEditorID
+                let shouldDelete = self.responseAnnotationEditorIsCreating
+                self.closeResponseAnnotationEditor()
+                if shouldDelete, let id {
+                    self.deleteResponseAnnotation(id)
+                }
+                return nil
+            }
+            if event.type != .keyDown, event.window !== panel {
+                if self.responseAnnotationEditorIsCreating {
+                    self.pendingResponseAnnotation = nil
+                    self.selectableTextView.setSelectedRange(NSRange(location: 0, length: 0))
+                }
+                self.closeResponseAnnotationEditor()
+            }
+            return event
+        }
+    }
+
+    private func responseAnnotationEditorOrigin(
+        anchorRect: NSRect,
+        panelSize: NSSize,
+        parentWindow: NSWindow
+    ) -> NSPoint {
+        let anchorInWindow = view.convert(anchorRect, to: nil)
+        let convertedCenter = parentWindow.convertPoint(toScreen: NSPoint(
+            x: anchorInWindow.midX,
+            y: anchorInWindow.midY
+        ))
+        let parentFrame = parentWindow.frame
+        let placementFrame = parentFrame.origin.x.isFinite
+            && parentFrame.origin.y.isFinite
+            && parentFrame.width.isFinite
+            && parentFrame.height.isFinite
+            && parentFrame.width >= panelSize.width + 32
+            && parentFrame.height >= panelSize.height + 32
+            ? parentFrame
+            : (parentWindow.screen?.visibleFrame
+                ?? NSScreen.main?.visibleFrame
+                ?? NSRect(x: 0, y: 0, width: 1_024, height: 768))
+        let bounds = placementFrame.insetBy(dx: 16, dy: 16)
+        let markerCenter = NSPoint(
+            x: convertedCenter.x.isFinite ? convertedCenter.x : bounds.midX,
+            y: convertedCenter.y.isFinite ? convertedCenter.y : bounds.midY
+        )
+        let right = markerCenter.x + 27
+        let left = markerCenter.x - 27 - panelSize.width
+        let x: CGFloat
+        if right + panelSize.width <= bounds.maxX {
+            x = right
+        } else if left >= bounds.minX {
+            x = left
+        } else {
+            x = min(max(bounds.minX, markerCenter.x - panelSize.width / 2), bounds.maxX - panelSize.width)
+        }
+        let y = min(
+            max(bounds.minY, markerCenter.y - panelSize.height / 2),
+            bounds.maxY - panelSize.height
+        )
+        return NSPoint(x: x, y: y)
+    }
+
+    private func deleteResponseAnnotation(_ id: String) {
+        if pendingResponseAnnotation?.id == id {
+            pendingResponseAnnotation = nil
+            selectableTextView.setSelectedRange(NSRange(location: 0, length: 0))
+            closeResponseAnnotationEditor()
+            updateAddSelectionToChatButton()
+            return
+        }
+        responseAnnotations.removeAll { $0.id == id }
+        removeResponseAnnotation?(id)
+        closeResponseAnnotationEditor()
+        updateResponseAnnotationChrome()
+        view.needsLayout = true
+    }
+
+    private func saveResponseAnnotation(id: String, note: String) {
+        if var annotation = pendingResponseAnnotation, annotation.id == id {
+            annotation.annotation = note
+            pendingResponseAnnotation = nil
+            responseAnnotations.append(annotation)
+            upsertResponseAnnotation?(annotation)
+            selectableTextView.setSelectedRange(NSRange(location: 0, length: 0))
+            closeResponseAnnotationEditor()
+            updateResponseAnnotationChrome()
+            view.needsLayout = true
+            return
+        }
+        guard let index = responseAnnotations.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        responseAnnotations[index].annotation = note
+        upsertResponseAnnotation?(responseAnnotations[index])
+        closeResponseAnnotationEditor()
+        updateResponseAnnotationChrome()
+        view.needsLayout = true
     }
 
     @objc private func invokePrimaryAction() {
@@ -1710,6 +2127,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 ? #selector(copyItem(_:))
                 : #selector(copySelectionOrItem)
             menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+        }
+        if item.allowsResponseAnnotation,
+           textControlsInstalled,
+           selectableTextView.selectedRange().length > 0 {
+            menu.addItem(
+                withTitle: "Add to chat",
+                action: #selector(addSelectionToChat),
+                keyEquivalent: ""
+            )
         }
         menu.addItem(withTitle: "Copy turn", action: #selector(copyTurn(_:)), keyEquivalent: "")
         if item.textRole == .user || item.footer?.kind == .user {
@@ -1973,7 +2399,7 @@ private struct CodexTranscriptAgentPill: View {
                     .background(theme.colors.surface.opacity(0.7))
                 }
             } else if chip.threadID == nil {
-                Image(systemName: "doc")
+                Image(systemName: chip.systemImage ?? "doc")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.colors.textSecondary)
             } else {
@@ -2066,15 +2492,28 @@ private struct CodexTranscriptAgentHoverPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Circle().fill(statusColor).frame(width: 7, height: 7)
-                Text(chip.label).font(theme.fonts.label)
-                Spacer(minLength: 8)
-                Text(statusTitle).font(theme.fonts.caption).foregroundStyle(statusColor)
+            if isResponseAnnotation {
+                Label(chip.label, systemImage: "text.bubble")
+                    .font(theme.fonts.label)
+            } else {
+                HStack(spacing: 7) {
+                    Circle().fill(statusColor).frame(width: 7, height: 7)
+                    Text(chip.label).font(theme.fonts.label)
+                    Spacer(minLength: 8)
+                    Text(statusTitle).font(theme.fonts.caption).foregroundStyle(statusColor)
+                }
             }
 
             if let task = chip.taskSummary {
-                previewRow("Task", task)
+                if isResponseAnnotation {
+                    Text(task)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(8)
+                        .textSelection(.enabled)
+                } else {
+                    previewRow("Task", task)
+                }
             }
             if let latest = chip.latestUpdate {
                 previewRow("Latest update", latest)
@@ -2105,6 +2544,10 @@ private struct CodexTranscriptAgentHoverPreview: View {
                 .stroke(theme.colors.borderStrong.opacity(0.6), lineWidth: 1)
         }
         .onHover(perform: onHover)
+    }
+
+    private var isResponseAnnotation: Bool {
+        chip.systemImage == "text.bubble"
     }
 
     private func previewRow(_ title: String, _ value: String) -> some View {

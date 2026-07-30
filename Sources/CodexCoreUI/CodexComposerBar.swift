@@ -10,6 +10,7 @@ public struct CodexComposerBar: View {
 
     @Binding private var draft: String
     @Binding private var referencedFiles: [CodexReferencedFile]
+    @Binding private var responseAnnotations: [CodexResponseTextAnnotation]
     @Binding private var approvalSelection: CodexApprovalSelection
     @Binding private var isPlanModeEnabled: Bool
     private let isGoalPursuitEnabled: Bool
@@ -55,6 +56,7 @@ public struct CodexComposerBar: View {
     public init(
         draft: Binding<String>,
         referencedFiles: Binding<[CodexReferencedFile]> = .constant([]),
+        responseAnnotations: Binding<[CodexResponseTextAnnotation]> = .constant([]),
         placeholder: String = "Ask Codex anything about this workspace...",
         isCompact: Bool = false,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
@@ -92,6 +94,7 @@ public struct CodexComposerBar: View {
     ) {
         self._draft = draft
         self._referencedFiles = referencedFiles
+        self._responseAnnotations = responseAnnotations
         self.placeholder = placeholder
         self.isCompact = isCompact
         self._approvalSelection = approvalSelection
@@ -183,6 +186,10 @@ public struct CodexComposerBar: View {
                     )
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
+                if !responseAnnotations.isEmpty {
+                    CodexResponseAnnotationAttachmentView(annotations: $responseAnnotations)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
 
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -238,6 +245,7 @@ public struct CodexComposerBar: View {
                             ComposerStopButton(action: onInterrupt)
                         } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                                   referencedFiles.isEmpty,
+                                  responseAnnotations.isEmpty,
                                   let onStartVoiceChat {
                             ComposerVoiceButton(label: voiceChatLabel, action: onStartVoiceChat)
                         } else {
@@ -1358,13 +1366,20 @@ struct CodexQueuedFollowUpStack: View {
                 .foregroundStyle(theme.colors.textTertiary)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(submission.prompt.isEmpty ? "Attached follow-up" : submission.prompt)
+                Text(queuedTitle(for: submission))
                     .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if !submission.referencedFiles.isEmpty {
+                if !submission.responseAnnotations.isEmpty {
+                    Label(
+                        annotationSummary(for: submission.responseAnnotations.count),
+                        systemImage: "text.bubble"
+                    )
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                } else if !submission.referencedFiles.isEmpty {
                     Label(
                         "\(submission.referencedFiles.count) attachment\(submission.referencedFiles.count == 1 ? "" : "s")",
                         systemImage: "paperclip"
@@ -1416,6 +1431,18 @@ struct CodexQueuedFollowUpStack: View {
         .padding(.vertical, 11)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private func queuedTitle(for submission: CodexComposerSubmission) -> String {
+        if !submission.prompt.isEmpty { return submission.prompt }
+        if !submission.responseAnnotations.isEmpty {
+            return annotationSummary(for: submission.responseAnnotations.count)
+        }
+        return "Attached follow-up"
+    }
+
+    private func annotationSummary(for count: Int) -> String {
+        count == 1 ? "1 annotation" : "\(count) annotations"
     }
 }
 

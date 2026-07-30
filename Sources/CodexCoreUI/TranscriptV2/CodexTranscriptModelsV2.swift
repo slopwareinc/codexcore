@@ -66,6 +66,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
     public var text: String
     public var rawText: String
     public var referencedFiles: [CodexReferencedFile]
+    public var responseAnnotations: [CodexResponseAnnotationContent]
     public var isOptimistic: Bool
     public init(
         id: String,
@@ -73,6 +74,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         text: String,
         rawText: String? = nil,
         referencedFiles: [CodexReferencedFile] = [],
+        responseAnnotations: [CodexResponseAnnotationContent] = [],
         isOptimistic: Bool = false
     ) {
         self.id = id
@@ -80,6 +82,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         self.text = text
         self.rawText = rawText ?? text
         self.referencedFiles = referencedFiles
+        self.responseAnnotations = responseAnnotations
         self.isOptimistic = isOptimistic
     }
 

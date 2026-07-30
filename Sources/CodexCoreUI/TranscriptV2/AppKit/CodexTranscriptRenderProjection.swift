@@ -129,6 +129,7 @@ struct CodexTranscriptWorkRowRender: Sendable, Equatable {
 struct CodexTranscriptAgentChipRender: Sendable, Equatable {
     var id: String
     var label: String
+    var systemImage: String? = nil
     var status: CodexAgentDisplayStatusV2
     var threadID: String?
     var taskSummary: String?
@@ -205,6 +206,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var editUserText: String?
     var copyTurnText: String
     var allowsTextSelection: Bool
+    var allowsResponseAnnotation: Bool = false
     var accessibilityLabel: String
     var indentation: CGFloat
     var isTrailingAligned: Bool
@@ -385,6 +387,9 @@ actor CodexTranscriptRenderProjector {
                 let id = CodexTranscriptRenderItemID(rawValue: draft.id)
                 let allowsTextSelection = draft.footer == nil
                     && (draft.preparedText != nil || draft.code != nil)
+                let allowsResponseAnnotation = allowsTextSelection
+                    && draft.textRole == .finalAnswer
+                    && !turnIsStreaming
                 let contentFingerprint = CodexBlockDigest.digest(draft.fingerprint)
                 let previous = revisionByID[id]
                 let revision: Int
@@ -432,6 +437,7 @@ actor CodexTranscriptRenderProjector {
                     editUserText: draft.editUserText,
                     copyTurnText: copyTurnText,
                     allowsTextSelection: allowsTextSelection,
+                    allowsResponseAnnotation: allowsResponseAnnotation,
                     accessibilityLabel: draft.accessibilityLabel,
                     indentation: draft.indentation,
                     isTrailingAligned: draft.isTrailingAligned,
@@ -1383,6 +1389,39 @@ private extension CodexTranscriptRenderProjector {
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
         var drafts: [ItemDraft] = []
+        if !user.responseAnnotations.isEmpty {
+            let count = user.responseAnnotations.count
+            let summary = user.responseAnnotations.enumerated().map { index, annotation in
+                var lines = ["\(index + 1). Selected text: \(annotation.text)"]
+                if let comment = annotation.annotation {
+                    lines.append("User comment: \(comment)")
+                }
+                return lines.joined(separator: "\n")
+            }.joined(separator: "\n\n")
+            let chip = CodexTranscriptAgentChipRender(
+                id: "\(user.id):response-annotations",
+                label: count == 1 ? "1 annotation" : "\(count) annotations",
+                systemImage: "text.bubble",
+                status: .done,
+                threadID: nil,
+                taskSummary: summary
+            )
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):response-annotations",
+                fingerprint: "response-annotations:\(user.responseAnnotations)",
+                agentChips: [chip],
+                accessibilityLabel: chip.label,
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                intrinsicContentWidth: min(
+                    userMaxWidth,
+                    ceil((chip.label as NSString).size(
+                        withAttributes: [.font: theme.captionFont]
+                    ).width) + 34
+                ),
+                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+            ))
+        }
         if !user.referencedFiles.isEmpty {
             let attachmentChips = user.referencedFiles.map {
                 CodexTranscriptAgentChipRender(
@@ -1417,18 +1456,20 @@ private extension CodexTranscriptRenderProjector {
                 bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
             ))
         }
-        drafts.append(ItemDraft(
-            id: "\(sectionID):user:\(user.id)",
-            fingerprint: "user:\(user.rawText):\(user.isOptimistic)",
-            textRole: .user,
-            preparedText: prepared,
-            copyText: user.text.isEmpty ? user.displayText : user.text,
-            editUserText: user.rawText,
-            accessibilityLabel: "You: \(visibleUserText)",
-            isTrailingAligned: true,
-            maxWidthKind: .user,
-            intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
-        ))
+        if !visibleUserText.isEmpty {
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id)",
+                fingerprint: "user:\(user.rawText):\(user.isOptimistic)",
+                textRole: .user,
+                preparedText: prepared,
+                copyText: user.text.isEmpty ? user.displayText : user.text,
+                editUserText: user.rawText,
+                accessibilityLabel: "You: \(visibleUserText)",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                intrinsicContentWidth: min(userMaxWidth, ceil(textBounds.width) + horizontalPadding)
+            ))
+        }
         if !hidesTimestamp {
             drafts.append(timestampDraft(
                 id: "\(sectionID):user-timestamp:\(user.id)",

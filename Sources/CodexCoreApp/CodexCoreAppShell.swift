@@ -404,6 +404,7 @@ struct CodexCoreAppShell: View {
                 reasoningSelection: $model.reasoningSelection,
                 draft: $model.draft,
                 referencedFiles: $model.referencedFiles,
+                responseAnnotations: $model.responseAnnotations,
                 sideChatDraft: $model.sideChatDraft,
                 isSending: model.isSending,
                 isSideChatSending: model.isSideChatSending,

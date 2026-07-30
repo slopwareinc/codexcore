@@ -412,13 +412,14 @@ private extension CodexCanonicalTranscriptProjector {
         let clientID = item.clientUserMessageID?.rawValue ?? item.payload.string("clientId")
         let rawText = item.payload.textContent
         guard !isRealtimeDelegationEnvelope(rawText) else { return nil }
-        let decoded = CodexFileReferencePromptCodec.decode(rawText)
+        let decoded = CodexComposerPromptCodec.decode(rawText)
         return CodexUserMessageV2(
             id: item.key.itemID.rawValue,
             clientID: clientID,
             text: decoded?.request ?? rawText,
             rawText: rawText,
             referencedFiles: decoded?.files ?? [],
+            responseAnnotations: decoded?.responseAnnotations ?? [],
             isOptimistic: false
         )
     }
@@ -431,13 +432,14 @@ private extension CodexCanonicalTranscriptProjector {
 
     func optimisticUserMessage(_ intent: SubmissionIntent) -> CodexUserMessageV2 {
         let rawText = inputText(intent.input)
-        let decoded = CodexFileReferencePromptCodec.decode(rawText)
+        let decoded = CodexComposerPromptCodec.decode(rawText)
         return CodexUserMessageV2(
             id: "local-\(intent.id.rawValue)",
             clientID: intent.id.rawValue,
             text: decoded?.request ?? rawText,
             rawText: rawText,
             referencedFiles: decoded?.files ?? [],
+            responseAnnotations: decoded?.responseAnnotations ?? [],
             isOptimistic: true
         )
     }
