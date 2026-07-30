@@ -31,11 +31,18 @@ public enum CodexNotificationPresentation {
 
 public enum CodexRateLimitPresentation {
     public static func bannerMessage(for snapshot: CodexSchemaRateLimitSnapshot) -> String? {
+        bannerMessage(for: snapshot, now: .now)
+    }
+
+    static func bannerMessage(
+        for snapshot: CodexSchemaRateLimitSnapshot,
+        now: Date
+    ) -> String? {
         if snapshot.rateLimitReachedType != nil {
             return reachedMessage(for: snapshot)
         }
         guard let primary = snapshot.primary, primary.usedPercent >= 80 else { return nil }
-        return "Rate limit \(primary.usedPercent)% used\(resetSuffix(for: primary))"
+        return "Rate limit \(primary.usedPercent)% used\(resetSuffix(for: primary, now: now))"
     }
 
     public static func summary(for snapshot: CodexSchemaRateLimitSnapshot) -> String {
@@ -44,10 +51,10 @@ public enum CodexRateLimitPresentation {
         }
         var parts: [String] = []
         if let primary = snapshot.primary {
-            parts.append("Primary window \(primary.usedPercent)% used\(resetSuffix(for: primary))")
+            parts.append("Primary window \(primary.usedPercent)% used\(resetSuffix(for: primary, now: .now))")
         }
         if let secondary = snapshot.secondary {
-            parts.append("Secondary window \(secondary.usedPercent)% used\(resetSuffix(for: secondary))")
+            parts.append("Secondary window \(secondary.usedPercent)% used\(resetSuffix(for: secondary, now: .now))")
         }
         if let limitName = snapshot.limitName?.trimmingCharacters(in: .whitespacesAndNewlines), !limitName.isEmpty {
             parts.append(limitName)
@@ -73,12 +80,64 @@ public enum CodexRateLimitPresentation {
         }
     }
 
-    private static func resetSuffix(for window: CodexSchemaRateLimitWindow) -> String {
-        guard let duration = window.windowDurationMins else { return "" }
-        return " · resets in \(duration)m window"
+    private static func resetSuffix(
+        for window: CodexSchemaRateLimitWindow,
+        now: Date
+    ) -> String {
+        guard let description = CodexRateLimitWindowText.description(for: window, now: now) else {
+            return ""
+        }
+        return " · \(description)"
     }
 
     private static func humanized(_ raw: String) -> String {
         raw.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+enum CodexRateLimitWindowText {
+    static func description(
+        for window: CodexSchemaRateLimitWindow,
+        now: Date = .now,
+        locale: Locale = .current,
+        timeZone: TimeZone = .current
+    ) -> String? {
+        if let resetsAt = window.resetsAt, resetsAt > 0 {
+            let resetDate = Date(timeIntervalSince1970: TimeInterval(resetsAt))
+            let interval = resetDate.timeIntervalSince(now)
+
+            if interval <= 0 {
+                return "resets soon"
+            }
+
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+
+            if interval < 24 * 60 * 60 {
+                formatter.dateStyle = .none
+                formatter.timeStyle = .short
+                return "resets at \(formatter.string(from: resetDate))"
+            }
+
+            formatter.setLocalizedDateFormatFromTemplate("MMM d")
+            return "resets \(formatter.string(from: resetDate))"
+        }
+
+        return window.windowDurationMins.map(durationLabel(minutes:))
+    }
+
+    static func durationLabel(minutes: Int) -> String {
+        if minutes > 0, minutes.isMultiple(of: 24 * 60) {
+            return unitLabel(minutes / (24 * 60), unit: "day")
+        }
+        if minutes > 0, minutes.isMultiple(of: 60) {
+            return unitLabel(minutes / 60, unit: "hour")
+        }
+        return unitLabel(minutes, unit: "minute")
+    }
+
+    private static func unitLabel(_ value: Int, unit: String) -> String {
+        "\(value)-\(unit) window"
     }
 }

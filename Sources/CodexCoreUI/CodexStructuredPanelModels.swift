@@ -123,13 +123,10 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
     }
 
     private static func resetLabel(for window: CodexSchemaRateLimitWindow) -> String {
-        if let resetsAt = window.resetsAt {
-            return "Resets at \(resetsAt)"
+        guard let description = CodexRateLimitWindowText.description(for: window) else {
+            return "Reset unavailable"
         }
-        if let duration = window.windowDurationMins {
-            return "Resets in \(duration)m window"
-        }
-        return "Reset unavailable"
+        return description.prefix(1).uppercased() + description.dropFirst()
     }
 
     private static func keyValue(_ metadata: String) -> (String, String)? {
