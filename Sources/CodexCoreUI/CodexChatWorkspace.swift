@@ -94,6 +94,8 @@ public struct CodexChatWorkspaceView: View {
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
+    private let dictationState: CodexComposerDictationState
+    private let dictationActions: CodexComposerDictationActions?
     private let onStartVoiceChat: (() -> Void)?
     private let voiceChatLabel: String
     private let onSteerQueuedFollowUp: (String) -> Void
@@ -176,6 +178,8 @@ public struct CodexChatWorkspaceView: View {
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
+        dictationState: CodexComposerDictationState = .init(),
+        dictationActions: CodexComposerDictationActions? = nil,
         onStartVoiceChat: (() -> Void)? = nil,
         voiceChatLabel: String = "Start new voice chat",
         onSteerQueuedFollowUp: @escaping (String) -> Void = { _ in },
@@ -249,6 +253,8 @@ public struct CodexChatWorkspaceView: View {
         self.onMentionSelected = onMentionSelected
         self.onSend = onSend
         self.onInterrupt = onInterrupt
+        self.dictationState = dictationState
+        self.dictationActions = dictationActions
         self.onStartVoiceChat = onStartVoiceChat
         self.voiceChatLabel = voiceChatLabel
         self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
@@ -494,6 +500,8 @@ public struct CodexChatWorkspaceView: View {
                         onMentionSelected: onMentionSelected,
                         onSend: onSend,
                         onInterrupt: onInterrupt,
+                        dictationState: dictationState,
+                        dictationActions: dictationActions,
                         onStartVoiceChat: onStartVoiceChat,
                         voiceChatLabel: voiceChatLabel,
                         onSlashCommandSelected: onSlashCommandSelected,

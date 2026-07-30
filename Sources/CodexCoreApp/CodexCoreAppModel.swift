@@ -99,6 +99,7 @@ final class CodexCoreAppModel {
     var lastManualModelPreference: CodexModelPreference?
     let workspacePanel = CodexWorkspacePanelStore(capacity: 20)
     let voiceSession = CodexVoiceChatSession()
+    let dictationSession: CodexComposerDictationSession
     var isProjectlessDraft = true
     var projectlessDraftPaths: CodexProjectlessThreadPaths?
     private var chatSelectionGeneration = 0
@@ -124,6 +125,7 @@ final class CodexCoreAppModel {
         preferenceStore: any CodexStringListPreferenceStore
     ) {
         self.codexHome = codexHome
+        self.dictationSession = CodexComposerDictationSession()
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
@@ -229,6 +231,7 @@ final class CodexCoreAppModel {
     }
 
     func disconnect() async {
+        dictationSession.abort()
         await voiceSession.stop()
         await stopBottomTerminalSession()
         await runtimeSession.disconnect()
@@ -1482,6 +1485,7 @@ final class CodexCoreAppModel {
     }
 
     func startVoiceChat() async {
+        dictationSession.abort()
         if voiceSession.isActive {
             await showVoiceChat()
             return
@@ -2566,6 +2570,7 @@ final class CodexCoreAppModel {
         keepCurrentThread: Bool = false,
         preserveActiveTranscript: Bool = false
     ) {
+        dictationSession.abort()
         if !keepCurrentThread {
             cancelCurrentThreadObservation()
             activeTurnCompletionTask?.cancel()

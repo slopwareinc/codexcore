@@ -52,6 +52,7 @@ The composer supports:
 
 - model and reasoning selection;
 - permission and approval profiles;
+- click or hold microphone dictation, with insert, transcribe-and-send, and retry actions;
 - Goal and Plan modes;
 - file/folder attachments and mentions;
 - response text annotations with optional comments;

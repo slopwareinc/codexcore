@@ -419,6 +419,17 @@ struct CodexCoreAppShell: View {
                 onMentionSelected: { model.selectMention($0) },
                 onSend: { Task { await model.sendDraft() } },
                 onInterrupt: { Task { await model.interrupt() } },
+                dictationState: model.dictationSession.state,
+                dictationActions: model.voiceSession.isActive
+                    ? nil
+                    : CodexComposerDictationActions(
+                        start: { model.startDictation() },
+                        stopAndInsert: { model.stopDictationAndInsert() },
+                        stopAndSend: { model.stopDictationAndSend() },
+                        retry: { model.retryDictation() },
+                        abort: { model.abortDictation() },
+                        dismissError: { model.dictationSession.dismissError() }
+                    ),
                 onStartVoiceChat: model.canStartVoiceChatFromCurrentContext
                     ? { Task { await model.startVoiceChat() } }
                     : nil,

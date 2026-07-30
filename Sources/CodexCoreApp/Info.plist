@@ -27,7 +27,9 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>CodexCore uses the microphone for realtime Voice chats.</string>
+    <string>CodexCore uses the microphone for dictation and realtime Voice chats.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>CodexCore uses speech recognition to turn dictation into composer text.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

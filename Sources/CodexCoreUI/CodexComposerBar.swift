@@ -33,6 +33,8 @@ public struct CodexComposerBar: View {
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
+    private let dictationState: CodexComposerDictationState
+    private let dictationActions: CodexComposerDictationActions?
     private let onStartVoiceChat: (() -> Void)?
     private let voiceChatLabel: String
     private let onSlashCommandSelected: ((CodexSlashCommand) -> Void)?
@@ -79,6 +81,8 @@ public struct CodexComposerBar: View {
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
+        dictationState: CodexComposerDictationState = .init(),
+        dictationActions: CodexComposerDictationActions? = nil,
         onStartVoiceChat: (() -> Void)? = nil,
         voiceChatLabel: String = "Start new voice chat",
         onSlashCommandSelected: ((CodexSlashCommand) -> Void)? = nil,
@@ -115,6 +119,8 @@ public struct CodexComposerBar: View {
         self.onMentionSelected = onMentionSelected
         self.onSend = onSend
         self.onInterrupt = onInterrupt
+        self.dictationState = dictationState
+        self.dictationActions = dictationActions
         self.onStartVoiceChat = onStartVoiceChat
         self.voiceChatLabel = voiceChatLabel
         self.onSlashCommandSelected = onSlashCommandSelected
@@ -165,6 +171,14 @@ public struct CodexComposerBar: View {
             }
 
             VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
+                if let errorMessage = dictationState.errorMessage {
+                    ComposerDictationErrorBanner(
+                        message: errorMessage,
+                        onDismiss: dictationActions?.dismissError
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
                 if !referencedFiles.isEmpty {
                     CodexComposerFileReferenceStrip(
                         files: referencedFiles,
@@ -187,45 +201,56 @@ public struct CodexComposerBar: View {
                     .padding(.leading, 6)
                     .padding(.vertical, isCompact ? 3 : 6)
 
-                HStack(spacing: isCompact ? 5 : 8) {
-                    ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
-                    ForEach(composerChips) { chip in
-                        ComposerModeChip(chip: chip) {
-                            clearComposerChip(chip.kind)
-                        }
-                    }
-                    ComposerApprovalMenu(selection: $approvalSelection, options: approvalOptions)
-
-                    Spacer(minLength: 0)
-
-                    if let followUpHint {
-                        Text(followUpHint)
-                            .font(theme.fonts.caption)
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .lineLimit(1)
-                            .transition(.opacity)
-                    }
-
-                    ComposerModelMenu(
-                        model: $modelSelection,
-                        modelOptions: modelOptions,
-                        serviceTier: $serviceTierSelection,
-                        reasoning: $reasoningSelection
+                if dictationState.isRecording, let dictationActions {
+                    ComposerDictationFooter(
+                        state: dictationState,
+                        actions: dictationActions,
+                        isCompact: isCompact
                     )
-                    ComposerMicrophoneButton(action: nil)
+                } else {
+                    HStack(spacing: isCompact ? 5 : 8) {
+                        ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
+                        ForEach(composerChips) { chip in
+                            ComposerModeChip(chip: chip) {
+                                clearComposerChip(chip.kind)
+                            }
+                        }
+                        ComposerApprovalMenu(selection: $approvalSelection, options: approvalOptions)
 
-                    if isSending {
-                        // The composer stays live during a run: send steers or
-                        // queues the draft, stop interrupts the turn.
-                        SendButton(enabled: canSend, action: onSend)
-                        ComposerStopButton(action: onInterrupt)
-                    } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                              referencedFiles.isEmpty,
-                              responseAnnotations.isEmpty,
-                              let onStartVoiceChat {
-                        ComposerVoiceButton(label: voiceChatLabel, action: onStartVoiceChat)
-                    } else {
-                        SendButton(enabled: canSend, action: onSend)
+                        Spacer(minLength: 0)
+
+                        if let followUpHint {
+                            Text(followUpHint)
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .lineLimit(1)
+                                .transition(.opacity)
+                        }
+
+                        ComposerModelMenu(
+                            model: $modelSelection,
+                            modelOptions: modelOptions,
+                            serviceTier: $serviceTierSelection,
+                            reasoning: $reasoningSelection
+                        )
+                        ComposerMicrophoneButton(
+                            phase: dictationState.phase,
+                            actions: dictationActions
+                        )
+
+                        if isSending {
+                            // The composer stays live during a run: send steers or
+                            // queues the draft, stop interrupts the turn.
+                            SendButton(enabled: canSend, action: onSend)
+                            ComposerStopButton(action: onInterrupt)
+                        } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                                  referencedFiles.isEmpty,
+                                  responseAnnotations.isEmpty,
+                                  let onStartVoiceChat {
+                            ComposerVoiceButton(label: voiceChatLabel, action: onStartVoiceChat)
+                        } else {
+                            SendButton(enabled: canSend, action: onSend)
+                        }
                     }
                 }
             }
@@ -261,6 +286,10 @@ public struct CodexComposerBar: View {
         }
         .onChange(of: mentionQuery) { _, query in
             onMentionQueryChanged?(query)
+        }
+        .onExitCommand {
+            guard dictationState.isRecording else { return }
+            dictationActions?.abort()
         }
         .background {
             #if canImport(AppKit)
@@ -928,26 +957,6 @@ private struct ComposerStopButton: View {
         .accessibilityLabel(CodexComposerAccessibility.stopButtonLabel)
         .help(CodexComposerAccessibility.stopButtonHelp)
         .sensoryFeedback(.impact(weight: .medium), trigger: tapCount)
-    }
-}
-
-private struct ComposerMicrophoneButton: View {
-    @Environment(\.codexAgentTheme) private var theme
-    let action: (() -> Void)?
-
-    var body: some View {
-        Button {
-            action?()
-        } label: {
-            Image(systemName: "mic")
-                .font(theme.fonts.chat)
-                .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-        }
-        .buttonStyle(.plain)
-        .disabled(action == nil)
-        .help(action == nil ? "Dictation is unavailable" : "Start dictation")
-        .accessibilityLabel("Start dictation")
     }
 }
 
