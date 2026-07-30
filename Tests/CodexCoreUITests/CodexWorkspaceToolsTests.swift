@@ -91,6 +91,35 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testDiscoveredSubagentsStayOutOfTabsUntilUserSelectsOne() {
+        let panel = CodexWorkspacePanelState()
+        let agents = [
+            CodexSubagentState(
+                id: "agent-a",
+                name: "Architecture",
+                title: "Architecture",
+                prompt: "",
+                status: .running
+            ),
+            CodexSubagentState(
+                id: "agent-b",
+                name: "Tests",
+                title: "Tests",
+                prompt: "",
+                status: .running
+            ),
+        ]
+
+        XCTAssertTrue(panel.agentTabs(subagents: agents).isEmpty)
+
+        panel.openSubagent(id: "agent-a")
+        XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-a"])
+
+        panel.openSubagent(id: "agent-b")
+        XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-b"])
+    }
+
+    @MainActor
     func testPanelStatePurgeClearsSessionsAndClosesPanel() {
         let panel = CodexWorkspacePanelState()
         panel.openTerminal(workspacePath: "/tmp")
