@@ -756,49 +756,44 @@ public struct CodexAgentSidePanel: View {
                 .padding(.horizontal, 8)
             }
 
-            // Keep the separated circular controls outside one another's merge
-            // threshold at rest. The system can still morph overlapping shapes
-            // during transitions without continuously flexing this pair.
-            CodexGlassGroup(spacing: 0) {
-                HStack(spacing: 8) {
-                    Menu {
-                        ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
-                            Button {
-                                openTool(option.id)
-                            } label: {
-                                Label(option.title, systemImage: option.systemImage)
-                            }
-                            .disabled(!option.isEnabled)
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
+                        Button {
+                            openTool(option.id)
+                        } label: {
+                            Label(option.title, systemImage: option.systemImage)
                         }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(theme.fonts.label)
-                            .foregroundStyle(theme.colors.textSecondary)
-                            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                            .contentShape(Circle())
+                        .disabled(!option.isEnabled)
                     }
-                    // Strip the default macOS pop-up bezel + disclosure arrow so the
-                    // glyph sits cleanly on the liquid-glass bubble like the close control.
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(theme.fonts.label)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                        .contentShape(Circle())
+                }
+                // The launcher is deliberately plain chrome. Making this a lone
+                // interactive glass surface causes the compositor to flex its
+                // bubble whenever the pointer crosses it.
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .buttonStyle(.plain)
+                .help("Open tool")
+                .accessibilityLabel("Open tool")
+
+                if showsCloseButton {
+                    Button(action: onClose) {
+                        Image(systemName: "sidebar.right")
+                            .font(theme.fonts.label)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                    }
                     .buttonStyle(.plain)
                     .codexGlass(Circle(), role: .control)
-                    .help("Open tool")
-                    .accessibilityLabel("Open tool")
-
-                    if showsCloseButton {
-                        Button(action: onClose) {
-                            Image(systemName: "sidebar.right")
-                                .font(theme.fonts.label)
-                                .foregroundStyle(theme.colors.textTertiary)
-                                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                        }
-                        .buttonStyle(.plain)
-                        .codexGlass(Circle(), role: .control)
-                        .help("Close side panel")
-                        .accessibilityLabel("Close side panel")
-                    }
+                    .help("Close side panel")
+                    .accessibilityLabel("Close side panel")
                 }
             }
             .padding(.trailing, 8)
