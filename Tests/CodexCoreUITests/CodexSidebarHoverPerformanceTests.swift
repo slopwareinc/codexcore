@@ -12,8 +12,10 @@ struct CodexSidebarHoverPerformanceTests {
         view.configure(
             content: AnyView(Text("Task")),
             actions: AnyView(Text("Actions")),
-            baseColor: .black,
-            elevatedColor: .gray
+            baseColor: .white,
+            hoverColor: .gray,
+            selectionColor: .blue,
+            isSelected: false
         )
         let contentIdentity = view.contentHostIdentityForTesting
 
@@ -57,7 +59,9 @@ struct CodexSidebarHoverPerformanceTests {
             content: AnyView(Text("Task")),
             actions: AnyView(Text("Actions")),
             baseColor: base.color,
-            elevatedColor: elevated.color
+            hoverColor: elevated.color,
+            selectionColor: .clear,
+            isSelected: false
         )
 
         view.setHoveredForTesting(true)
@@ -69,6 +73,39 @@ struct CodexSidebarHoverPerformanceTests {
         // result is close to `elevated.light` (near-white).
         #expect(isNear(painted, hex: 0xEEEEEE), "painted \(painted) should resolve to the window's Light appearance")
         #expect(!isNear(painted, hex: 0x111111), "painted \(painted) leaked the ambient Dark appearance")
+    }
+
+    @Test func selectedRowUsesOneUniformNativeSelectionFillWhenHovered() {
+        let view = SidebarChatRowContainerView(
+            frame: NSRect(x: 0, y: 0, width: 260, height: 34)
+        )
+        view.configure(
+            content: AnyView(Text("Selected task")),
+            actions: AnyView(Text("Actions")),
+            baseColor: .white,
+            hoverColor: .gray,
+            selectionColor: .red,
+            isSelected: true
+        )
+
+        view.setHoveredForTesting(true)
+
+        #expect(colorsMatch(
+            view.backgroundColorForTesting,
+            view.actionBackdropColorForTesting
+        ))
+        #expect(view.backgroundColorForTesting.alphaComponent == 1)
+        #expect(view.actionControlsAreVisibleForTesting)
+    }
+
+    private func colorsMatch(_ lhs: NSColor, _ rhs: NSColor) -> Bool {
+        guard let lhs = lhs.usingColorSpace(.sRGB),
+              let rhs = rhs.usingColorSpace(.sRGB)
+        else { return false }
+        return abs(lhs.redComponent - rhs.redComponent) < 0.001
+            && abs(lhs.greenComponent - rhs.greenComponent) < 0.001
+            && abs(lhs.blueComponent - rhs.blueComponent) < 0.001
+            && abs(lhs.alphaComponent - rhs.alphaComponent) < 0.001
     }
 
     private func isNear(_ color: NSColor, hex: UInt32) -> Bool {
@@ -88,8 +125,10 @@ struct CodexSidebarHoverPerformanceTests {
         view.configure(
             content: AnyView(Text("Selected task")),
             actions: AnyView(Text("Actions")),
-            baseColor: .black,
-            elevatedColor: .gray
+            baseColor: .white,
+            hoverColor: .gray,
+            selectionColor: .blue,
+            isSelected: false
         )
 
         #expect(!view.actionControlsAreVisibleForTesting)

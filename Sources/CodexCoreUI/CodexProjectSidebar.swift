@@ -821,6 +821,8 @@ private struct SidebarChatRow: View {
 }
 
 private struct SidebarChatRowHost: NSViewRepresentable {
+    @Environment(\.controlActiveState) private var controlActiveState
+
     let row: CodexSidebarThreadRow
     let indentation: CGFloat
     let showsRecency: Bool
@@ -861,15 +863,19 @@ private struct SidebarChatRowHost: NSViewRepresentable {
                 .codexAgentTheme(theme)
                 .accessibilityHidden(true)
             ),
-            // Canvas and elevated are handed over as SwiftUI Colors, not
-            // pre-resolved NSColors: both are theme-adaptive, and resolving
-            // them here — inside SwiftUI's updateNSView, not a draw pass —
-            // would freeze them against whatever appearance happened to be
+            // Chrome colors are handed over as SwiftUI Colors, not pre-resolved
+            // NSColors: they are theme-adaptive, and resolving them here —
+            // inside SwiftUI's updateNSView, not a draw pass — would freeze
+            // them against whatever appearance happened to be
             // current, which is not necessarily this window's. The container
             // resolves them itself, against its own live effectiveAppearance,
             // every time it actually needs to paint. See CodexAppKitColor.
-            baseColor: theme.colors.canvas,
-            elevatedColor: theme.colors.surfaceElevated
+            baseColor: theme.colors.surface,
+            hoverColor: theme.colors.hover.opacity(theme.effects.hoverOpacity),
+            selectionColor: theme.colors.textPrimary.opacity(
+                controlActiveState == .key ? 0.055 : 0.03
+            ),
+            isSelected: row.isSelected
         )
     }
 }
@@ -900,11 +906,7 @@ private struct SidebarChatRowContent: View {
         .padding(.leading, 6 + indentation)
         .padding(.trailing, 8)
         .frame(height: theme.fonts.sidebar.chatRowHeight)
-        .background {
-            if row.isSelected {
-                SidebarSelectionBackground()
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
@@ -1050,7 +1052,9 @@ final class SidebarChatRowContainerView: NSView {
     // configure() is what caused the wrong-appearance freeze; see
     // SidebarChatRowHost.update(_:) and CodexAppKitColor.
     private var baseColor: Color = .clear
-    private var elevatedColor: Color = .clear
+    private var hoverColor: Color = .clear
+    private var selectionColor: Color = .clear
+    private var isSelected = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1075,12 +1079,16 @@ final class SidebarChatRowContainerView: NSView {
         content: AnyView,
         actions: AnyView,
         baseColor: Color,
-        elevatedColor: Color
+        hoverColor: Color,
+        selectionColor: Color,
+        isSelected: Bool
     ) {
         contentHost.rootView = content
         actionsHost.rootView = actions
         self.baseColor = baseColor
-        self.elevatedColor = elevatedColor
+        self.hoverColor = hoverColor
+        self.selectionColor = selectionColor
+        self.isSelected = isSelected
         updateChrome()
         needsLayout = true
     }
@@ -1133,6 +1141,9 @@ final class SidebarChatRowContainerView: NSView {
 
     var contentHostIdentityForTesting: ObjectIdentifier { ObjectIdentifier(contentHost) }
     var actionControlsAreVisibleForTesting: Bool { !actionsHost.isHidden }
+    var backgroundColorForTesting: NSColor {
+        NSColor(cgColor: layer?.backgroundColor ?? NSColor.clear.cgColor) ?? .clear
+    }
     var actionBackdropColorForTesting: NSColor {
         NSColor(cgColor: actionBackdrop.layer?.backgroundColor ?? NSColor.clear.cgColor) ?? .clear
     }
@@ -1146,15 +1157,33 @@ final class SidebarChatRowContainerView: NSView {
         let showsActions = isHovered
         let appearance = effectiveAppearance
         let resolvedBase = appearance.codexResolve(baseColor)
-        let resolvedHover = resolvedBase.blended(
-            withFraction: 0.22,
-            of: appearance.codexResolve(elevatedColor)
-        ) ?? appearance.codexResolve(elevatedColor)
-        let background = isHovered ? resolvedHover : NSColor.clear
+        let resolvedHover = flattened(
+            appearance.codexResolve(hoverColor),
+            over: resolvedBase
+        )
+        let resolvedSelection = flattened(
+            appearance.codexResolve(selectionColor),
+            over: resolvedBase
+        )
+        // Selection and hover are mutually exclusive native fills. Keeping
+        // both in this one layer prevents different SwiftUI/AppKit layout
+        // widths from producing a darker rectangle inside the row.
+        let background = isSelected
+            ? resolvedSelection
+            : (isHovered ? resolvedHover : NSColor.clear)
         layer?.backgroundColor = background.cgColor
-        actionBackdrop.layer?.backgroundColor = (isHovered ? resolvedHover : resolvedBase).cgColor
+        actionBackdrop.layer?.backgroundColor = background.cgColor
         actionBackdrop.isHidden = !showsActions
         actionsHost.isHidden = !showsActions
+    }
+
+    private func flattened(_ overlay: NSColor, over base: NSColor) -> NSColor {
+        let alpha = overlay.alphaComponent
+        guard alpha < 1 else { return overlay }
+        return base.blended(
+            withFraction: alpha,
+            of: overlay.withAlphaComponent(1)
+        ) ?? overlay
     }
 }
 
