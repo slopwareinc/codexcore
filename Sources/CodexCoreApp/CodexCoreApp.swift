@@ -297,8 +297,6 @@ private struct CodexSettingsWindowView: View {
             ),
             accountSummary: model.accountMenuSummary,
             appearanceSettings: $model.appearanceSettings,
-            sidebarFontSize: $model.sidebarFontSize,
-            sidebarFontSizeRange: CodexSidebarFontSizeStorage.fontSizeRange,
             approvalSelection: $model.approvalSelection,
             approvalOptions: model.approvalOptions,
             modelSelection: $model.modelSelection,

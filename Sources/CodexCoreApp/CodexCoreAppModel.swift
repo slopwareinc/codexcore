@@ -33,20 +33,11 @@ final class CodexCoreAppModel {
             CodexNewThreadHistoryModeStorage.save(newThreadHistoryMode, to: preferenceStore)
         }
     }
-    var sidebarFontSize: Double = CodexSidebarFontSizeStorage.defaultFontSize {
-        didSet {
-            let clamped = CodexSidebarFontSizeStorage.clamped(sidebarFontSize)
-            if sidebarFontSize != clamped {
-                sidebarFontSize = clamped
-                return
-            }
-            CodexSidebarFontSizeStorage.saveSidebarFontSize(clamped, to: preferenceStore)
-        }
-    }
+    // The sidebar has no font-size or font-family setting of its own; it
+    // mirrors the app-wide `appearanceSettings.uiFontSize` / `textFontFamily`
+    // exactly, threaded through `agentTheme(uiFontSize:reduceMotion:)`.
     var theme: CodexAgentTheme {
-        var theme = appearanceSettings.agentTheme(uiFontSize: appearanceSettings.uiFontSize, reduceMotion: appearanceSettings.reduceMotion)
-        theme.fonts.sidebar = .official(baseTextSize: sidebarFontSize)
-        return theme
+        appearanceSettings.agentTheme(uiFontSize: appearanceSettings.uiFontSize, reduceMotion: appearanceSettings.reduceMotion)
     }
     private(set) var gitBranch: String?
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
@@ -131,7 +122,6 @@ final class CodexCoreAppModel {
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
-        self.sidebarFontSize = CodexSidebarFontSizeStorage.loadSidebarFontSize(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         self.unreadState = CodexThreadUnreadState(
             unreadThreadIDs: CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)

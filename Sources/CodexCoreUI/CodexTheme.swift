@@ -249,7 +249,9 @@ private extension CodexAgentTheme.Fonts {
             heroTitle: text.font(size: bodySize + 8, weight: .semibold),
             actionIcon: text.font(size: bodySize + 2, weight: .medium),
             chipLabel: text.font(size: max(9, bodySize - 2), weight: .medium),
-            sidebar: sidebar,
+            // Mirrors the app's own size and family exactly — see
+            // SidebarTypography.official(baseTextSize:textFamily:).
+            sidebar: .official(baseTextSize: baseTextSize, textFamily: textFamily),
             // Backing NSFonts drive prose/code markdown styling. Stay nil for the
             // system font (the prose views fall back to `fonts.chat`), and carry
             // the resolved family + scaled size for a custom pick.
@@ -462,14 +464,27 @@ public struct CodexAgentTheme {
         public var size: CGFloat
         public var weight: FontWeightToken
         public var design: FontDesignToken
+        /// The user's chosen interface text family, threaded through so the
+        /// sidebar renders in the same font as the rest of the app rather than
+        /// being permanently stuck on the system font. `nil` = system.
+        public var family: String?
 
-        public init(size: CGFloat, weight: FontWeightToken = .regular, design: FontDesignToken = .system) {
+        public init(
+            size: CGFloat,
+            weight: FontWeightToken = .regular,
+            design: FontDesignToken = .system,
+            family: String? = nil
+        ) {
             self.size = size
             self.weight = weight
             self.design = design
+            self.family = family
         }
 
         public var font: Font {
+            if let family, !family.isEmpty {
+                return CodexFontFamily.text(family).font(size: size, weight: weight.fontWeight)
+            }
             if let fontDesign = design.fontDesign {
                 return .system(size: size, weight: weight.fontWeight, design: fontDesign)
             }
@@ -559,30 +574,31 @@ public struct CodexAgentTheme {
         }
 
         /// The full scale at a given interface font size. Offsets are relative to
-        /// the base so every token tracks the user's slider; only the sidebar did
-        /// before.
-        public static func official(baseTextSize requestedSize: Double) -> Fonts {
+        /// the base so every token tracks the user's slider; the sidebar shares
+        /// the same base size and family rather than scaling independently.
+        public static func official(baseTextSize requestedSize: Double, textFamily: String? = nil) -> Fonts {
             let base = CGFloat(
                 min(
                     max(requestedSize, CodexAppearanceSettings.uiFontSizeRange.lowerBound),
                     CodexAppearanceSettings.uiFontSizeRange.upperBound
                 )
             )
+            let text = CodexFontFamily.text(textFamily)
             return Fonts(
-                body: .system(size: base),
-                chat: .system(size: base + 1),
-                caption: .system(size: max(9, base - 2)),
-                label: .system(size: max(10, base - 1), weight: .semibold),
+                body: text.font(size: base),
+                chat: text.font(size: base + 1),
+                caption: text.font(size: max(9, base - 2)),
+                label: text.font(size: max(10, base - 1), weight: .semibold),
                 code: .system(size: max(10, base - 1), design: .monospaced),
                 micro: .system(size: max(8, base - 3), design: .monospaced).weight(.semibold),
-                routeTitle: .system(size: base + 5, weight: .semibold),
-                sheetTitle: .system(size: base + 3, weight: .semibold),
-                panelTitle: .system(size: base + 1, weight: .semibold),
-                panelLabel: .system(size: max(10, base - 1), weight: .semibold),
-                heroTitle: .system(size: base + 8, weight: .semibold),
-                actionIcon: .system(size: base + 2, weight: .medium),
-                chipLabel: .system(size: max(9, base - 2), weight: .medium),
-                sidebar: .official(baseTextSize: requestedSize)
+                routeTitle: text.font(size: base + 5, weight: .semibold),
+                sheetTitle: text.font(size: base + 3, weight: .semibold),
+                panelTitle: text.font(size: base + 1, weight: .semibold),
+                panelLabel: text.font(size: max(10, base - 1), weight: .semibold),
+                heroTitle: text.font(size: base + 8, weight: .semibold),
+                actionIcon: text.font(size: base + 2, weight: .medium),
+                chipLabel: text.font(size: max(9, base - 2), weight: .medium),
+                sidebar: .official(baseTextSize: requestedSize, textFamily: textFamily)
             )
         }
 
@@ -703,11 +719,15 @@ public struct CodexAgentTheme {
                 official(baseTextSize: defaultBaseTextSize)
             }
 
-            public static func official(baseTextSize requestedSize: Double) -> SidebarTypography {
+            /// - Parameter textFamily: The same family used for the rest of the
+            ///   app's interface text. The sidebar has no font-family setting of
+            ///   its own; it mirrors this one so it isn't stuck on the system
+            ///   font when the user picks a custom app font.
+            public static func official(baseTextSize requestedSize: Double, textFamily: String? = nil) -> SidebarTypography {
                 let baseTextSize = min(max(requestedSize, baseTextSizeRange.lowerBound), baseTextSizeRange.upperBound)
 
                 func token(_ offset: Double, weight: FontWeightToken = .regular) -> FontToken {
-                    FontToken(size: CGFloat(max(8, baseTextSize + offset)), weight: weight)
+                    FontToken(size: CGFloat(max(8, baseTextSize + offset)), weight: weight, family: textFamily)
                 }
 
                 return SidebarTypography(

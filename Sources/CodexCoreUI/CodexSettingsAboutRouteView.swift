@@ -124,7 +124,6 @@ public struct CodexSettingsAboutRouteView: View {
     public let onBackToApp: (() -> Void)?
 
     @Binding private var appearanceSettings: CodexAppearanceSettings
-    @Binding private var sidebarFontSize: Double
     @Binding private var approvalSelection: CodexApprovalSelection
     private let approvalOptions: [CodexApprovalSelection]
     @Binding private var modelSelection: CodexModelSelection
@@ -134,14 +133,10 @@ public struct CodexSettingsAboutRouteView: View {
     @Binding private var gitSettings: CodexGitSettings
     @Binding private var newThreadHistoryMode: CodexNewThreadHistoryMode
 
-    private let sidebarFontSizeRange: ClosedRange<Double>
-
     public init(
         metadata: CodexAboutMetadata,
         accountSummary: CodexAccountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available"),
         appearanceSettings: Binding<CodexAppearanceSettings>,
-        sidebarFontSize: Binding<Double> = .constant(CodexAgentTheme.Fonts.SidebarTypography.defaultBaseTextSize),
-        sidebarFontSizeRange: ClosedRange<Double> = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
@@ -159,8 +154,6 @@ public struct CodexSettingsAboutRouteView: View {
         self.metadata = metadata
         self.accountSummary = accountSummary
         self._appearanceSettings = appearanceSettings
-        self._sidebarFontSize = sidebarFontSize
-        self.sidebarFontSizeRange = sidebarFontSizeRange
         self._approvalSelection = approvalSelection
         self.approvalOptions = approvalOptions
         self._modelSelection = modelSelection
@@ -275,11 +268,7 @@ public struct CodexSettingsAboutRouteView: View {
                 isBottomPanelVisible: $isBottomPanelVisible
             )
         case .appearance:
-            CodexAppearanceSettingsView(
-                settings: $appearanceSettings,
-                sidebarFontSize: $sidebarFontSize,
-                sidebarFontSizeRange: sidebarFontSizeRange
-            )
+            CodexAppearanceSettingsView(settings: $appearanceSettings)
         case .profile:
             CodexSettingsProfilePage(accountSummary: accountSummary, serverName: metadata.serverName)
         case .configuration:
@@ -598,17 +587,9 @@ public struct CodexAppearanceSettingsView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     @Binding private var settings: CodexAppearanceSettings
-    @Binding private var sidebarFontSize: Double
-    private let sidebarFontSizeRange: ClosedRange<Double>
 
-    public init(
-        settings: Binding<CodexAppearanceSettings>,
-        sidebarFontSize: Binding<Double>,
-        sidebarFontSizeRange: ClosedRange<Double> = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
-    ) {
+    public init(settings: Binding<CodexAppearanceSettings>) {
         self._settings = settings
-        self._sidebarFontSize = sidebarFontSize
-        self.sidebarFontSizeRange = sidebarFontSizeRange
     }
 
     public var body: some View {
@@ -619,14 +600,10 @@ public struct CodexAppearanceSettingsView: View {
                 CodexAppearanceModeRow(mode: $settings.appearanceMode)
                 CodexSettingsSliderRow(
                     title: "UI font size",
-                    detail: "Adjust the base size used for CodexCore UI",
+                    detail: "Adjust the base size used across CodexCore, including the sidebar",
                     value: $settings.uiFontSize,
                     range: CodexAppearanceSettings.uiFontSizeRange,
                     suffix: "px"
-                )
-                CodexSidebarFontSizeControl(
-                    fontSize: $sidebarFontSize,
-                    range: sidebarFontSizeRange
                 )
                 CodexFontFamilyPickerRow(
                     title: "App font",
@@ -950,35 +927,6 @@ public struct CodexSettingsMenuRow<MenuContent: View>: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-        }
-        .settingsRowFrame()
-    }
-}
-
-public struct CodexSidebarFontSizeControl: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    @Binding private var fontSize: Double
-    private let range: ClosedRange<Double>
-
-    public init(
-        fontSize: Binding<Double>,
-        range: ClosedRange<Double> = CodexAgentTheme.Fonts.SidebarTypography.baseTextSizeRange
-    ) {
-        self._fontSize = fontSize
-        self.range = range
-    }
-
-    public var body: some View {
-        HStack(spacing: 18) {
-            CodexSettingsRowLabel(title: "Sidebar font", detail: "Controls sidebar row text size", isEnabled: true)
-            Spacer(minLength: 12)
-            Slider(value: $fontSize, in: range, step: 1)
-                .frame(width: 150)
-            Text("\(Int(fontSize.rounded())) px")
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: 52, alignment: .trailing)
         }
         .settingsRowFrame()
     }
