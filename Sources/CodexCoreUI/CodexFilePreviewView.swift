@@ -343,8 +343,17 @@ private struct CodexCodeTextView: NSViewRepresentable {
 
     /// Rebuilds the attributed string only when the content actually changes,
     /// so routine SwiftUI updates don't re-lay-out the whole document.
+    ///
+    /// The cache token includes the resolved appearance name, not just `text`
+    /// and `spans`. Theme colors are adaptive, so a pure light/dark flip with
+    /// unchanged text would otherwise leave every highlight color stale —
+    /// the token wouldn't change, so `apply` would never re-run and the file
+    /// preview would keep drawing yesterday's appearance.
     private func apply(to textView: NSTextView, coordinator: Coordinator) {
-        let token = text.hashValue ^ (spans.count &* 2_654_435_761)
+        let appearance = textView.effectiveAppearance
+        let token = text.hashValue
+            ^ (spans.count &* 2_654_435_761)
+            ^ appearance.name.rawValue.hashValue
         guard coordinator.appliedToken != token else { return }
         coordinator.appliedToken = token
 
@@ -353,13 +362,18 @@ private struct CodexCodeTextView: NSViewRepresentable {
             string: text,
             attributes: [
                 .font: font,
-                .foregroundColor: NSColor(theme.colors.codeText),
+                // Resolved against this view's own live appearance rather
+                // than NSColor(_:) directly: converting an adaptive Color
+                // outside a draw pass resolves against whatever appearance
+                // happens to be current app-wide, not necessarily this
+                // window's. See CodexAppKitColor.
+                .foregroundColor: appearance.codexResolve(theme.colors.codeText),
             ]
         )
 
         let length = (text as NSString).length
         for span in spans where span.range.location >= 0 && NSMaxRange(span.range) <= length {
-            attributed.addAttribute(.foregroundColor, value: color(for: span.kind), range: span.range)
+            attributed.addAttribute(.foregroundColor, value: color(for: span.kind, appearance: appearance), range: span.range)
         }
 
         textView.textStorage?.setAttributedString(attributed)
@@ -369,19 +383,19 @@ private struct CodexCodeTextView: NSViewRepresentable {
 
     /// Maps token buckets onto existing theme tokens so colours stay coherent
     /// across every preset (dark, light, sepia, …) without a bespoke palette.
-    private func color(for kind: CodexTokenKind) -> NSColor {
+    private func color(for kind: CodexTokenKind, appearance: NSAppearance) -> NSColor {
         let colors = theme.colors
         switch kind {
-        case .keyword: return NSColor(colors.accent)
-        case .string: return NSColor(colors.success)
-        case .comment: return NSColor(colors.codeFaint)
-        case .number, .constant: return NSColor(colors.warning)
-        case .type: return NSColor(colors.tool)
-        case .function: return NSColor(colors.running)
-        case .attribute: return NSColor(colors.danger)
-        case .property: return NSColor(colors.textSecondary)
-        case .punctuation: return NSColor(colors.textTertiary)
-        case .variable: return NSColor(colors.codeText)
+        case .keyword: return appearance.codexResolve(colors.accent)
+        case .string: return appearance.codexResolve(colors.success)
+        case .comment: return appearance.codexResolve(colors.codeFaint)
+        case .number, .constant: return appearance.codexResolve(colors.warning)
+        case .type: return appearance.codexResolve(colors.tool)
+        case .function: return appearance.codexResolve(colors.running)
+        case .attribute: return appearance.codexResolve(colors.danger)
+        case .property: return appearance.codexResolve(colors.textSecondary)
+        case .punctuation: return appearance.codexResolve(colors.textTertiary)
+        case .variable: return appearance.codexResolve(colors.codeText)
         }
     }
 

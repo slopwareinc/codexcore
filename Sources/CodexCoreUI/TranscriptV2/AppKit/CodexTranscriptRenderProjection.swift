@@ -347,23 +347,12 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
     }
 
     /// Returns a function that flattens a SwiftUI `Color` — adaptive or not —
-    /// into a static sRGB `NSColor` for the given appearance.
+    /// into a static sRGB `NSColor` for the given appearance. See
+    /// `CodexAppKitColor` for why this must go through
+    /// `performAsCurrentDrawingAppearance` rather than a plain `NSColor(_:)`.
     @MainActor
     static func staticColorResolver(for colorScheme: ColorScheme) -> (Color) -> NSColor {
-        let appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
-        return { color in
-            let dynamic = NSColor(color)
-            guard let appearance else {
-                return dynamic.usingColorSpace(.sRGB) ?? dynamic
-            }
-            // `usingColorSpace` resolves a dynamic catalog color against the
-            // current drawing appearance, so this pins it to the one we want.
-            var resolved = dynamic
-            appearance.performAsCurrentDrawingAppearance {
-                resolved = dynamic.usingColorSpace(.sRGB) ?? dynamic
-            }
-            return resolved
-        }
+        { color in CodexAppKitColor.resolve(color, for: colorScheme) }
     }
 }
 

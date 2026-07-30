@@ -840,9 +840,6 @@ private struct SidebarChatRowHost: NSViewRepresentable {
     }
 
     private func update(_ container: SidebarChatRowContainerView) {
-        let base = NSColor(theme.colors.canvas)
-        let elevated = NSColor(theme.colors.surfaceElevated)
-        let hovered = base.blended(withFraction: 0.22, of: elevated) ?? elevated
         container.configure(
             content: AnyView(
                 SidebarChatRowContent(
@@ -864,8 +861,15 @@ private struct SidebarChatRowHost: NSViewRepresentable {
                 .codexAgentTheme(theme)
                 .accessibilityHidden(true)
             ),
-            baseColor: base,
-            hoverColor: hovered
+            // Canvas and elevated are handed over as SwiftUI Colors, not
+            // pre-resolved NSColors: both are theme-adaptive, and resolving
+            // them here — inside SwiftUI's updateNSView, not a draw pass —
+            // would freeze them against whatever appearance happened to be
+            // current, which is not necessarily this window's. The container
+            // resolves them itself, against its own live effectiveAppearance,
+            // every time it actually needs to paint. See CodexAppKitColor.
+            baseColor: theme.colors.canvas,
+            elevatedColor: theme.colors.surfaceElevated
         )
     }
 }
@@ -1041,8 +1045,12 @@ final class SidebarChatRowContainerView: NSView {
     private let actionsHost = NSHostingView(rootView: AnyView(EmptyView()))
     private var trackingAreaReference: NSTrackingArea?
     private var isHovered = false
-    private var baseColor = NSColor.clear
-    private var hoverColor = NSColor.clear
+    // Held as SwiftUI Colors and resolved to NSColor lazily in updateChrome(),
+    // against this view's own live effectiveAppearance. Pre-resolving in
+    // configure() is what caused the wrong-appearance freeze; see
+    // SidebarChatRowHost.update(_:) and CodexAppKitColor.
+    private var baseColor: Color = .clear
+    private var elevatedColor: Color = .clear
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1066,13 +1074,13 @@ final class SidebarChatRowContainerView: NSView {
     func configure(
         content: AnyView,
         actions: AnyView,
-        baseColor: NSColor,
-        hoverColor: NSColor
+        baseColor: Color,
+        elevatedColor: Color
     ) {
         contentHost.rootView = content
         actionsHost.rootView = actions
         self.baseColor = baseColor
-        self.hoverColor = hoverColor
+        self.elevatedColor = elevatedColor
         updateChrome()
         needsLayout = true
     }
@@ -1114,8 +1122,20 @@ final class SidebarChatRowContainerView: NSView {
         updateChrome()
     }
 
+    /// A live appearance flip — system dark/light toggle, or this window's
+    /// appearance override changing — does not by itself change `isHovered`
+    /// or trigger SwiftUI's `updateNSView`, so nothing else would repaint
+    /// this layer. Repaint explicitly.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateChrome()
+    }
+
     var contentHostIdentityForTesting: ObjectIdentifier { ObjectIdentifier(contentHost) }
     var actionControlsAreVisibleForTesting: Bool { !actionsHost.isHidden }
+    var actionBackdropColorForTesting: NSColor {
+        NSColor(cgColor: actionBackdrop.layer?.backgroundColor ?? NSColor.clear.cgColor) ?? .clear
+    }
 
     func setHoveredForTesting(_ hovered: Bool) {
         isHovered = hovered
@@ -1124,9 +1144,15 @@ final class SidebarChatRowContainerView: NSView {
 
     private func updateChrome() {
         let showsActions = isHovered
-        let background = isHovered ? hoverColor : NSColor.clear
+        let appearance = effectiveAppearance
+        let resolvedBase = appearance.codexResolve(baseColor)
+        let resolvedHover = resolvedBase.blended(
+            withFraction: 0.22,
+            of: appearance.codexResolve(elevatedColor)
+        ) ?? appearance.codexResolve(elevatedColor)
+        let background = isHovered ? resolvedHover : NSColor.clear
         layer?.backgroundColor = background.cgColor
-        actionBackdrop.layer?.backgroundColor = (isHovered ? hoverColor : baseColor).cgColor
+        actionBackdrop.layer?.backgroundColor = (isHovered ? resolvedHover : resolvedBase).cgColor
         actionBackdrop.isHidden = !showsActions
         actionsHost.isHidden = !showsActions
     }
