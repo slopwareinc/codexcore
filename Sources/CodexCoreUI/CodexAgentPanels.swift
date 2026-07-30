@@ -756,7 +756,10 @@ public struct CodexAgentSidePanel: View {
                 .padding(.horizontal, 8)
             }
 
-            CodexGlassGroup(spacing: 8) {
+            // Keep the separated circular controls outside one another's merge
+            // threshold at rest. The system can still morph overlapping shapes
+            // during transitions without continuously flexing this pair.
+            CodexGlassGroup(spacing: 0) {
                 HStack(spacing: 8) {
                     Menu {
                         ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
