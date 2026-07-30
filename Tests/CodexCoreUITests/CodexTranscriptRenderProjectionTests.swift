@@ -68,7 +68,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: 1)
             )])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let completedResponseItems = completed.itemsByID.values.filter {
             $0.textRole == .finalAnswer
@@ -83,7 +83,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .working(since: 1)
             )])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         #expect(streaming.itemsByID.values.allSatisfy { !$0.allowsResponseAnnotation })
     }
@@ -105,7 +105,7 @@ struct CodexTranscriptRenderProjectionTests {
                 status: .done(durationMs: nil)
             )])),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
 
         #expect(!snapshot.itemsByID.values.contains { $0.textRole == .user })

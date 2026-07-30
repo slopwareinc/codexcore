@@ -44,7 +44,7 @@ struct CodexTranscriptAppKitIntegrationTests {
                 )])
             ),
             availableWidth: 860,
-            theme: .init(.officialDark)
+            theme: .init(.officialDark, colorScheme: .dark)
         )
         let item = try #require(
             snapshot.itemsByID.values.first { $0.allowsResponseAnnotation }
@@ -63,7 +63,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         var captured: [CodexResponseTextAnnotation] = []
         cell.configure(
             item: item,
-            appKitTheme: .init(.officialDark),
+            appKitTheme: .init(.officialDark, colorScheme: .dark),
             swiftUITheme: .officialDark,
             contentHorizontalOffset: 0,
             productToolRenderer: nil,
