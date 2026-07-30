@@ -935,15 +935,16 @@ private struct AgentPanelTabButton: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             Button(action: action) {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     Image(systemName: systemImage)
                         .font(theme.fonts.caption)
                     Text(title)
-                        .font(theme.fonts.chat)
+                        .font(theme.fonts.label)
                         .lineLimit(1)
                 }
                 .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                .padding(.horizontal, closeAction == nil ? 10 : 30)
+                .padding(.leading, 7)
+                .padding(.trailing, closeAction == nil ? 7 : 25)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .buttonStyle(.plain)
