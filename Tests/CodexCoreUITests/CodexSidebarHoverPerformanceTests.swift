@@ -12,9 +12,8 @@ struct CodexSidebarHoverPerformanceTests {
         view.configure(
             content: AnyView(Text("Task")),
             actions: AnyView(Text("Actions")),
-            baseColor: .white,
-            hoverColor: .gray,
-            selectionColor: .blue,
+            hoverColor: .gray.opacity(0.08),
+            selectionColor: .blue.opacity(0.08),
             isSelected: false
         )
         let contentIdentity = view.contentHostIdentityForTesting
@@ -38,7 +37,6 @@ struct CodexSidebarHoverPerformanceTests {
     /// into a window with a known, mismatched appearance and asserts the
     /// painted hover color still matches what that window asked for.
     @Test func hoverColorMatchesTheViewsOwnAppearanceNotTheAmbientOne() {
-        let base = CodexColorPair(light: 0xFFFFFF, dark: 0x000000)
         let elevated = CodexColorPair(light: 0xEEEEEE, dark: 0x111111)
 
         let previousAmbient = NSAppearance.current
@@ -58,14 +56,13 @@ struct CodexSidebarHoverPerformanceTests {
         view.configure(
             content: AnyView(Text("Task")),
             actions: AnyView(Text("Actions")),
-            baseColor: base.color,
-            hoverColor: elevated.color,
+            hoverColor: elevated.color.opacity(0.08),
             selectionColor: .clear,
             isSelected: false
         )
 
         view.setHoveredForTesting(true)
-        let painted = view.actionBackdropColorForTesting
+        let painted = view.backgroundColorForTesting
 
         // The window is pinned to Light; the process-ambient appearance is
         // Dark. A resolution that leaked the ambient appearance would paint
@@ -73,39 +70,29 @@ struct CodexSidebarHoverPerformanceTests {
         // result is close to `elevated.light` (near-white).
         #expect(isNear(painted, hex: 0xEEEEEE), "painted \(painted) should resolve to the window's Light appearance")
         #expect(!isNear(painted, hex: 0x111111), "painted \(painted) leaked the ambient Dark appearance")
+        #expect(painted.alphaComponent < 0.1)
     }
 
-    @Test func selectedRowUsesOneUniformNativeSelectionFillWhenHovered() {
+    @Test func selectedRowUsesOneTranslucentSelectionOverlayWhenHovered() {
         let view = SidebarChatRowContainerView(
             frame: NSRect(x: 0, y: 0, width: 260, height: 34)
         )
         view.configure(
             content: AnyView(Text("Selected task")),
             actions: AnyView(Text("Actions")),
-            baseColor: .white,
-            hoverColor: .gray,
-            selectionColor: .red,
+            hoverColor: .gray.opacity(0.08),
+            selectionColor: .red.opacity(0.08),
             isSelected: true
         )
+        view.layoutSubtreeIfNeeded()
+        #expect(view.contentHostWidthForTesting == 260)
 
         view.setHoveredForTesting(true)
+        view.layoutSubtreeIfNeeded()
 
-        #expect(colorsMatch(
-            view.backgroundColorForTesting,
-            view.actionBackdropColorForTesting
-        ))
-        #expect(view.backgroundColorForTesting.alphaComponent == 1)
+        #expect(view.backgroundColorForTesting.alphaComponent < 0.1)
+        #expect(view.contentHostWidthForTesting == 200)
         #expect(view.actionControlsAreVisibleForTesting)
-    }
-
-    private func colorsMatch(_ lhs: NSColor, _ rhs: NSColor) -> Bool {
-        guard let lhs = lhs.usingColorSpace(.sRGB),
-              let rhs = rhs.usingColorSpace(.sRGB)
-        else { return false }
-        return abs(lhs.redComponent - rhs.redComponent) < 0.001
-            && abs(lhs.greenComponent - rhs.greenComponent) < 0.001
-            && abs(lhs.blueComponent - rhs.blueComponent) < 0.001
-            && abs(lhs.alphaComponent - rhs.alphaComponent) < 0.001
     }
 
     private func isNear(_ color: NSColor, hex: UInt32) -> Bool {
@@ -125,9 +112,8 @@ struct CodexSidebarHoverPerformanceTests {
         view.configure(
             content: AnyView(Text("Selected task")),
             actions: AnyView(Text("Actions")),
-            baseColor: .white,
-            hoverColor: .gray,
-            selectionColor: .blue,
+            hoverColor: .gray.opacity(0.08),
+            selectionColor: .blue.opacity(0.08),
             isSelected: false
         )
 
