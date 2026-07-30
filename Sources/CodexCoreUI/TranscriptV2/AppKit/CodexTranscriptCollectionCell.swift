@@ -1738,12 +1738,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         for annotation in matching {
             selectableTextView.layoutManager?.addTemporaryAttribute(
                 .backgroundColor,
-                value: NSColor(
-                    srgbRed: 18 / 255,
-                    green: 141 / 255,
-                    blue: 1,
-                    alpha: 0.4
-                ),
+                value: (appKitTheme?.accent ?? .controlAccentColor).withAlphaComponent(0.28),
                 forCharacterRange: annotation.anchor.range
             )
         }
@@ -1785,6 +1780,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             }
             let button = CodexResponseAnnotationMarkerButton(frame: .zero)
             button.title = "\(ordinal + 1)"
+            button.markerColor = appKitTheme?.accent ?? .controlAccentColor
             button.target = self
             button.action = #selector(openResponseAnnotationEditor(_:))
             button.tag = ordinal
@@ -2521,11 +2517,6 @@ private struct CodexTranscriptAgentHoverPreview: View {
         }
         .padding(12)
         .frame(width: 300, alignment: .leading)
-        .codexGlass(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous), role: .panel)
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                .stroke(theme.colors.borderStrong.opacity(0.6), lineWidth: 1)
-        }
         .onHover(perform: onHover)
     }
 

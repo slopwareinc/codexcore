@@ -19,9 +19,12 @@ struct CodexResponseAnnotationAttachmentView: View {
                 .foregroundStyle(theme.colors.textSecondary)
                 .padding(.horizontal, 9)
                 .frame(height: 28)
-                .background(theme.colors.surfaceElevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
+                .background(
+                    theme.colors.surfaceElevated.opacity(0.72),
+                    in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
                         .stroke(theme.colors.border.opacity(0.8), lineWidth: 1)
                 }
             }
@@ -58,7 +61,6 @@ struct CodexResponseAnnotationAttachmentView: View {
             }
         }
         .frame(width: 360, height: min(320, CGFloat(annotations.count) * 132 + 16))
-        .background(theme.colors.surface)
     }
 
     private func annotationRow(

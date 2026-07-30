@@ -588,10 +588,6 @@ private struct RenameChatSheet: View {
         }
         .padding(theme.spacing.sheetPadding)
         .frame(width: 360)
-        .codexGlass(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
-            role: .sheet
-        )
         .onAppear { isFocused = true }
     }
 }
@@ -698,10 +694,6 @@ private struct EditProjectSheet: View {
         }
         .padding(theme.spacing.sheetPadding)
         .frame(width: 560)
-        .codexGlass(
-            RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous),
-            role: .sheet
-        )
     }
 
     private func sourceFolderRow(path: String, index: Int) -> some View {

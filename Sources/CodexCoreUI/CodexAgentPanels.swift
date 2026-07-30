@@ -524,11 +524,6 @@ public struct CodexAgentSidePanel: View {
         .overlay(alignment: .leading) {
             resizeHandle
         }
-        .shadow(
-            color: theme.effects.shadow.color(for: theme),
-            radius: theme.effects.shadow.radius,
-            x: -8
-        )
         .animation(nil, value: panelWidth)
         .onAppear {
             ensureSelection()
