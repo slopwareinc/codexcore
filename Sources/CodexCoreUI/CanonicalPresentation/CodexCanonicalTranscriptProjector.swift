@@ -31,6 +31,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         requests: [CodexPendingInteractionSnapshot] = [],
         requestRevision: UInt64 = 0,
         previous: CodexCanonicalTranscriptPresentation?,
+        excludedTurnIDs: Set<TurnID> = [],
         selectedTurnCostRecording: CodexSelectedTurnDisplayCostRecording? = nil,
         checkpoint: () throws -> Void
     ) rethrows -> CodexCanonicalTranscriptProjectionResult {
@@ -52,7 +53,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
             threadID: threadID,
             intents: visibleIntents,
             checkpoint: checkpoint
-        )
+        ).filter { !excludedTurnIDs.contains($0) }
         let pendingRequests = requestPresentations(requests, threadID: threadID)
 
         let oldIDs = Set(old?.turnOrder ?? [])

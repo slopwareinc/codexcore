@@ -16,6 +16,7 @@ private extension CodexSubagentLiveStatusV2 {
 struct CodexPendingChildProjection: Sendable {
     var snapshot: CanonicalStateSnapshot
     var summary: CodexSubagentChildSnapshotSummary
+    var inheritedParentTurnIDs: Set<TurnID>
 }
 
 @MainActor
@@ -336,7 +337,12 @@ extension CodexSubagentPresentationCoordinator {
         if selected.projectionTask != nil || selected.pendingProjection != nil {
             diagnostics.childSnapshotCoalescingCount += 1
         }
-        selected.pendingProjection = .init(snapshot: snapshot, summary: summary)
+        let inheritedParentTurnIDs = inheritedTurnIDs(for: parentThreadID)
+        selected.pendingProjection = .init(
+            snapshot: snapshot,
+            summary: summary,
+            inheritedParentTurnIDs: inheritedParentTurnIDs
+        )
         launchChildProjectionIfNeeded(threadID, selectionID)
     }
 
@@ -362,6 +368,7 @@ extension CodexSubagentPresentationCoordinator {
                     pending.snapshot,
                     threadID,
                     previous,
+                    pending.inheritedParentTurnIDs,
                     byteCapacity
                 )
                 let result = output.projection

@@ -6,6 +6,41 @@ import Testing
 
 @MainActor
 struct CodexSubagentPresentationCoordinatorTests {
+    @Test func selectedChildOmitsInheritedParentTurnsFromItsTranscript() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-inherited-prefix-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(
+            homePath: home.path,
+            includesInheritedParentTurn: true
+        )
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+        coordinator.selectParent("parent")
+
+        await transport.sendParentDiscovery()
+        try await eventually { coordinator.agents.count == 1 }
+        coordinator.selectTranscript("child")
+        try await eventually {
+            coordinator.agents.first?.transcript.turns.isEmpty == false
+        }
+
+        #expect(
+            coordinator.agents.first?.transcript.turns.map(\.id)
+                == ["child-turn"]
+        )
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
     @Test func childLeaseSurvivesReconnectProjectsContentAndReleasesOnRemoval() async throws {
         let homeURL = URL(
             fileURLWithPath: "/private/tmp",
@@ -83,7 +118,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         defer { gate.releaseFirstProjection() }
         let coordinator = CodexSubagentPresentationCoordinator(
             codex: codex,
-            projectionOperation: { snapshot, threadID, previous, limit in
+            projectionOperation: { snapshot, threadID, previous, _, limit in
                 try gate.project(
                     snapshot: snapshot,
                     threadID: threadID,
@@ -263,7 +298,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         defer { gate.releaseFirstProjection() }
         let coordinator = CodexSubagentPresentationCoordinator(
             codex: codex,
-            projectionOperation: { snapshot, threadID, previous, limit in
+            projectionOperation: { snapshot, threadID, previous, _, limit in
                 try gate.project(
                     snapshot: snapshot,
                     threadID: threadID,
@@ -317,7 +352,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         defer { gate.releaseFirstProjection() }
         let coordinator = CodexSubagentPresentationCoordinator(
             codex: codex,
-            projectionOperation: { snapshot, threadID, previous, limit in
+            projectionOperation: { snapshot, threadID, previous, _, limit in
                 try gate.project(
                     snapshot: snapshot,
                     threadID: threadID,
@@ -462,14 +497,19 @@ private enum CoordinatorTestError: Error {
 
 private actor CoordinatorTestTransport: CodexFrameTransport {
     private let homePath: String
+    private let includesInheritedParentTurn: Bool
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var openCount = 0
     private(set) var resumeCount = 0
     private(set) var unsubscribeCount = 0
     private var resumedIDs: [String] = []
 
-    init(homePath: String) {
+    init(
+        homePath: String,
+        includesInheritedParentTurn: Bool = false
+    ) {
         self.homePath = homePath
+        self.includesInheritedParentTurn = includesInheritedParentTurn
     }
 
     func open() async throws -> AsyncThrowingStream<Data, Error> {
@@ -502,7 +542,10 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
             resumeCount += 1
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
             resumedIDs.append(threadID)
-            result = Self.resumeResult(threadID: threadID)
+            result = Self.resumeResult(
+                threadID: threadID,
+                includesInheritedParentTurn: includesInheritedParentTurn
+            )
         case "thread/unsubscribe":
             unsubscribeCount += 1
             result = .dictionary([:])
@@ -598,7 +641,7 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
     }
 
     private static func threadMetadataResult(threadID: String) -> CodexJSONValue {
-        .dictionary([
+        return .dictionary([
             "thread": .dictionary([
                 "agentNickname": .string("Scout"),
                 "agentRole": .string("explorer"),
@@ -621,8 +664,57 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
         ])
     }
 
-    private static func resumeResult(threadID: String) -> CodexJSONValue {
-        .dictionary([
+    private static func resumeResult(
+        threadID: String,
+        includesInheritedParentTurn: Bool
+    ) -> CodexJSONValue {
+        var turns: [CodexJSONValue] = []
+        if includesInheritedParentTurn {
+            turns.append(.dictionary([
+                "id": .string("parent-turn"),
+                "items": .array([
+                    .dictionary([
+                        "type": .string("userMessage"),
+                        "id": .string("inherited-parent-user"),
+                        "content": .array([
+                            .dictionary([
+                                "type": .string("text"),
+                                "text": .string("run some subagents please"),
+                            ]),
+                        ]),
+                    ]),
+                    .dictionary([
+                        "type": .string("agentMessage"),
+                        "id": .string("inherited-parent-message"),
+                        "phase": .string("commentary"),
+                        "text": .string("I’ll run a few parallel passes."),
+                    ]),
+                ]),
+                "itemsView": .string("full"),
+                "status": .string("completed"),
+                "error": .null,
+                "startedAt": .int(1_699_999_990),
+                "completedAt": .int(1_699_999_999),
+                "durationMs": .int(9_000),
+            ]))
+        }
+        turns.append(.dictionary([
+            "id": .string("child-turn"),
+            "items": .array([.dictionary([
+                "type": .string("agentMessage"),
+                "id": .string("child-message"),
+                "phase": .string("commentary"),
+                "text": .string("Inspecting the repository"),
+            ])]),
+            "itemsView": .string("full"),
+            "status": .string("inProgress"),
+            "error": .null,
+            "startedAt": .int(1_700_000_000),
+            "completedAt": .null,
+            "durationMs": .null,
+        ]))
+
+        return .dictionary([
             "approvalPolicy": .string("on-request"),
             "approvalsReviewer": .string("auto_review"),
             "cwd": .string("/tmp"),
@@ -645,21 +737,7 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 "sessionId": .string("session-\(threadID)"),
                 "source": .string("appServer"),
                 "status": .dictionary(["type": .string("active"), "activeFlags": .array([])]),
-                "turns": .array([.dictionary([
-                    "id": .string("child-turn"),
-                    "items": .array([.dictionary([
-                        "type": .string("agentMessage"),
-                        "id": .string("child-message"),
-                        "phase": .string("commentary"),
-                        "text": .string("Inspecting the repository"),
-                    ])]),
-                    "itemsView": .string("full"),
-                    "status": .string("inProgress"),
-                    "error": .null,
-                    "startedAt": .int(1_700_000_000),
-                    "completedAt": .null,
-                    "durationMs": .null,
-                ])]),
+                "turns": .array(turns),
                 "updatedAt": .int(1_700_000_001),
             ]),
         ])
