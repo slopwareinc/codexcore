@@ -212,6 +212,7 @@ struct CodexThemePaletteTests {
         #expect(CodexGlassRole.chip.isInteractive)
         // A container that merely holds controls must not flex when one is
         // pressed.
+        #expect(!CodexGlassRole.controlGroup.isInteractive)
         #expect(!CodexGlassRole.chrome.isInteractive)
         #expect(!CodexGlassRole.panel.isInteractive)
         #expect(!CodexGlassRole.sheet.isInteractive)

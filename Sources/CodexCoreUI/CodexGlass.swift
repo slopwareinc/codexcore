@@ -31,8 +31,10 @@ public enum CodexGlassRole: Sendable, Hashable, CaseIterable {
     case panel
     /// A modal sheet.
     case sheet
-    /// A control, or a capsule grouping controls that reads as one control.
+    /// A single control that should flex in response to pointer interaction.
     case control
+    /// A capsule that groups multiple controls without flexing as one control.
+    case controlGroup
     /// A small inline pill: composer chips, status pills.
     case chip
     /// A transient surface directly over user content, dimmed by us for legibility.
@@ -47,7 +49,7 @@ public enum CodexGlassRole: Sendable, Hashable, CaseIterable {
     var isInteractive: Bool {
         switch self {
         case .control, .chip: true
-        case .chrome, .panel, .sheet, .hud: false
+        case .chrome, .panel, .sheet, .controlGroup, .hud: false
         }
     }
 
@@ -57,7 +59,7 @@ public enum CodexGlassRole: Sendable, Hashable, CaseIterable {
     var fallbackCastsShadow: Bool {
         switch self {
         case .panel, .sheet, .hud: true
-        case .chrome, .control, .chip: false
+        case .chrome, .control, .controlGroup, .chip: false
         }
     }
 
@@ -66,7 +68,7 @@ public enum CodexGlassRole: Sendable, Hashable, CaseIterable {
     var fallbackElevation: Double {
         switch self {
         case .chrome: 0.88
-        case .chip, .control: 0.94
+        case .chip, .control, .controlGroup: 0.94
         case .panel, .hud: 0.97
         case .sheet: 1.0
         }

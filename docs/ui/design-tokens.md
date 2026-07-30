@@ -20,7 +20,8 @@ content.codexGlass(
 | `.chrome` | Sidebar, toolbar backgrounds | regular | no |
 | `.panel` | Panels floating over content, popovers | regular | no |
 | `.sheet` | Modal sheets | regular | no |
-| `.control` | A control, or a capsule that reads as one | regular | yes |
+| `.control` | A single control | regular | yes |
+| `.controlGroup` | A capsule grouping multiple controls | regular | no |
 | `.chip` | Inline pills, composer chips | regular | yes |
 | `.hud` | Transient surface over content, dimmed by us | clear | no |
 
@@ -36,10 +37,12 @@ Rules the roles enforce, and that reviews should check:
   (selection, a status color). Tinting with a surface color to darken glass turns
   it into smoked plastic; pick a different `role` instead.
 - **Interactivity belongs to controls.** `.control` and `.chip` are interactive;
-  containers are not, or the whole group flexes when any child is pressed.
+  `.controlGroup` and other containers are not, or the whole group flexes when
+  any child is pressed.
 - **Group siblings.** Adjacent glass surfaces belong in a `CodexGlassGroup`
   (`GlassEffectContainer`) so the system can merge and morph them and render them
-  in one pass.
+  in one pass. Keep its merge spacing at or below the interior layout spacing
+  unless the surfaces are intentionally joined at rest.
 
 Glass degrades to an opaque themed surface when *either* the theme opts out
 (`Effects.usesLiquidGlass`, only High Contrast) or the system asks for reduced

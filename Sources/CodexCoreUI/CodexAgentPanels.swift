@@ -389,6 +389,7 @@ public struct CodexAgentSidePanel: View {
     private let onCloseFilePreview: (String) -> Void
     private let onCloseSubagent: (String) -> Void
     private let onSelectSubagentTranscript: (String?) -> Void
+    private let showsCloseButton: Bool
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
     @State private var liveResizeWidth: CGFloat?
@@ -420,6 +421,7 @@ public struct CodexAgentSidePanel: View {
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
+        showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -449,6 +451,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
+        self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
 
@@ -480,6 +483,7 @@ public struct CodexAgentSidePanel: View {
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
+        showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
@@ -509,6 +513,7 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
+        self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
 
@@ -779,14 +784,18 @@ public struct CodexAgentSidePanel: View {
                     .help("Open tool")
                     .accessibilityLabel("Open tool")
 
-                    Button(action: onClose) {
-                        Image(systemName: "sidebar.right")
-                            .font(theme.fonts.label)
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                    if showsCloseButton {
+                        Button(action: onClose) {
+                            Image(systemName: "sidebar.right")
+                                .font(theme.fonts.label)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                        }
+                        .buttonStyle(.plain)
+                        .codexGlass(Circle(), role: .control)
+                        .help("Close side panel")
+                        .accessibilityLabel("Close side panel")
                     }
-                    .buttonStyle(.plain)
-                    .codexGlass(Circle(), role: .control)
                 }
             }
             .padding(.trailing, 8)
