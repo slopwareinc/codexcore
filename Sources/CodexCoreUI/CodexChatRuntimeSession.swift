@@ -23,6 +23,11 @@ public final class CodexChatRuntimeSession {
         set { state.integrationCatalogSession = newValue }
     }
 
+    public var integrationControlPlaneSession: CodexIntegrationControlPlaneSession {
+        get { state.integrationControlPlaneSession }
+        set { state.integrationControlPlaneSession = newValue }
+    }
+
     public var lifecycleEvents: [CodexAgentLifecycleEvent] {
         subagentCoordinator?.lifecycleEvents ?? []
     }

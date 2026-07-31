@@ -80,18 +80,17 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func refreshMCPServers(
-        using codex: Codex,
+        using provider: any CodexIntegrationControlPlaneProvider,
         threadID: String?,
         errorMessage: (Error) -> String
     ) async -> CodexIntegrationCatalogActivity {
         beginMCPRefresh()
         do {
-            let response = try await codex.perform(CodexRequest.mcpServerStatusList(.init(
+            let raw = try await provider.perform(.mcpStatusList(.init(
                 detail: .full,
                 limit: 100,
                 threadID: threadID
             )))
-            let raw = try CodexJSONValue(encoding: response)
             return applyMCPResponse(raw)
         } catch {
             return failMCPRefresh(message: errorMessage(error))
@@ -136,16 +135,16 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func refreshPlugins(
-        using codex: Codex,
+        using provider: any CodexIntegrationControlPlaneProvider,
         cwds: [String],
         errorMessage: (Error) -> String
     ) async -> CodexIntegrationCatalogActivity {
         beginPluginRefresh()
         do {
-            let response = try await codex.perform(CodexRequest.pluginList(.init(
+            let response = try await provider.perform(.pluginList(.init(
                 cwds: cwds.isEmpty ? nil : cwds.map { CodexAppServerSchemaValue(.string($0)) }
             )))
-            return applyPluginResponse(try CodexJSONValue(encoding: response))
+            return applyPluginResponse(response)
         } catch {
             return failPluginRefresh(message: errorMessage(error))
         }
@@ -170,18 +169,18 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func refreshSkills(
-        using codex: Codex,
+        using provider: any CodexIntegrationControlPlaneProvider,
         cwds: [String],
         forceReload: Bool = false,
         errorMessage: (Error) -> String
     ) async -> CodexIntegrationCatalogActivity {
         beginSkillRefresh()
         do {
-            let response = try await codex.perform(CodexRequest.skillsList(.init(
+            let response = try await provider.perform(.skillsList(.init(
                 cwds: cwds.isEmpty ? nil : cwds,
                 forceReload: forceReload ? true : nil
             )))
-            return applySkillResponse(try CodexJSONValue(encoding: response))
+            return applySkillResponse(response)
         } catch {
             return failSkillRefresh(message: errorMessage(error))
         }
