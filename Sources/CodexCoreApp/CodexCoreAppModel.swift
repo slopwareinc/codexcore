@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Observation
+import UserNotifications
 import CodexCore
 import CodexCoreUI
 
@@ -95,6 +96,12 @@ final class CodexCoreAppModel {
     var projectlessDraftPaths: CodexProjectlessThreadPaths?
     private var chatSelectionGeneration = 0
     var pluginLauncherTarget: CodexComposerPluginLauncher?
+    var automationLifecycle: CodexAutomationLifecycle
+    var automations: [CodexAutomation] { automationLifecycle.automations }
+    private let automationStore: CodexAutomationFileStore
+    private var automationSchedulerTask: Task<Void, Never>?
+    private var automationRunTasks: [String: Task<Void, Never>] = [:]
+    private var automationThreadLeases: [String: CodexThreadLease] = [:]
     private var terminalSession: CodexCommandExecSession?
     private var terminalOutputTask: Task<Void, Never>?
     private var terminalCompletionTask: Task<Void, Never>?
@@ -115,6 +122,10 @@ final class CodexCoreAppModel {
         preferenceStore: any CodexStringListPreferenceStore
     ) {
         self.codexHome = codexHome
+        self.automationStore = CodexAutomationFileStore(
+            directoryURL: codexHome.directoryURL.appendingPathComponent("automations", isDirectory: true)
+        )
+        self.automationLifecycle = CodexAutomationLifecycle(automations: automationStore.load())
         self.dictationSession = CodexComposerDictationSession()
         self.clipboardService = clipboardService
         self.preferenceStore = preferenceStore
@@ -223,6 +234,10 @@ final class CodexCoreAppModel {
         dictationSession.abort()
         await voiceSession.stop()
         await stopBottomTerminalSession()
+        for task in automationRunTasks.values { task.cancel() }
+        automationRunTasks.removeAll()
+        for lease in automationThreadLeases.values { await lease.close() }
+        automationThreadLeases.removeAll()
         await runtimeSession.disconnect()
         runtimeSession.reset()
         promptRuntime.disconnect()
@@ -1198,6 +1213,8 @@ final class CodexCoreAppModel {
         sidebarNavigationSession.selectRoute(route)
         if route == .plugins {
             Task { await refreshPlugins() }
+        } else if route == .automations {
+            Task { await reconcileDueAutomations() }
         }
     }
 
@@ -1207,13 +1224,141 @@ final class CodexCoreAppModel {
             return
         }
         switch action {
+        case .save(let automation):
+            automationLifecycle.save(automation)
+            persistAutomation(id: automation.id, successTitle: "Automation saved")
+        case .toggle(let id):
+            guard let automation = automationLifecycle.toggle(id: id) else { return }
+            persistAutomation(
+                id: id,
+                successTitle: automation.status == .disabled ? "Automation paused" : "Automation enabled"
+            )
+        case .delete(let id):
+            automationRunTasks[id]?.cancel()
+            automationRunTasks[id] = nil
+            automationLifecycle.delete(id: id)
+            do {
+                try automationStore.delete(id: id)
+                UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["automation.\(id)"])
+                appendActivity(.notice, title: "Automation deleted", detail: "Existing chats were kept")
+            } catch {
+                appendActivity(.notice, title: "Automation delete failed", detail: friendlyError(error))
+            }
+        case .runNow(let id):
+            startAutomationRun(id: id)
         case .learnMore:
-            appendActivity(.notice, title: "Automations", detail: "Automations are created by chatting with Codex; no settings are changed until you send and confirm the flow.")
+            appendActivity(.notice, title: "Automations", detail: "Scheduled automations run as independent Codex chats while the app is open. Their definitions and run state are stored locally in your Codex home.")
         case .createViaChat, .template, .addForChat:
             break
         }
     }
 
+    func startAutomationScheduler() {
+        guard automationSchedulerTask == nil else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        automationSchedulerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.reconcileDueAutomations()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    private func reconcileDueAutomations(now: Date = Date()) async {
+        for automation in automationLifecycle.due(at: now) {
+            startAutomationRun(id: automation.id, now: now)
+        }
+    }
+
+    private func startAutomationRun(id: String, now: Date = Date()) {
+        guard automationRunTasks[id] == nil,
+              let automation = automationLifecycle.beginRun(id: id, now: now)
+        else { return }
+        persistAutomation(id: id, announces: false)
+
+        automationRunTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            await runAutomation(automation)
+        }
+    }
+
+    private func runAutomation(_ automation: CodexAutomation) async {
+        var threadID: String?
+        var failure: String?
+        defer { automationRunTasks[automation.id] = nil }
+
+        guard let codex else {
+            let message = "Connect Codex to run this automation"
+            automationLifecycle.finishRun(id: automation.id, threadID: nil, error: message)
+            persistAutomation(id: automation.id, announces: false)
+            postAutomationNotification(name: automation.name, failure: message)
+            appendActivity(.notice, title: "Automation failed", detail: message)
+            return
+        }
+
+        do {
+            let thread = try await codex.startThread(threadStartParameters())
+            automationThreadLeases[automation.id] = thread
+            threadID = thread.id.rawValue
+            let permissionConfiguration = approvalSelection.permissionProfileWireConfiguration
+            let turn = try await thread.startTurn(turnStartParameters(
+                threadID: thread.id,
+                input: [.text(automation.prompt)],
+                clientUserMessageID: UUID().uuidString,
+                permissionConfiguration: permissionConfiguration
+            ))
+            let terminal = try await turn.awaitTerminal()
+            if terminal.turn.status == .failed {
+                failure = terminal.turn.error?.message ?? "The scheduled turn failed"
+            }
+        } catch is CancellationError {
+            failure = "Run cancelled"
+        } catch {
+            failure = friendlyError(error)
+        }
+
+        if let thread = automationThreadLeases.removeValue(forKey: automation.id) {
+            await thread.close()
+        }
+        automationLifecycle.finishRun(id: automation.id, threadID: threadID, error: failure)
+        persistAutomation(id: automation.id, announces: false)
+        await refreshRecentChats()
+        postAutomationNotification(name: automation.name, failure: failure)
+        appendActivity(
+            failure == nil ? .turn : .notice,
+            title: failure == nil ? "Automation finished" : "Automation failed",
+            detail: failure ?? automation.name
+        )
+    }
+
+    private func persistAutomation(
+        id: String,
+        successTitle: String? = nil,
+        announces: Bool = true
+    ) {
+        guard let automation = automations.first(where: { $0.id == id }) else { return }
+        do {
+            try automationStore.save(automation)
+            if announces, let successTitle {
+                appendActivity(.notice, title: successTitle, detail: automation.schedule.summary)
+            }
+        } catch {
+            appendActivity(.notice, title: "Automation save failed", detail: friendlyError(error))
+        }
+    }
+
+    private func postAutomationNotification(name: String, failure: String?) {
+        let content = UNMutableNotificationContent()
+        content.title = failure == nil ? "Automation finished" : "Automation needs attention"
+        content.body = failure ?? name
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "automation.run.\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
     private func refreshEnvironmentInfo(environmentID: String?) async {
         guard let codex, let environmentID = environmentID?.nilIfBlank else {
             environmentInfoState = .unavailable

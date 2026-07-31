@@ -4,75 +4,115 @@ import CodexCore
 public struct CodexAutomationRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
+    public let automations: [CodexAutomation]
     public let onAction: (CodexAutomationRouteAction) -> Void
     @State private var session = CodexAutomationRouteSession()
+    @State private var editorAutomation: CodexAutomation?
+    @State private var deletionCandidate: CodexAutomation?
 
-    public init(onAction: @escaping (CodexAutomationRouteAction) -> Void) {
+    public init(
+        automations: [CodexAutomation] = [],
+        onAction: @escaping (CodexAutomationRouteAction) -> Void
+    ) {
+        self.automations = automations
         self.onAction = onAction
     }
 
     private var state: CodexAutomationRouteState {
-        session.state
+        CodexAutomationRouteState(mode: session.state.mode, automations: automations)
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().overlay(theme.colors.border)
-            VStack(alignment: .leading, spacing: 24) {
-                segmentedControls
-                if state.showsEmptyState {
-                    emptyTemplates
-                } else {
-                    automationRows
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    if state.showsEmptyState {
+                        emptyState
+                    } else {
+                        dashboard
+                        templates(title: "Create another automation")
+                    }
                 }
+                .frame(maxWidth: 980, alignment: .leading)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 28)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(24)
-            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.colors.surface)
+        .sheet(item: $editorAutomation) { automation in
+            CodexAutomationEditor(automation: automation) { saved in
+                onAction(.save(saved))
+                editorAutomation = nil
+            } onCancel: {
+                editorAutomation = nil
+            }
+            .codexAgentTheme(theme)
+        }
+        .confirmationDialog(
+            "Delete \(deletionCandidate?.name ?? "automation")?",
+            isPresented: Binding(
+                get: { deletionCandidate != nil },
+                set: { if !$0 { deletionCandidate = nil } }
+            )
+        ) {
+            if let deletionCandidate {
+                Button("Delete automation", role: .destructive) {
+                    onAction(.delete(id: deletionCandidate.id))
+                    self.deletionCandidate = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { deletionCandidate = nil }
+        } message: {
+            Text("Its schedule and local history will be removed. Existing chats are kept.")
+        }
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .center, spacing: 14) {
             Image(systemName: CodexAppRoute.automations.systemImage)
                 .font(theme.fonts.sheetTitle)
                 .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: 24, height: 28)
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 9) {
                     Text(state.headerTitle)
                         .font(theme.fonts.routeTitle)
                         .foregroundStyle(theme.colors.textPrimary)
-                    Button {
-                        onAction(.learnMore)
-                    } label: {
-                        Text(state.learnMoreTitle)
-                            .font(theme.fonts.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.colors.accent)
-                    .accessibilityLabel(state.learnMoreTitle)
+                    Button(state.learnMoreTitle) { onAction(.learnMore) }
+                        .buttonStyle(.plain)
+                        .font(theme.fonts.caption.weight(.semibold))
+                        .foregroundStyle(theme.colors.accent)
                 }
                 Text(state.description)
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
             }
-            Spacer(minLength: 0)
-            Button {} label: {
-                Label(state.newAutomationOptionsTitle, systemImage: "ellipsis.circle")
+            Spacer(minLength: 20)
+            segmentedControls
+            Menu {
+                Button("New scheduled automation", systemImage: "calendar.badge.plus") {
+                    editorAutomation = CodexAutomation(name: "New automation", prompt: "")
+                }
+                Button("Create via chat", systemImage: "bubble.left.and.bubble.right") {
+                    perform(.createViaChat)
+                }
+            } label: {
+                Label(state.newAutomationOptionsTitle, systemImage: "plus")
             }
-            .buttonStyle(.bordered)
-            .disabled(true)
-            .help(state.newAutomationOptionsTitle)
+            .buttonStyle(.borderedProminent)
+            .tint(theme.colors.accent)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 28)
+        .padding(.top, 28)
+        .padding(.bottom, 20)
     }
 
     private var segmentedControls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 3) {
             ForEach(CodexAutomationRouteMode.allCases) { mode in
                 Button {
                     selectMode(mode)
@@ -83,59 +123,96 @@ public struct CodexAutomationRouteView: View {
                         .padding(.horizontal, 12)
                         .frame(height: 30)
                         .background(
-                            state.mode == mode ? theme.colors.surfaceElevated.opacity(0.9) : theme.colors.surfaceSunken.opacity(0.42),
+                            state.mode == mode ? theme.colors.surfaceElevated : Color.clear,
                             in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                                .stroke(theme.colors.border, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(mode.title)
+            }
+        }
+        .padding(3)
+        .background(theme.colors.surfaceSunken.opacity(0.6), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: theme.radii.medium).stroke(theme.colors.border, lineWidth: 1))
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(state.emptyTitle)
+                    .font(theme.fonts.routeTitle)
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("Choose a starting point. Nothing runs until you review and enable its schedule.")
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            templates(title: nil)
+        }
+        .padding(.top, 8)
+    }
+
+    private var dashboard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Your automations")
+                    .font(theme.fonts.sheetTitle)
+                    .foregroundStyle(theme.colors.textPrimary)
+                Spacer()
+                Text("\(automations.filter(\.isEnabled).count) active")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            LazyVStack(spacing: 10) {
+                ForEach(automations) { automation in
+                    CodexAutomationRow(
+                        automation: automation,
+                        onRun: { onAction(.runNow(id: automation.id)) },
+                        onToggle: { onAction(.toggle(id: automation.id)) },
+                        onEdit: { editorAutomation = automation },
+                        onDelete: { deletionCandidate = automation }
+                    )
+                }
             }
         }
     }
 
-    private var emptyTemplates: some View {
+    @ViewBuilder
+    private func templates(title: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(state.emptyTitle)
-                .font(theme.fonts.sheetTitle)
-                .foregroundStyle(theme.colors.textPrimary)
-
-            HStack(spacing: 10) {
-            ForEach(state.templates) { template in
-                    CodexAutomationTemplateButton(template: template) {
-                        perform(.template(template))
-                    }
+            if let title {
+                Text(title)
+                    .font(theme.fonts.panelTitle)
+                    .foregroundStyle(theme.colors.textPrimary)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], alignment: .leading, spacing: 12) {
+                ForEach(state.templates) { template in
+                    CodexAutomationTemplateButton(template: template) { perform(.template(template)) }
                 }
+                Button { perform(.createViaChat) } label: {
+                    templateCard(icon: "bubble.left.and.bubble.right", title: "Create via chat", description: "Describe what you need and let Codex help shape the schedule")
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 
-    private var automationRows: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(state.automations) { automation in
-                HStack {
-                    Text(automation.title)
-                        .font(theme.fonts.chat.weight(.semibold))
-                    Spacer()
-                    Text(automation.statusLabel)
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
-                }
-                .padding(12)
-                .background(theme.colors.surfaceElevated.opacity(0.66), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-            }
+    private func templateCard(icon: String, title: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon)
+                .font(theme.fonts.panelTitle)
+                .foregroundStyle(theme.colors.accent)
+            Text(title).font(theme.fonts.label).foregroundStyle(theme.colors.textPrimary)
+            Text(description).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(2)
         }
+        .padding(15)
+        .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+        .background(theme.colors.surfaceElevated.opacity(0.7), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: theme.radii.medium).stroke(theme.colors.border, lineWidth: 1))
     }
 
     private func selectMode(_ mode: CodexAutomationRouteMode) {
         switch mode {
-        case .viewTemplates:
-            session.viewTemplates()
-        case .createViaChat:
-            perform(.createViaChat)
+        case .viewTemplates: session.viewTemplates()
+        case .createViaChat: perform(.createViaChat)
         }
     }
 
@@ -147,36 +224,157 @@ public struct CodexAutomationRouteView: View {
 
 private struct CodexAutomationTemplateButton: View {
     @Environment(\.codexAgentTheme) private var theme
-
     let template: CodexAutomationTemplate
     let action: () -> Void
 
-    init(template: CodexAutomationTemplate, action: @escaping () -> Void) {
-        self.template = template
-        self.action = action
-    }
-
-    public var body: some View {
+    var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: template.systemImage)
                     .font(theme.fonts.panelTitle)
-                    .foregroundStyle(theme.colors.textSecondary)
-                Text(template.title)
-                    .font(theme.fonts.label)
-                    .foregroundStyle(template.isDraftBacked ? theme.colors.textPrimary : theme.colors.textTertiary)
-                    .lineLimit(1)
+                    .foregroundStyle(theme.colors.accent)
+                Text(template.title).font(theme.fonts.label).foregroundStyle(theme.colors.textPrimary)
+                Text(template.description).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(2)
             }
-            .padding(12)
-            .frame(width: 156, height: 82, alignment: .leading)
-            .background(theme.colors.surfaceElevated.opacity(0.72), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
-                    .stroke(theme.colors.border, lineWidth: 1)
-            )
+            .padding(15)
+            .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+            .background(theme.colors.surfaceElevated.opacity(0.7), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: theme.radii.medium).stroke(theme.colors.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .disabled(!template.isDraftBacked)
         .help(template.title)
+    }
+}
+
+private struct CodexAutomationRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+    let automation: CodexAutomation
+    let onRun: () -> Void
+    let onToggle: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle().fill(statusColor.opacity(0.14))
+                Image(systemName: automation.status == .running ? "arrow.trianglehead.2.clockwise.rotate.90" : "clock.arrow.circlepath")
+                    .foregroundStyle(statusColor)
+            }
+            .frame(width: 38, height: 38)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(automation.name).font(theme.fonts.chat.weight(.semibold)).foregroundStyle(theme.colors.textPrimary)
+                    Text(automation.statusLabel)
+                        .font(theme.fonts.caption.weight(.semibold))
+                        .foregroundStyle(statusColor)
+                }
+                Text(automation.schedule.summary)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                if let error = automation.lastError {
+                    Text(error).font(theme.fonts.caption).foregroundStyle(.red).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 12)
+            Button("Run now", action: onRun)
+                .buttonStyle(.bordered)
+                .disabled(automation.status == .running)
+            Toggle("Enabled", isOn: Binding(get: { automation.status != .disabled }, set: { _ in onToggle() }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(automation.status == .running)
+            Menu {
+                Button("Edit", systemImage: "pencil", action: onEdit)
+                Button(automation.status == .disabled ? "Enable" : "Disable", systemImage: automation.status == .disabled ? "play" : "pause", action: onToggle)
+                Divider()
+                Button("Delete", systemImage: "trash", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 28, height: 28)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 34)
+        }
+        .padding(14)
+        .background(theme.colors.surfaceElevated.opacity(0.56), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: theme.radii.medium).stroke(theme.colors.border, lineWidth: 1))
+    }
+
+    private var statusColor: Color {
+        switch automation.status {
+        case .enabled: theme.colors.accent
+        case .disabled: theme.colors.textTertiary
+        case .running: .orange
+        case .failed: .red
+        }
+    }
+}
+
+private struct CodexAutomationEditor: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var automation: CodexAutomation
+    let onSave: (CodexAutomation) -> Void
+    let onCancel: () -> Void
+
+    init(automation: CodexAutomation, onSave: @escaping (CodexAutomation) -> Void, onCancel: @escaping () -> Void) {
+        _automation = State(initialValue: automation)
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Automation").font(theme.fonts.sheetTitle).foregroundStyle(theme.colors.textPrimary)
+                    Text("Codex starts a fresh background chat on this schedule.").font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary)
+                }
+                Spacer()
+                Button("Cancel", action: onCancel).buttonStyle(.plain)
+                Button("Save") { onSave(automation) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(automation.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || automation.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text("Name").font(theme.fonts.label)
+                TextField("Daily brief", text: $automation.name).textFieldStyle(.roundedBorder)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text("Instructions").font(theme.fonts.label)
+                TextEditor(text: $automation.prompt)
+                    .font(theme.fonts.chat)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 130)
+                    .background(theme.colors.surfaceSunken.opacity(0.5), in: RoundedRectangle(cornerRadius: theme.radii.small))
+                    .overlay(RoundedRectangle(cornerRadius: theme.radii.small).stroke(theme.colors.border, lineWidth: 1))
+            }
+            HStack(spacing: 14) {
+                Picker("Schedule", selection: $automation.schedule.frequency) {
+                    ForEach(CodexAutomationFrequency.allCases) { Text($0.title).tag($0) }
+                }
+                if automation.schedule.frequency == .weekly {
+                    Picker("Day", selection: $automation.schedule.weekday) {
+                        ForEach(Array(Calendar.current.weekdaySymbols.enumerated()), id: \.offset) { index, day in
+                            Text(day).tag(index + 1)
+                        }
+                    }
+                }
+                Picker("Hour", selection: $automation.schedule.hour) {
+                    ForEach(0..<24, id: \.self) { Text(String(format: "%02d", $0)).tag($0) }
+                }
+                Picker("Minute", selection: $automation.schedule.minute) {
+                    ForEach([0, 15, 30, 45], id: \.self) { Text(String(format: "%02d", $0)).tag($0) }
+                }
+            }
+            Toggle("Enabled", isOn: Binding(
+                get: { automation.status != .disabled },
+                set: { automation.status = $0 ? .enabled : .disabled }
+            ))
+        }
+        .padding(24)
+        .frame(width: 620)
+        .background(theme.colors.surface)
     }
 }

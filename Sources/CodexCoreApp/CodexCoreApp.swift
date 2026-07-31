@@ -75,6 +75,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        model.startAutomationScheduler()
         configureMainMenu()
         DispatchQueue.main.async { [weak self] in
             self?.showMainWindow()
