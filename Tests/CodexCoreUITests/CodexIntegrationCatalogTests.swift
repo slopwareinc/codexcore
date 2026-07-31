@@ -3,6 +3,36 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexIntegrationCatalogTests: XCTestCase {
+    func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let curated = temporary.appendingPathComponent("curated", isDirectory: true)
+        let serverManagedDuplicate = temporary.appendingPathComponent("duplicate", isDirectory: true)
+        let bundled = temporary.appendingPathComponent("bundled", isDirectory: true)
+        let bundledDuplicate = temporary.appendingPathComponent("bundled-duplicate", isDirectory: true)
+        let invalid = temporary.appendingPathComponent("invalid", isDirectory: true)
+        try writeMarketplace(named: "openai-curated", at: curated)
+        try writeMarketplace(named: "openai-curated", at: serverManagedDuplicate)
+        try writeMarketplace(named: "openai-bundled", at: bundled)
+        try writeMarketplace(named: "openai-bundled", at: bundledDuplicate)
+        try FileManager.default.createDirectory(
+            at: invalid.appendingPathComponent(".agents/plugins", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data("not json".utf8).write(to: invalid.appendingPathComponent(".agents/plugins/marketplace.json"))
+
+        XCTAssertEqual(
+            CodexPluginMarketplaceDiscovery.sources(
+                in: [curated, serverManagedDuplicate, invalid, bundled, bundledDuplicate]
+            ),
+            [
+                CodexPluginMarketplaceSource(name: "openai-bundled", path: bundled.path),
+            ]
+        )
+    }
+
     func testSlashCommandsMatchObservedCodexPaletteAndFilter() throws {
         XCTAssertEqual(CodexSlashCommand.observedCommands.map(\.title), [
             "Compact",
@@ -707,6 +737,13 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(session.skills, skills)
     }
 
+}
+
+private func writeMarketplace(named name: String, at root: URL) throws {
+    let directory = root.appendingPathComponent(".agents/plugins", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let data = try JSONSerialization.data(withJSONObject: ["name": name, "plugins": []])
+    try data.write(to: directory.appendingPathComponent("marketplace.json"))
 }
 
 private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider {

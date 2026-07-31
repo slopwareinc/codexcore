@@ -60,6 +60,7 @@ final class CodexCoreAppModel {
     private var accountPreferredDisplayName: String?
     private var skillsChangedObservationTask: Task<Void, Never>?
     private var skillsChangedObservationGeneration: UInt64 = 0
+    private var didBootstrapPluginMarketplaces = false
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
     private var pendingSteerSubmissions: [CodexComposerSubmission] = []
@@ -792,6 +793,10 @@ final class CodexCoreAppModel {
 
     private func refreshConnectedSession(using codex: Codex) async throws {
         await refreshStartupCatalogs(using: codex)
+        // Preload the catalog after authentication. A Plugins route selected
+        // while startup was still connecting otherwise kept the empty result
+        // from its earlier, connection-less refresh indefinitely.
+        await refreshPlugins()
         await refreshRecentChats(using: codex)
         await refreshRemoteEnvironment(using: codex)
         try await refreshRateLimits(using: codex)
@@ -1696,6 +1701,22 @@ final class CodexCoreAppModel {
         guard let codex else {
             runtimeSession.integrationCatalogSession.requirePluginConnection(message: "Connect to Codex before inspecting plugins.")
             return
+        }
+
+        if !didBootstrapPluginMarketplaces {
+            let sources = CodexPluginMarketplaceDiscovery.sources(codexHome: codexHome)
+            let bootstrap = await CodexPluginMarketplaceBootstrap.register(
+                sources,
+                using: codex,
+                errorMessage: CodexErrorFormat.localizedDescription
+            )
+            didBootstrapPluginMarketplaces = true
+            if !bootstrap.failures.isEmpty {
+                appendIntegrationActivity(.init(
+                    title: "Some plugin marketplaces couldn’t load",
+                    detail: bootstrap.failures.joined(separator: "\n")
+                ))
+            }
         }
 
         var session = runtimeSession.integrationCatalogSession
@@ -2637,6 +2658,7 @@ final class CodexCoreAppModel {
         threadListSession.reset(currentWorkspacePath: workspacePath)
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         runtimeSession.integrationCatalogSession.reset()
+        didBootstrapPluginMarketplaces = false
         configurationSession.reset()
         invalidatePendingChatSelection()
         clearThreadState()
