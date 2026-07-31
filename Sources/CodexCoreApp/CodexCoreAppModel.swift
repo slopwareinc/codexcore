@@ -1796,6 +1796,27 @@ final class CodexCoreAppModel {
         }
     }
 
+    func performPluginControlPlaneAction(_ request: CodexIntegrationControlPlaneRequest) {
+        Task {
+            let response = await performIntegrationControlPlaneRequest(request)
+            if case .mcpOAuthLogin = request,
+               case .dictionary(let object)? = response,
+               case .string(let authorizationURL)? = object["authorizationUrl"],
+               let url = URL(string: authorizationURL) {
+                NSWorkspace.shared.open(url)
+            }
+
+            switch request.permissionBoundary {
+            case .pluginMutation, .skillConfigurationWrite, .configurationWrite:
+                await refreshPlugins()
+            case .externalAuthentication:
+                await refreshMCPServers()
+            case .externalResourceRead, .externalToolExecution, nil:
+                break
+            }
+        }
+    }
+
     func pinCurrentChat() {
         guard let threadID = currentThreadID else {
             appendActivity(.notice, title: "Pin unavailable", detail: "No active chat to pin")
