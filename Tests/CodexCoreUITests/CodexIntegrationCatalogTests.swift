@@ -252,13 +252,15 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                     "message": .string("invalid manifest")
                 ])
             ]),
-            "featuredPluginIds": .array([])
+            "featuredPluginIds": .array([.string("resume-from-opencode")])
         ])
 
         let plugins = CodexPluginSummary.plugins(from: response)
 
         XCTAssertEqual(plugins.count, 2)
         XCTAssertEqual(plugins[0].name, "resume-from-opencode")
+        XCTAssertEqual(plugins[0].protocolID, "resume-from-opencode")
+        XCTAssertTrue(plugins[0].isFeatured)
         XCTAssertEqual(plugins[0].displayName, "Resume OpenCode")
         XCTAssertEqual(plugins[0].statusLabel, "Installed")
         XCTAssertEqual(plugins[0].sourceLabel, "Local")
@@ -537,10 +539,57 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(detail.prompt, "Use the browser to inspect localhost.")
         XCTAssertEqual(detail.primaryAction, .setSkillEnabled(CodexSkillActionTarget(skill: enabled), enabled: false))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Use the browser to inspect localhost."))
-        XCTAssertFalse(detail.canUninstall)
+        XCTAssertTrue(detail.canUninstall)
     }
 
-    func testPluginCatalogActionsAreMockableAndBounded() async {
+    func testPluginRouteFiltersAndMCPManagementRemainSeparate() throws {
+        let openAI = CodexPluginSummary(
+            id: "openai:browser",
+            protocolID: "browser@openai-bundled",
+            name: "browser",
+            displayName: "Browser",
+            marketplaceName: "openai-bundled",
+            developerName: "OpenAI",
+            installed: true,
+            enabled: true,
+            capabilities: ["apps"]
+        )
+        let personal = CodexPluginSummary(
+            id: "personal:writer",
+            protocolID: "writer@personal",
+            name: "writer",
+            displayName: "Writer",
+            marketplaceName: "personal",
+            sourceType: "local"
+        )
+        let server = CodexMCPServerStatus(
+            name: "filesystem",
+            displayName: "Filesystem",
+            authStatus: "unsupported",
+            startupStatus: "ready",
+            tools: [.init(name: "read_file")]
+        )
+
+        let openAIState = CodexPluginRouteState(
+            plugins: [openAI, personal],
+            mcpServers: [server],
+            filter: .openAI
+        )
+        XCTAssertEqual(openAIState.visiblePlugins.map(\.displayName), ["Browser"])
+        XCTAssertEqual(openAIState.featuredPlugins.map(\.displayName), ["Browser"])
+
+        let mcpState = CodexPluginRouteState(
+            plugins: [openAI, personal],
+            mcpServers: [server],
+            primaryTab: .manage,
+            manageTab: .mcps
+        )
+        XCTAssertEqual(mcpState.manageCounts.first { $0.tab == .mcps }?.count, 1)
+        XCTAssertEqual(mcpState.visibleMCPServers.map(\.displayName), ["Filesystem"])
+        XCTAssertEqual(try XCTUnwrap(mcpState.selectedDetail).title, "Filesystem")
+    }
+
+    func testPluginCatalogActionsAreMockable() async {
         let available = plugin(
             name: "github",
             displayName: "GitHub",
@@ -563,12 +612,55 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(tryInChat.draftPrompt, "Use GitHub")
         XCTAssertFalse(tryInChat.shouldRefresh)
 
-        let unsupported = await CodexPluginCatalogActionSession.perform(
-            .uninstallPlugin(target),
-            provider: CodexUnsupportedPluginCatalogActionProvider()
+        let personalSkill = skill(name: "writer", displayName: "Writer", enabled: true)
+        let uninstallSkill = await CodexPluginCatalogActionSession.perform(
+            .uninstallSkill(.init(skill: personalSkill)),
+            provider: provider
         )
-        XCTAssertEqual(unsupported.activity.title, "Plugin action unavailable")
-        XCTAssertTrue(unsupported.activity.detail.contains("uninstall is not wired"))
+        XCTAssertEqual(uninstallSkill.activity.title, "Uninstalled Writer")
+        XCTAssertTrue(uninstallSkill.shouldRefresh)
+
+    }
+
+    func testPluginProtocolMutationsUseServerIdentityAndExplicitControlPlaneSeams() throws {
+        let available = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Triage PRs and issues",
+            installed: false,
+            enabled: false,
+            installPolicy: "AVAILABLE"
+        )
+        let target = CodexPluginActionTarget(plugin: available)
+
+        XCTAssertEqual(target.id, "github@local")
+
+        let install = CodexPluginProtocolMutation.installParams(for: target)
+        XCTAssertEqual(install.pluginName, "github")
+        XCTAssertEqual(install.marketplacePath?.rawValue, .string("/tmp/marketplace.json"))
+        XCTAssertNil(install.remoteMarketplaceName)
+
+        let uninstall = CodexPluginProtocolMutation.uninstallParams(for: target)
+        XCTAssertEqual(uninstall.pluginID, "github@local")
+
+        let toggle = CodexPluginProtocolMutation.pluginEnabledParams(for: target, enabled: false)
+        XCTAssertEqual(toggle.keyPath, "plugins.\"github@local\".enabled")
+        XCTAssertEqual(toggle.mergeStrategy, .upsert)
+        XCTAssertEqual(toggle.value, .bool(false))
+
+        let skillTarget = CodexSkillActionTarget(skill: skill(
+            name: "browser:control",
+            displayName: "Control Browser",
+            enabled: true
+        ))
+        let skillToggle = CodexPluginProtocolMutation.skillEnabledParams(for: skillTarget, enabled: false)
+        XCTAssertEqual(skillToggle.name, "browser:control")
+        XCTAssertEqual(skillToggle.path?.rawValue, .string(skillTarget.path))
+        XCTAssertFalse(skillToggle.enabled)
+
+        let uninstallSkill = CodexPluginProtocolMutation.skillUninstallParams(for: skillTarget)
+        XCTAssertEqual(uninstallSkill.path.rawValue, .string("/tmp/skills/browser:control"))
+        XCTAssertEqual(uninstallSkill.recursive, true)
     }
 
     func testSkillSummariesParseAppServerSkillsForRoute() {
@@ -645,6 +737,13 @@ private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider
             shouldRefresh: true
         )
     }
+
+    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: "Uninstalled \(target.displayName)", detail: target.path),
+            shouldRefresh: true
+        )
+    }
 }
 
 private func plugin(
@@ -665,6 +764,7 @@ private func plugin(
 ) -> CodexPluginSummary {
     CodexPluginSummary(
         id: "local:\(name)",
+        protocolID: "\(name)@local",
         name: name,
         displayName: displayName,
         shortDescription: detail,

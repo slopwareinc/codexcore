@@ -34,6 +34,7 @@ struct Gallery {
             Scene(name: "palette", width: 720, content: AnyView(PaletteSpecimen())),
             Scene(name: "plan-panel", width: 420, content: AnyView(PlanPanelScene())),
             Scene(name: "mcp-sheet", width: 620, content: AnyView(MCPSheetScene())),
+            Scene(name: "plugins-marketplace", width: 1180, content: AnyView(PluginsMarketplaceScene())),
             Scene(name: "chips", width: 720, content: AnyView(ChipSpecimen()))
         ]
     }
@@ -123,6 +124,11 @@ struct Gallery {
             .codexAgentTheme(theme)
             .environment(\.colorScheme, scheme)
 
+        if scene.name == "plugins-marketplace" {
+            try renderHosted(root, width: scene.width, height: 768, to: url)
+            return
+        }
+
         let renderer = ImageRenderer(content: root)
         renderer.scale = scale
         renderer.isOpaque = true
@@ -133,6 +139,28 @@ struct Gallery {
               let png = bitmap.representation(using: NSBitmapImageRep.FileType.png, properties: [:])
         else {
             throw GalleryError.renderFailed(scene.name)
+        }
+        try png.write(to: url)
+    }
+
+    private static func renderHosted<Content: View>(
+        _ content: Content,
+        width: CGFloat,
+        height: CGFloat,
+        to url: URL
+    ) throws {
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        let view = NSHostingView(rootView: content)
+        view.frame = bounds
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: bounds) else {
+            throw GalleryError.renderFailed("plugins-marketplace")
+        }
+        view.cacheDisplay(in: bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            throw GalleryError.renderFailed("plugins-marketplace")
         }
         try png.write(to: url)
     }
@@ -528,6 +556,70 @@ private struct MCPSheetScene: View {
             onRefresh: {}
         )
         .fixedSize()
+    }
+}
+
+private struct PluginsMarketplaceScene: View {
+    private let plugins = [
+        CodexPluginSummary(
+            id: "openai:computer-use",
+            protocolID: "computer-use@openai-bundled",
+            name: "computer-use",
+            displayName: "Computer Use",
+            shortDescription: "Control Mac apps with Codex",
+            marketplaceName: "openai-bundled",
+            marketplaceDisplayName: "By OpenAI",
+            category: "Featured",
+            developerName: "OpenAI",
+            installPolicy: "AVAILABLE",
+            capabilities: ["Interactive", "Read", "Write"],
+            isFeatured: true
+        ),
+        CodexPluginSummary(
+            id: "openai:browser",
+            protocolID: "browser@openai-bundled",
+            name: "browser",
+            displayName: "Browser",
+            shortDescription: "Control the in-app browser with Codex",
+            longDescription: "Open and control the in-app browser for local development pages and files.",
+            marketplaceName: "openai-bundled",
+            marketplaceDisplayName: "By OpenAI",
+            category: "Engineering",
+            developerName: "OpenAI",
+            installed: true,
+            enabled: true,
+            installPolicy: "INSTALLED_BY_DEFAULT",
+            localVersion: "26.616.81150",
+            defaultPrompt: "Browser\nTest my checkout flow on localhost",
+            websiteURL: "https://openai.com",
+            privacyPolicyURL: "https://openai.com/privacy",
+            termsOfServiceURL: "https://openai.com/terms",
+            capabilities: ["Interactive", "Read", "Write"]
+        ),
+        CodexPluginSummary(
+            id: "openai:github",
+            protocolID: "github@openai-curated",
+            name: "github",
+            displayName: "GitHub",
+            shortDescription: "Triage repositories, issues, and pull requests",
+            marketplaceName: "openai-curated",
+            marketplaceDisplayName: "By OpenAI",
+            category: "Developer tools",
+            developerName: "OpenAI",
+            installPolicy: "AVAILABLE",
+            capabilities: ["apps", "skills"]
+        )
+    ]
+
+    var body: some View {
+        CodexPluginRouteView(
+            plugins: plugins,
+            skills: [],
+            mcpServers: [CodexMCPServerStatus(name: "filesystem", displayName: "Filesystem", startupStatus: "ready")],
+            onRefresh: {},
+            onAction: { _ in }
+        )
+        .frame(height: 720)
     }
 }
 

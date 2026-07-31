@@ -167,6 +167,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
 
 public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var id: String
+    public var protocolID: String
     public var name: String
     public var displayName: String
     public var shortDescription: String?
@@ -190,9 +191,11 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var termsOfServiceURL: String?
     public var capabilities: [String]
     public var keywords: [String]
+    public var isFeatured: Bool
 
     public init(
         id: String,
+        protocolID: String? = nil,
         name: String,
         displayName: String? = nil,
         shortDescription: String? = nil,
@@ -215,9 +218,11 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         privacyPolicyURL: String? = nil,
         termsOfServiceURL: String? = nil,
         capabilities: [String] = [],
-        keywords: [String] = []
+        keywords: [String] = [],
+        isFeatured: Bool = false
     ) {
         self.id = id
+        self.protocolID = protocolID?.nilIfBlank ?? id
         self.name = name
         self.displayName = displayName?.nilIfBlank ?? name
         self.shortDescription = shortDescription
@@ -241,6 +246,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.termsOfServiceURL = termsOfServiceURL
         self.capabilities = capabilities
         self.keywords = keywords
+        self.isFeatured = isFeatured
     }
 
     public init?(raw value: CodexJSONValue, marketplace: MarketplaceContext) {
@@ -254,6 +260,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         let source = Self.dictionary(from: object["source"])
         self.init(
             id: "\(marketplace.name):\(pluginID)",
+            protocolID: pluginID,
             name: name,
             displayName: Self.string(in: interface, keys: ["displayName"]),
             shortDescription: Self.string(in: interface, keys: ["shortDescription"]),
@@ -281,15 +288,29 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     }
 
     public static func plugins(from response: CodexJSONValue) -> [CodexPluginSummary] {
-        marketplaces(from: response)
+        let featuredIDs = featuredPluginIDs(from: response)
+        return marketplaces(from: response)
             .flatMap { marketplace in
                 marketplace.plugins.compactMap { CodexPluginSummary(raw: $0, marketplace: marketplace.context) }
+            }
+            .map { plugin in
+                var plugin = plugin
+                plugin.isFeatured = featuredIDs.contains(plugin.protocolID)
+                    || featuredIDs.contains(plugin.id)
+                    || featuredIDs.contains(plugin.name)
+                return plugin
             }
             .sorted { lhs, rhs in
                 if lhs.installed != rhs.installed { return lhs.installed && !rhs.installed }
                 if lhs.enabled != rhs.enabled { return lhs.enabled && !rhs.enabled }
                 return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
+    }
+
+    private static func featuredPluginIDs(from response: CodexJSONValue) -> Set<String> {
+        guard case .dictionary(let object) = response,
+              case .array(let values)? = object["featuredPluginIds"] else { return [] }
+        return Set(values.compactMap { CodexJSONCoercion.flatString(from: $0)?.nilIfBlank })
     }
 
     public static func loadErrorMessages(from response: CodexJSONValue) -> [String] {
@@ -578,6 +599,22 @@ public enum CodexPluginRoutePrimaryTab: String, CaseIterable, Equatable, Sendabl
     }
 }
 
+public enum CodexPluginCatalogFilter: String, CaseIterable, Equatable, Sendable {
+    case all
+    case openAI
+    case workspace
+    case personal
+
+    public var title: String {
+        switch self {
+        case .all: return "All"
+        case .openAI: return "By OpenAI"
+        case .workspace: return "By your workspace"
+        case .personal: return "Personal"
+        }
+    }
+}
+
 public enum CodexPluginManageTab: String, CaseIterable, Equatable, Sendable {
     case plugins
     case apps
@@ -625,6 +662,7 @@ public enum CodexPluginRouteAction: Equatable, Sendable {
     case uninstallPlugin(CodexPluginActionTarget)
     case setPluginEnabled(CodexPluginActionTarget, enabled: Bool)
     case setSkillEnabled(CodexSkillActionTarget, enabled: Bool)
+    case uninstallSkill(CodexSkillActionTarget)
     case tryInChat(prompt: String)
 }
 
@@ -636,7 +674,7 @@ public struct CodexPluginActionTarget: Equatable, Sendable {
     public var marketplacePath: String?
 
     public init(plugin: CodexPluginSummary) {
-        self.id = plugin.id
+        self.id = plugin.protocolID
         self.name = plugin.name
         self.displayName = plugin.displayName
         self.marketplaceName = plugin.marketplaceName
@@ -648,11 +686,13 @@ public struct CodexSkillActionTarget: Equatable, Sendable {
     public var name: String
     public var displayName: String
     public var path: String
+    public var scope: String?
 
     public init(skill: CodexSkillSummary) {
         self.name = skill.name
         self.displayName = skill.displayName
         self.path = skill.path
+        self.scope = skill.scope
     }
 }
 
@@ -673,6 +713,55 @@ public protocol CodexPluginCatalogActionProvider: Sendable {
     func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
+    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome
+}
+
+/// Pure request construction keeps the plugin control plane inspectable and
+/// testable without coupling UI state to generated protocol representations.
+public enum CodexPluginProtocolMutation {
+    public static func installParams(for target: CodexPluginActionTarget) -> CodexSchemaPluginInstallParams {
+        CodexSchemaPluginInstallParams(
+            marketplacePath: target.marketplacePath.map { CodexAppServerSchemaValue(.string($0)) },
+            pluginName: target.name,
+            remoteMarketplaceName: target.marketplacePath == nil ? target.marketplaceName : nil
+        )
+    }
+
+    public static func uninstallParams(for target: CodexPluginActionTarget) -> CodexSchemaPluginUninstallParams {
+        CodexSchemaPluginUninstallParams(pluginID: target.id)
+    }
+
+    public static func pluginEnabledParams(
+        for target: CodexPluginActionTarget,
+        enabled: Bool
+    ) -> CodexSchemaConfigValueWriteParams {
+        let escapedID = target.id.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return CodexSchemaConfigValueWriteParams(
+            keyPath: "plugins.\"\(escapedID)\".enabled",
+            mergeStrategy: .upsert,
+            value: .bool(enabled)
+        )
+    }
+
+    public static func skillEnabledParams(
+        for target: CodexSkillActionTarget,
+        enabled: Bool
+    ) -> CodexSchemaSkillsConfigWriteParams {
+        CodexSchemaSkillsConfigWriteParams(
+            enabled: enabled,
+            name: target.name,
+            path: CodexAppServerSchemaValue(.string(target.path))
+        )
+    }
+
+    public static func skillUninstallParams(for target: CodexSkillActionTarget) -> CodexSchemaFSRemoveParams {
+        let directory = URL(fileURLWithPath: target.path).deletingLastPathComponent().path
+        return CodexSchemaFSRemoveParams(
+            path: CodexAppServerSchemaValue(.string(directory)),
+            recursive: true
+        )
+    }
 }
 
 public enum CodexPluginCatalogActionSession {
@@ -689,6 +778,8 @@ public enum CodexPluginCatalogActionSession {
             return await provider.setPluginEnabled(target, enabled: enabled)
         case .setSkillEnabled(let target, let enabled):
             return await provider.setSkillEnabled(target, enabled: enabled)
+        case .uninstallSkill(let target):
+            return await provider.uninstallSkill(target)
         case .tryInChat(let prompt):
             return CodexPluginActionOutcome(
                 activity: CodexIntegrationCatalogActivity(title: "Prepared plugin prompt", detail: prompt),
@@ -698,27 +789,87 @@ public enum CodexPluginCatalogActionSession {
     }
 }
 
-public struct CodexUnsupportedPluginCatalogActionProvider: CodexPluginCatalogActionProvider {
-    public init() {}
+/// Protocol-backed plugin and skill mutations. MCP management intentionally stays
+/// outside this adapter so hosts can evolve the MCP control plane independently.
+public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActionProvider {
+    public let codex: Codex
+
+    public init(codex: Codex) {
+        self.codex = codex
+    }
 
     public func installPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
-        unavailable("\(target.displayName) install is not wired in this build")
+        do {
+            _ = try await codex.pluginInstall(CodexPluginProtocolMutation.installParams(for: target))
+            return success("Added \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t add \(target.displayName)", error: error)
+        }
     }
 
     public func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
-        unavailable("\(target.displayName) uninstall is not wired in this build")
+        do {
+            _ = try await codex.pluginUninstall(CodexPluginProtocolMutation.uninstallParams(for: target))
+            return success("Removed \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t remove \(target.displayName)", error: error)
+        }
     }
 
     public func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
-        unavailable("\(target.displayName) enable toggle is not wired in this build")
+        do {
+            _ = try await codex.configValueWrite(
+                CodexPluginProtocolMutation.pluginEnabledParams(for: target, enabled: enabled)
+            )
+            return success(
+                "Updated \(target.displayName)",
+                detail: "\(enabled ? "Enabled" : "Disabled") \(target.displayName)"
+            )
+        } catch {
+            return failure("Couldn’t update \(target.displayName)", error: error)
+        }
     }
 
     public func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
-        unavailable("\(target.displayName) skill toggle is not wired in this build")
+        do {
+            let response = try await codex.skillsConfigWrite(
+                CodexPluginProtocolMutation.skillEnabledParams(for: target, enabled: enabled)
+            )
+            return success(
+                "Updated \(target.displayName)",
+                detail: "\(response.effectiveEnabled ? "Enabled" : "Disabled") \(target.displayName)"
+            )
+        } catch {
+            return failure("Couldn’t update \(target.displayName)", error: error)
+        }
     }
 
-    private func unavailable(_ detail: String) -> CodexPluginActionOutcome {
-        CodexPluginActionOutcome(activity: CodexIntegrationCatalogActivity(title: "Plugin action unavailable", detail: detail))
+    public func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
+        guard target.scope == "user" else {
+            return CodexPluginActionOutcome(activity: .init(
+                title: "Can’t uninstall \(target.displayName)",
+                detail: "Only personal skills can be uninstalled from this surface."
+            ))
+        }
+        do {
+            _ = try await codex.remove(CodexPluginProtocolMutation.skillUninstallParams(for: target))
+            return success("Uninstalled \(target.displayName)", detail: target.path)
+        } catch {
+            return failure("Couldn’t uninstall \(target.displayName)", error: error)
+        }
+    }
+
+    private func success(_ title: String, detail: String) -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: title, detail: detail),
+            shouldRefresh: true
+        )
+    }
+
+    private func failure(_ title: String, error: Error) -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: title, detail: error.localizedDescription)
+        )
     }
 }
 
@@ -726,6 +877,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case plugin(CodexPluginActionTarget)
         case skill(CodexSkillActionTarget)
+        case mcp(String)
         case boundary(String)
     }
 
@@ -757,7 +909,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         case .skill(let target):
             guard canToggleEnabled else { return nil }
             return .setSkillEnabled(target, enabled: !isEnabled)
-        case .boundary:
+        case .mcp, .boundary:
             return nil
         }
     }
@@ -836,9 +988,34 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         ]
         self.legalLinks = []
         self.canInstall = false
-        self.canUninstall = false
+        self.canUninstall = skill.scope == "user"
         self.canToggleEnabled = true
         self.isEnabled = skill.enabled
+        self.boundaryActionTitle = nil
+    }
+
+    public init(mcpServer: CodexMCPServerStatus) {
+        self.kind = .mcp(mcpServer.id)
+        self.title = mcpServer.displayName
+        self.detail = mcpServer.detail?.nilIfBlank ?? mcpServer.inventorySummary
+        self.description = mcpServer.error?.nilIfBlank ?? "This server exposes \(mcpServer.inventorySummary) to Codex."
+        self.statusLabel = mcpServer.startupStatus?.nilIfBlank ?? mcpServer.authStatusLabel
+        self.prompt = nil
+        self.capabilities = [
+            "\(mcpServer.tools.count) tools",
+            "\(mcpServer.resources.count) resources",
+            "\(mcpServer.resourceTemplates.count) resource templates"
+        ]
+        self.metadata = [
+            "Server: \(mcpServer.name)",
+            mcpServer.version.map { "Version: \($0)" },
+            "Authentication: \(mcpServer.authStatusLabel)"
+        ].compactMap { $0 }
+        self.legalLinks = []
+        self.canInstall = false
+        self.canUninstall = false
+        self.canToggleEnabled = false
+        self.isEnabled = mcpServer.error == nil
         self.boundaryActionTitle = nil
     }
 
@@ -880,6 +1057,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
     public var primaryTab: CodexPluginRoutePrimaryTab
     public var manageTab: CodexPluginManageTab
     public var searchQuery: String
+    public var filter: CodexPluginCatalogFilter
     public var selectedPluginID: String?
     public var selectedSkillID: String?
     public var launcherTarget: CodexComposerPluginLauncher?
@@ -891,6 +1069,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         primaryTab: CodexPluginRoutePrimaryTab = .marketplace,
         manageTab: CodexPluginManageTab = .plugins,
         searchQuery: String = "",
+        filter: CodexPluginCatalogFilter = .all,
         selectedPluginID: String? = nil,
         selectedSkillID: String? = nil,
         launcherTarget: CodexComposerPluginLauncher? = nil
@@ -901,6 +1080,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         self.primaryTab = primaryTab
         self.manageTab = manageTab
         self.searchQuery = searchQuery
+        self.filter = filter
         self.selectedPluginID = selectedPluginID
         self.selectedSkillID = selectedSkillID
         self.launcherTarget = launcherTarget
@@ -909,8 +1089,8 @@ public struct CodexPluginRouteState: Equatable, Sendable {
     public var manageCounts: [CodexPluginManageCount] {
         [
             CodexPluginManageCount(tab: .plugins, count: plugins.filter(\.installed).count),
-            CodexPluginManageCount(tab: .apps, count: plugins.filter { $0.capabilityMatches("apps") || $0.capabilityMatches("app") }.count),
-            CodexPluginManageCount(tab: .mcps, count: mcpServers.count + plugins.filter { $0.capabilityMatches("mcp") }.count),
+            CodexPluginManageCount(tab: .apps, count: plugins.filter { $0.installed && ($0.capabilityMatches("apps") || $0.capabilityMatches("app")) }.count),
+            CodexPluginManageCount(tab: .mcps, count: mcpServers.count),
             CodexPluginManageCount(tab: .skills, count: skills.count)
         ]
     }
@@ -932,6 +1112,11 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         }
     }
 
+    public var featuredPlugins: [CodexPluginSummary] {
+        let featured = marketplacePlugins.filter(\.isFeatured)
+        return filtered(featured.isEmpty ? Array(marketplacePlugins.prefix(2)) : featured)
+    }
+
     public var visiblePlugins: [CodexPluginSummary] {
         filtered(pluginsForCurrentTab)
     }
@@ -945,17 +1130,32 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         }
     }
 
+    public var visibleMCPServers: [CodexMCPServerStatus] {
+        let needle = normalizedSearch
+        guard !needle.isEmpty else { return mcpServers }
+        return mcpServers.filter { server in
+            [server.name, server.displayName, server.detail ?? "", server.inventorySummary]
+                .contains { $0.localizedCaseInsensitiveContains(needle) }
+        }
+    }
+
     public var selectedDetail: CodexPluginRouteDetail? {
         if primaryTab == .skills {
             let skill = skills.first { $0.id == selectedSkillID } ?? visibleSkills.first ?? skills.first
             return skill.map(CodexPluginRouteDetail.init(skill:))
         }
+        if primaryTab == .manage, manageTab == .mcps {
+            return visibleMCPServers.first.map(CodexPluginRouteDetail.init(mcpServer:))
+        }
+        if let selectedPluginID,
+           let plugin = plugins.first(where: { $0.id == selectedPluginID }) {
+            return CodexPluginRouteDetail(plugin: plugin)
+        }
         if let launcherTarget,
            let plugin = matchedPlugin(for: launcherTarget) {
             return CodexPluginRouteDetail(plugin: plugin)
         }
-        let plugin = plugins.first { $0.id == selectedPluginID }
-            ?? visiblePlugins.first
+        let plugin = visiblePlugins.first
             ?? plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }
             ?? plugins.first
         return plugin.map(CodexPluginRouteDetail.init(plugin:)) ?? launcherTarget?.fallbackDetail
@@ -976,9 +1176,9 @@ public struct CodexPluginRouteState: Equatable, Sendable {
             case .plugins:
                 return plugins.filter(\.installed)
             case .apps:
-                return plugins.filter { $0.capabilityMatches("apps") || $0.capabilityMatches("app") }
+                return plugins.filter { $0.installed && ($0.capabilityMatches("apps") || $0.capabilityMatches("app")) }
             case .mcps:
-                return plugins.filter { $0.capabilityMatches("mcp") }
+                return []
             case .skills:
                 return []
             }
@@ -990,6 +1190,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
     }
 
     private func filtered(_ plugins: [CodexPluginSummary]) -> [CodexPluginSummary] {
+        let plugins = plugins.filter(matchesFilter)
         let needle = normalizedSearch
         guard !needle.isEmpty else { return plugins }
         return plugins.filter { plugin in
@@ -1003,6 +1204,20 @@ public struct CodexPluginRouteState: Equatable, Sendable {
                 plugin.capabilities.joined(separator: " "),
                 plugin.keywords.joined(separator: " ")
             ].contains { $0.localizedCaseInsensitiveContains(needle) }
+        }
+    }
+
+    private func matchesFilter(_ plugin: CodexPluginSummary) -> Bool {
+        switch filter {
+        case .all:
+            return true
+        case .openAI:
+            return plugin.developerName?.localizedCaseInsensitiveContains("OpenAI") == true
+                || plugin.marketplaceName.localizedCaseInsensitiveContains("openai")
+        case .workspace:
+            return plugin.sourceType == "local" && plugin.sourceDetail?.contains("/.codex/") != true
+        case .personal:
+            return plugin.sourceType == "local" || plugin.marketplaceName.localizedCaseInsensitiveContains("personal")
         }
     }
 

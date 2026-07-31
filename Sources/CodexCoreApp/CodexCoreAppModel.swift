@@ -1716,9 +1716,16 @@ final class CodexCoreAppModel {
 
     func performPluginCatalogAction(_ action: CodexPluginRouteAction) {
         Task {
+            guard let codex else {
+                appendIntegrationActivity(.init(
+                    title: "Plugin action unavailable",
+                    detail: "Connect to Codex before changing plugins or skills."
+                ))
+                return
+            }
             let outcome = await CodexPluginCatalogActionSession.perform(
                 action,
-                provider: CodexUnsupportedPluginCatalogActionProvider()
+                provider: CodexAppServerPluginCatalogActionProvider(codex: codex)
             )
             if let draftPrompt = outcome.draftPrompt {
                 sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
