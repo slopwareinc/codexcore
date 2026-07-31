@@ -110,19 +110,24 @@ public actor CodexGitRepository {
         precondition(source != .lastTurn, "Last Turn comes from canonical transcript state")
         _ = try await repositoryRoot()
         async let branchResult = optional(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        async let headResult = run(["rev-parse", "HEAD"])
         async let upstreamResult = optional(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
         async let branchesResult = run(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
-        async let statusResult = run(["status", "--porcelain=v2", "-z", "--branch"])
+        async let statusResult = run([
+            "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all",
+        ])
 
         let branch = try await branchResult?.stdout.nilIfBlank ?? "HEAD"
+        let headOID = try await headResult.stdout
         let upstream = try await upstreamResult?.stdout.nilIfBlank
         let status = try await statusResult
         let branchNames = try await branchesResult.stdout
             .split(separator: "\n")
             .map(String.init)
-        let revision = revision(
+        let revision = try await revision(
             source: source,
             branch: branch,
+            headOID: headOID,
             status: status.stdout
         )
         let files = try await files(
@@ -361,20 +366,88 @@ public actor CodexGitRepository {
 
     private func currentRevision(source: CodexGitReviewSource) async throws -> CodexGitReviewRevision {
         let branch = try await optional(["symbolic-ref", "--quiet", "--short", "HEAD"])?.stdout.nilIfBlank ?? "HEAD"
-        let status = try await run(["status", "--porcelain=v2", "-z", "--branch"])
-        return revision(source: source, branch: branch, status: status.stdout)
+        async let headResult = run(["rev-parse", "HEAD"])
+        async let statusResult = run([
+            "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all",
+        ])
+        let headOID = try await headResult.stdout
+        let status = try await statusResult.stdout
+        return try await revision(
+            source: source,
+            branch: branch,
+            headOID: headOID,
+            status: status
+        )
     }
 
     private func revision(
         source: CodexGitReviewSource,
         branch: String,
+        headOID: String,
         status: String
-    ) -> CodexGitReviewRevision {
+    ) async throws -> CodexGitReviewRevision {
         var fingerprint = CodexStableFingerprint()
         fingerprint.combine(source.rawValue)
         fingerprint.combine(branch)
+        fingerprint.combine(headOID)
         fingerprint.combine(status)
+        if source != .staged {
+            fingerprint.combine(try await worktreeContentFingerprint(status: status))
+        }
         return .init(sourceID: "git/\(source.rawValue)", value: fingerprint.value)
+    }
+
+    /// Porcelain status alone does not change when an already-modified file is
+    /// edited again. Hash the changed worktree paths so mutations reject that
+    /// stale display instead of applying to content the user never reviewed.
+    private func worktreeContentFingerprint(status: String) async throws -> String {
+        let root = try await repositoryRoot()
+        let paths = changedWorktreePaths(status: status).filter { path in
+            FileManager.default.fileExists(atPath: root.appending(path: path).path)
+        }
+        guard !paths.isEmpty else { return "" }
+
+        var result = ""
+        let chunkSize = 128
+        for start in stride(from: 0, to: paths.count, by: chunkSize) {
+            let end = min(start + chunkSize, paths.count)
+            let hashes = try await run(
+                ["hash-object", "--no-filters", "--"] + Array(paths[start..<end])
+            )
+            result += hashes.stdout
+        }
+        return result
+    }
+
+    private func changedWorktreePaths(status: String) -> [String] {
+        var paths: Set<String> = []
+        for record in status.split(separator: "\0", omittingEmptySubsequences: true) {
+            if record.hasPrefix("? ") {
+                paths.insert(String(record.dropFirst(2)))
+            } else if record.hasPrefix("1 ") {
+                let fields = record.split(
+                    separator: " ",
+                    maxSplits: 8,
+                    omittingEmptySubsequences: true
+                )
+                if fields.count == 9 { paths.insert(String(fields[8])) }
+            } else if record.hasPrefix("2 ") {
+                let fields = record.split(
+                    separator: " ",
+                    maxSplits: 9,
+                    omittingEmptySubsequences: true
+                )
+                if fields.count == 10 { paths.insert(String(fields[9])) }
+            } else if record.hasPrefix("u ") {
+                let fields = record.split(
+                    separator: " ",
+                    maxSplits: 10,
+                    omittingEmptySubsequences: true
+                )
+                if fields.count == 11 { paths.insert(String(fields[10])) }
+            }
+        }
+        return paths.sorted()
     }
 
     private func repositoryRoot() async throws -> URL {
@@ -621,16 +694,40 @@ private final class CodexBoundedProcess: @unchecked Sendable {
             // parent's copies is required for the async readers to observe EOF.
             try standardOutput.fileHandleForWriting.close()
             try standardError.fileHandleForWriting.close()
-            async let outputData = Self.readBounded(
-                standardOutput.fileHandleForReading,
-                limit: maximumOutputBytes
-            )
-            async let errorData = Self.readBounded(
-                standardError.fileHandleForReading,
-                limit: 128 * 1_024
-            )
-            let output = try await outputData
-            let error = try await errorData
+            // FileHandle's synchronous reads must not occupy Swift's
+            // cooperative executor. A snapshot launches several Git commands
+            // concurrently, so two detached blocking readers per command can
+            // otherwise starve the tasks that are responsible for completing
+            // those same reads.
+            let reads = CodexProcessReadPair()
+            let readGroup = DispatchGroup()
+            readGroup.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                reads.setOutput(Result {
+                    try Self.readBounded(
+                        standardOutput.fileHandleForReading,
+                        limit: maximumOutputBytes
+                    )
+                })
+                readGroup.leave()
+            }
+            readGroup.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                reads.setError(Result {
+                    try Self.readBounded(
+                        standardError.fileHandleForReading,
+                        limit: 128 * 1_024
+                    )
+                })
+                readGroup.leave()
+            }
+            await withCheckedContinuation { continuation in
+                readGroup.notify(queue: .global(qos: .userInitiated)) {
+                    continuation.resume()
+                }
+            }
+            let output = try reads.output.get()
+            let error = try reads.error.get()
             process.waitUntilExit()
             self.lock.withLock { self.process = nil }
             try Task.checkCancellation()
@@ -660,16 +757,46 @@ private final class CodexBoundedProcess: @unchecked Sendable {
     private static func readBounded(
         _ handle: FileHandle,
         limit: Int
-    ) async throws -> (data: Data, wasTruncated: Bool) {
+    ) throws -> (data: Data, wasTruncated: Bool) {
         var data = Data()
         var truncated = false
-        for try await byte in handle.bytes {
+        while true {
+            let chunk = try handle.read(upToCount: 64 * 1_024) ?? Data()
+            guard !chunk.isEmpty else { break }
             if data.count < limit {
-                data.append(byte)
+                let remaining = limit - data.count
+                data.append(chunk.prefix(remaining))
+                if chunk.count > remaining {
+                    truncated = true
+                }
             } else {
                 truncated = true
             }
         }
         return (data, truncated)
+    }
+}
+
+private final class CodexProcessReadPair: @unchecked Sendable {
+    typealias Capture = (data: Data, wasTruncated: Bool)
+
+    private let lock = NSLock()
+    private var storedOutput: Result<Capture, Error>?
+    private var storedError: Result<Capture, Error>?
+
+    var output: Result<Capture, Error> {
+        lock.withLock { storedOutput! }
+    }
+
+    var error: Result<Capture, Error> {
+        lock.withLock { storedError! }
+    }
+
+    func setOutput(_ result: Result<Capture, Error>) {
+        lock.withLock { storedOutput = result }
+    }
+
+    func setError(_ result: Result<Capture, Error>) {
+        lock.withLock { storedError = result }
     }
 }

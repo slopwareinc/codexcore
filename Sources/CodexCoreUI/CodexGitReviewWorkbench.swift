@@ -28,7 +28,8 @@ public final class CodexGitReviewWorkbench {
     public var filter = ""
     public var selectedFileID: String?
     public var commitMessage = ""
-    public var includeUnstaged = true
+    // Preserve the user's unstaged work unless they explicitly opt in.
+    public var includeUnstaged = false
     public var branchName = ""
     public var pullRequestTitle = ""
     public var pullRequestBody = ""
