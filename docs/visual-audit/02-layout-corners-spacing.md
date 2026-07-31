@@ -253,7 +253,7 @@ Two adjacent elevated surfaces in same card. Plus they conflict with ToolCall/Fi
 
 ---
 
-## F. Settings (`CodexSettingsAboutRouteView.swift`, `CodexMobileRouteView.swift`)
+## F. Settings (`CodexSettingsAboutRouteView.swift`)
 
 ### F47 Dividers
 Settings divider (`:175`): `.overlay(theme.colors.border.opacity(0.7))`. Agent panel divider (`CodexAgentPanels.swift:240`): `.overlay(theme.colors.border)` full alpha.
@@ -293,17 +293,6 @@ Content pane `.padding(.horizontal, 72)` / `.vertical, 42` (`:253-254`). Sidebar
 
 ### F55 Section header inconsistency
 Settings group title (`:225-227`): `theme.fonts.caption`, no weight, `padding(.horizontal, 10)`. `SidebarSectionHeader` (`:426-434`): `theme.fonts.sidebar.sectionHeader.font`, `padding(.horizontal, 2)`.
-
-### F56 Four screen-level paddings in `CodexMobileRouteView`
-- Container `.padding(24)` (`:66`)
-- Card `.padding(12)` (`:102`)
-- Phone mock `.padding(18)` (`:161`)
-- Selected-model chip `.padding(20)` (`:203`)
-
-24/20/18/12 — four screen-level paddings, no token.
-
-### F57 Phone mock with one-off radius
-`RoundedRectangle(cornerRadius: 24)` (`:163-165`) and `surfaceElevated.opacity(0.82)`. Other cards in same route view use `theme.radii.medium` (`:103`).
 
 ---
 

@@ -8,6 +8,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.9.0` wi
 | Conditional | Works only when the server emits the required data or the host supplies policy/actions. |
 | Presentation only | UI exists, but its primary mutation or lifecycle provider is not implemented. |
 | Unsupported | Deliberately unavailable or known not to work. |
+| Deferred | Product surface is intentionally removed pending a tracked reintroduction. |
 
 ## SDK and reusable UI
 
@@ -44,7 +45,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.9.0` wi
 | Current-turn diff preview | Conditional | Appears only for a parseable unified diff; shows summary/counts, not repository review. |
 | Branch/review/jump/commit/push/pull request | Unsupported | Controls are disabled or no-op. Use Git tooling outside the app. |
 | Automations | Unsupported | Not shown in the reference app because scheduling, persistence, runs, and history are not implemented. |
-| Mobile remote control | Unsupported | Not shown in the reference app because allow/pair/revoke is not implemented. |
+| Mobile remote control | Deferred | Product UI and pairing flow are removed pending [#190](https://github.com/slopwareinc/CodexCore/issues/190); generated remote-control protocol wrappers remain available for a future reintroduction. |
 | Plugin mutation | Unsupported | Install/uninstall/enable/disable controls are omitted; inventory, refresh, and “Try in Chat” remain. |
 | Environment/worktree handoff | Unsupported | Creation and handoff controls are omitted. Use external Git tooling. |
 | Git settings and mutations | Unsupported | Settings and commit/push/PR controls are omitted. |

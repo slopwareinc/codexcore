@@ -28,7 +28,7 @@ These escape `theme.colors.*` and therefore do NOT respond to user-customized ac
 | A14 | `ANSITerminalStyle.swift:18-23, 40-45` | `Color(red: 1.0, green: 0.3, blue: 0.3)` ×12 | Hardcoded bright-ANSI palette RGB — bypasses theme so contrast/high-contrast presets have no effect | If intentional, document. Otherwise derive from `theme.colors.success/danger/warning/...` |
 | A15 | `CodexBlockView.swift:100` | `Font.system(size: baseNSFont.pointSize - 1, design: .monospaced)` | Falls back to system mono when no `codeNSFont`. Bypasses `theme.fonts.code` | Use `theme.fonts.code` resolved size |
 
-Repeated **per-view opacity magic numbers** for elevation tiers should be designer tokens: `surfaceElevated.opacity(0.96)` in `CodexPromptPanels.swift:90, 163, 305`; `surfaceElevated.opacity(0.82)` in MCPStatusSheet/Mobile; `surface.opacity(0.72)`, `0.58`, `0.45`, `0.42`, `0.34`, `0.18`, `0.12`, `0.10` scattered. These are "elevation tiers" deserving tokens like `theme.colors.surfaceElevatedTier1/2/3`.
+Repeated **per-view opacity magic numbers** for elevation tiers should be designer tokens: `surfaceElevated.opacity(0.96)` in `CodexPromptPanels.swift:90, 163, 305`; `surfaceElevated.opacity(0.82)` in MCPStatusSheet; `surface.opacity(0.72)`, `0.58`, `0.45`, `0.42`, `0.34`, `0.18`, `0.12`, `0.10` scattered. These are "elevation tiers" deserving tokens like `theme.colors.surfaceElevatedTier1/2/3`.
 
 ---
 
@@ -47,14 +47,13 @@ Non-sidebar UI uses **NO scale** — each panel hand-picks a size. Recurring mag
 | B17-B18 | `CodexCommandPaletteOverlay.swift:108, 193` | `13 medium`, `12 medium` | Search icon / matched-command icon — two different sizes for same concept | One `searchIcon` token |
 | B19 | `CodexCommandPaletteOverlay.swift:199` | `13 semibold` | Result title | `theme.fonts.label.weight(.semibold)` |
 | B20-B27 | `CodexMCPStatusSheet.swift:30, 33, 38, 46, 97, 101` | `15/18 semibold`, `12/11 bold/sb`, `13/14 sb` | Sheet header / refresh / close / row title — six ad-hoc sizes | `theme.fonts.sheetTitle` + `theme.fonts.label/caption` |
-| B28-B33 | `CodexMobileRouteView.swift:30, 33, 121, 125, 141, 151, 157, 187, 190` | `22/14/13/13/13/13/13/18/15 semibold` | Nine hand-rolled sizes for one route | `routeTitle` / `body` / `caption.weight(.semibold)` |
-| B34-B39 | `CodexPluginRouteView.swift:87, 111, 155, 304, 360, 364, 428, 465` | `22/13/13/18/13/14/14/24 semibold/medium` | Three "route title" sizes coexist: 22 (`:87`), 18 (`:304`), 24 (`:465`) — 24 is the only one at that size in codebase | Single `routeTitle` token; `body` for subtitles |
-| B40-B42 | `CodexAutomationRouteView.swift:40, 46, 103, 163, 166` | `17/22/17/16/13 semibold` | Route icon 17s, title 22s, empty-state title 17s (different from route title 22!), template icon 16s, template title 13s | `routeTitle`; document tier-below for empty-state |
-| B43-B44 | `CodexAgentPanels.swift:350, 568` | `.font(.title2)` | Empty-state icon and send button icon — Apple semantic that doesn't scale with `uiFontSize` | `theme.fonts.actionIcon` |
-| B45 | `CodexTranscriptView.swift:898` | `.font(.caption2)` | Inline lifecycle-event icon — Apple semantic | `theme.fonts.micro` |
-| B46 | `CodexTranscriptView.swift:1073` | `.font(.system(size: 22, weight: .semibold))` | Empty-state "What should we work on?" prompt — same 22 as route titles, different code path | `heroTitle` token |
-| B47 | `CodexTheme.swift:1057` | `.font(.system(size: size * 0.46, weight: .medium))` | Brand-mark glyph font. Hardcoded `.medium` weight ignores `FontWeightToken` defined 30 lines above. Magic `0.46` ratio | Use `FontWeightToken.medium.fontWeight`; expose brand-mark glyph weight as theme value |
-| B48 | `CodexBlockView.swift:68` | `Font.custom(resolvedName, size: size)` | Resolves custom prose fonts. Bypasses `FontDesignToken` (`CodexTheme.swift:385`) which appears unused by anything custom | Wire `uiFontName` + `FontDesignToken` together or document parallel intent |
+| B28-B33 | `CodexPluginRouteView.swift:87, 111, 155, 304, 360, 364, 428, 465` | `22/13/13/18/13/14/14/24 semibold/medium` | Three "route title" sizes coexist: 22 (`:87`), 18 (`:304`), 24 (`:465`) — 24 is the only one at that size in codebase | Single `routeTitle` token; `body` for subtitles |
+| B34-B36 | `CodexAutomationRouteView.swift:40, 46, 103, 163, 166` | `17/22/17/16/13 semibold` | Route icon 17s, title 22s, empty-state title 17s (different from route title 22!), template icon 16s, template title 13s | `routeTitle`; document tier-below for empty-state |
+| B37-B38 | `CodexAgentPanels.swift:350, 568` | `.font(.title2)` | Empty-state icon and send button icon — Apple semantic that doesn't scale with `uiFontSize` | `theme.fonts.actionIcon` |
+| B39 | `CodexTranscriptView.swift:898` | `.font(.caption2)` | Inline lifecycle-event icon — Apple semantic | `theme.fonts.micro` |
+| B40 | `CodexTranscriptView.swift:1073` | `.font(.system(size: 22, weight: .semibold))` | Empty-state "What should we work on?" prompt — same 22 as route titles, different code path | `heroTitle` token |
+| B41 | `CodexTheme.swift:1057` | `.font(.system(size: size * 0.46, weight: .medium))` | Brand-mark glyph font. Hardcoded `.medium` weight ignores `FontWeightToken` defined 30 lines above. Magic `0.46` ratio | Use `FontWeightToken.medium.fontWeight`; expose brand-mark glyph weight as theme value |
+| B42 | `CodexBlockView.swift:68` | `Font.custom(resolvedName, size: size)` | Resolves custom prose fonts. Bypasses `FontDesignToken` (`CodexTheme.swift:385`) which appears unused by anything custom | Wire `uiFontName` + `FontDesignToken` together or document parallel intent |
 
 ### Weight & modifier consistency
 - `.font(theme.fonts.caption.weight(.semibold))` heavily used (30+ matches across ComposerBar/AgentPanels/GitReviewPanel) — good pattern. Extend this idiom to introduce `panelTitle`, `routeTitle`, `sheetTitle`, `micro`, `actionIcon`.
@@ -131,7 +130,6 @@ The sidebar font feature is the cleanest part of the entire codebase, fully toke
 
 4. `cornerRadius:` literals (vs `theme.radii`): 21 escapes:
    - `cornerRadius: 10` in `CodexProjectSidebar.swift` (6×), `CodexSettingsAboutRouteView.swift` (3×) — sidebar's "row corner radius" 10 disagrees with `theme.radii.small = 6`.
-   - `cornerRadius: 24` in `CodexMobileRouteView.swift:163, 165` for the phone mock — fine as physical mock, but not tokenized.
    - `cornerRadius: 8` in `CodexSettingsAboutRouteView.swift:706` — also not in `theme.radii`.
    Fix: add `theme.radii.row = 10`, reconcile 8 vs `radii.small` (6).
 

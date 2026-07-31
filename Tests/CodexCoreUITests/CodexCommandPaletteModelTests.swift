@@ -2,6 +2,14 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexCommandPaletteModelTests: XCTestCase {
+    func testDeferredMobileSurfaceIsAbsentFromRoutesAndCommands() {
+        XCTAssertEqual(CodexAppRoute.allCases, [.chat, .search, .plugins, .automations, .settingsAbout])
+        XCTAssertFalse(CodexCommandPaletteModel.defaultCommandRows.contains { row in
+            row.title.localizedCaseInsensitiveContains("mobile")
+                || row.detail.localizedCaseInsensitiveContains("mobile")
+        })
+    }
+
     func testEmptyPaletteShowsObservedCategoryOrderAndSuggestedCommand() {
         let model = CodexCommandPaletteModel(
             query: "",
