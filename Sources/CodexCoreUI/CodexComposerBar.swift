@@ -17,6 +17,7 @@ public struct CodexComposerBar: View {
     private let approvalOptions: [CodexApprovalSelection]
     @Binding private var modelSelection: CodexModelSelection
     @Binding private var isModelMenuPresented: Bool
+    @Binding private var focusRequest: Bool
     private let modelOptions: [CodexModelSelection]
     private let modelPickerStyle: CodexComposerModelPickerStyle
     @Binding private var serviceTierSelection: CodexServiceTierSelection
@@ -67,6 +68,7 @@ public struct CodexComposerBar: View {
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         isModelMenuPresented: Binding<Bool> = .constant(false),
+        focusRequest: Binding<Bool> = .constant(false),
         modelPickerStyle: CodexComposerModelPickerStyle = .menu,
         serviceTierSelection: Binding<CodexServiceTierSelection> = .constant(.standard),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
@@ -105,6 +107,7 @@ public struct CodexComposerBar: View {
         self.approvalOptions = approvalOptions
         self._modelSelection = modelSelection
         self._isModelMenuPresented = isModelMenuPresented
+        self._focusRequest = focusRequest
         self.modelOptions = modelOptions
         self.modelPickerStyle = modelPickerStyle
         self._serviceTierSelection = serviceTierSelection
@@ -268,7 +271,9 @@ public struct CodexComposerBar: View {
         }
         .onAppear {
             reconcilePaletteSelections()
+            consumeFocusRequest()
         }
+        .onChange(of: focusRequest) { _, _ in consumeFocusRequest() }
         .onChange(of: draft) { _, _ in
             isSlashPaletteDismissed = false
             reconcilePaletteSelections()
@@ -470,6 +475,12 @@ public struct CodexComposerBar: View {
         }
 
         return false
+    }
+
+    private func consumeFocusRequest() {
+        guard focusRequest else { return }
+        focused = true
+        focusRequest = false
     }
 
     private func reconcilePaletteSelections() {

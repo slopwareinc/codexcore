@@ -9,6 +9,7 @@ struct CodexCoreAppShell: View {
     @State private var isMCPStatusSheetPresented = false
     @State private var isStatusSheetPresented = false
     @State private var isModelMenuPresented = false
+    @State private var focusComposerRequest = false
     @State private var renameDraft = ""
     @State private var projectEditTarget: CodexProjectSummary?
     @State private var projectNameDraft = ""
@@ -416,6 +417,7 @@ struct CodexCoreAppShell: View {
                 isPlanModeEnabled: $model.isPlanModeEnabled,
                 modelSelection: $model.modelSelection,
                 isModelMenuPresented: $isModelMenuPresented,
+                focusComposerRequest: $focusComposerRequest,
                 serviceTierSelection: $model.serviceTierSelection,
                 reasoningSelection: $model.reasoningSelection,
                 draft: $model.draft,
@@ -546,6 +548,10 @@ struct CodexCoreAppShell: View {
         case .configureModel:
             model.selectAppRoute(.chat)
             isModelMenuPresented = true
+        case .enableGoalPursuit:
+            model.selectAppRoute(.chat)
+            model.setGoalPursuitEnabled(true)
+            focusComposerRequest = true
         case .quitApp:
             NSApplication.shared.terminate(nil)
         }

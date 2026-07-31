@@ -11,6 +11,7 @@ public enum CodexCommandPaletteAction: Equatable, Sendable {
     case openMCPDetails
     case refreshSkills
     case configureModel
+    case enableGoalPursuit
     case quitApp
 }
 
@@ -234,6 +235,7 @@ public struct CodexCommandPaletteModel: Equatable, Sendable {
             command("panel-mcp", "MCP details", "Inspect connected MCP servers and tools", "Panels", "server.rack", nil, .openMCPDetails),
             command("skills-refresh", "Refresh skills", "Reload slash commands and skill entries", "Skills", "arrow.clockwise", nil, .refreshSkills),
             command("configure-model", "Configure model", "Use composer model and reasoning controls", "Configure", "slider.horizontal.3", nil, .configureModel),
+            command("configure-goal", "Goal", "Set a goal to keep pursuing", "Configure", "target", nil, .enableGoalPursuit),
             command("app-settings", "Settings", "Open About and app settings", "App", "gearshape", "⌘,", .openSettings),
             command("app-quit", "Quit", "Quit CodexCore", "App", "power", "⌘Q", .quitApp)
         ]

@@ -80,6 +80,7 @@ public struct CodexChatWorkspaceView: View {
     @Binding private var isPlanModeEnabled: Bool
     @Binding private var modelSelection: CodexModelSelection
     @Binding private var isModelMenuPresented: Bool
+    @Binding private var focusComposerRequest: Bool
     @Binding private var serviceTierSelection: CodexServiceTierSelection
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var draft: String
@@ -164,6 +165,7 @@ public struct CodexChatWorkspaceView: View {
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         isModelMenuPresented: Binding<Bool> = .constant(false),
+        focusComposerRequest: Binding<Bool> = .constant(false),
         serviceTierSelection: Binding<CodexServiceTierSelection> = .constant(.standard),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         draft: Binding<String>,
@@ -240,6 +242,7 @@ public struct CodexChatWorkspaceView: View {
         self._isPlanModeEnabled = isPlanModeEnabled
         self._modelSelection = modelSelection
         self._isModelMenuPresented = isModelMenuPresented
+        self._focusComposerRequest = focusComposerRequest
         self._serviceTierSelection = serviceTierSelection
         self._reasoningSelection = reasoningSelection
         self._draft = draft
@@ -490,6 +493,9 @@ public struct CodexChatWorkspaceView: View {
                         draft: $draft,
                         referencedFiles: $referencedFiles,
                         responseAnnotations: $responseAnnotations,
+                        placeholder: isGoalPursuitEnabled
+                            ? "What should Codex keep working toward?"
+                            : "Ask Codex anything about this workspace...",
                         approvalSelection: $approvalSelection,
                         isPlanModeEnabled: $isPlanModeEnabled,
                         isGoalPursuitEnabled: isGoalPursuitEnabled,
@@ -497,6 +503,7 @@ public struct CodexChatWorkspaceView: View {
                         modelSelection: $modelSelection,
                         modelOptions: modelOptions,
                         isModelMenuPresented: $isModelMenuPresented,
+                        focusRequest: $focusComposerRequest,
                         modelPickerStyle: .grid,
                         serviceTierSelection: $serviceTierSelection,
                         reasoningSelection: $reasoningSelection,

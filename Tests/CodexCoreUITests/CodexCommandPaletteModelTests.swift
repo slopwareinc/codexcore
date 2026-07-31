@@ -80,6 +80,11 @@ final class CodexCommandPaletteModelTests: XCTestCase {
         XCTAssertTrue(rows.contains { $0.kind == .command(.openReviewPanel) && $0.category == "Panels" })
         XCTAssertTrue(rows.contains { $0.kind == .command(.openMCPDetails) && $0.title == "MCP details" })
         XCTAssertTrue(rows.contains { $0.kind == .command(.configureModel) && $0.category == "Configure" })
+        XCTAssertTrue(rows.contains {
+            $0.kind == .command(.enableGoalPursuit)
+                && $0.title == "Goal"
+                && $0.detail == "Set a goal to keep pursuing"
+        })
         XCTAssertTrue(rows.contains { $0.kind == .command(.refreshSkills) && $0.category == "Skills" })
         XCTAssertEqual(rows.first(where: { $0.kind == .command(.quitApp) })?.shortcutBadge, "⌘Q")
     }
