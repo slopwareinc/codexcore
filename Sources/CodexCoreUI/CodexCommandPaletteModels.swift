@@ -5,7 +5,6 @@ public enum CodexCommandPaletteAction: Equatable, Sendable {
     case openChat
     case openPlugins
     case openAutomations
-    case openMobile
     case openSettings
     case openSideChat
     case openReviewPanel

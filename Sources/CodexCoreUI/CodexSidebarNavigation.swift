@@ -5,7 +5,6 @@ public enum CodexAppRoute: String, CaseIterable, Sendable, Equatable {
     case search
     case plugins
     case automations
-    case codexMobile
     case settingsAbout
 
     public var title: String {
@@ -14,7 +13,6 @@ public enum CodexAppRoute: String, CaseIterable, Sendable, Equatable {
         case .search: return "Search"
         case .plugins: return "Plugins"
         case .automations: return "Automations"
-        case .codexMobile: return "Codex mobile"
         case .settingsAbout: return "Settings"
         }
     }
@@ -25,7 +23,6 @@ public enum CodexAppRoute: String, CaseIterable, Sendable, Equatable {
         case .search: return "magnifyingglass"
         case .plugins: return "puzzlepiece.extension"
         case .automations: return "clock.arrow.circlepath"
-        case .codexMobile: return "iphone"
         case .settingsAbout: return "gearshape"
         }
     }

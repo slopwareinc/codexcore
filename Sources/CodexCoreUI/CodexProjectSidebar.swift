@@ -203,48 +203,38 @@ public struct CodexProjectSidebar: View {
     }
 
     private var accountFooter: some View {
-        Button {
-            onSelectRoute(.codexMobile)
-        } label: {
-            let sidebarFonts = theme.fonts.sidebar
-            HStack(spacing: 12) {
-                Text(accountSummary.initials)
-                    .font(sidebarFonts.accountInitials(isCollapsed: snapshot.isCollapsed))
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        Circle()
-                            .fill(theme.colors.accent.opacity(0.26))
-                    )
-                    .overlay {
-                        Circle()
-                            .stroke(theme.colors.border.opacity(0.6), lineWidth: 1)
-                    }
-
-                if !snapshot.isCollapsed {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(accountSummary.displayName)
-                            .font(sidebarFonts.accountName.font)
-                            .foregroundStyle(theme.colors.textPrimary)
-                            .lineLimit(1)
-                        Text(accountSummary.detail)
-                            .font(sidebarFonts.accountDetail.font)
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "iphone")
-                        .font(sidebarFonts.accountDeviceIcon.font)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .frame(width: 26, height: 30)
+        let sidebarFonts = theme.fonts.sidebar
+        return HStack(spacing: 12) {
+            Text(accountSummary.initials)
+                .font(sidebarFonts.accountInitials(isCollapsed: snapshot.isCollapsed))
+                .foregroundStyle(theme.colors.textPrimary)
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(theme.colors.accent.opacity(0.26))
+                )
+                .overlay {
+                    Circle()
+                        .stroke(theme.colors.border.opacity(0.6), lineWidth: 1)
                 }
+
+            if !snapshot.isCollapsed {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(accountSummary.displayName)
+                        .font(sidebarFonts.accountName.font)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .lineLimit(1)
+                    Text(accountSummary.detail)
+                        .font(sidebarFonts.accountDetail.font)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(height: snapshot.isCollapsed ? sidebarFonts.collapsedAccountFooterHeight : sidebarFonts.accountFooterHeight)
-            .frame(maxWidth: .infinity, alignment: snapshot.isCollapsed ? .center : .leading)
-            .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(height: snapshot.isCollapsed ? sidebarFonts.collapsedAccountFooterHeight : sidebarFonts.accountFooterHeight)
+        .frame(maxWidth: .infinity, alignment: snapshot.isCollapsed ? .center : .leading)
+        .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
         .help(accountSummary.displayName)
         .background {
             Rectangle()

@@ -95,7 +95,6 @@ final class CodexCoreAppModel {
     var projectlessDraftPaths: CodexProjectlessThreadPaths?
     private var chatSelectionGeneration = 0
     var pluginLauncherTarget: CodexComposerPluginLauncher?
-    var mobileRouteSession = CodexMobileRouteSession()
     private var terminalSession: CodexCommandExecSession?
     private var terminalOutputTask: Task<Void, Never>?
     private var terminalCompletionTask: Task<Void, Never>?
@@ -799,12 +798,10 @@ final class CodexCoreAppModel {
     }
 
     private func refreshRemoteEnvironment(using codex: Codex) async {
-        let provider = CodexAppServerRemoteControlProvider(codex: codex)
-        guard let status = try? await provider.readStatus() else {
+        guard let status = try? await codex.perform(CodexRequest.remoteControlStatusRead()) else {
             environmentInfoState = .unavailable
             return
         }
-        mobileRouteSession.apply(status: status)
         await refreshEnvironmentInfo(environmentID: status.environmentID)
     }
 
@@ -1214,20 +1211,6 @@ final class CodexCoreAppModel {
         }
     }
 
-    func refreshMobileRemoteControlStatus() async {
-        let provider: any CodexRemoteControlProvider
-        if let codex {
-            provider = CodexAppServerRemoteControlProvider(codex: codex)
-        } else {
-            provider = CodexUnsupportedRemoteControlProvider()
-        }
-        var session = mobileRouteSession
-        let activity = await session.refreshStatus(provider: provider)
-        mobileRouteSession = session
-        await refreshEnvironmentInfo(environmentID: session.state.status.environmentID)
-        appendActivity(activity)
-    }
-
     private func refreshEnvironmentInfo(environmentID: String?) async {
         guard let codex, let environmentID = environmentID?.nilIfBlank else {
             environmentInfoState = .unavailable
@@ -1248,25 +1231,6 @@ final class CodexCoreAppModel {
             )
         } catch {
             environmentInfoState = .failed(friendlyError(error))
-        }
-    }
-
-    func openMobilePermissionGate() {
-        appendActivity(mobileRouteSession.getStarted())
-    }
-
-    func cancelMobilePermissionGate() {
-        mobileRouteSession.cancelPermissionGate()
-    }
-
-    func allowMobileRemoteControlBoundary() {
-        Task {
-            // The current parity slice exposes the explicit permission boundary
-            // without enabling live remote control from the app host.
-            var session = mobileRouteSession
-            let activity = await session.allow(provider: CodexUnsupportedRemoteControlProvider())
-            mobileRouteSession = session
-            appendActivity(activity)
         }
     }
 

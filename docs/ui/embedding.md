@@ -8,7 +8,7 @@
 - `CodexTranscriptViewV2`: transcript-only embedding.
 - `CodexPresentationStore`: canonical presentation projection used by production transcript hosts.
 - `CodexTranscriptItemPresentationPolicyV2`: host mapping from canonical items to compact semantic activity.
-- focused route and tool views for plugins, automations, mobile, files, terminal, and browser surfaces. A visible route does not imply that its mutation workflow is wired.
+- focused route and tool views for plugins, automations, files, terminal, and browser surfaces. A visible route does not imply that its mutation workflow is wired.
 
 Long `CodexTranscriptViewV2` conversations automatically show a compact turn
 navigator at the leading edge. Its markers follow canonical turn geometry,
