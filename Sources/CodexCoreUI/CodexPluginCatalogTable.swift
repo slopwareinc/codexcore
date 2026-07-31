@@ -121,6 +121,7 @@ struct CodexPluginCatalogTable: NSViewRepresentable {
                 hasher.combine(plugin.enabled)
                 hasher.combine(plugin.displayName)
                 hasher.combine(plugin.detail)
+                hasher.combine(plugin.icon)
             }
             return hasher.finalize()
         }
@@ -147,6 +148,8 @@ private final class CodexPluginCatalogCell: NSTableCellView {
     private var theme: CodexAgentTheme?
     private var selected = false
     private var onAction: ((CodexPluginRouteAction) -> Void)?
+    private var representedPluginID: String?
+    private var iconTask: Task<Void, Never>?
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -159,7 +162,8 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         addSubview(chrome)
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.symbolConfiguration = .init(pointSize: 15, weight: .medium)
+        iconView.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+        iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.contentTintColor = .tertiaryLabelColor
         chrome.addSubview(iconView)
 
@@ -198,7 +202,8 @@ private final class CodexPluginCatalogCell: NSTableCellView {
             chrome.bottomAnchor.constraint(equalTo: bottomAnchor),
             iconView.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 11),
             iconView.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 18),
+            iconView.widthAnchor.constraint(equalToConstant: 30),
+            iconView.heightAnchor.constraint(equalToConstant: 30),
             labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 9),
             labels.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
             labels.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
@@ -220,6 +225,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         onAction: @escaping (CodexPluginRouteAction) -> Void
     ) {
         self.plugin = plugin
+        representedPluginID = plugin.id
         self.selected = selected
         self.theme = theme
         self.onAction = onAction
@@ -227,6 +233,17 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         detailLabel.stringValue = plugin.detail
         marketplaceLabel.stringValue = plugin.marketplaceDisplayName
         iconView.image = NSImage(systemSymbolName: plugin.installed ? "checkmark.circle.fill" : "puzzlepiece.extension", accessibilityDescription: nil)
+        iconTask?.cancel()
+        let prefersDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        if let url = plugin.icon.url(prefersDark: prefersDark) {
+            let pluginID = plugin.id
+            iconTask = Task { [weak self] in
+                guard let image = await CodexPluginImageRepository.image(for: url),
+                      !Task.isCancelled,
+                      self?.representedPluginID == pluginID else { return }
+                self?.iconView.image = image
+            }
+        }
         enabledSwitch.isHidden = !showsToggle
         enabledSwitch.state = plugin.enabled ? .on : .off
         actionButton.isHidden = showsToggle

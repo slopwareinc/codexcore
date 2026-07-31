@@ -120,6 +120,7 @@ public struct CodexPluginRouteView: View {
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
             }
+            .frame(width: 290, alignment: .leading)
 
             Picker("Plugins and skills", selection: $primaryTab) {
                 ForEach(CodexPluginRoutePrimaryTab.allCases, id: \.self) { tab in
@@ -168,6 +169,7 @@ public struct CodexPluginRouteView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 16)
+        .frame(minHeight: 82)
     }
 
     private var catalogColumn: some View {
@@ -522,9 +524,15 @@ private struct PluginFeaturedCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: onSelect) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Label(plugin.displayName, systemImage: "sparkles").font(theme.fonts.label).lineLimit(1)
-                    Text(plugin.detail).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(2)
+                HStack(alignment: .top, spacing: 10) {
+                    CodexPluginIconView(reference: plugin.icon, size: 34)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(plugin.displayName).font(theme.fonts.label).lineLimit(1)
+                        Text(plugin.detail)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .lineLimit(2, reservesSpace: true)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -538,6 +546,7 @@ private struct PluginFeaturedCard: View {
             }
         }
         .padding(11)
+        .frame(maxWidth: .infinity, minHeight: 122, maxHeight: 122, alignment: .topLeading)
         .background(theme.colors.surfaceElevated.opacity(0.68), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous).stroke(theme.colors.border))
         .accessibilityElement(children: .contain)
@@ -616,8 +625,11 @@ private struct PluginDetailPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: detailIcon).font(.system(size: 24, weight: .medium)).foregroundStyle(theme.colors.accentText)
-                        .frame(width: 48, height: 48).background(theme.colors.accentSoft.opacity(0.65), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
+                    CodexPluginIconView(
+                        reference: detail.icon ?? .init(),
+                        size: 48,
+                        fallbackSystemName: detailIcon
+                    )
                     VStack(alignment: .leading, spacing: 5) {
                         Text(detail.title).font(theme.fonts.routeTitle).foregroundStyle(theme.colors.textPrimary)
                         Text(detail.detail).font(theme.fonts.chat).foregroundStyle(theme.colors.textSecondary)

@@ -1745,8 +1745,19 @@ final class CodexCoreAppModel {
     }
 
     func performPluginCatalogAction(_ action: CodexPluginRouteAction) {
+        let pluginToggleRollback: (id: String, enabled: Bool)?
+        if case .setPluginEnabled(let target, let enabled) = action {
+            var session = runtimeSession.integrationCatalogSession
+            pluginToggleRollback = session.setPluginEnabledOptimistically(id: target.id, enabled: enabled)
+                .map { (target.id, $0) }
+            runtimeSession.integrationCatalogSession = session
+        } else {
+            pluginToggleRollback = nil
+        }
+
         Task {
             guard let codex else {
+                restorePluginToggle(pluginToggleRollback)
                 appendIntegrationActivity(.init(
                     title: "Plugin action unavailable",
                     detail: "Connect to Codex before changing plugins or skills."
@@ -1766,8 +1777,17 @@ final class CodexCoreAppModel {
             appendIntegrationActivity(outcome.activity)
             if outcome.shouldRefresh {
                 await refreshPlugins()
+            } else {
+                restorePluginToggle(pluginToggleRollback)
             }
         }
+    }
+
+    private func restorePluginToggle(_ rollback: (id: String, enabled: Bool)?) {
+        guard let rollback else { return }
+        var session = runtimeSession.integrationCatalogSession
+        session.setPluginEnabledOptimistically(id: rollback.id, enabled: rollback.enabled)
+        runtimeSession.integrationCatalogSession = session
     }
 
     func pinCurrentChat() {

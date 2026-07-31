@@ -127,6 +127,14 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     }
 
     @discardableResult
+    public mutating func setPluginEnabledOptimistically(id: String, enabled: Bool) -> Bool? {
+        guard let index = plugins.firstIndex(where: { $0.protocolID == id }) else { return nil }
+        let previous = plugins[index].enabled
+        plugins[index].enabled = enabled
+        return previous
+    }
+
+    @discardableResult
     public mutating func applyPluginResponse(_ raw: CodexJSONValue) -> CodexIntegrationCatalogActivity {
         plugins = CodexPluginSummary.plugins(from: raw)
         pluginLoadErrors = CodexPluginSummary.loadErrorMessages(from: raw)

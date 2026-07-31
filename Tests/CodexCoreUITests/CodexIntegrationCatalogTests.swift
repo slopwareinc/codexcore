@@ -46,6 +46,49 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertLessThan(realizedRows.count, 80, "Only viewport rows should have AppKit views")
     }
 
+    @MainActor
+    func testPluginHeaderSegmentedControlDoesNotMoveBetweenTabs() throws {
+        let route = CodexPluginRouteView(
+            plugins: [plugin(
+                name: "github",
+                displayName: "GitHub",
+                detail: "Triage pull requests",
+                installed: true,
+                enabled: true
+            )],
+            skills: [skill(name: "agents-sdk", displayName: "Agents SDK", enabled: true)],
+            mcpServers: [],
+            onRefresh: {},
+            onAction: { _ in }
+        )
+        .frame(width: 1_100, height: 720)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let control = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+        let marketplaceFrame = control.convert(control.bounds, to: hosting)
+        control.selectedSegment = 1
+        _ = control.sendAction(control.action, to: control.target)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        hosting.layoutSubtreeIfNeeded()
+
+        let updated = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+        let skillsFrame = updated.convert(updated.bounds, to: hosting)
+        XCTAssertEqual(marketplaceFrame.origin.x, skillsFrame.origin.x, accuracy: 0.5)
+        XCTAssertEqual(marketplaceFrame.origin.y, skillsFrame.origin.y, accuracy: 0.5)
+        XCTAssertEqual(marketplaceFrame.size.width, skillsFrame.size.width, accuracy: 0.5)
+        XCTAssertEqual(marketplaceFrame.size.height, skillsFrame.size.height, accuracy: 0.5)
+    }
+
     func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
         let temporary = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -290,6 +333,10 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                                 "longDescription": .string("Resume long running agent work."),
                                 "developerName": .string("OpenAI"),
                                 "category": .string("Agents"),
+                                "logo": .string("/tmp/plugins/resume-from-opencode/logo.png"),
+                                "logoUrl": .string("https://cdn.example.com/resume.png"),
+                                "logoUrlDark": .string("https://cdn.example.com/resume-dark.png"),
+                                "composerIconUrl": .string("https://cdn.example.com/resume-composer.png"),
                                 "capabilities": .array([.string("skills"), .string("prompts")]),
                                 "screenshots": .array([]),
                                 "screenshotUrls": .array([])
@@ -339,6 +386,14 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(plugins[0].sourceLabel, "Local")
         XCTAssertEqual(plugins[0].sourceDetail, "/tmp/plugins/resume-from-opencode")
         XCTAssertEqual(plugins[0].marketplaceDisplayName, "Local marketplace")
+        XCTAssertEqual(plugins[0].icon.logo, "https://cdn.example.com/resume.png")
+        XCTAssertEqual(plugins[0].icon.logoDark, "https://cdn.example.com/resume-dark.png")
+        XCTAssertEqual(plugins[0].icon.composerIcon, "https://cdn.example.com/resume-composer.png")
+        XCTAssertEqual(
+            plugins[0].icon.url(prefersDark: true)?.absoluteString,
+            "https://cdn.example.com/resume-dark.png"
+        )
+        XCTAssertEqual(CodexPluginRouteDetail(plugin: plugins[0]).icon, plugins[0].icon)
         XCTAssertEqual(plugins[0].capabilities, ["skills", "prompts"])
         XCTAssertEqual(plugins[0].detail, "Resume a previous OpenCode session")
         XCTAssertEqual(plugins[1].statusLabel, "Available")
@@ -427,6 +482,13 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(session.plugins.map(\.displayName), ["Resume OpenCode"])
         XCTAssertEqual(session.pluginLoadErrors, ["/tmp/bad-marketplace.json: invalid manifest"])
         XCTAssertFalse(session.isLoadingPlugins)
+
+        XCTAssertEqual(
+            session.setPluginEnabledOptimistically(id: "resume-from-opencode", enabled: false),
+            true
+        )
+        XCTAssertFalse(session.plugins[0].enabled)
+        XCTAssertNil(session.setPluginEnabledOptimistically(id: "missing", enabled: true))
 
         let failedPlugins = session.failPluginRefresh(message: "bad marketplace")
         XCTAssertEqual(failedPlugins.title, "Plugin list unavailable")

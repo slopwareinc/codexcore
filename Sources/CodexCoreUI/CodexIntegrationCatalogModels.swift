@@ -165,6 +165,29 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct CodexPluginIconReference: Equatable, Hashable, Sendable {
+    public var logo: String?
+    public var logoDark: String?
+    public var composerIcon: String?
+
+    public init(logo: String? = nil, logoDark: String? = nil, composerIcon: String? = nil) {
+        self.logo = logo?.nilIfBlank
+        self.logoDark = logoDark?.nilIfBlank
+        self.composerIcon = composerIcon?.nilIfBlank
+    }
+
+    public var isEmpty: Bool { logo == nil && logoDark == nil && composerIcon == nil }
+
+    public func url(prefersDark: Bool) -> URL? {
+        let values = prefersDark ? [logoDark, logo, composerIcon] : [logo, logoDark, composerIcon]
+        for value in values.compactMap({ $0 }) {
+            if let url = URL(string: value), url.scheme != nil { return url }
+            return URL(fileURLWithPath: value)
+        }
+        return nil
+    }
+}
+
 public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var id: String
     public var protocolID: String
@@ -189,6 +212,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var websiteURL: String?
     public var privacyPolicyURL: String?
     public var termsOfServiceURL: String?
+    public var icon: CodexPluginIconReference
     public var capabilities: [String]
     public var keywords: [String]
     public var isFeatured: Bool
@@ -217,6 +241,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         websiteURL: String? = nil,
         privacyPolicyURL: String? = nil,
         termsOfServiceURL: String? = nil,
+        icon: CodexPluginIconReference = .init(),
         capabilities: [String] = [],
         keywords: [String] = [],
         isFeatured: Bool = false
@@ -244,6 +269,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.websiteURL = websiteURL
         self.privacyPolicyURL = privacyPolicyURL
         self.termsOfServiceURL = termsOfServiceURL
+        self.icon = icon
         self.capabilities = capabilities
         self.keywords = keywords
         self.isFeatured = isFeatured
@@ -282,6 +308,11 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             websiteURL: Self.string(in: interface, keys: ["websiteUrl"]),
             privacyPolicyURL: Self.string(in: interface, keys: ["privacyPolicyUrl"]),
             termsOfServiceURL: Self.string(in: interface, keys: ["termsOfServiceUrl"]),
+            icon: CodexPluginIconReference(
+                logo: Self.string(in: interface, keys: ["logoUrl", "logo"]),
+                logoDark: Self.string(in: interface, keys: ["logoUrlDark", "logoDark"]),
+                composerIcon: Self.string(in: interface, keys: ["composerIconUrl", "composerIcon"])
+            ),
             capabilities: Self.stringArray(from: interface["capabilities"]),
             keywords: Self.stringArray(from: object["keywords"])
         )
@@ -895,6 +926,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
     public var canToggleEnabled: Bool
     public var isEnabled: Bool
     public var boundaryActionTitle: String?
+    public var icon: CodexPluginIconReference?
 
     public var tryInChatAction: CodexPluginRouteAction? {
         prompt.map { .tryInChat(prompt: $0) }
@@ -928,7 +960,8 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         canUninstall: Bool,
         canToggleEnabled: Bool,
         isEnabled: Bool,
-        boundaryActionTitle: String? = nil
+        boundaryActionTitle: String? = nil,
+        icon: CodexPluginIconReference? = nil
     ) {
         self.kind = kind
         self.title = title
@@ -944,6 +977,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         self.canToggleEnabled = canToggleEnabled
         self.isEnabled = isEnabled
         self.boundaryActionTitle = boundaryActionTitle
+        self.icon = icon
     }
 
     public init(plugin: CodexPluginSummary) {
@@ -971,6 +1005,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         self.canToggleEnabled = plugin.installed
         self.isEnabled = plugin.enabled
         self.boundaryActionTitle = nil
+        self.icon = plugin.icon.isEmpty ? nil : plugin.icon
     }
 
     public init(skill: CodexSkillSummary) {
@@ -992,6 +1027,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         self.canToggleEnabled = true
         self.isEnabled = skill.enabled
         self.boundaryActionTitle = nil
+        self.icon = nil
     }
 
     public init(mcpServer: CodexMCPServerStatus) {
@@ -1017,6 +1053,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         self.canToggleEnabled = false
         self.isEnabled = mcpServer.error == nil
         self.boundaryActionTitle = nil
+        self.icon = nil
     }
 
     public static func boundary(
