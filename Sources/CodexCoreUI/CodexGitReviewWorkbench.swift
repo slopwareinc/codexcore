@@ -79,8 +79,7 @@ public final class CodexGitReviewWorkbench {
 
     public var emptyDetail: String {
         if source == .lastTurn {
-            return lastTurnState.unavailablePresentation?.detail
-                ?? "The latest turn did not produce file changes."
+            return "The latest turn did not produce file changes."
         }
         return "There are no files in the selected review source."
     }
