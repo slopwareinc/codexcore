@@ -735,7 +735,6 @@ final class CodexCoreAppModel {
             pluginLauncherTarget = target
             selectAppRoute(.plugins)
             appendActivity(.notice, title: "Plugin detail", detail: "Opened \(target.title)")
-            Task { await refreshPlugins() }
         case .openFilesAndChats:
             selectAppRoute(.search)
         }
@@ -1202,8 +1201,18 @@ final class CodexCoreAppModel {
     func selectAppRoute(_ route: CodexAppRoute) {
         sidebarNavigationSession.selectRoute(route)
         if route == .plugins {
-            Task { await refreshPlugins() }
+            requestPluginRefresh()
         }
+    }
+
+    func requestPluginRefresh() {
+        let state = runtimeSession.integrationCatalogSession
+        guard !state.isLoadingPlugins, !state.isLoadingSkills else { return }
+        var loadingState = state
+        loadingState.beginPluginRefresh()
+        loadingState.beginSkillRefresh()
+        runtimeSession.integrationCatalogSession = loadingState
+        Task { await refreshPlugins() }
     }
 
     func performAutomationRouteAction(_ action: CodexAutomationRouteAction) {

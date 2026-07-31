@@ -12,6 +12,7 @@ public struct CodexPluginRouteView: View {
     public let skillErrorMessage: String?
     public let pluginLoadErrors: [String]
     public let launcherTarget: CodexComposerPluginLauncher?
+    public let onLoad: () -> Void
     public let onRefresh: () -> Void
     public let onAction: (CodexPluginRouteAction) -> Void
 
@@ -33,6 +34,7 @@ public struct CodexPluginRouteView: View {
         skillErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
         launcherTarget: CodexComposerPluginLauncher? = nil,
+        onLoad: @escaping () -> Void = {},
         onRefresh: @escaping () -> Void,
         onAction: @escaping (CodexPluginRouteAction) -> Void
     ) {
@@ -45,6 +47,7 @@ public struct CodexPluginRouteView: View {
         self.skillErrorMessage = skillErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
         self.launcherTarget = launcherTarget
+        self.onLoad = onLoad
         self.onRefresh = onRefresh
         self.onAction = onAction
     }
@@ -83,7 +86,10 @@ public struct CodexPluginRouteView: View {
             }
         }
         .background(theme.colors.surfaceSunken)
-        .onAppear(perform: seedOrApplyLauncher)
+        .onAppear {
+            seedOrApplyLauncher()
+            onLoad()
+        }
         .onChange(of: plugins.map(\.id)) { _, _ in seedOrApplyLauncher() }
         .onChange(of: skills.map(\.id)) { _, _ in seedOrApplyLauncher() }
         .onChange(of: launcherTarget) { _, _ in seedOrApplyLauncher() }
@@ -170,29 +176,50 @@ public struct CodexPluginRouteView: View {
             if primaryTab == .manage { manageTabs }
             statusMessages
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if isLoading && currentInventoryIsEmpty {
-                        loadingRows
-                    } else if primaryTab == .skills || (primaryTab == .manage && manageTab == .skills) {
-                        skillRows
-                    } else if primaryTab == .manage && manageTab == .mcps {
-                        mcpRows
-                    } else {
-                        if primaryTab == .marketplace && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            addedRow
-                            featuredCards
-                            categoryCards
-                        }
-                        pluginRows
-                    }
-                }
-                .padding(.bottom, 22)
-            }
+            catalogInventory
         }
         .padding(18)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(theme.colors.surface.opacity(0.45))
+    }
+
+    @ViewBuilder private var catalogInventory: some View {
+        if isLoading && currentInventoryIsEmpty {
+            ScrollView { loadingRows.padding(.bottom, 22) }
+        } else if primaryTab == .skills || (primaryTab == .manage && manageTab == .skills) {
+            ScrollView { LazyVStack(alignment: .leading, spacing: 12) { skillRows }.padding(.bottom, 22) }
+        } else if primaryTab == .manage && manageTab == .mcps {
+            ScrollView { LazyVStack(alignment: .leading, spacing: 12) { mcpRows }.padding(.bottom, 22) }
+        } else {
+            pluginInventory
+        }
+    }
+
+    @ViewBuilder private var pluginInventory: some View {
+        let visible = routeState.visiblePlugins
+        if visible.isEmpty {
+            ScrollView { emptyState(title: "No plugins found", detail: emptyDetail) }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                if primaryTab == .marketplace && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    addedRow
+                    featuredCards
+                    categoryCards
+                }
+                Text(primaryTab == .manage ? manageTab.title : "Marketplace")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textTertiary)
+                CodexPluginCatalogTable(
+                    plugins: visible,
+                    selectedPluginID: $selectedPluginID,
+                    showsToggle: primaryTab == .manage && manageTab == .plugins,
+                    theme: theme,
+                    onAction: onAction
+                )
+                .frame(minHeight: 180, maxHeight: .infinity)
+                .accessibilityLabel("\(visible.count) plugins")
+            }
+        }
     }
 
     private var searchAndFilter: some View {
@@ -344,27 +371,6 @@ public struct CodexPluginRouteView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var pluginRows: some View {
-        let visible = routeState.visiblePlugins
-        if visible.isEmpty {
-            emptyState(title: "No plugins found", detail: emptyDetail)
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(primaryTab == .manage ? manageTab.title : "Marketplace")
-                    .font(theme.fonts.caption.weight(.semibold)).foregroundStyle(theme.colors.textTertiary)
-                ForEach(visible) { plugin in
-                    PluginCatalogRow(
-                        plugin: plugin,
-                        isSelected: selectedPluginID == plugin.id,
-                        showsToggle: primaryTab == .manage && manageTab == .plugins,
-                        onSelect: { selectedPluginID = plugin.id; selectedSkillID = nil },
-                        onAction: onAction
-                    )
                 }
             }
         }
@@ -547,60 +553,6 @@ private struct PluginFeaturedCard: View {
         .menuIndicator(.hidden)
         .help("More actions for \(plugin.displayName)")
         .accessibilityLabel("More actions for \(plugin.displayName)")
-    }
-}
-
-private struct PluginCatalogRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-    let plugin: CodexPluginSummary
-    let isSelected: Bool
-    let showsToggle: Bool
-    let onSelect: () -> Void
-    let onAction: (CodexPluginRouteAction) -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onSelect) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: plugin.installed ? "checkmark.circle.fill" : "puzzlepiece.extension")
-                        .foregroundStyle(plugin.installed ? theme.colors.success : theme.colors.textTertiary).frame(width: 18)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(plugin.displayName).font(theme.fonts.label).foregroundStyle(theme.colors.textPrimary).lineLimit(1)
-                        Text(plugin.detail).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(2)
-                        Text(plugin.marketplaceDisplayName).font(theme.fonts.micro).foregroundStyle(theme.colors.textTertiary)
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if showsToggle {
-                Toggle("", isOn: Binding(
-                    get: { plugin.enabled },
-                    set: { onAction(.setPluginEnabled(.init(plugin: plugin), enabled: $0)) }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .accessibilityLabel("Toggle plugin enabled state")
-                .accessibilityValue(plugin.enabled ? "Enabled" : "Disabled")
-            } else if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
-                Button("Add") { onAction(.installPlugin(.init(plugin: plugin))) }.buttonStyle(.bordered).controlSize(.small)
-            } else {
-                Menu {
-                    if plugin.installed { Button(plugin.enabled ? "Disable" : "Enable") { onAction(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled)) } }
-                    if plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT" { Button("Remove", role: .destructive) { onAction(.uninstallPlugin(.init(plugin: plugin))) } }
-                } label: { Image(systemName: "ellipsis").frame(width: 24, height: 24) }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .accessibilityLabel("More actions for \(plugin.displayName)")
-            }
-        }
-        .padding(11)
-        .background(isSelected ? theme.colors.accentSoft.opacity(0.5) : theme.colors.surfaceElevated.opacity(0.64), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous).stroke(isSelected ? theme.colors.accent : theme.colors.border))
-        .accessibilityElement(children: .contain)
     }
 }
 

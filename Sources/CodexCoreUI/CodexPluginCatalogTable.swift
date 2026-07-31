@@ -1,0 +1,318 @@
+#if canImport(AppKit)
+import AppKit
+import SwiftUI
+
+struct CodexPluginCatalogTable: NSViewRepresentable {
+    let plugins: [CodexPluginSummary]
+    @Binding var selectedPluginID: String?
+    let showsToggle: Bool
+    let theme: CodexAgentTheme
+    let onAction: (CodexPluginRouteAction) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let table = NSTableView()
+        table.headerView = nil
+        table.backgroundColor = .clear
+        table.selectionHighlightStyle = .none
+        table.allowsEmptySelection = true
+        table.allowsMultipleSelection = false
+        table.rowHeight = 76
+        table.intercellSpacing = NSSize(width: 0, height: 7)
+        table.addTableColumn(NSTableColumn(identifier: .init("plugin")))
+        table.delegate = context.coordinator
+        table.dataSource = context.coordinator
+        table.setAccessibilityLabel("Plugin marketplace")
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = table
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.scrollerStyle = .overlay
+        context.coordinator.tableView = table
+        context.coordinator.apply(parent: self, forceReload: true)
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.apply(parent: self)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        var parent: CodexPluginCatalogTable
+        weak var tableView: NSTableView?
+        private var contentSignature = 0
+        private var selectedID: String?
+
+        init(parent: CodexPluginCatalogTable) {
+            self.parent = parent
+        }
+
+        func apply(parent: CodexPluginCatalogTable, forceReload: Bool = false) {
+            self.parent = parent
+            let signature = Self.signature(for: parent.plugins, showsToggle: parent.showsToggle)
+            let contentChanged = forceReload || signature != contentSignature
+            let selectionChanged = selectedID != parent.selectedPluginID
+            contentSignature = signature
+            selectedID = parent.selectedPluginID
+
+            if contentChanged {
+                tableView?.reloadData()
+            } else if selectionChanged {
+                tableView?.reloadData(forRowIndexes: tableView?.rows(in: tableView?.visibleRect ?? .zero).indexSet ?? [], columnIndexes: IndexSet(integer: 0))
+            }
+            synchronizeSelection()
+        }
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            parent.plugins.count
+        }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard parent.plugins.indices.contains(row) else { return nil }
+            let identifier = NSUserInterfaceItemIdentifier("CodexPluginCatalogCell")
+            let cell = (tableView.makeView(withIdentifier: identifier, owner: nil) as? CodexPluginCatalogCell)
+                ?? CodexPluginCatalogCell(identifier: identifier)
+            let plugin = parent.plugins[row]
+            cell.configure(
+                plugin: plugin,
+                selected: plugin.id == parent.selectedPluginID,
+                showsToggle: parent.showsToggle,
+                theme: parent.theme,
+                onAction: parent.onAction
+            )
+            return cell
+        }
+
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            guard let tableView, tableView.selectedRow >= 0,
+                  parent.plugins.indices.contains(tableView.selectedRow) else { return }
+            let plugin = parent.plugins[tableView.selectedRow]
+            guard plugin.id != parent.selectedPluginID else { return }
+            parent.selectedPluginID = plugin.id
+            selectedID = plugin.id
+            tableView.reloadData(forRowIndexes: tableView.rows(in: tableView.visibleRect).indexSet, columnIndexes: IndexSet(integer: 0))
+        }
+
+        private func synchronizeSelection() {
+            guard let tableView else { return }
+            guard let id = parent.selectedPluginID,
+                  let row = parent.plugins.firstIndex(where: { $0.id == id }) else {
+                tableView.deselectAll(nil)
+                return
+            }
+            if tableView.selectedRow != row {
+                tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            }
+        }
+
+        private static func signature(for plugins: [CodexPluginSummary], showsToggle: Bool) -> Int {
+            var hasher = Hasher()
+            hasher.combine(showsToggle)
+            hasher.combine(plugins.count)
+            for plugin in plugins {
+                hasher.combine(plugin.id)
+                hasher.combine(plugin.installed)
+                hasher.combine(plugin.enabled)
+                hasher.combine(plugin.displayName)
+                hasher.combine(plugin.detail)
+            }
+            return hasher.finalize()
+        }
+    }
+}
+
+private extension NSRange {
+    var indexSet: IndexSet {
+        guard location != NSNotFound, length > 0 else { return [] }
+        return IndexSet(integersIn: location..<(location + length))
+    }
+}
+
+@MainActor
+private final class CodexPluginCatalogCell: NSTableCellView {
+    private let chrome = NSView()
+    private let iconView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let detailLabel = NSTextField(labelWithString: "")
+    private let marketplaceLabel = NSTextField(labelWithString: "")
+    private let actionButton = NSButton()
+    private let enabledSwitch = NSSwitch()
+    private var plugin: CodexPluginSummary?
+    private var theme: CodexAgentTheme?
+    private var selected = false
+    private var onAction: ((CodexPluginRouteAction) -> Void)?
+
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        translatesAutoresizingMaskIntoConstraints = false
+        chrome.translatesAutoresizingMaskIntoConstraints = false
+        chrome.wantsLayer = true
+        chrome.layer?.cornerRadius = 9
+        chrome.layer?.borderWidth = 1
+        addSubview(chrome)
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.symbolConfiguration = .init(pointSize: 15, weight: .medium)
+        iconView.contentTintColor = .tertiaryLabelColor
+        chrome.addSubview(iconView)
+
+        for label in [titleLabel, detailLabel, marketplaceLabel] {
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.lineBreakMode = .byTruncatingTail
+        }
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        detailLabel.font = .systemFont(ofSize: 12)
+        detailLabel.maximumNumberOfLines = 2
+        marketplaceLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+
+        let labels = NSStackView(views: [titleLabel, detailLabel, marketplaceLabel])
+        labels.orientation = .vertical
+        labels.alignment = .leading
+        labels.spacing = 2
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        chrome.addSubview(labels)
+
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.target = self
+        actionButton.action = #selector(performPrimaryAction)
+        actionButton.controlSize = .small
+        chrome.addSubview(actionButton)
+
+        enabledSwitch.translatesAutoresizingMaskIntoConstraints = false
+        enabledSwitch.target = self
+        enabledSwitch.action = #selector(toggleEnabled)
+        enabledSwitch.controlSize = .small
+        chrome.addSubview(enabledSwitch)
+
+        NSLayoutConstraint.activate([
+            chrome.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
+            chrome.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+            chrome.topAnchor.constraint(equalTo: topAnchor),
+            chrome.bottomAnchor.constraint(equalTo: bottomAnchor),
+            iconView.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 11),
+            iconView.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 18),
+            labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 9),
+            labels.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
+            actionButton.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
+            actionButton.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
+            enabledSwitch.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
+            enabledSwitch.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    func configure(
+        plugin: CodexPluginSummary,
+        selected: Bool,
+        showsToggle: Bool,
+        theme: CodexAgentTheme,
+        onAction: @escaping (CodexPluginRouteAction) -> Void
+    ) {
+        self.plugin = plugin
+        self.selected = selected
+        self.theme = theme
+        self.onAction = onAction
+        titleLabel.stringValue = plugin.displayName
+        detailLabel.stringValue = plugin.detail
+        marketplaceLabel.stringValue = plugin.marketplaceDisplayName
+        iconView.image = NSImage(systemSymbolName: plugin.installed ? "checkmark.circle.fill" : "puzzlepiece.extension", accessibilityDescription: nil)
+        enabledSwitch.isHidden = !showsToggle
+        enabledSwitch.state = plugin.enabled ? .on : .off
+        actionButton.isHidden = showsToggle
+        if !showsToggle {
+            if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
+                actionButton.title = "Add"
+                actionButton.image = nil
+                actionButton.bezelStyle = .rounded
+            } else {
+                actionButton.title = ""
+                actionButton.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More actions")
+                actionButton.isBordered = false
+            }
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("\(plugin.displayName), \(plugin.detail)")
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    @objc private func toggleEnabled() {
+        guard let plugin else { return }
+        onAction?(.setPluginEnabled(.init(plugin: plugin), enabled: enabledSwitch.state == .on))
+    }
+
+    @objc private func performPrimaryAction() {
+        guard let plugin else { return }
+        if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
+            onAction?(.installPlugin(.init(plugin: plugin)))
+            return
+        }
+        let menu = NSMenu()
+        if plugin.installed {
+            menu.addItem(actionItem(plugin.enabled ? "Disable" : "Enable") { [weak self] in
+                self?.onAction?(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled))
+            })
+        }
+        if plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT" {
+            menu.addItem(actionItem("Remove") { [weak self] in
+                self?.onAction?(.uninstallPlugin(.init(plugin: plugin)))
+            })
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: actionButton.bounds.minX, y: actionButton.bounds.maxY), in: actionButton)
+    }
+
+    private func actionItem(_ title: String, action: @escaping () -> Void) -> NSMenuItem {
+        let item = ClosureMenuItem(title: title, action: action)
+        return item
+    }
+
+    private func applyColors() {
+        guard let theme else { return }
+        let appearance = effectiveAppearance
+        titleLabel.textColor = appearance.codexResolve(theme.colors.textPrimary)
+        detailLabel.textColor = appearance.codexResolve(theme.colors.textSecondary)
+        marketplaceLabel.textColor = appearance.codexResolve(theme.colors.textTertiary)
+        iconView.contentTintColor = appearance.codexResolve(
+            plugin?.installed == true ? theme.colors.success : theme.colors.textTertiary
+        )
+        chrome.layer?.backgroundColor = appearance.codexResolve(
+            selected ? theme.colors.accentSoft.opacity(0.5) : theme.colors.surfaceElevated.opacity(0.64)
+        ).cgColor
+        chrome.layer?.borderColor = appearance.codexResolve(
+            selected ? theme.colors.accent : theme.colors.border
+        ).cgColor
+    }
+}
+
+@MainActor
+private final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, action: @escaping () -> Void) {
+        self.handler = action
+        super.init(title: title, action: #selector(invoke), keyEquivalent: "")
+        target = self
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError() }
+
+    @objc private func invoke() { handler() }
+}
+#endif

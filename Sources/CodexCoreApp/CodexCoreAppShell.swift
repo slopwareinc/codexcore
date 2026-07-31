@@ -322,7 +322,8 @@ struct CodexCoreAppShell: View {
                 skillErrorMessage: model.skillErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
                 launcherTarget: model.pluginLauncherTarget,
-                onRefresh: { Task { await model.refreshPlugins() } },
+                onLoad: { model.requestPluginRefresh() },
+                onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

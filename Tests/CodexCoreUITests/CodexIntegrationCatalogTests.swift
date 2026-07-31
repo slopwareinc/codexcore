@@ -1,8 +1,51 @@
 import XCTest
+import AppKit
+import SwiftUI
 @testable import CodexCore
 @testable import CodexCoreUI
 
 final class CodexIntegrationCatalogTests: XCTestCase {
+    @MainActor
+    func testPluginRouteVirtualizesLargeMarketplaceWithNSTableView() throws {
+        let plugins = (0..<2_200).map { index in
+            plugin(
+                name: "plugin-\(index)",
+                displayName: "Plugin \(index)",
+                detail: "Marketplace plugin number \(index)",
+                installed: false,
+                enabled: false,
+                installPolicy: "AVAILABLE",
+                category: "Productivity"
+            )
+        }
+        let route = CodexPluginRouteView(
+            plugins: plugins,
+            skills: [],
+            mcpServers: [],
+            onRefresh: {},
+            onAction: { _ in }
+        )
+        .frame(width: 1_000, height: 700)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_000, height: 700)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let table = try XCTUnwrap(firstDescendant(of: NSTableView.self, in: hosting))
+        XCTAssertEqual(table.numberOfRows, 2_200)
+        let realizedRows = (0..<table.numberOfRows).filter {
+            table.rowView(atRow: $0, makeIfNecessary: false) != nil
+        }
+        XCTAssertLessThan(realizedRows.count, 80, "Only viewport rows should have AppKit views")
+    }
+
     func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
         let temporary = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -744,6 +787,15 @@ private func writeMarketplace(named name: String, at root: URL) throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let data = try JSONSerialization.data(withJSONObject: ["name": name, "plugins": []])
     try data.write(to: directory.appendingPathComponent("marketplace.json"))
+}
+
+@MainActor
+private func firstDescendant<T: NSView>(of type: T.Type, in root: NSView) -> T? {
+    if let match = root as? T { return match }
+    for subview in root.subviews {
+        if let match = firstDescendant(of: type, in: subview) { return match }
+    }
+    return nil
 }
 
 private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider {
