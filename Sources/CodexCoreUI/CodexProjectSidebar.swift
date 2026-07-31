@@ -252,12 +252,14 @@ public struct CodexProjectSidebar: View {
             SidebarCommandRow(
                 systemImage: "square.and.pencil",
                 title: "New chat",
+                shortcut: "⌘N",
                 isCollapsed: snapshot.isCollapsed,
                 action: onNewChat
             )
             SidebarCommandRow(
                 systemImage: CodexAppRoute.search.systemImage,
                 title: CodexAppRoute.search.title,
+                shortcut: "⌘G",
                 isSelected: snapshot.selectedRoute == .search,
                 isCollapsed: snapshot.isCollapsed,
                 action: onOpenSearch

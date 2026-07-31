@@ -79,6 +79,7 @@ public struct CodexChatWorkspaceView: View {
     @Binding private var approvalSelection: CodexApprovalSelection
     @Binding private var isPlanModeEnabled: Bool
     @Binding private var modelSelection: CodexModelSelection
+    @Binding private var isModelMenuPresented: Bool
     @Binding private var serviceTierSelection: CodexServiceTierSelection
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var draft: String
@@ -162,6 +163,7 @@ public struct CodexChatWorkspaceView: View {
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
+        isModelMenuPresented: Binding<Bool> = .constant(false),
         serviceTierSelection: Binding<CodexServiceTierSelection> = .constant(.standard),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         draft: Binding<String>,
@@ -237,6 +239,7 @@ public struct CodexChatWorkspaceView: View {
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
         self._modelSelection = modelSelection
+        self._isModelMenuPresented = isModelMenuPresented
         self._serviceTierSelection = serviceTierSelection
         self._reasoningSelection = reasoningSelection
         self._draft = draft
@@ -493,6 +496,7 @@ public struct CodexChatWorkspaceView: View {
                         approvalOptions: approvalOptions,
                         modelSelection: $modelSelection,
                         modelOptions: modelOptions,
+                        isModelMenuPresented: $isModelMenuPresented,
                         modelPickerStyle: .grid,
                         serviceTierSelection: $serviceTierSelection,
                         reasoningSelection: $reasoningSelection,

@@ -16,6 +16,7 @@ public struct CodexComposerBar: View {
     private let isGoalPursuitEnabled: Bool
     private let approvalOptions: [CodexApprovalSelection]
     @Binding private var modelSelection: CodexModelSelection
+    @Binding private var isModelMenuPresented: Bool
     private let modelOptions: [CodexModelSelection]
     private let modelPickerStyle: CodexComposerModelPickerStyle
     @Binding private var serviceTierSelection: CodexServiceTierSelection
@@ -65,6 +66,7 @@ public struct CodexComposerBar: View {
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        isModelMenuPresented: Binding<Bool> = .constant(false),
         modelPickerStyle: CodexComposerModelPickerStyle = .menu,
         serviceTierSelection: Binding<CodexServiceTierSelection> = .constant(.standard),
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
@@ -102,6 +104,7 @@ public struct CodexComposerBar: View {
         self.isGoalPursuitEnabled = isGoalPursuitEnabled
         self.approvalOptions = approvalOptions
         self._modelSelection = modelSelection
+        self._isModelMenuPresented = isModelMenuPresented
         self.modelOptions = modelOptions
         self.modelPickerStyle = modelPickerStyle
         self._serviceTierSelection = serviceTierSelection
@@ -231,7 +234,8 @@ public struct CodexComposerBar: View {
                             model: $modelSelection,
                             modelOptions: modelOptions,
                             serviceTier: $serviceTierSelection,
-                            reasoning: $reasoningSelection
+                            reasoning: $reasoningSelection,
+                            isPresented: $isModelMenuPresented
                         )
                         ComposerMicrophoneButton(
                             phase: dictationState.phase,
@@ -850,17 +854,20 @@ public struct ComposerModelMenu: View {
     public let modelOptions: [CodexModelSelection]
     @Binding public var serviceTier: CodexServiceTierSelection
     @Binding public var reasoning: CodexReasoningSelection
+    @Binding public var isPresented: Bool
 
     public init(
         model: Binding<CodexModelSelection>,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         serviceTier: Binding<CodexServiceTierSelection> = .constant(.standard),
-        reasoning: Binding<CodexReasoningSelection>
+        reasoning: Binding<CodexReasoningSelection>,
+        isPresented: Binding<Bool> = .constant(false)
     ) {
         self._model = model
         self.modelOptions = modelOptions
         self._serviceTier = serviceTier
         self._reasoning = reasoning
+        self._isPresented = isPresented
     }
 
     public var body: some View {
@@ -868,7 +875,8 @@ public struct ComposerModelMenu: View {
             model: $model,
             modelOptions: modelOptions,
             serviceTier: $serviceTier,
-            reasoning: $reasoning
+            reasoning: $reasoning,
+            isPresented: $isPresented
         )
         .onChange(of: model) { _, newModel in
             reconcileReasoning(for: newModel)
