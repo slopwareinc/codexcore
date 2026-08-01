@@ -927,6 +927,82 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(second.diagnostics.preparedTextCacheMissCount == 0)
     }
 
+    @Test func completedTurnPromotesEditsBesideFinalAnswer() async throws {
+        let diff = (1...5).map { index in
+            """
+            diff --git a/Sources/File\(index).swift b/Sources/File\(index).swift
+            --- a/Sources/File\(index).swift
+            +++ b/Sources/File\(index).swift
+            @@ -1 +1,2 @@
+            -old
+            +new
+            +more
+            """
+        }.joined(separator: "\n")
+        let turn = CodexTurnV2(
+            id: "turn-diff",
+            narrative: [.workGroup(.init(
+                id: "work",
+                rows: [.fileChange(.init(
+                    id: "files",
+                    files: (1...5).map { "Sources/File\($0).swift" },
+                    status: .completed,
+                    diff: diff
+                ))],
+                isLive: false
+            ))],
+            finalAnswer: .init(id: "final", text: "Implemented the changes.", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let collapsed = try await projector.project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let cardID = try #require(collapsed.orderedItemIDs.first { $0.rawValue.hasSuffix(":turn-diff") })
+        let card = try #require(collapsed.itemsByID[cardID]?.turnDiff)
+        let finalID = try #require(collapsed.orderedItemIDs.first { $0.rawValue.contains(":final:final:") })
+
+        #expect(card.title == "Edited 5 files")
+        #expect(card.visibleFiles.count == 3)
+        #expect(card.hiddenFileCount == 2)
+        #expect(card.totalAdded == 10)
+        #expect(card.totalRemoved == 5)
+        #expect(collapsed.orderedItemIDs.firstIndex(of: cardID)! < collapsed.orderedItemIDs.firstIndex(of: finalID)!)
+
+        let expanded = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedRowIDs: ["turn-diff:turn-diff"]
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let expandedCard = try #require(expanded.itemsByID[cardID]?.turnDiff)
+        #expect(expandedCard.visibleFiles.count == 5)
+        #expect(expandedCard.hiddenFileCount == 0)
+        #expect(expandedCard.isExpanded)
+    }
+
+    @Test func activeTurnDoesNotPromoteIncompleteEdits() async throws {
+        let turn = CodexTurnV2(
+            id: "active",
+            narrative: [.workGroup(.init(id: "work", rows: [.fileChange(.init(
+                id: "files", files: ["A.swift"], status: .inProgress, diff: "+new"
+            ))]))],
+            status: .working(since: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+
+        #expect(snapshot.itemsByID.values.allSatisfy { $0.turnDiff == nil })
+    }
+
     private func allKindsTurn() -> CodexTurnV2 {
         let output = String(repeating: "x", count: 20_100)
         return CodexTurnV2(

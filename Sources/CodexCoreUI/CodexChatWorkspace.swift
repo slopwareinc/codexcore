@@ -391,6 +391,7 @@ public struct CodexChatWorkspaceView: View {
                 onUpsertResponseAnnotation: upsertResponseAnnotation,
                 onRemoveResponseAnnotation: removeResponseAnnotation,
                 onOpenSubagent: openPanelTab,
+                onOpenReview: reviewPanelAction,
                 onEditUserMessage: { rawText in
                     if let decoded = CodexComposerPromptCodec.decode(rawText) {
                         draft = decoded.request
@@ -689,6 +690,16 @@ public struct CodexChatWorkspaceView: View {
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen = true
         }
+    }
+
+    private func openReviewPanel() {
+        guard let gitReviewSession else { return }
+        openPanelTab(CodexAgentPanelTab.review(gitReviewSession).id)
+    }
+
+    private var reviewPanelAction: (() -> Void)? {
+        guard gitReviewSession != nil else { return nil }
+        return openReviewPanel
     }
 
     private func closeSubagentTab(_ id: String) {

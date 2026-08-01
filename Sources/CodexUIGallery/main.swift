@@ -1,6 +1,6 @@
 import AppKit
 import CodexCore
-import CodexCoreUI
+@_spi(VisualTesting) import CodexCoreUI
 import SwiftUI
 
 // Renders component scenes to PNG for visual review.
@@ -34,6 +34,7 @@ struct Gallery {
             Scene(name: "palette", width: 720, content: AnyView(PaletteSpecimen())),
             Scene(name: "plan-panel", width: 420, content: AnyView(PlanPanelScene())),
             Scene(name: "summary-plan-and-changes", width: 420, content: AnyView(SummaryPlanAndChangesScene())),
+            Scene(name: "transcript-turn-changes", width: 860, content: AnyView(TranscriptTurnChangesScene())),
             Scene(name: "mcp-sheet", width: 620, content: AnyView(MCPSheetScene())),
             Scene(name: "chips", width: 720, content: AnyView(ChipSpecimen()))
         ]
@@ -531,6 +532,15 @@ private struct SummaryPlanAndChangesScene: View {
             onSelectTab: { _ in }
         )
         .padding(24)
+    }
+}
+
+private struct TranscriptTurnChangesScene: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            CodexTranscriptTurnDiffGalleryFixture()
+            Text("The Review workbench now keeps turn edits beside the final response.")
+        }
     }
 }
 

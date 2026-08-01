@@ -33,6 +33,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onRemoveResponseAnnotation: (String) -> Void
     var productToolRenderer: CodexProductToolRendererV2?
     var onOpenSubagent: (String) -> Void
+    var onOpenReview: (() -> Void)?
     var onEditUserMessage: (String) -> Void
     var onForkChat: (() -> Void)?
     var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
@@ -64,6 +65,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: clipboardService,
             productToolRenderer: productToolRenderer,
             onOpenSubagent: onOpenSubagent,
+            onOpenReview: onOpenReview,
             onEditUserMessage: onEditUserMessage,
             onForkChat: onForkChat,
             onResolveApproval: onResolveApproval,
@@ -110,6 +112,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
         private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
         private var onOpenSubagent: (String) -> Void = { _ in }
+        private var onOpenReview: (() -> Void)?
         private var onEditUserMessage: (String) -> Void = { _ in }
         private var onForkChat: (() -> Void)?
         private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
@@ -203,6 +206,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: any CodexClipboardService,
             productToolRenderer: CodexProductToolRendererV2?,
             onOpenSubagent: @escaping (String) -> Void,
+            onOpenReview: (() -> Void)? = nil,
             onEditUserMessage: @escaping (String) -> Void,
             onForkChat: (() -> Void)?,
             onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
@@ -241,6 +245,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
             self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
             self.onOpenSubagent = onOpenSubagent
+            self.onOpenReview = onOpenReview
             self.onEditUserMessage = onEditUserMessage
             self.onForkChat = onForkChat
             self.onResolveApproval = onResolveApproval
@@ -403,6 +408,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 swiftUITheme: swiftUITheme,
                 contentHorizontalOffset: contentHorizontalOffset,
                 productToolRenderer: productToolRenderer,
+                canOpenReview: onOpenReview != nil,
                 performAction: { [weak self] action in self?.perform(action) },
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
                 editUserMessage: { [weak self] text in self?.onEditUserMessage(text) },
@@ -708,6 +714,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 )
             case .openSubagent(let threadID):
                 onOpenSubagent(threadID)
+                return
+            case .openReview:
+                onOpenReview?()
                 return
             case .openURL(let value):
                 guard let url = URL(string: value), url.scheme?.lowercased() == "https" else { return }
