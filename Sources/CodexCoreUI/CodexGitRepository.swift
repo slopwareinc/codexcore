@@ -40,6 +40,7 @@ public enum CodexGitMutation: Sendable, Equatable {
     case createBranch(name: String)
     case checkoutBranch(name: String)
     case commit(message: String, includeUnstaged: Bool)
+    case commitAndPush(message: String, includeUnstaged: Bool)
     case push
     case createDraftPullRequest(title: String, body: String)
 
@@ -51,6 +52,7 @@ public enum CodexGitMutation: Sendable, Equatable {
         case .createBranch: "Creating branch"
         case .checkoutBranch: "Switching branch"
         case .commit: "Creating commit"
+        case .commitAndPush: "Committing and pushing"
         case .push: "Pushing branch"
         case .createDraftPullRequest: "Creating draft pull request"
         }
@@ -73,6 +75,7 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
     case unsafePath(String)
     case destructiveUntrackedPath(String)
     case comparisonRequired(String)
+    case partialSuccess(String)
     case commandFailed(command: String, message: String)
     case outputLimitExceeded(command: String)
 
@@ -87,6 +90,8 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
         case .destructiveUntrackedPath(let path):
             "Refusing to discard untracked file \(path). Move it to Trash explicitly."
         case .comparisonRequired(let detail):
+            detail
+        case .partialSuccess(let detail):
             detail
         case .commandFailed(let command, let message):
             "\(command) failed: \(message)"
@@ -251,20 +256,20 @@ public actor CodexGitRepository {
             try await run(["switch", try validatedBranchName(name)])
             return .init(message: "Switched to \(name).")
         case .commit(let message, let includeUnstaged):
-            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                throw CodexGitRepositoryError.commandFailed(
-                    command: "git commit",
-                    message: "Commit message is required."
+            try await createCommit(message: message, includeUnstaged: includeUnstaged)
+            return .init(message: "Commit created.")
+        case .commitAndPush(let message, let includeUnstaged):
+            try await createCommit(message: message, includeUnstaged: includeUnstaged)
+            do {
+                _ = try await pushCurrentBranch()
+            } catch {
+                throw CodexGitRepositoryError.partialSuccess(
+                    "Commit created, but push failed: \(error.localizedDescription) Retry Push; do not recreate the commit."
                 )
             }
-            if includeUnstaged {
-                try await run(["add", "-A"])
-            }
-            try await run(["commit", "-m", trimmed])
-            return .init(message: "Commit created.")
+            return .init(message: "Commit created and branch pushed.")
         case .push:
-            let result = try await run(["push", "--porcelain"])
+            let result = try await pushCurrentBranch()
             return .init(message: result.stdout.nilIfBlank ?? "Branch pushed.")
         case .createDraftPullRequest(let title, let body):
             let result = try await runExecutable(
@@ -282,6 +287,46 @@ public actor CodexGitRepository {
                 externalURL: URL(string: value.split(separator: "\n").last.map(String.init) ?? "")
             )
         }
+    }
+
+    private func createCommit(message: String, includeUnstaged: Bool) async throws {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CodexGitRepositoryError.commandFailed(
+                command: "git commit",
+                message: "Commit message is required."
+            )
+        }
+        if includeUnstaged {
+            try await run(["add", "-A"])
+        }
+        try await run(["commit", "-m", trimmed])
+    }
+
+    private func pushCurrentBranch() async throws -> CodexGitCommandResult {
+        if (try await optional([
+            "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}",
+        ])) != nil {
+            return try await run(["push", "--porcelain"])
+        }
+        guard let branch = try await optional([
+            "symbolic-ref", "--quiet", "--short", "HEAD",
+        ])?.stdout.nilIfBlank else {
+            throw CodexGitRepositoryError.commandFailed(
+                command: "git push",
+                message: "Cannot push a detached HEAD. Create or check out a branch first."
+            )
+        }
+        let remotes = try await run(["remote"]).stdout
+            .split(separator: "\n")
+            .map(String.init)
+        guard let remote = remotes.first(where: { $0 == "origin" }) ?? remotes.first else {
+            throw CodexGitRepositoryError.commandFailed(
+                command: "git push",
+                message: "No Git remote is configured."
+            )
+        }
+        return try await run(["push", "--porcelain", "--set-upstream", remote, branch])
     }
 
     private func files(
@@ -321,7 +366,7 @@ public actor CodexGitRepository {
             unstagedPaths = source == .staged ? [] : Set(names.map(\.path))
         }
         var files = names.map { entry in
-            let count = stats[entry.path] ?? (0, 0)
+            let count = stats[entry.path] ?? (0, 0, false)
             let stagingState: CodexGitStagingState
             if stagedPaths.contains(entry.path), unstagedPaths.contains(entry.path) {
                 stagingState = .partiallyStaged
@@ -339,7 +384,7 @@ public actor CodexGitRepository {
                 stagingState: stagingState,
                 addedLines: count.0,
                 removedLines: count.1,
-                isBinary: count.0 == 0 && count.1 == 0 && stats[entry.path] == nil
+                isBinary: count.2
             )
         }
         if source == .unstaged || source == .uncommitted {
@@ -645,9 +690,9 @@ public actor CodexGitRepository {
         return result
     }
 
-    private func parseNumstat(_ output: String) -> [String: (Int, Int)] {
+    private func parseNumstat(_ output: String) -> [String: (Int, Int, Bool)] {
         let fields = output.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
-        var result: [String: (Int, Int)] = [:]
+        var result: [String: (Int, Int, Bool)] = [:]
         var index = 0
         while index < fields.count {
             let header = fields[index]
@@ -657,13 +702,14 @@ public actor CodexGitRepository {
             guard components.count >= 3 else { continue }
             let added = Int(components[0]) ?? 0
             let removed = Int(components[1]) ?? 0
+            let isBinary = components[0] == "-" || components[1] == "-"
             if !components[2].isEmpty {
-                result[String(components[2])] = (added, removed)
+                result[String(components[2])] = (added, removed, isBinary)
             } else if index + 1 < fields.count {
                 _ = fields[index]
                 let destination = fields[index + 1]
                 index += 2
-                result[destination] = (added, removed)
+                result[destination] = (added, removed, isBinary)
             }
         }
         return result

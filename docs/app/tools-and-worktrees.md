@@ -37,6 +37,6 @@ Open **Changes** from the shared task summary or select the Review side-panel ta
 
 The changed-file navigator supports filtering, keyboard movement, rename metadata, line statistics, and per-file viewed state. It remains beside the unified diff at normal widths and collapses to a compact picker below 520 points. Patches load only for the selected file and are byte-bounded.
 
-Stage, unstage, tracked-file revert, branch create/checkout, commit, push, and draft-PR actions are explicit. Rendering never mutates Git. Each mutation validates paths and rejects a stale repository revision; tracked revert requires confirmation and refuses untracked deletion.
+Per-file and bulk stage, unstage, and tracked-file revert actions are explicit. Branch create/checkout, commit, commit-and-push, push, and draft-PR actions share the same mutation boundary. Rendering never mutates Git. Each mutation validates paths and rejects a stale repository revision; tracked revert requires confirmation and refuses untracked deletion. Commit-and-push reports partial success if the commit succeeds but the network step fails, so recovery never suggests duplicating the commit.
 
 The reference app still omits worktree handoff and the old demo bottom terminal. Use external Git tooling for worktrees and the workspace side panel for the real interactive Ghostty terminal.

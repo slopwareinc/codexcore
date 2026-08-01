@@ -61,16 +61,21 @@ final class CodexGitRepositoryTests: XCTestCase {
     func testSnapshotDoesNotRequestBinaryPatchPayloadForMetadata() async throws {
         let fixture = try GitFixture()
         defer { fixture.remove() }
-        try fixture.write(Data(repeating: 0x41, count: 256 * 1_024), to: "asset.bin")
+        var initialBinary = Data([0])
+        initialBinary.append(Data(repeating: 0x41, count: 256 * 1_024 - 1))
+        try fixture.write(initialBinary, to: "asset.bin")
         try fixture.git("add", "asset.bin")
         try fixture.git("commit", "-q", "-m", "binary base")
-        try fixture.write(Data(repeating: 0x42, count: 256 * 1_024), to: "asset.bin")
+        var changedBinary = Data([0])
+        changedBinary.append(Data(repeating: 0x42, count: 256 * 1_024 - 1))
+        try fixture.write(changedBinary, to: "asset.bin")
 
         let repository = CodexGitRepository(workspaceURL: fixture.url)
         let started = ContinuousClock.now
         let snapshot = try await repository.snapshot(source: .uncommitted)
 
         XCTAssertEqual(snapshot.files.map(\.path), ["asset.bin"])
+        XCTAssertEqual(snapshot.files.first?.isBinary, true)
         XCTAssertLessThan(started.duration(to: .now), .seconds(2))
     }
 
@@ -189,6 +194,63 @@ final class CodexGitRepositoryTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: fixture.url.appending(path: "new.txt").path
         ))
+    }
+
+    func testCommitAndPushCreatesUpstreamForNewBranch() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let remote = FileManager.default.temporaryDirectory
+            .appending(path: "codex-review-remote-\(UUID().uuidString).git")
+        defer { try? FileManager.default.removeItem(at: remote) }
+        try fixture.git("init", "-q", "--bare", remote.path)
+        try fixture.git("remote", "add", "origin", remote.path)
+        try fixture.git("switch", "-q", "-c", "feature")
+        try fixture.write("commit and push\n", to: "tracked.txt")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let snapshot = try await repository.snapshot(source: .uncommitted)
+
+        let result = try await repository.mutate(
+            .commitAndPush(message: "ship feature", includeUnstaged: true),
+            expectedRevision: snapshot.revision,
+            source: .uncommitted
+        )
+
+        XCTAssertEqual(result.message, "Commit created and branch pushed.")
+        XCTAssertEqual(
+            try fixture.git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            "origin/feature"
+        )
+    }
+
+    func testCommitAndPushReportsPartialSuccessWithoutDuplicatingCommit() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        try fixture.git("remote", "add", "origin", "/does/not/exist/codex-review.git")
+        try fixture.write("local commit survives\n", to: "tracked.txt")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let snapshot = try await repository.snapshot(source: .uncommitted)
+
+        do {
+            _ = try await repository.mutate(
+                .commitAndPush(message: "local success", includeUnstaged: true),
+                expectedRevision: snapshot.revision,
+                source: .uncommitted
+            )
+            XCTFail("Expected push failure after commit")
+        } catch let error as CodexGitRepositoryError {
+            guard case .partialSuccess(let message) = error else {
+                return XCTFail("Expected partialSuccess, got \(error)")
+            }
+            XCTAssertTrue(message.contains("do not recreate the commit"))
+        }
+
+        XCTAssertEqual(
+            try fixture.git("log", "-1", "--format=%s")
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            "local success"
+        )
+        XCTAssertTrue(try fixture.git("status", "--porcelain").isEmpty)
     }
 }
 

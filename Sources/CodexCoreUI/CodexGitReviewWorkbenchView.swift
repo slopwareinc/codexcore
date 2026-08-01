@@ -1,5 +1,6 @@
 import SwiftUI
 import CodexCore
+import AppKit
 
 struct CodexGitReviewWorkbenchHost: View {
     @State private var workbench: CodexGitReviewWorkbench
@@ -33,9 +34,10 @@ public struct CodexGitReviewWorkbenchView: View {
     @State private var showsPullRequest = false
     @State private var showsAIReview = false
     @State private var showsComparison = false
-    @State private var confirmsRevert = false
+    @State private var revertScope: RevertScope?
     @State private var reviewTargetChoice = ReviewTargetChoice.uncommitted
     @State private var reviewTargetValue = ""
+    @State private var wrapsDiffLines = false
     private let onStartReview: (CodexReviewTarget) -> Void
 
     public init(
@@ -64,17 +66,32 @@ public struct CodexGitReviewWorkbenchView: View {
                     Divider().overlay(theme.colors.border)
                     diffPane
                 }
+                if workbench.canUseGitActions,
+                   workbench.snapshot?.files.isEmpty == false {
+                    Divider().overlay(theme.colors.border)
+                    bulkActionBar
+                }
             }
         }
         .background(theme.colors.canvas)
         .onMoveCommand(perform: moveSelection)
-        .alert("Revert tracked changes?", isPresented: $confirmsRevert) {
+        .alert("Revert tracked changes?", isPresented: Binding(
+            get: { revertScope != nil },
+            set: { if !$0 { revertScope = nil } }
+        )) {
             Button("Cancel", role: .cancel) {}
             Button("Revert", role: .destructive) {
-                workbench.revertSelectedTrackedFile()
+                if revertScope == .all {
+                    workbench.revertAllTrackedFiles()
+                } else {
+                    workbench.revertSelectedTrackedFile()
+                }
+                revertScope = nil
             }
         } message: {
-            Text("This restores the selected tracked file from Git. Untracked files are never deleted by Review.")
+            Text(revertScope == .all
+                 ? "This restores every tracked file shown in this review source from Git. Untracked files are never deleted by Review."
+                 : "This restores the selected tracked file from Git. Untracked files are never deleted by Review.")
         }
         .popover(isPresented: $showsCommit) { commitPopover }
         .popover(isPresented: $showsBranch) { branchPopover }
@@ -151,6 +168,22 @@ public struct CodexGitReviewWorkbenchView: View {
             .buttonStyle(.plain)
             .help("Start AI code review…")
             .accessibilityLabel("Start AI code review")
+
+            Menu {
+                Toggle("Wrap lines", isOn: $wrapsDiffLines)
+                Button("Copy selected patch") {
+                    if case .ready(let patch) = workbench.patchState {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(patch.fullText, forType: .string)
+                    }
+                }
+                .disabled(workbench.selectedPatch == nil)
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .menuStyle(.borderlessButton)
+            .help("Diff options")
+            .accessibilityLabel("Diff options")
 
             Menu {
                 Button("Commit…") { showsCommit = true }
@@ -438,12 +471,35 @@ public struct CodexGitReviewWorkbenchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .foregroundStyle(theme.colors.textSecondary)
             case .failed(let message):
-                emptyDiff(title: "Diff unavailable", detail: message)
+                VStack(spacing: 10) {
+                    emptyDiff(title: "Diff unavailable", detail: message)
+                    Button("Retry") { workbench.retrySelectedPatch() }
+                        .buttonStyle(.bordered)
+                }
             case .ready(let patch):
-                CodexUnifiedReviewDiff(
-                    patch: patch.displayText,
-                    isTruncated: patch.isTruncated
-                )
+                if workbench.selectedFile?.isBinary == true {
+                    emptyDiff(
+                        title: "Binary file not shown",
+                        detail: "Open the file to review the binary change."
+                    )
+                } else if patch.displayText.isEmpty,
+                          workbench.selectedFile?.status == .renamed {
+                    emptyDiff(
+                        title: "File renamed without changes",
+                        detail: "The file contents are unchanged."
+                    )
+                } else if patch.displayText.isEmpty {
+                    emptyDiff(
+                        title: "No diff content",
+                        detail: "Git reported this file without a textual patch."
+                    )
+                } else {
+                    CodexUnifiedReviewDiff(
+                        patch: patch.displayText,
+                        isTruncated: patch.isTruncated,
+                        wrapsLines: wrapsDiffLines
+                    )
+                }
             }
         }
     }
@@ -482,7 +538,7 @@ public struct CodexGitReviewWorkbenchView: View {
                     }
                     if file.status != .untracked {
                         Button {
-                            confirmsRevert = true
+                            revertScope = .selected
                         } label: {
                             Image(systemName: "arrow.uturn.backward")
                         }
@@ -526,12 +582,48 @@ public struct CodexGitReviewWorkbenchView: View {
                     showsCommit = false
                     workbench.commit()
                 }
-                .keyboardShortcut(.return, modifiers: .command)
                 .disabled(workbench.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Commit and push") {
+                    showsCommit = false
+                    workbench.commitAndPush()
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(
+                    workbench.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || workbench.snapshot?.upstreamBranchName == nil
+                            && workbench.snapshot?.branchName == "HEAD"
+                )
             }
         }
         .padding(16)
         .frame(width: 340)
+    }
+
+    private var bulkActionBar: some View {
+        HStack(spacing: 8) {
+            let files = workbench.snapshot?.files ?? []
+            if files.contains(where: { $0.stagingState.hasUnstagedChanges }) {
+                Button("Stage all") { workbench.stageAll() }
+                    .buttonStyle(.bordered)
+            }
+            if files.contains(where: { $0.stagingState.hasStagedChanges }) {
+                Button("Unstage all") { workbench.unstageAll() }
+                    .buttonStyle(.bordered)
+            }
+            Spacer(minLength: 0)
+            if files.contains(where: { $0.status != .untracked }) {
+                Button("Revert all", role: .destructive) {
+                    revertScope = .all
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Revert all tracked changes")
+            }
+        }
+        .font(theme.fonts.caption)
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 42)
+        .background(theme.colors.surface.opacity(0.72))
     }
 
     @ViewBuilder
@@ -717,6 +809,11 @@ public struct CodexGitReviewWorkbenchView: View {
     }
 }
 
+private enum RevertScope {
+    case selected
+    case all
+}
+
 private enum ReviewTargetChoice: String, CaseIterable, Identifiable {
     case uncommitted
     case baseBranch
@@ -768,9 +865,10 @@ private struct CodexUnifiedReviewDiff: View {
 
     let patch: String
     let isTruncated: Bool
+    let wrapsLines: Bool
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
+        ScrollView(wrapsLines ? .vertical : [.horizontal, .vertical]) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(rows) { row in
                     HStack(spacing: 0) {
@@ -781,6 +879,7 @@ private struct CodexUnifiedReviewDiff: View {
                         Text(verbatim: row.text)
                             .textSelection(.enabled)
                             .padding(.leading, 10)
+                            .fixedSize(horizontal: !wrapsLines, vertical: false)
                     }
                     .font(theme.fonts.code)
                     .foregroundStyle(foreground(row.kind))

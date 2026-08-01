@@ -35,7 +35,7 @@ public final class CodexGitReviewWorkbench {
     public var pullRequestBody = ""
     public var baseBranch = ""
     public var commitRef = "HEAD"
-    public private(set) var viewedFileIDs: Set<String> = []
+    private var viewedFileRevisionByID: [String: CodexGitReviewRevision] = [:]
 
     private let repository: CodexGitRepository
     private let lastTurnSession: CodexGitReviewSession?
@@ -71,8 +71,20 @@ public final class CodexGitReviewWorkbench {
         return snapshot?.file(id: selectedFileID)
     }
 
+    public var selectedPatch: CodexGitReviewPatchText? {
+        guard case .ready(let patch) = patchState else { return nil }
+        return patch
+    }
+
     public var viewedCount: Int {
-        snapshot?.files.lazy.filter { self.viewedFileIDs.contains($0.id) }.count ?? 0
+        viewedFileIDs.count
+    }
+
+    public var viewedFileIDs: Set<String> {
+        guard let revision = snapshot?.revision else { return [] }
+        return Set(viewedFileRevisionByID.compactMap { id, viewedRevision in
+            viewedRevision == revision ? id : nil
+        })
     }
 
     public var canMutateSelectedFile: Bool {
@@ -177,6 +189,10 @@ public final class CodexGitReviewWorkbench {
         loadSelectedPatch()
     }
 
+    public func retrySelectedPatch() {
+        loadSelectedPatch()
+    }
+
     public func selectBaseBranch(_ branch: String) {
         baseBranch = branch
         selectedFileID = nil
@@ -196,10 +212,11 @@ public final class CodexGitReviewWorkbench {
     }
 
     public func toggleViewed(_ fileID: String) {
-        if viewedFileIDs.contains(fileID) {
-            viewedFileIDs.remove(fileID)
+        guard let revision = snapshot?.revision else { return }
+        if viewedFileRevisionByID[fileID] == revision {
+            viewedFileRevisionByID.removeValue(forKey: fileID)
         } else {
-            viewedFileIDs.insert(fileID)
+            viewedFileRevisionByID[fileID] = revision
         }
     }
 
@@ -211,6 +228,24 @@ public final class CodexGitReviewWorkbench {
     public func unstageSelected() {
         guard let selectedFile else { return }
         perform(.unstage(paths: [selectedFile.path]))
+    }
+
+    public func stageAll() {
+        let paths = snapshot?.files.filter { $0.stagingState.hasUnstagedChanges }.map(\.path) ?? []
+        guard !paths.isEmpty else { return }
+        perform(.stage(paths: paths))
+    }
+
+    public func unstageAll() {
+        let paths = snapshot?.files.filter { $0.stagingState.hasStagedChanges }.map(\.path) ?? []
+        guard !paths.isEmpty else { return }
+        perform(.unstage(paths: paths))
+    }
+
+    public func revertAllTrackedFiles() {
+        let paths = snapshot?.files.filter { $0.status != .untracked }.map(\.path) ?? []
+        guard !paths.isEmpty else { return }
+        perform(.revertTracked(paths: paths))
     }
 
     public func revertSelectedTrackedFile() {
@@ -228,6 +263,10 @@ public final class CodexGitReviewWorkbench {
 
     public func commit() {
         perform(.commit(message: commitMessage, includeUnstaged: includeUnstaged))
+    }
+
+    public func commitAndPush() {
+        perform(.commitAndPush(message: commitMessage, includeUnstaged: includeUnstaged))
     }
 
     public func push() {
@@ -279,6 +318,8 @@ public final class CodexGitReviewWorkbench {
                 try Task.checkCancellation()
                 operationMessage = result.message
                 if case .commit = mutation {
+                    commitMessage = ""
+                } else if case .commitAndPush = mutation {
                     commitMessage = ""
                 }
                 refresh()
