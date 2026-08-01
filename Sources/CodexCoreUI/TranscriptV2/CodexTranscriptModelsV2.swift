@@ -67,6 +67,8 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
     public var rawText: String
     public var referencedFiles: [CodexReferencedFile]
     public var responseAnnotations: [CodexResponseAnnotationContent]
+    /// Independent Codex task that sent this message, when present.
+    public var delegationSource: CodexThreadReferenceV2?
     public var isOptimistic: Bool
     public init(
         id: String,
@@ -75,6 +77,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         rawText: String? = nil,
         referencedFiles: [CodexReferencedFile] = [],
         responseAnnotations: [CodexResponseAnnotationContent] = [],
+        delegationSource: CodexThreadReferenceV2? = nil,
         isOptimistic: Bool = false
     ) {
         self.id = id
@@ -83,6 +86,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         self.rawText = rawText ?? text
         self.referencedFiles = referencedFiles
         self.responseAnnotations = responseAnnotations
+        self.delegationSource = delegationSource
         self.isOptimistic = isOptimistic
     }
 
@@ -92,6 +96,17 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         return [request, attachments]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
+    }
+}
+
+/// Stable navigation identity for an independent Codex task referenced in a transcript.
+public struct CodexThreadReferenceV2: Sendable, Equatable, Hashable {
+    public var hostID: String?
+    public var threadID: String
+
+    public init(hostID: String? = nil, threadID: String) {
+        self.hostID = hostID
+        self.threadID = threadID
     }
 }
 

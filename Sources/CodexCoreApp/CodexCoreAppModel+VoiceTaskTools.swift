@@ -438,6 +438,9 @@ extension CodexCoreAppModel {
             case "send_message_to_thread":
                 let threadID = try request.arguments.requiredString(for: "threadId")
                 let message = try request.arguments.requiredString(for: "prompt")
+                guard let sourceThreadID = request.scope.threadID else {
+                    throw CodexVoiceTaskToolError.missingArgument("sourceThreadId")
+                }
                 let response = try await codex.perform(CodexRequest.threadRead(.init(
                     includeTurns: false,
                     threadID: threadID
@@ -450,40 +453,21 @@ extension CodexCoreAppModel {
                 } else {
                     roots = workspaceRoots(containing: cwd)
                 }
-                let resumeWire = taskWireSelection(
-                    for: threadID,
-                    explicitTierOnly: true
-                )
-                let lease = try await codex.resumeThread(voiceThreadResumeParameters(
-                    wire: resumeWire,
-                    cwd: cwd,
-                    roots: roots,
-                    threadID: threadID
-                ))
-                hydrateModelPreference(
-                    for: threadID,
-                    modelID: lease.modelIdentifier,
-                    serviceTierID: lease.serviceTier
-                )
-                let targetWire = taskWireSelection(for: threadID).omittingEffort()
-                let turn = try await lease.startTurn(voiceTurnStartParameters(
-                    wire: targetWire,
-                    permissionConfiguration: nil,
-                    cwd: cwd,
-                    roots: roots,
+                let service = CodexThreadGraphService(codex: codex)
+                let receipt = try await service.sendMessage(
+                    to: .init(hostID: "local", threadID: ThreadID(threadID)),
                     prompt: message,
-                    threadID: threadID,
-                    clientUserMessageID: UUID().uuidString
-                ))
+                    source: .init(hostID: "local", threadID: ThreadID(sourceThreadID)),
+                    cwd: cwd,
+                    runtimeWorkspaceRoots: roots
+                )
                 let result: CodexJSONValue = .dictionary([
+                    "hostId": .string("local"),
                     "threadId": .string(threadID),
-                    "turnId": .string(turn.key.turnID.rawValue),
+                    "sourceThreadId": .string(sourceThreadID),
+                    "turnId": .string(receipt.turnID.rawValue),
                     "status": .string("started"),
                 ])
-                Task {
-                    _ = try? await turn.awaitTerminal()
-                    await lease.close()
-                }
                 content = result
 
             case "fork_thread":

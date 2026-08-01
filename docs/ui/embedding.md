@@ -29,12 +29,22 @@ CodexChatWorkspaceView(
     canSend: canSend,
     onSend: submit,
     onInterrupt: interrupt,
+    onOpenThread: { reference in
+        navigateToTask(hostID: reference.hostID, threadID: reference.threadID)
+    },
     onDisconnect: disconnect
 )
 .codexAgentTheme(.officialDark)
 ```
 
 This is intentionally only the minimal initializer path. Add model selection, permissions, panels, MCP state, side chat, subagents, and host actions as your product supports them.
+
+`onOpenThread` is for independent task references produced by `create_thread`,
+`read_thread`, `send_message_to_thread`, and received delegation messages. It
+must navigate the host's main task workspace. Keep `onOpenSubagent` separate: it
+opens collaboration children in the agent side panel. `CodexThreadReferenceV2`
+includes the optional host ID so multi-host embedders do not key navigation by a
+bare thread ID.
 
 For desktop-style follow-ups, pass the active thread's `[CodexComposerSubmission]` through `queuedFollowUps` and wire `onSteerQueuedFollowUp`, `onRemoveQueuedFollowUp`, and `onEditQueuedFollowUp` by `clientID`. The host remains responsible for serializing `turn/steer` calls and atomically dequeuing exactly one FIFO follow-up while marking its turn pending after each active turn completes. A generic or non-steerable failure returns the selected message to the front of the queue. A missing-active-turn race falls through immediately to `turn/start`; an expected-turn mismatch retries once with the server-reported turn ID. Block queue draining while that recovery sequence is unresolved. Do not gate a completion-triggered dequeue only on a cached canonical `isSending` projection; it may still describe the turn whose terminal event initiated the drain.
 

@@ -127,6 +127,32 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(visibleTurn.finalAnswer?.text == "I’ll check that.")
     }
 
+    @Test func codexDelegationProjectsVisibleInputAndSourceTaskProvenance() throws {
+        let threadID: ThreadID = "target"
+        let turnID: TurnID = "turn"
+        let envelope = CodexThreadDelegationEnvelope(
+            sourceThreadID: "source",
+            input: "Please report the current status."
+        ).encodedText
+        let user = item(threadID, turnID, "user", .userMessage, [
+            "content": .array([.dictionary(["type": .string("text"), "text": .string(envelope)])])
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["user"], revision: 1)],
+            items: [user]
+        )
+
+        let message = try #require(CodexCanonicalTranscriptProjector()
+            .rebuild(snapshot: snapshot, threadID: threadID)
+            .presentation.transcript.turns.first?.userMessage)
+
+        #expect(message.text == "Please report the current status.")
+        #expect(message.rawText == envelope)
+        #expect(message.delegationSource == .init(hostID: "local", threadID: "source"))
+    }
+
     @Test func liveChunksAndCompletedPayloadUseTheSameProjectionPath() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

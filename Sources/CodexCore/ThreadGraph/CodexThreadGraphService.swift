@@ -119,10 +119,15 @@ public actor CodexThreadGraphService {
     public func sendMessage(
         to target: CodexThreadGraphKey,
         prompt: String,
+        source: CodexThreadGraphKey? = nil,
         cwd: String? = nil,
         runtimeWorkspaceRoots: [String] = []
     ) async throws -> CodexThreadMessageReceipt {
         try validateHost(target)
+        if let source { try validateHost(source) }
+        let input = source.map {
+            CodexThreadDelegationEnvelope(sourceThreadID: $0.threadID, input: prompt).encodedText
+        } ?? prompt
         let lease = try await resume(
             target,
             cwd: cwd,
@@ -133,7 +138,7 @@ public actor CodexThreadGraphService {
                 .init(
                     clientUserMessageID: UUID().uuidString,
                     cwd: cwd,
-                    input: [CodexSchemaUserInput(CodexInput.text(prompt).jsonValue)],
+                    input: [CodexSchemaUserInput(CodexInput.text(input).jsonValue)],
                     runtimeWorkspaceRoots: runtimeWorkspaceRoots.map {
                         CodexSchemaAbsolutePathBuf(.string($0))
                     },

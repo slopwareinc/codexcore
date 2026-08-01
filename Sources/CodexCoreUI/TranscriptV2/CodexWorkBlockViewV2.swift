@@ -13,6 +13,7 @@ public struct CodexWorkBlockViewV2: View {
     private let finalAnswer: CodexAssistantTextV2?
     private let productToolRenderer: CodexProductToolRendererV2?
     private let onOpenSubagent: (String) -> Void
+    private let onOpenThread: (CodexThreadReferenceV2) -> Void
     @State private var isExpanded: Bool
     @State private var clientStartedAt = Date()
 
@@ -24,6 +25,7 @@ public struct CodexWorkBlockViewV2: View {
         finalAnswer: CodexAssistantTextV2? = nil,
         productToolRenderer: CodexProductToolRendererV2? = nil,
         onOpenSubagent: @escaping (String) -> Void = { _ in },
+        onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
         initiallyExpanded: Bool = false
     ) {
         self.conversationSegments = conversationSegments ?? [
@@ -35,6 +37,7 @@ public struct CodexWorkBlockViewV2: View {
         self.finalAnswer = finalAnswer
         self.productToolRenderer = productToolRenderer
         self.onOpenSubagent = onOpenSubagent
+        self.onOpenThread = onOpenThread
         self._isExpanded = State(initialValue: initiallyExpanded)
     }
 
@@ -145,7 +148,11 @@ public struct CodexWorkBlockViewV2: View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(conversationSegments) { segment in
                 if let message = segment.steeredMessage {
-                    CodexUserMessageBubbleV2(message: message, presentedAt: clientStartedAt)
+                    CodexUserMessageBubbleV2(
+                        message: message,
+                        presentedAt: clientStartedAt,
+                        onOpenThread: onOpenThread
+                    )
                 }
                 if showsNarrative {
                     ForEach(segment.narrative) { entry in
@@ -175,7 +182,7 @@ public struct CodexWorkBlockViewV2: View {
                 .foregroundStyle(theme.colors.textTertiary)
         case .productToolCall(let call):
             if let rendered = productToolRenderer?.render(call) { rendered }
-            else { CodexProductToolFallbackV2(call: call) }
+            else { CodexProductToolFallbackV2(call: call, onOpenThread: onOpenThread) }
         case .inlineActivity(let activity):
             CodexInlineActivityViewV2(activity: activity)
         }
@@ -219,14 +226,21 @@ private struct CodexLiveTailV2: View {
 
 private struct CodexProductToolFallbackV2: View {
     let call: CodexProductToolCallV2
+    let onOpenThread: (CodexThreadReferenceV2) -> Void
 
     var body: some View {
-        CodexInlineActivityViewV2(activity: .init(
+        let content = CodexInlineActivityViewV2(activity: .init(
             id: call.id,
             label: CodexProductToolPresentationV2.label(call),
             systemImage: CodexProductToolPresentationV2.systemImage(call),
             status: call.status
         ))
+        if let reference = CodexProductToolPresentationV2.threadReference(call) {
+            Button { onOpenThread(reference) } label: { content }
+                .buttonStyle(.plain)
+        } else {
+            content
+        }
     }
 }
 

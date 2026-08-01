@@ -1604,6 +1604,16 @@ final class CodexCoreAppModel {
         }
     }
 
+    /// Opens an independent task referenced by transcript provenance.
+    /// Subagent links intentionally use the workspace side panel instead.
+    func openThreadReference(_ reference: CodexThreadReferenceV2) async {
+        if let chat = allSidebarChats.first(where: { $0.id == reference.threadID }) {
+            await selectSidebarChat(chat)
+        } else {
+            await resumeChat(id: reference.threadID)
+        }
+    }
+
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
         runtimeSession.selectThread(threadID)

@@ -426,14 +426,19 @@ private extension CodexCanonicalTranscriptProjector {
         let clientID = item.clientUserMessageID?.rawValue ?? item.payload.string("clientId")
         let rawText = item.payload.textContent
         guard !isRealtimeDelegationEnvelope(rawText) else { return nil }
-        let decoded = CodexComposerPromptCodec.decode(rawText)
+        let delegation = CodexThreadDelegationEnvelope.decode(rawText)
+        let visibleText = delegation?.input ?? rawText
+        let decoded = CodexComposerPromptCodec.decode(visibleText)
         return CodexUserMessageV2(
             id: item.key.itemID.rawValue,
             clientID: clientID,
-            text: decoded?.request ?? rawText,
+            text: decoded?.request ?? visibleText,
             rawText: rawText,
             referencedFiles: decoded?.files ?? [],
             responseAnnotations: decoded?.responseAnnotations ?? [],
+            delegationSource: delegation.map {
+                CodexThreadReferenceV2(hostID: "local", threadID: $0.sourceThreadID.rawValue)
+            },
             isOptimistic: false
         )
     }

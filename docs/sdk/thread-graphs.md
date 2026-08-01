@@ -36,6 +36,21 @@ public app-server protocol supports:
 The reference app exposes these through Voice task tools alongside status
 inspection. `wait_threads` accepts at most eight tasks and a 120-second timeout.
 
+Independent task-to-task communication is deliberately not a parent/child graph
+edge. Pass the calling task as `source` to retain provenance in the destination:
+
+```swift
+try await graphService.sendMessage(
+    to: destination,
+    prompt: "Report your current status.",
+    source: coordinator
+)
+```
+
+CodexCore encodes the official `<codex_delegation>` envelope. Canonical transcript
+projection displays only its inner prompt and exposes the source task separately
+for navigation. Ordinary user prompts remain unchanged.
+
 ## Protocol limitation
 
 `spawnAgent`, `sendInput`, `resumeAgent`, `wait`, and `closeAgent` are

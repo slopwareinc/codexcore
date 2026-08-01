@@ -7,18 +7,20 @@ public struct CodexTurnViewV2: View {
     private let turn: CodexTurnV2
     private let productToolRenderer: CodexProductToolRendererV2?
     private let onOpenSubagent: (String) -> Void
+    private let onOpenThread: (CodexThreadReferenceV2) -> Void
     @State private var presentedAt = Date()
 
-    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }) {
+    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }, onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in }) {
         self.turn = turn
         self.productToolRenderer = productToolRenderer
         self.onOpenSubagent = onOpenSubagent
+        self.onOpenThread = onOpenThread
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if let user = turn.userMessage {
-                CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt)
+                CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt, onOpenThread: onOpenThread)
             }
 
             CodexWorkBlockViewV2(
@@ -28,7 +30,8 @@ public struct CodexTurnViewV2: View {
                 status: turn.status,
                 finalAnswer: turn.finalAnswer,
                 productToolRenderer: productToolRenderer,
-                onOpenSubagent: onOpenSubagent
+                onOpenSubagent: onOpenSubagent,
+                onOpenThread: onOpenThread
             )
 
             if turn.finalAnswer?.text.isEmpty == false || !turn.generatedImages.isEmpty {
@@ -97,9 +100,20 @@ struct CodexUserMessageBubbleV2: View {
 
     let message: CodexUserMessageV2
     let presentedAt: Date
+    let onOpenThread: (CodexThreadReferenceV2) -> Void
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 5) {
+            if let source = message.delegationSource {
+                Button {
+                    onOpenThread(source)
+                } label: {
+                    Label("Sent by Codex from another chat", systemImage: "bubble.left.and.bubble.right")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
             Text(message.displayText)
                 .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textPrimary)
