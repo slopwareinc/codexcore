@@ -11,7 +11,16 @@ public enum CodexCommandPaletteAction: Equatable, Sendable {
     case openMCPDetails
     case refreshSkills
     case configureModel
+    case enableGoalPursuit
     case quitApp
+}
+
+public extension CodexCommandPaletteAction {
+    /// The keyboard navigation direction used by the command menu.
+    enum NavigationDirection: Sendable {
+        case up
+        case down
+    }
 }
 
 public enum CodexCommandPaletteRowKind: Equatable, Sendable {
@@ -50,6 +59,57 @@ public struct CodexCommandPaletteRow: Identifiable, Equatable, Sendable {
         [title, detail, shortcutBadge.map { "Shortcut \($0)" }]
             .compactMap { $0?.nilIfBlank }
             .joined(separator: ", ")
+    }
+}
+
+/// Pure selection state for the command menu. Keeping this independent from
+/// SwiftUI makes wrapping, empty-result behavior, and keyboard navigation easy
+/// to verify without a running window.
+public struct CodexCommandPaletteNavigationState: Equatable, Sendable {
+    public private(set) var selectedRowID: String?
+
+    public init(selectedRowID: String? = nil) {
+        self.selectedRowID = selectedRowID
+    }
+
+    public var isEmpty: Bool { selectedRowID == nil }
+
+    public mutating func reconcile(rows: [CodexCommandPaletteRow]) {
+        guard !rows.isEmpty else {
+            selectedRowID = nil
+            return
+        }
+        if let selectedRowID, rows.contains(where: { $0.id == selectedRowID }) {
+            return
+        }
+        selectedRowID = rows.first?.id
+    }
+
+    @discardableResult
+    public mutating func move(
+        _ direction: CodexCommandPaletteAction.NavigationDirection,
+        in rows: [CodexCommandPaletteRow]
+    ) -> CodexCommandPaletteRow? {
+        guard !rows.isEmpty else {
+            selectedRowID = nil
+            return nil
+        }
+
+        let currentIndex = selectedRowID.flatMap { id in rows.firstIndex { $0.id == id } }
+        let nextIndex: Int
+        switch direction {
+        case .down:
+            nextIndex = currentIndex.map { ($0 + 1) % rows.count } ?? 0
+        case .up:
+            nextIndex = currentIndex.map { ($0 - 1 + rows.count) % rows.count } ?? rows.count - 1
+        }
+        selectedRowID = rows[nextIndex].id
+        return rows[nextIndex]
+    }
+
+    public func selectedRow(in rows: [CodexCommandPaletteRow]) -> CodexCommandPaletteRow? {
+        guard let selectedRowID else { return nil }
+        return rows.first { $0.id == selectedRowID }
     }
 }
 
@@ -102,6 +162,10 @@ public struct CodexCommandPaletteModel: Equatable, Sendable {
     public var sections: [CodexCommandPaletteSection]
     public var status: CodexCommandPaletteStatus
 
+    public var rows: [CodexCommandPaletteRow] {
+        sections.flatMap(\.rows)
+    }
+
     public init(
         query: String,
         commandRows: [CodexCommandPaletteRow],
@@ -122,7 +186,21 @@ public struct CodexCommandPaletteModel: Equatable, Sendable {
         }
 
         let matchingCommands = Self.matchingCommands(commandRows, query: trimmed)
-        let chatRows = chatResults.enumerated().map { offset, result in
+        let needle = trimmed.localizedLowercase
+        let chatRows = chatResults
+            .filter { result in
+                let searchable = [
+                    result.thread.title,
+                    result.thread.detail,
+                    result.thread.workspacePath,
+                    result.snippet
+                ]
+                .compactMap { $0?.localizedLowercase }
+                .joined(separator: " ")
+                return searchable.contains(needle)
+            }
+            .enumerated()
+            .map { offset, result in
             Self.chatRow(result, index: offset)
         }
         var typedSections: [CodexCommandPaletteSection] = []
@@ -149,11 +227,17 @@ public struct CodexCommandPaletteModel: Equatable, Sendable {
         [
             command("new-chat", "New chat", "Start a new chat in the current project", "Suggested", "square.and.pencil", "⌘N", .newChat),
             command("chat-new", "New chat", "Clear the current thread and focus the composer", "Chat", "bubble.left.and.text.bubble.right", "⌘N", .newChat),
+            command("chat-open", "Open chat", "Return to the active conversation", "Chat", "bubble.left", nil, .openChat),
             command("nav-plugins", "Plugins", "Open plugin and integration controls", "Navigation", "puzzlepiece.extension", nil, .openPlugins),
+            command("nav-automations", "Automations", "Create and manage scheduled Codex tasks", "Navigation", "clock.arrow.circlepath", nil, .openAutomations),
             command("panel-side-chat", "Open side chat", "Use the side conversation panel for focused follow-up", "Panels", "sidebar.right", nil, .openSideChat),
+            command("panel-review", "Open Review", "Inspect the latest turn changes when available", "Panels", "checklist", nil, .openReviewPanel),
+            command("panel-mcp", "MCP details", "Inspect connected MCP servers and tools", "Panels", "server.rack", nil, .openMCPDetails),
             command("skills-refresh", "Refresh skills", "Reload slash commands and skill entries", "Skills", "arrow.clockwise", nil, .refreshSkills),
             command("configure-model", "Configure model", "Use composer model and reasoning controls", "Configure", "slider.horizontal.3", nil, .configureModel),
-            command("app-settings", "Settings", "Open About and app settings", "App", "gearshape", "⌘,", .openSettings)
+            command("configure-goal", "Goal", "Set a goal to keep pursuing", "Configure", "target", nil, .enableGoalPursuit),
+            command("app-settings", "Settings", "Open About and app settings", "App", "gearshape", "⌘,", .openSettings),
+            command("app-quit", "Quit", "Quit CodexCore", "App", "power", "⌘Q", .quitApp)
         ]
     }
 

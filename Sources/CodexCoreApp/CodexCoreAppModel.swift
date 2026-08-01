@@ -684,6 +684,9 @@ final class CodexCoreAppModel {
     }
 
     func setGoalPursuitEnabled(_ enabled: Bool) {
+        if enabled, isPlanModeEnabled {
+            configurationSession.setPlanModeEnabled(false)
+        }
         guard goalPursuitEnabled != enabled else { return }
         goalPursuitEnabled = enabled
         appendActivity(

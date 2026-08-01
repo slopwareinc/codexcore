@@ -747,7 +747,7 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         CodexSlashCommand(
             id: "goal",
             title: "Goal",
-            detail: "Pursue a longer-running objective",
+            detail: "Set a goal to keep pursuing",
             systemImage: "target"
         ),
         CodexSlashCommand(

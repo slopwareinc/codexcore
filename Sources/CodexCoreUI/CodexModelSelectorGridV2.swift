@@ -239,19 +239,21 @@ public struct ComposerModelGridPicker: View {
     public let modelOptions: [CodexModelSelection]
     @Binding public var serviceTier: CodexServiceTierSelection
     @Binding public var reasoning: CodexReasoningSelection
-    @State private var isPresented = false
+    @Binding public var isPresented: Bool
     @State private var showOlderModels = false
 
     public init(
         model: Binding<CodexModelSelection>,
         modelOptions: [CodexModelSelection],
         serviceTier: Binding<CodexServiceTierSelection> = .constant(.standard),
-        reasoning: Binding<CodexReasoningSelection>
+        reasoning: Binding<CodexReasoningSelection>,
+        isPresented: Binding<Bool> = .constant(false)
     ) {
         self._model = model
         self.modelOptions = modelOptions
         self._serviceTier = serviceTier
         self._reasoning = reasoning
+        self._isPresented = isPresented
     }
 
     public var body: some View {

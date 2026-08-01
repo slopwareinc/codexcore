@@ -11,6 +11,11 @@ The reference app is a native Codex host and living integration example. The [su
 - **Plugins:** inspect plugins, skills, and MCP-backed capabilities.
 - **Settings:** appearance, history, sidebar, integrations, and application information.
 
+Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
+the route, panel, model, skills, MCP, app, and chat actions available in the
+current build. Type to search commands or past chats; use Up/Down and Return to
+select, or Escape to close.
+
 ## Projects and chats
 
 The sidebar groups chats by project. Chats can be pinned, archived, renamed, forked, copied, searched, and resumed. Projects can be selected, grouped, pinned, reordered, edited, removed, revealed in Finder, or used to archive their chats. Chat reorder/hide/reveal actions are not supported.

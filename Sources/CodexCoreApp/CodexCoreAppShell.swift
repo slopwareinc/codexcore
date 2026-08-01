@@ -8,6 +8,8 @@ struct CodexCoreAppShell: View {
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var isStatusSheetPresented = false
+    @State private var isModelMenuPresented = false
+    @State private var focusComposerRequest = false
     @State private var renameDraft = ""
     @State private var projectEditTarget: CodexProjectSummary?
     @State private var projectNameDraft = ""
@@ -328,7 +330,11 @@ struct CodexCoreAppShell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.theme)
         case .automations:
-            chatWorkspace(proxy: proxy)
+            CodexAutomationRouteView(
+                onAction: { model.performAutomationRouteAction($0) }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .codexAgentTheme(model.theme)
         case .settingsAbout:
             CodexSettingsAboutRouteView(
                 metadata: CodexAboutMetadata(
@@ -389,7 +395,7 @@ struct CodexCoreAppShell: View {
                 mountedPanels: model.mountedWorkspacePanels,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
-                gitReviewSession: nil,
+                gitReviewSession: model.gitReviewSession,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 leadingTitlebarInset: model.sidebarSnapshot.isCollapsed
@@ -410,6 +416,8 @@ struct CodexCoreAppShell: View {
                 approvalSelection: $model.approvalSelection,
                 isPlanModeEnabled: $model.isPlanModeEnabled,
                 modelSelection: $model.modelSelection,
+                isModelMenuPresented: $isModelMenuPresented,
+                focusComposerRequest: $focusComposerRequest,
                 serviceTierSelection: $model.serviceTierSelection,
                 reasoningSelection: $model.reasoningSelection,
                 draft: $model.draft,
@@ -526,13 +534,24 @@ struct CodexCoreAppShell: View {
         case .openSideChat:
             model.openSideChat()
         case .openReviewPanel:
-            model.appendPaletteNotice(title: "Review panel", detail: "Review opens from the Changes panel when a diff is available.")
+            if let review = model.gitReviewSession {
+                let tabID = CodexAgentPanelTab.review(review).id
+                model.workspacePanelState.selectedTabID = tabID
+                model.workspacePanelState.isAgentPanelOpen = true
+            } else {
+                model.appendPaletteNotice(title: "Review panel", detail: "Review opens when the current chat has changes.")
+            }
         case .openMCPDetails:
             isMCPStatusSheetPresented = true
         case .refreshSkills:
             model.refreshSlashCommandsFromPalette()
         case .configureModel:
-            model.appendPaletteNotice(title: "Model controls", detail: "Use the model menu in the composer.")
+            model.selectAppRoute(.chat)
+            isModelMenuPresented = true
+        case .enableGoalPursuit:
+            model.selectAppRoute(.chat)
+            model.setGoalPursuitEnabled(true)
+            focusComposerRequest = true
         case .quitApp:
             NSApplication.shared.terminate(nil)
         }

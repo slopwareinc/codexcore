@@ -72,6 +72,37 @@ final class CodexCommandPaletteModelTests: XCTestCase {
         XCTAssertEqual(model.sections.first?.rows.first?.title, "Plugins")
     }
 
+    func testDefaultCommandsCoverOfficialRoutesPanelsConfigurationSkillsAndApp() {
+        let rows = CodexCommandPaletteModel.defaultCommandRows
+
+        XCTAssertTrue(rows.contains { $0.kind == .command(.openChat) && $0.category == "Chat" })
+        XCTAssertTrue(rows.contains { $0.kind == .command(.openAutomations) && $0.title == "Automations" })
+        XCTAssertTrue(rows.contains { $0.kind == .command(.openReviewPanel) && $0.category == "Panels" })
+        XCTAssertTrue(rows.contains { $0.kind == .command(.openMCPDetails) && $0.title == "MCP details" })
+        XCTAssertTrue(rows.contains { $0.kind == .command(.configureModel) && $0.category == "Configure" })
+        XCTAssertTrue(rows.contains {
+            $0.kind == .command(.enableGoalPursuit)
+                && $0.title == "Goal"
+                && $0.detail == "Set a goal to keep pursuing"
+        })
+        XCTAssertTrue(rows.contains { $0.kind == .command(.refreshSkills) && $0.category == "Skills" })
+        XCTAssertEqual(rows.first(where: { $0.kind == .command(.quitApp) })?.shortcutBadge, "⌘Q")
+    }
+
+    func testKeyboardNavigationWrapsAndReconcilesRows() {
+        let rows = CodexCommandPaletteModel.defaultCommandRows
+        var navigation = CodexCommandPaletteNavigationState()
+
+        XCTAssertEqual(navigation.move(.down, in: rows)?.title, "New chat")
+        XCTAssertEqual(navigation.move(.up, in: rows)?.title, "Quit")
+        XCTAssertEqual(navigation.selectedRow(in: rows)?.id, "app-quit")
+
+        navigation.reconcile(rows: [rows[0]])
+        XCTAssertEqual(navigation.selectedRow(in: [rows[0]])?.id, rows[0].id)
+        navigation.reconcile(rows: [])
+        XCTAssertTrue(navigation.isEmpty)
+    }
+
     func testPaletteLoadingErrorAndNoResultsStates() {
         let loading = CodexCommandPaletteModel(
             query: "validation",
