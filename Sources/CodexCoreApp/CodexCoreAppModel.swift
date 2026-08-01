@@ -97,6 +97,7 @@ final class CodexCoreAppModel {
     var pluginLauncherTarget: CodexComposerPluginLauncher?
     var automationLifecycle: CodexAutomationLifecycle
     var automations: [CodexAutomation] { automationLifecycle.automations }
+    var isNewScheduledAutomationRequested = false
     private let automationStore: CodexAutomationFileStore
     private let automationNotifications: CodexAutomationNotificationService
     private var automationSchedulerTask: Task<Void, Never>?
@@ -1252,6 +1253,11 @@ final class CodexCoreAppModel {
         case .createViaChat, .template, .addForChat:
             break
         }
+    }
+
+    func requestNewScheduledAutomation() {
+        sidebarNavigationSession.selectRoute(.automations)
+        isNewScheduledAutomationRequested = true
     }
 
     func startAutomationScheduler() {

@@ -25,6 +25,9 @@ ordinary new-chat composer with an unsent prompt, preserving its project,
 permission, model, and attachment controls. The dashboard also supports direct
 scheduled creation, editing, enable/disable, run now, and deletion.
 
+The macOS **Automations** menu opens the dashboard, starts a new scheduled
+automation in the editor, or enters the create-via-chat flow.
+
 When Codex is connected and the app is running, a due automation starts an
 independent background thread without changing the chat currently on screen.
 The dashboard records running, successful, and failed lifecycle state and posts
