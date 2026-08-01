@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 import Observation
-import UserNotifications
 import CodexCore
 import CodexCoreUI
 
@@ -99,6 +98,7 @@ final class CodexCoreAppModel {
     var automationLifecycle: CodexAutomationLifecycle
     var automations: [CodexAutomation] { automationLifecycle.automations }
     private let automationStore: CodexAutomationFileStore
+    private let automationNotifications: CodexAutomationNotificationService
     private var automationSchedulerTask: Task<Void, Never>?
     private var automationRunTasks: [String: Task<Void, Never>] = [:]
     private var automationThreadLeases: [String: CodexThreadLease] = [:]
@@ -125,6 +125,7 @@ final class CodexCoreAppModel {
         self.automationStore = CodexAutomationFileStore(
             directoryURL: codexHome.directoryURL.appendingPathComponent("automations", isDirectory: true)
         )
+        self.automationNotifications = CodexAutomationNotificationService()
         self.automationLifecycle = CodexAutomationLifecycle(automations: automationStore.load())
         self.dictationSession = CodexComposerDictationSession()
         self.clipboardService = clipboardService
@@ -1239,7 +1240,7 @@ final class CodexCoreAppModel {
             automationLifecycle.delete(id: id)
             do {
                 try automationStore.delete(id: id)
-                UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["automation.\(id)"])
+                automationNotifications.removePendingRequests(forAutomationID: id)
                 appendActivity(.notice, title: "Automation deleted", detail: "Existing chats were kept")
             } catch {
                 appendActivity(.notice, title: "Automation delete failed", detail: friendlyError(error))
@@ -1255,7 +1256,7 @@ final class CodexCoreAppModel {
 
     func startAutomationScheduler() {
         guard automationSchedulerTask == nil else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        automationNotifications.requestAuthorization()
         automationSchedulerTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.reconcileDueAutomations()
@@ -1348,17 +1349,9 @@ final class CodexCoreAppModel {
     }
 
     private func postAutomationNotification(name: String, failure: String?) {
-        let content = UNMutableNotificationContent()
-        content.title = failure == nil ? "Automation finished" : "Automation needs attention"
-        content.body = failure ?? name
-        content.sound = .default
-        let request = UNNotificationRequest(
-            identifier: "automation.run.\(UUID().uuidString)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
+        automationNotifications.postCompletion(name: name, failure: failure)
     }
+
     private func refreshEnvironmentInfo(environmentID: String?) async {
         guard let codex, let environmentID = environmentID?.nilIfBlank else {
             environmentInfoState = .unavailable

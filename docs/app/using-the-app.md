@@ -29,7 +29,10 @@ When Codex is connected and the app is running, a due automation starts an
 independent background thread without changing the chat currently on screen.
 The dashboard records running, successful, and failed lifecycle state and posts
 a native macOS notification on completion when notification permission is
-available. Existing automation chats are preserved when a schedule is deleted.
+available. Native notifications are enabled for the packaged `.app`; development
+launches through `swift run` skip them because macOS does not provide an
+application notification identity to an unbundled executable. Existing
+automation chats are preserved when a schedule is deleted.
 
 The pinned app-server protocol has no automation request or notification
 methods. Full server-owned parity—including runs while the desktop app is not
