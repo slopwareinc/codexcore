@@ -1,39 +1,190 @@
 import SwiftUI
 import CodexCoreUI
 
-struct CodexVoiceMiniControl: View {
+/// Compact native-panel content. The panel itself owns z-order, display
+/// persistence, pointer pass-through, and focus policy; this view only exposes
+/// the actions for the one shared realtime Voice session.
+struct CodexVoiceGlobalOverlayView: View {
     @Environment(\.codexAgentTheme) private var theme
     @Bindable var session: CodexVoiceChatSession
-    let onOpen: () -> Void
-    let onEnd: () -> Void
+    let state: CodexVoicePresentationState
+    let reduceMotion: Bool
+    let onStartNew: () -> Void
+    let onResume: () -> Void
+    let onStop: () -> Void
+    let onToggleMicrophone: () -> Void
+    let onToggleOutput: () -> Void
+    let onToggleCaptions: () -> Void
+    let onToggleActivity: () -> Void
+    let onOpenThread: () -> Void
+    let onFocusComposer: () -> Void
+    let onKeyboardInteraction: () -> Void
+    let onEscape: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onOpen) {
-                HStack(spacing: 9) {
-                    CodexVoiceOrb(
-                        phase: session.phase,
-                        level: session.isMuted ? 0 : session.inputLevel
-                    )
-                    .frame(width: 34, height: 34)
-                    Text(session.isMuted ? "Voice muted" : "Voice active")
-                        .font(theme.fonts.label)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                CodexVoiceOrb(
+                    phase: session.phase,
+                    level: session.isMuted ? 0 : session.inputLevel,
+                    reduceMotion: reduceMotion
+                )
+                .frame(width: 58, height: 58)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(theme.fonts.label.weight(.semibold))
                         .foregroundStyle(theme.colors.textPrimary)
+                    Text(statusText)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Button(action: onOpenThread) {
+                    Image(systemName: "arrow.up.forward.app")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open associated Voice thread")
+                .help("Open associated Voice thread")
+                Button(action: onStop) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop Voice")
+                .help("Stop Voice")
+            }
+
+            if state.captionsVisible, let caption {
+                Text(caption)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .background(theme.colors.surfaceElevated.opacity(0.62), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityLabel("Latest Voice caption: \(caption)")
+            }
+
+            if state.activityVisible {
+                HStack(spacing: 7) {
+                    Image(systemName: "waveform")
+                        .font(.caption2)
+                    ProgressView(value: Double(session.isMuted ? 0 : session.inputLevel))
+                        .progressViewStyle(.linear)
+                        .tint(theme.colors.accent)
+                    Text("Activity")
+                        .font(theme.fonts.caption)
+                }
+                .foregroundStyle(theme.colors.textTertiary)
+                .accessibilityLabel("Voice activity")
+            }
+
+            HStack(spacing: 7) {
+                actionButton(
+                    systemImage: session.isMuted ? "mic.slash.fill" : "mic.fill",
+                    label: session.isMuted ? "Unmute microphone" : "Mute microphone",
+                    action: onToggleMicrophone
+                )
+                actionButton(
+                    systemImage: session.isOutputMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                    label: session.isOutputMuted ? "Unmute output" : "Mute output",
+                    action: onToggleOutput
+                )
+                actionButton(
+                    systemImage: state.captionsVisible ? "captions.bubble.fill" : "captions.bubble",
+                    label: state.captionsVisible ? "Hide captions" : "Show captions",
+                    action: onToggleCaptions
+                )
+                actionButton(
+                    systemImage: state.activityVisible ? "waveform.path.ecg" : "waveform.path.ecg.rectangle",
+                    label: state.activityVisible ? "Hide activity" : "Show activity",
+                    action: onToggleActivity
+                )
+                Spacer(minLength: 0)
+                Button(action: onFocusComposer) {
+                    Label("Focus composer", systemImage: "text.cursor")
+                        .font(theme.fonts.caption)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Open Voice thread and focus composer")
+                .help("Open Voice thread and focus composer")
+            }
+
+            if !session.isActive {
+                HStack(spacing: 8) {
+                    Button(action: onResume) {
+                        Label("Retry Voice", systemImage: "arrow.clockwise")
+                            .font(theme.fonts.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Retry Voice on the same thread")
+                    Button(action: onStartNew) {
+                        Label("Start new", systemImage: "plus")
+                            .font(theme.fonts.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Start a new Voice thread")
                 }
             }
-            .buttonStyle(.plain)
-
-            Button(role: .destructive, action: onEnd) {
-                Image(systemName: "xmark")
-                    .font(theme.fonts.caption.weight(.semibold))
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("End voice chat")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .codexGlass(Capsule(), role: .control)
+        .padding(14)
+        .frame(minWidth: 280, idealWidth: 360, maxWidth: 560, minHeight: 140, idealHeight: 176, maxHeight: 360)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Voice chat overlay")
+        .onExitCommand(perform: onEscape)
+        .onTapGesture { onKeyboardInteraction() }
+        .transaction { transaction in
+            if reduceMotion { transaction.animation = nil }
+        }
+    }
+
+    @ViewBuilder
+    private func actionButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .frame(width: 27, height: 27)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .help(label)
+    }
+
+    private var title: String {
+        switch state.phase {
+        case .retryableFailure: "Voice needs attention"
+        case .hidden: "Voice paused"
+        default: "Voice active"
+        }
+    }
+
+    private var statusText: String {
+        switch state.phase {
+        case .launching: "Connecting…"
+        case .connected: "Connected"
+        case .listening: "Listening"
+        case .thinking: "Thinking"
+        case .speaking: "Speaking"
+        case let .retryableFailure(message): message
+        case .hidden: "Ready to resume"
+        case .inactive, .stopped: "Stopped"
+        case .handingOff: "Moving Voice surface…"
+        }
+    }
+
+    private var caption: String? {
+        session.transcript.last(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })?.text
     }
 }
 
@@ -43,6 +194,7 @@ struct CodexVoiceMiniControl: View {
 struct CodexVoiceConversationPanel: View {
     @Environment(\.codexAgentTheme) private var theme
     @Bindable var session: CodexVoiceChatSession
+    var reduceMotion = false
     let onSendText: (String) -> Void
     let onToggleMute: () -> Void
     let onToggleOutputMute: () -> Void
@@ -52,7 +204,8 @@ struct CodexVoiceConversationPanel: View {
         VStack(spacing: 0) {
             CodexVoiceOrb(
                 phase: session.phase,
-                level: session.isMuted ? 0 : session.inputLevel
+                level: session.isMuted ? 0 : session.inputLevel,
+                reduceMotion: reduceMotion
             )
             .frame(width: 112, height: 112)
             .padding(.bottom, 18)
@@ -157,11 +310,24 @@ private struct CodexVoiceComposer: View {
 private struct CodexVoiceOrb: View {
     let phase: CodexVoiceChatSession.Phase
     let level: Float
+    var reduceMotion = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            Canvas { context, size in
+        Group {
+            if reduceMotion {
+                orbCanvas(time: 0)
+            } else {
+                TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+                    orbCanvas(time: timeline.date.timeIntervalSinceReferenceDate)
+                }
+            }
+        }
+        .shadow(color: Color(red: 0.34, green: 0.30, blue: 1).opacity(0.22), radius: 18, y: 8)
+        .accessibilityHidden(true)
+    }
+
+    private func orbCanvas(time: TimeInterval) -> some View {
+        Canvas { context, size in
                 let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
                 let circle = Path(ellipseIn: bounds)
                 let activity = max(CGFloat(level), phaseActivity)
@@ -208,10 +374,7 @@ private struct CodexVoiceOrb: View {
                 }
 
                 context.stroke(circle, with: .color(.white.opacity(0.30)), lineWidth: 1)
-            }
         }
-        .shadow(color: Color(red: 0.34, green: 0.30, blue: 1).opacity(0.22), radius: 18, y: 8)
-        .accessibilityHidden(true)
     }
 
     private var phaseSpeed: Double {

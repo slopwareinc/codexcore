@@ -47,7 +47,13 @@ final class CodexCoreAppModel {
     var codex: Codex?
     var authSession = CodexAuthSession()
     private(set) var currentThreadLease: CodexThreadLease?
-    private(set) var selectedThreadID: String?
+    private(set) var selectedThreadID: String? {
+        didSet { onVoicePresentationContextChanged?() }
+    }
+    /// Main-actor seam used by the native Voice overlay. Selection changes are
+    /// context changes only; the overlay still observes the same session.
+    var onVoicePresentationContextChanged: (@MainActor () -> Void)?
+    private(set) var composerFocusRequest = 0
     private(set) var activeTurnLease: CodexTurnLease?
     private var activeSideChatThreadLease: CodexThreadLease?
     private var activeSideChatTurnLease: CodexTurnLease?
@@ -1077,6 +1083,7 @@ final class CodexCoreAppModel {
 
     func setConversationViewVisible(_ isVisible: Bool) {
         isConversationViewVisible = isVisible
+        onVoicePresentationContextChanged?()
         clearSelectedThreadUnreadIfFocused()
     }
 
@@ -1460,6 +1467,16 @@ final class CodexCoreAppModel {
             return
         }
 
+        // A normal composer launch may follow a stopped/failed Voice task. If
+        // the selected lease is not that task (or has already closed), clear
+        // the retained retry identity before allocating a new thread so a
+        // later startup error cannot point the overlay at stale Voice state.
+        if !voiceSession.isActive,
+           (voiceSession.threadID != nil || voiceSession.phase != .inactive),
+           voiceSession.threadID != currentThreadID || currentThreadLease?.isClosed != false {
+            await voiceSession.resetForNewSession()
+        }
+
         do {
             let visibleLease: CodexThreadLease
             let createdNewVoiceThread: Bool
@@ -1523,9 +1540,47 @@ final class CodexCoreAppModel {
             appendActivity(.notice, title: "Voice chat started", detail: visibleLease.id.rawValue)
             await refreshRecentChats(using: codex)
         } catch {
-            await voiceSession.stop()
+            voiceSession.markFailed(error)
             appendActivity(.notice, title: "Voice chat failed", detail: friendlyError(error))
         }
+    }
+
+    /// Starts Voice on a fresh projectless task. The active-session guard keeps
+    /// the native overlay's "new Voice" action idempotent and prevents a second
+    /// realtime transport from being created accidentally.
+    func startNewVoiceChat() async {
+        guard !voiceSession.isActive else {
+            await showVoiceChat()
+            return
+        }
+        await voiceSession.resetForNewSession()
+        await startNewChat()
+        await startVoiceChat()
+    }
+
+    /// Retries the existing Voice task, preserving its thread identity and all
+    /// transcript/session presentation state owned by the shared model.
+    func retryVoiceChat() async {
+        guard !voiceSession.isActive, let threadID = voiceSession.threadID else { return }
+        if currentThreadID != threadID {
+            await showVoiceChat()
+        }
+        guard let codex else {
+            appendActivity(.notice, title: "Voice unavailable", detail: "Connect to Codex first.")
+            return
+        }
+        do {
+            try await voiceSession.start(codex: codex, threadID: threadID)
+            appendActivity(.notice, title: "Voice chat resumed", detail: threadID)
+            await refreshRecentChats(using: codex)
+        } catch {
+            voiceSession.markFailed(error)
+            appendActivity(.notice, title: "Voice chat failed", detail: friendlyError(error))
+        }
+    }
+
+    func requestComposerFocus() {
+        composerFocusRequest &+= 1
     }
 
     func stopVoiceChat() async {

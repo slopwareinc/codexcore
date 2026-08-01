@@ -90,7 +90,15 @@ of the text composer. The active controls independently mute the microphone or
 speaker and end the call. Only one Voice task can be active at a time.
 
 Voice remains active when you inspect another task; use the floating Voice
-control to return or end the call. Because Voice is an ordinary Codex thread
+control to return or end the call. When the Voice task is not the selected
+conversation, CodexCore presents a native always-on-top Voice panel above other
+apps and full-screen Spaces. It is click-through by default; moving the pointer
+over the panel temporarily enables its controls, while keyboard focus is only
+enabled after an explicit interaction and is released automatically. Dragging
+or resizing the panel persists its bounds per display and resolution, with a
+normalized migration when a monitor is replaced. Escape stops the call, and
+the open-thread/focus-composer actions return to the same Voice task without
+creating another session. Because Voice is an ordinary Codex thread
 with startup context, it can use tools and create subagents. Desktop tasks also
 receive the `codex_app` orchestration tools used by the official app: they can
 list projects and tasks, create a new top-level project or projectless task,
@@ -98,6 +106,22 @@ read a task, or send it a follow-up without moving the visible selection.
 Realtime utterances and canonical delegated work share one arrival-ordered
 transcript. Tool activity stays at the point where Voice delegated it and keeps
 the normal expandable **Worked for …** disclosure.
+
+### Native overlay verification matrix
+
+Use a real microphone-enabled macOS session to verify the native panel. Each
+case should use one Voice thread and confirm that the thread ID and transcript
+remain unchanged across the transition:
+
+| Scenario | Expected result |
+| --- | --- |
+| Switch to another Codex task or another app | The panel remains above the other app and full-screen Spaces; the main-thread Voice view is hidden. |
+| Move the pointer over the panel | Controls become hit-testable; moving away restores click-through behavior after a short grace period. |
+| Click a control, press Escape, or choose **Focus composer** | The panel temporarily accepts keyboard focus; Escape ends the existing session, while the focus action returns to the same Voice thread. |
+| Drag or resize, then move to another display or change resolution | Bounds restore on the matching display/resolution; otherwise normalized coordinates are clamped to the new visible work area. |
+| Hide/unhide the app, sleep/wake displays, or close the main window | The overlay follows lifecycle changes without creating a second transport; wake restores its saved frame. |
+| Deny microphone permission or force a transport failure | The panel shows a retryable error with **Retry Voice** (same thread) and **Start new** (new thread); no orphaned session remains. |
+| Enable Reduce Motion in Settings | Orb animation is static while controls and captions remain available. |
 
 ## Transcript
 
