@@ -104,6 +104,7 @@ public struct CodexChatWorkspaceView: View {
     private let dictationActions: CodexComposerDictationActions?
     private let onStartVoiceChat: (() -> Void)?
     private let voiceChatLabel: String
+    private let composerFocusRequest: Int
     private let onSteerQueuedFollowUp: (String) -> Void
     private let onRemoveQueuedFollowUp: (String) -> Void
     private let onEditQueuedFollowUp: (String) -> Void
@@ -189,6 +190,7 @@ public struct CodexChatWorkspaceView: View {
         dictationActions: CodexComposerDictationActions? = nil,
         onStartVoiceChat: (() -> Void)? = nil,
         voiceChatLabel: String = "Start new voice chat",
+        composerFocusRequest: Int = 0,
         onSteerQueuedFollowUp: @escaping (String) -> Void = { _ in },
         onRemoveQueuedFollowUp: @escaping (String) -> Void = { _ in },
         onEditQueuedFollowUp: @escaping (String) -> Void = { _ in },
@@ -266,6 +268,7 @@ public struct CodexChatWorkspaceView: View {
         self.dictationActions = dictationActions
         self.onStartVoiceChat = onStartVoiceChat
         self.voiceChatLabel = voiceChatLabel
+        self.composerFocusRequest = composerFocusRequest
         self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
         self.onRemoveQueuedFollowUp = onRemoveQueuedFollowUp
         self.onEditQueuedFollowUp = onEditQueuedFollowUp
@@ -529,7 +532,8 @@ public struct CodexChatWorkspaceView: View {
                         onRefreshMCPServers: onRefreshMCPServers,
                         onAddMenuRoute: onComposerAddMenuRoute,
                         onComposerChipClear: onComposerChipClear,
-                        onFilesDropped: onFilesDropped
+                        onFilesDropped: onFilesDropped,
+                        voiceFocusRequest: composerFocusRequest
                     )
                     .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
                     .padding(.horizontal, 14)

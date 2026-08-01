@@ -45,7 +45,9 @@ final class CodexVoiceChatSession {
         }
     }
 
-    private(set) var phase: Phase = .inactive
+    private(set) var phase: Phase = .inactive {
+        didSet { onPhaseChanged?(phase) }
+    }
     private(set) var threadID: String?
     private(set) var transcript: [CodexVoiceTranscriptEntry] = []
     private(set) var inputLevel: Float = 0
@@ -67,16 +69,21 @@ final class CodexVoiceChatSession {
     private var partialEntryIDByRole: [String: UUID] = [:]
     private var logSessionID = UUID().uuidString
 
+    /// AppKit presentation owners use this seam to move the existing session
+    /// between the main-thread and global overlay surfaces. It never creates a
+    /// second transport or thread.
+    var onPhaseChanged: (@MainActor (Phase) -> Void)?
+
     var isActive: Bool { phase.isActive }
 
     func start(codex: Codex, threadID: String) async throws {
         await stop()
         logSessionID = UUID().uuidString
+        self.threadID = threadID
         phase = .starting
         errorMessage = nil
         transcript = []
         partialEntryIDByRole = [:]
-        self.threadID = threadID
         self.codex = codex
         log(
             "session.start.requested",
@@ -195,6 +202,25 @@ final class CodexVoiceChatSession {
         isOutputMuted.toggle()
     }
 
+    /// Records a recoverable failure while retaining the associated thread so
+    /// the caller can retry the same Voice task. This is intentionally distinct
+    /// from `stop()`, which is the user-requested terminal action.
+    func markFailed(_ error: Error) {
+        fail(error)
+    }
+
+    /// Drops a failed/stopped session identity before the overlay starts a
+    /// completely new Voice task. `stop()` intentionally keeps `threadID` for
+    /// retry, so this explicit path prevents a failed new-thread allocation
+    /// from accidentally exposing the previous Voice task as retryable.
+    func resetForNewSession() async {
+        await stop()
+        threadID = nil
+        transcript = []
+        partialEntryIDByRole = [:]
+        errorMessage = nil
+    }
+
     func sendText(_ rawText: String) async {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let codex, let threadID, phase.isActive else { return }
@@ -310,11 +336,10 @@ final class CodexVoiceChatSession {
                 ]
             )
             webRTC?.applyAnswer(value.sdp)
-        case .itemAdded(let value):
-            log(
-                "protocol.event.item_added",
-                fields: ["item": CodexVoiceLog.encodedJSON(value.item)]
-            )
+        case .itemAdded:
+            // Item payloads can contain arbitrary transcript or audio content;
+            // keep the telemetry event metadata-only.
+            log("protocol.event.item_added")
         }
     }
 
@@ -371,6 +396,8 @@ final class CodexVoiceChatSession {
         )
         errorMessage = message
         phase = .failed(message)
+        eventTask?.cancel()
+        eventTask = nil
         webRTC?.stop()
         webRTC = nil
     }

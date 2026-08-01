@@ -63,6 +63,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     )
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var voiceOverlayController: CodexVoiceOverlayWindowController?
 
     static func main() {
         let application = NSApplication.shared
@@ -76,6 +77,19 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMainMenu()
+        voiceOverlayController = CodexVoiceOverlayWindowController(
+            model: model,
+            mainThreadVisibilityProvider: { [weak self] in
+                guard let self, let mainWindow = self.mainWindow else { return false }
+                return NSApp.isActive
+                    && mainWindow.isKeyWindow
+                    && self.model.currentThreadID == self.model.voiceSession.threadID
+            }
+        )
+        voiceOverlayController?.onRestoreMainWindow = { [weak self] focusComposer in
+            self?.showMainWindow(focusComposer: focusComposer)
+        }
+        voiceOverlayController?.start()
         DispatchQueue.main.async { [weak self] in
             self?.showMainWindow()
             NSRunningApplication.current.activate(options: .activateAllWindows)
@@ -84,24 +98,42 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         model.setApplicationActive(true)
+        updateVoiceOverlayContext()
     }
 
     func applicationDidResignActive(_ notification: Notification) {
         model.setApplicationActive(false)
+        voiceOverlayController?.updateMainThreadVisibility(false)
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === mainWindow else { return }
         model.setMainWindowKey(true)
+        updateVoiceOverlayContext()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === mainWindow else { return }
         model.setMainWindowKey(false)
+        voiceOverlayController?.updateMainThreadVisibility(false)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        model.voiceSession.phase == .inactive
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        voiceOverlayController?.dispose()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard model.voiceSession.phase != .inactive else { return .terminateNow }
+        Task { @MainActor [weak self, weak sender] in
+            guard let self else { return }
+            await model.disconnect()
+            sender?.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -142,7 +174,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.toggleSidebarCollapsed()
     }
 
-    private func showMainWindow() {
+    private func showMainWindow(focusComposer: Bool = false) {
         if mainWindow == nil {
             let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
                 .codexClipboardService(clipboardService)
@@ -179,6 +211,18 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mainWindow?.makeKeyAndOrderFront(nil)
         mainWindow?.orderFrontRegardless()
         NSRunningApplication.current.activate(options: .activateAllWindows)
+        if focusComposer { model.requestComposerFocus() }
+        updateVoiceOverlayContext()
+    }
+
+    private func updateVoiceOverlayContext() {
+        guard let mainWindow else {
+            voiceOverlayController?.updateMainThreadVisibility(false)
+            return
+        }
+        voiceOverlayController?.updateMainThreadVisibility(
+            NSApp.isActive && mainWindow.isKeyWindow && model.currentThreadID == model.voiceSession.threadID
+        )
     }
 
     private func configureMainMenu() {

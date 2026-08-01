@@ -47,6 +47,7 @@ public struct CodexComposerBar: View {
     private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let placeholder: String
     private let isCompact: Bool
+    private let voiceFocusRequest: Int
     @FocusState private var focused: Bool
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
     @State private var activeCommandSelector: CodexComposerCommandSelector?
@@ -94,13 +95,15 @@ public struct CodexComposerBar: View {
         onRefreshMCPServers: (() -> Void)? = nil,
         onAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
-        onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil
+        onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil,
+        voiceFocusRequest: Int = 0
     ) {
         self._draft = draft
         self._referencedFiles = referencedFiles
         self._responseAnnotations = responseAnnotations
         self.placeholder = placeholder
         self.isCompact = isCompact
+        self.voiceFocusRequest = voiceFocusRequest
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
         self.isGoalPursuitEnabled = isGoalPursuitEnabled
@@ -272,8 +275,12 @@ public struct CodexComposerBar: View {
         .onAppear {
             reconcilePaletteSelections()
             consumeFocusRequest()
+            if voiceFocusRequest > 0 { focused = true }
         }
         .onChange(of: focusRequest) { _, _ in consumeFocusRequest() }
+        .onChange(of: voiceFocusRequest) { _, _ in
+            focused = true
+        }
         .onChange(of: draft) { _, _ in
             isSlashPaletteDismissed = false
             reconcilePaletteSelections()

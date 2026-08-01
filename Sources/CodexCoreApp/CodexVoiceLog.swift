@@ -24,12 +24,28 @@ enum CodexVoiceLog {
     )
     private static let maximumFileSize = 25 * 1_024 * 1_024
 
+    static func sanitizedFields(_ fields: [String: String]) -> [String: String] {
+        let sensitiveTokens = [
+            "transcript", "text", "delta", "audio", "sdp", "response",
+            "token", "authorization", "apikey", "api_key", "secret", "credential"
+        ]
+        return fields.filter { key, _ in
+            let normalized = key.lowercased()
+            return !sensitiveTokens.contains(where: normalized.contains)
+                && normalized != "item"
+                && normalized != "payload"
+        }
+    }
+
     static func write(
         _ event: String,
         level: Level = .info,
         fields: [String: String] = [:]
     ) {
-        var record = fields
+        // Voice telemetry is intentionally metadata-only. In particular, do
+        // not persist transcript text, audio/SDP, auth material, or protocol
+        // response bodies even when a call site supplies them for debugging.
+        var record = sanitizedFields(fields)
         record["event"] = event
         record["level"] = switch level {
         case .info: "info"

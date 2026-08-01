@@ -9,6 +9,11 @@ extension CodexCoreAppModel {
 
     static let voiceTaskToolSpecs: [CodexSchemaDynamicToolSpec] = [
         voiceTaskToolSpec(
+            name: "end_realtime_voice_call",
+            description: "End the current voice chat. Only call this tool if the user explicitly asks to end the voice chat.",
+            properties: [:]
+        ),
+        voiceTaskToolSpec(
             name: "list_projects",
             description: "List saved local projects available for creating a separate Codex task.",
             properties: [:]
@@ -256,6 +261,13 @@ extension CodexCoreAppModel {
         do {
             let content: CodexJSONValue
             switch request.tool {
+            case "end_realtime_voice_call":
+                guard voiceSession.threadID == request.scope.threadID else {
+                    throw CodexVoiceTaskToolError.notCurrentVoiceThread
+                }
+                await stopVoiceChat()
+                content = .dictionary(["ended": .bool(true)])
+
             case "list_projects":
                 content = .array(recentProjects.map { project in
                     .dictionary([
@@ -450,6 +462,7 @@ extension CodexCoreAppModel {
     }
 
     private static let voiceTaskToolNames: Set<String> = [
+        "end_realtime_voice_call",
         "list_projects",
         "create_thread",
         "list_threads",
@@ -503,6 +516,7 @@ private struct CodexVoiceTaskSummary: Encodable {
 
 private enum CodexVoiceTaskToolError: LocalizedError {
     case missingArgument(String)
+    case notCurrentVoiceThread
     case unknownProject(String)
     case unsupportedTarget(String)
 
@@ -510,6 +524,8 @@ private enum CodexVoiceTaskToolError: LocalizedError {
         switch self {
         case .missingArgument(let name):
             "Missing required argument: \(name)"
+        case .notCurrentVoiceThread:
+            "This tool is only available on the active Voice task."
         case .unknownProject(let id):
             "Unknown project: \(id). Call list_projects and use a returned projectId."
         case .unsupportedTarget(let type):

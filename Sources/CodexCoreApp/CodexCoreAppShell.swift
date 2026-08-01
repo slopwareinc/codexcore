@@ -147,19 +147,6 @@ struct CodexCoreAppShell: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if model.voiceSession.isActive,
-               model.voiceSession.threadID != model.currentThreadID {
-                CodexVoiceMiniControl(
-                    session: model.voiceSession,
-                    onOpen: {
-                        Task { await model.showVoiceChat() }
-                    },
-                    onEnd: { Task { await model.stopVoiceChat() } }
-                )
-                .padding(20)
-            }
-        }
         .sheet(isPresented: $isRenameSheetPresented) {
             RenameChatSheet(
                 title: "Rename chat",
@@ -368,6 +355,7 @@ struct CodexCoreAppShell: View {
             ? AnyView(
                 CodexVoiceConversationPanel(
                     session: model.voiceSession,
+                    reduceMotion: model.appearanceSettings.reduceMotion,
                     onSendText: { text in
                         Task { await model.voiceSession.sendText(text) }
                     },
@@ -454,6 +442,7 @@ struct CodexCoreAppShell: View {
                 voiceChatLabel: model.currentThreadID == nil
                     ? "Start new voice chat"
                     : "Start voice chat",
+                composerFocusRequest: model.composerFocusRequest,
                 onSteerQueuedFollowUp: { clientID in
                     Task { await model.steerQueuedFollowUp(clientID: clientID) }
                 },
