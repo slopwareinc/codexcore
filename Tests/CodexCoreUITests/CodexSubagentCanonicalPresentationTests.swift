@@ -4,6 +4,54 @@ import Foundation
 import Testing
 
 struct CodexSubagentCanonicalPresentationTests {
+    @Test func graphProjectionRegistersRecursiveDescendantsWithExactLifecycle() throws {
+        let root = CodexThreadGraphKey(hostID: "host-a", threadID: "root")
+        let child = CodexThreadGraphKey(hostID: "host-a", threadID: "child")
+        let grandchild = CodexThreadGraphKey(hostID: "host-a", threadID: "grandchild")
+        let graph = CodexThreadGraphSnapshot(
+            revision: StateRevision(4),
+            nodes: [
+                root: .init(key: root, children: [child], depth: 0),
+                child: .init(
+                    key: child,
+                    parent: root,
+                    children: [grandchild],
+                    depth: 1,
+                    lifecycle: .running,
+                    agentNickname: "Scout"
+                ),
+                grandchild: .init(
+                    key: grandchild,
+                    parent: child,
+                    depth: 2,
+                    lifecycle: .notFound,
+                    errorMessage: "agent vanished"
+                ),
+            ],
+            edges: [],
+            actions: [],
+            roots: [root]
+        )
+        var store = CodexSubagentStoreV2()
+
+        let discoveries = store.applyGraphSnapshot(graph, root: root)
+
+        #expect(discoveries.map(\.threadID) == ["child", "grandchild"])
+        let projectedChild = try #require(store.agent(threadID: "child"))
+        #expect(projectedChild.nickname == "Scout")
+        #expect(projectedChild.collaborationLifecycle == .running)
+        let projectedGrandchild = try #require(store.agent(threadID: "grandchild"))
+        #expect(projectedGrandchild.parentThreadID == "child")
+        #expect(projectedGrandchild.depth == 2)
+        #expect(projectedGrandchild.collaborationLifecycle == .notFound)
+        #expect(projectedGrandchild.statusMessage == "agent vanished")
+        guard case .failed(let message) = projectedGrandchild.status else {
+            Issue.record("Expected notFound to remain exact and present as failed")
+            return
+        }
+        #expect(message == "agent vanished")
+    }
+
     @Test func parentDiscoveryIsAStableReplacementSet() throws {
         let snapshot = parentSnapshot()
         var store = CodexSubagentStoreV2()
