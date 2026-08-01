@@ -122,6 +122,33 @@ struct CodexSidebarHoverPerformanceTests {
         #expect(view.actionControlsAreVisibleForTesting)
     }
 
+    @Test func scrollReconciliationKeepsOnlyThePointerRowHovered() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let view = SidebarChatRowContainerView(frame: NSRect(x: 24, y: 24, width: 260, height: 34))
+        window.contentView?.addSubview(view)
+        view.configure(
+            content: AnyView(Text("Task")),
+            actions: AnyView(Text("Actions")),
+            hoverColor: .gray.opacity(0.08),
+            selectionColor: .clear,
+            isSelected: false
+        )
+
+        view.setHoveredForTesting(true)
+        #expect(view.actionControlsAreVisibleForTesting)
+
+        view.reconcileHoverForTesting(pointerLocationInWindow: NSPoint(x: 390, y: 190))
+        #expect(!view.actionControlsAreVisibleForTesting)
+
+        view.reconcileHoverForTesting(pointerLocationInWindow: NSPoint(x: 40, y: 40))
+        #expect(view.actionControlsAreVisibleForTesting)
+    }
+
     @Test func idleRowsDoNotReserveTrailingStatusWidth() {
         #expect(
             !SidebarChatRowLayout.hasTrailingStatus(

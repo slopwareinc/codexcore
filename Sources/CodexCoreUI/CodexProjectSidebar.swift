@@ -1036,6 +1036,8 @@ final class SidebarChatRowContainerView: NSView {
     private let contentHost = NSHostingView(rootView: AnyView(EmptyView()))
     private let actionsHost = NSHostingView(rootView: AnyView(EmptyView()))
     private var trackingAreaReference: NSTrackingArea?
+    private weak var observedScrollContentView: NSView?
+    private var scrollBoundsObserver: NSObjectProtocol?
     private var isHovered = false
     // Held as SwiftUI Colors and resolved to NSColor lazily in updateChrome(),
     // against this view's own live effectiveAppearance. Pre-resolving in
@@ -1108,6 +1110,22 @@ final class SidebarChatRowContainerView: NSView {
         trackingAreaReference = tracking
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        installScrollBoundsObserverIfNeeded()
+        if window == nil {
+            setHovered(false)
+        }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        removeScrollBoundsObserver()
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            setHovered(false)
+        }
+    }
+
     override func mouseEntered(with event: NSEvent) {
         setHovered(true)
     }
@@ -1135,11 +1153,54 @@ final class SidebarChatRowContainerView: NSView {
         setHovered(hovered)
     }
 
+    func reconcileHoverForTesting(pointerLocationInWindow: NSPoint) {
+        reconcileHover(pointerLocationInWindow: pointerLocationInWindow)
+    }
+
+    private func removeScrollBoundsObserver() {
+        if let scrollBoundsObserver {
+            NotificationCenter.default.removeObserver(scrollBoundsObserver)
+        }
+        scrollBoundsObserver = nil
+        observedScrollContentView = nil
+    }
+
     private func setHovered(_ hovered: Bool) {
         guard isHovered != hovered else { return }
         isHovered = hovered
         updateChrome()
         needsLayout = true
+    }
+
+    private func installScrollBoundsObserverIfNeeded() {
+        guard let contentView = enclosingScrollView?.contentView else { return }
+        guard observedScrollContentView !== contentView else { return }
+
+        removeScrollBoundsObserver()
+        contentView.postsBoundsChangedNotifications = true
+        observedScrollContentView = contentView
+        scrollBoundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: contentView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reconcileHoverAfterScroll()
+            }
+        }
+    }
+
+    private func reconcileHoverAfterScroll() {
+        guard let window else {
+            setHovered(false)
+            return
+        }
+        reconcileHover(pointerLocationInWindow: window.mouseLocationOutsideOfEventStream)
+    }
+
+    private func reconcileHover(pointerLocationInWindow: NSPoint) {
+        let pointerLocation = convert(pointerLocationInWindow, from: nil)
+        setHovered(bounds.contains(pointerLocation))
     }
 
     private func updateChrome() {
