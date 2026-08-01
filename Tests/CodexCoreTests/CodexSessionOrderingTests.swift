@@ -1770,6 +1770,69 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
+    func testHandledDynamicToolCallIsMaterializedInCanonicalTranscript() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let resultText = #"{"threadId":"created-thread","hostId":"local"}"#
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled),
+            serverRequestHandler: { request in
+                guard case .dynamicToolCall = request.body else { return .pending }
+                return .result(.dictionary([
+                    "success": .bool(true),
+                    "contentItems": .array([.dictionary([
+                        "type": .string("inputText"),
+                        "text": .string(resultText),
+                    ])]),
+                ]))
+            }
+        )
+        _ = try await session.start()
+
+        try await transport.sendServerRequest(
+            id: .string("create-thread-request"),
+            method: CodexServerRequestKind.dynamicToolCall.method,
+            params: [
+                "threadId": .string(Self.threadID.rawValue),
+                "turnId": .string("turn-create-thread"),
+                "callId": .string("call-create-thread"),
+                "namespace": .string("codex_app"),
+                "tool": .string("create_thread"),
+                "arguments": .dictionary([
+                    "prompt": .string("Review pending pull requests"),
+                ]),
+            ]
+        )
+        try await waitUntil {
+            await transport.responseWriteCount(id: .string("create-thread-request")) == 1
+        }
+
+        let snapshot = await session.canonicalSnapshot()
+        let item = try XCTUnwrap(snapshot.items[.init(
+            threadID: Self.threadID,
+            turnID: .init("turn-create-thread"),
+            itemID: .init("call-create-thread")
+        )])
+        XCTAssertEqual(item.kind, .dynamicToolCall)
+        XCTAssertEqual(item.authority, .completed)
+        XCTAssertEqual(item.payload["namespace"], .string("codex_app"))
+        XCTAssertEqual(item.payload["tool"], .string("create_thread"))
+        XCTAssertEqual(item.payload["success"], .bool(true))
+        XCTAssertEqual(item.payload["contentItems"], .array([.dictionary([
+            "type": .string("inputText"),
+            "text": .string(resultText),
+        ])]))
+        XCTAssertEqual(
+            snapshot.turns[.init(
+                threadID: Self.threadID,
+                turnID: .init("turn-create-thread")
+            )]?.itemOrder,
+            [.init("call-create-thread")]
+        )
+
+        await session.stop()
+    }
+
     func testTypedServerRequestInboxProjectsOnlyPresentationSafeRequestData() async throws {
         let transport = ControllableCodexFrameTransport()
         let session = CodexSession(

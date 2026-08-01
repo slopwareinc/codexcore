@@ -2379,6 +2379,7 @@ private extension CodexSession {
                     )
                 )
             case .registered(let snapshot):
+                try materializeDynamicToolStartIfNeeded(parsed)
                 try commitRequestInvalidation(scope: snapshot.scope)
                 guard retainThreadForServerRequest(parsed) else { return }
                 startServerRequestHandler(parsed)
@@ -2734,6 +2735,13 @@ private extension CodexSession {
             try? commitSessionInvalidation(fields: .diagnostics)
         }
         guard let removed = interactions.takeOnServerResolved(key) else { return }
+        try materializeDynamicToolCompletionIfNeeded(
+            removed,
+            reply: .error(.init(
+                code: -32_000,
+                message: "Dynamic tool call was resolved by app-server"
+            ))
+        )
         try commitRequestInvalidation(scope: removed.registration.scope)
         serverRequestTasks.removeValue(forKey: key)?.cancel()
         releaseThreadForServerRequest(key)
@@ -2749,9 +2757,108 @@ private extension CodexSession {
             throw CodexSessionError.unknownServerRequest(key)
         }
         defer { releaseThreadForServerRequest(key) }
+        try materializeDynamicToolCompletionIfNeeded(request, reply: reply)
         try commitRequestInvalidation(scope: request.registration.scope)
         serverRequestTasks.removeValue(forKey: key)?.cancel()
         try enqueueServerResponse(key: key, reply: reply)
+    }
+
+    func materializeDynamicToolStartIfNeeded(
+        _ request: CodexParsedServerRequest
+    ) throws {
+        guard case .dynamicToolCall(let toolCall) = request.body,
+              let threadID = toolCall.scope.threadID,
+              let turnID = toolCall.scope.turnID
+        else { return }
+
+        try commit(.itemStarted(CanonicalItem(
+            key: .init(
+                threadID: .init(threadID),
+                turnID: .init(turnID),
+                itemID: .init(toolCall.callID)
+            ),
+            kind: .dynamicToolCall,
+            payload: dynamicToolPayload(
+                toolCall,
+                status: "inProgress"
+            ),
+            authority: .started,
+            consistency: .partial
+        )))
+    }
+
+    func materializeDynamicToolCompletionIfNeeded(
+        _ request: CodexParsedServerRequest,
+        reply: ServerRequestReply
+    ) throws {
+        guard case .dynamicToolCall(let toolCall) = request.body,
+              let threadID = toolCall.scope.threadID,
+              let turnID = toolCall.scope.turnID
+        else { return }
+
+        let success: Bool
+        let contentItems: [CodexJSONValue]
+        switch reply {
+        case .result(.dictionary(let result)):
+            if case .bool(let value)? = result["success"] {
+                success = value
+            } else {
+                success = false
+            }
+            if case .array(let value)? = result["contentItems"] {
+                contentItems = value
+            } else {
+                contentItems = []
+            }
+        case .result:
+            success = false
+            contentItems = []
+        case .error:
+            success = false
+            contentItems = []
+        }
+
+        try commit(.itemCompleted(CanonicalItem(
+            key: .init(
+                threadID: .init(threadID),
+                turnID: .init(turnID),
+                itemID: .init(toolCall.callID)
+            ),
+            kind: .dynamicToolCall,
+            payload: dynamicToolPayload(
+                toolCall,
+                status: success ? "completed" : "failed",
+                success: success,
+                contentItems: contentItems
+            ),
+            authority: .completed,
+            consistency: .partial
+        )))
+    }
+
+    func dynamicToolPayload(
+        _ toolCall: CodexDynamicToolServerRequest,
+        status: String,
+        success: Bool? = nil,
+        contentItems: [CodexJSONValue]? = nil
+    ) -> [String: CodexJSONValue] {
+        var payload: [String: CodexJSONValue] = [
+            "type": .string("dynamicToolCall"),
+            "id": .string(toolCall.callID),
+            "tool": .string(toolCall.tool),
+            "arguments": toolCall.arguments,
+            "status": .string(status),
+        ]
+        if let namespace = toolCall.namespace {
+            payload["namespace"] = .string(namespace)
+        }
+        if let success {
+            payload["success"] = .bool(success)
+        }
+        if let contentItems {
+            payload["contentItems"] = .array(contentItems)
+        }
+        return payload
     }
 
     func enqueueServerResponse(

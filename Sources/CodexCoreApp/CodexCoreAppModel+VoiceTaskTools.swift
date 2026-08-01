@@ -592,6 +592,7 @@ extension CodexCoreAppModel {
     ) -> CodexSchemaDynamicToolSpec {
         CodexSchemaDynamicToolSpec(.dictionary([
             "name": .string(name),
+            "namespace": .string("codex_app"),
             "description": .string(description),
             "inputSchema": .dictionary([
                 "type": .string("object"),

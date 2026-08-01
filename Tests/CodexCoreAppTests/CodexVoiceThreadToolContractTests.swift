@@ -6,12 +6,18 @@ import XCTest
 @MainActor
 final class CodexVoiceThreadToolContractTests: XCTestCase {
     func testVoiceBridgePublishesLifecycleAndCommunicationTools() throws {
-        let names = CodexCoreAppModel.voiceTaskToolSpecs.compactMap { spec -> String? in
+        let tools = CodexCoreAppModel.voiceTaskToolSpecs.compactMap { spec -> (String, String?)? in
             guard case .dictionary(let object) = spec.rawValue,
                 case .string(let name)? = object["name"]
             else { return nil }
-            return name
+            let namespace: String? = if case .string(let value)? = object["namespace"] {
+                value
+            } else {
+                nil
+            }
+            return (name, namespace)
         }
+        let names = tools.map(\.0)
 
         XCTAssertTrue(
             Set([
@@ -23,6 +29,7 @@ final class CodexVoiceThreadToolContractTests: XCTestCase {
                 "send_message_to_thread",
             ]).isSubset(of: Set(names)))
         XCTAssertEqual(names.count, Set(names).count)
+        XCTAssertTrue(tools.allSatisfy { $0.1 == "codex_app" })
     }
 
     func testWaitContractIsBoundedAndHostAwareResultDeliveryIsDocumented() throws {
