@@ -118,6 +118,71 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(skillsSearchFrame.origin.y, marketplaceSearchFrame.origin.y, accuracy: 0.5)
     }
 
+    @MainActor
+    func testEveryVisiblePluginAndSkillSwitchEmitsTheCanonicalToggleAction() throws {
+        let installedPlugin = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Triage pull requests",
+            installed: true,
+            enabled: true
+        )
+        let personalSkill = skill(name: "writer", displayName: "Writer", enabled: false)
+        var systemSkill = skill(name: "imagegen", displayName: "Image Gen", enabled: true)
+        systemSkill.path = "/tmp/system-skills/imagegen/SKILL.md"
+        systemSkill.scope = "system"
+        let recorder = CatalogActionRecorder()
+        let route = CodexPluginRouteView(
+            plugins: [installedPlugin],
+            skills: [personalSkill, systemSkill],
+            mcpServers: [],
+            onRefresh: {},
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 1_100, height: 720)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let tabs = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+        tabs.selectedSegment = 2
+        _ = tabs.sendAction(tabs.action, to: tabs.target)
+        settle(hosting)
+
+        let pluginSwitches = allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }
+        XCTAssertEqual(pluginSwitches.count, 2, "Manage row and selected plugin detail must both be interactive")
+        pluginSwitches.forEach { $0.performClick(nil) }
+        XCTAssertEqual(
+            recorder.actions,
+            Array(repeating: .setPluginEnabled(.init(plugin: installedPlugin), enabled: false), count: 2)
+        )
+
+        recorder.actions.removeAll()
+        let updatedTabs = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+        updatedTabs.selectedSegment = 1
+        _ = updatedTabs.sendAction(updatedTabs.action, to: updatedTabs.target)
+        settle(hosting)
+
+        let skillSwitches = allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }
+        XCTAssertEqual(skillSwitches.count, 3, "Two skill rows and the selected skill detail must be interactive")
+        skillSwitches.forEach { $0.performClick(nil) }
+        let skillToggles = recorder.actions.compactMap { action -> (String, Bool)? in
+            guard case .setSkillEnabled(let target, let enabled) = action else { return nil }
+            return (target.path, enabled)
+        }
+        XCTAssertEqual(skillToggles.count, 3)
+        XCTAssertEqual(skillToggles.filter { $0.0 == personalSkill.path && $0.1 }.count, 2)
+        XCTAssertEqual(skillToggles.filter { $0.0 == systemSkill.path && !$0.1 }.count, 1)
+    }
+
     func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
         let temporary = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -595,6 +660,46 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Open the browser and inspect the current page."))
     }
 
+    func testCatalogSessionOptimisticallyTogglesAndRestoresPluginsAndSkillsByCanonicalIdentity() throws {
+        let firstPlugin = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Triage pull requests",
+            installed: true,
+            enabled: true
+        )
+        let secondPlugin = plugin(
+            name: "gmail",
+            displayName: "Gmail",
+            detail: "Manage email",
+            installed: true,
+            enabled: false
+        )
+        let firstSkill = skill(name: "shared-name", displayName: "Personal Skill", enabled: true)
+        var secondSkill = skill(name: "shared-name", displayName: "System Skill", enabled: false)
+        secondSkill.path = "/tmp/system-skills/shared-name/SKILL.md"
+        secondSkill.scope = "system"
+        var session = CodexIntegrationCatalogSession(
+            plugins: [firstPlugin, secondPlugin],
+            skills: [firstSkill, secondSkill]
+        )
+
+        let pluginPrevious = session.setPluginEnabledOptimistically(id: firstPlugin.protocolID, enabled: false)
+        XCTAssertEqual(pluginPrevious, true)
+        XCTAssertEqual(session.plugins.map(\.enabled), [false, false])
+        _ = session.setPluginEnabledOptimistically(id: firstPlugin.protocolID, enabled: try XCTUnwrap(pluginPrevious))
+        XCTAssertEqual(session.plugins.map(\.enabled), [true, false])
+
+        let skillPrevious = session.setSkillEnabledOptimistically(path: secondSkill.path, enabled: true)
+        XCTAssertEqual(skillPrevious, false)
+        XCTAssertEqual(session.skills.map(\.enabled), [true, true])
+        _ = session.setSkillEnabledOptimistically(path: secondSkill.path, enabled: try XCTUnwrap(skillPrevious))
+        XCTAssertEqual(session.skills.map(\.enabled), [true, false])
+
+        XCTAssertNil(session.setPluginEnabledOptimistically(id: "missing", enabled: true))
+        XCTAssertNil(session.setSkillEnabledOptimistically(path: "/missing/SKILL.md", enabled: true))
+    }
+
     func testBrowserLauncherUsesCatalogDetailWithOracleMetadata() throws {
         let browser = CodexPluginSummary(
             id: "local:browser",
@@ -818,7 +923,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             enabled: true
         ))
         let skillToggle = CodexPluginProtocolMutation.skillEnabledParams(for: skillTarget, enabled: false)
-        XCTAssertEqual(skillToggle.name, "browser:control")
+        XCTAssertNil(skillToggle.name, "App server requires exactly one selector; canonical skill paths are unambiguous")
         XCTAssertEqual(skillToggle.path?.rawValue, .string(skillTarget.path))
         XCTAssertFalse(skillToggle.enabled)
 
@@ -887,6 +992,27 @@ private func firstDescendant<T: NSView>(of type: T.Type, in root: NSView) -> T? 
         if let match = firstDescendant(of: type, in: subview) { return match }
     }
     return nil
+}
+
+@MainActor
+private func allDescendants<T: NSView>(of type: T.Type, in root: NSView) -> [T] {
+    var matches: [T] = []
+    if let root = root as? T { matches.append(root) }
+    for subview in root.subviews {
+        matches.append(contentsOf: allDescendants(of: type, in: subview))
+    }
+    return matches
+}
+
+@MainActor
+private func settle(_ hosting: NSView) {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    hosting.layoutSubtreeIfNeeded()
+}
+
+@MainActor
+private final class CatalogActionRecorder {
+    var actions: [CodexPluginRouteAction] = []
 }
 
 private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider {

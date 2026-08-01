@@ -4,6 +4,11 @@ import Observation
 import CodexCore
 import CodexCoreUI
 
+private enum PluginCatalogToggleRollback {
+    case plugin(id: String, enabled: Bool)
+    case skill(path: String, enabled: Bool)
+}
+
 func defaultWorkspacePath() -> String {
     let current = FileManager.default.currentDirectoryPath
     if current != "/" { return current }
@@ -1745,19 +1750,25 @@ final class CodexCoreAppModel {
     }
 
     func performPluginCatalogAction(_ action: CodexPluginRouteAction) {
-        let pluginToggleRollback: (id: String, enabled: Bool)?
-        if case .setPluginEnabled(let target, let enabled) = action {
+        let toggleRollback: PluginCatalogToggleRollback?
+        switch action {
+        case .setPluginEnabled(let target, let enabled):
             var session = runtimeSession.integrationCatalogSession
-            pluginToggleRollback = session.setPluginEnabledOptimistically(id: target.id, enabled: enabled)
-                .map { (target.id, $0) }
+            toggleRollback = session.setPluginEnabledOptimistically(id: target.id, enabled: enabled)
+                .map { .plugin(id: target.id, enabled: $0) }
             runtimeSession.integrationCatalogSession = session
-        } else {
-            pluginToggleRollback = nil
+        case .setSkillEnabled(let target, let enabled):
+            var session = runtimeSession.integrationCatalogSession
+            toggleRollback = session.setSkillEnabledOptimistically(path: target.path, enabled: enabled)
+                .map { .skill(path: target.path, enabled: $0) }
+            runtimeSession.integrationCatalogSession = session
+        case .installPlugin, .uninstallPlugin, .uninstallSkill, .tryInChat:
+            toggleRollback = nil
         }
 
         Task {
             guard let codex else {
-                restorePluginToggle(pluginToggleRollback)
+                restoreCatalogToggle(toggleRollback)
                 appendIntegrationActivity(.init(
                     title: "Plugin action unavailable",
                     detail: "Connect to Codex before changing plugins or skills."
@@ -1778,15 +1789,20 @@ final class CodexCoreAppModel {
             if outcome.shouldRefresh {
                 await refreshPlugins()
             } else {
-                restorePluginToggle(pluginToggleRollback)
+                restoreCatalogToggle(toggleRollback)
             }
         }
     }
 
-    private func restorePluginToggle(_ rollback: (id: String, enabled: Bool)?) {
+    private func restoreCatalogToggle(_ rollback: PluginCatalogToggleRollback?) {
         guard let rollback else { return }
         var session = runtimeSession.integrationCatalogSession
-        session.setPluginEnabledOptimistically(id: rollback.id, enabled: rollback.enabled)
+        switch rollback {
+        case .plugin(let id, let enabled):
+            session.setPluginEnabledOptimistically(id: id, enabled: enabled)
+        case .skill(let path, let enabled):
+            session.setSkillEnabledOptimistically(path: path, enabled: enabled)
+        }
         runtimeSession.integrationCatalogSession = session
     }
 

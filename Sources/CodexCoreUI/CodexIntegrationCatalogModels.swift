@@ -781,7 +781,6 @@ public enum CodexPluginProtocolMutation {
     ) -> CodexSchemaSkillsConfigWriteParams {
         CodexSchemaSkillsConfigWriteParams(
             enabled: enabled,
-            name: target.name,
             path: CodexAppServerSchemaValue(.string(target.path))
         )
     }
