@@ -74,6 +74,66 @@ final class CodexGitRepositoryTests: XCTestCase {
         XCTAssertLessThan(started.duration(to: .now), .seconds(2))
     }
 
+    func testCommittedSourceReviewsExactlyTheSelectedCommit() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        try fixture.write("base\ncommitted change\n", to: "tracked.txt")
+        try fixture.git("add", "tracked.txt")
+        try fixture.git("commit", "-q", "-m", "selected commit")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+
+        let snapshot = try await repository.snapshot(source: .committed, commitRef: "HEAD")
+        let patch = try await repository.patch(
+            source: .committed,
+            path: "tracked.txt",
+            commitRef: snapshot.comparisonRef
+        )
+
+        XCTAssertEqual(snapshot.comparisonRef, "HEAD")
+        XCTAssertEqual(snapshot.files.map(\.path), ["tracked.txt"])
+        XCTAssertEqual(snapshot.commitOptions.first?.subject, "selected commit")
+        XCTAssertFalse(snapshot.commitOptions.first?.shortSHA.isEmpty ?? true)
+        XCTAssertTrue(patch.displayText.contains("+committed change"))
+    }
+
+    func testBranchSourceUsesExplicitMergeBaseComparison() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let baseBranch = try fixture.git("branch", "--show-current")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try fixture.git("switch", "-q", "-c", "feature")
+        try fixture.write("base\nfeature change\n", to: "tracked.txt")
+        try fixture.git("add", "tracked.txt")
+        try fixture.git("commit", "-q", "-m", "feature")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+
+        let snapshot = try await repository.snapshot(source: .branch, baseRef: baseBranch)
+        let patch = try await repository.patch(
+            source: .branch,
+            path: "tracked.txt",
+            baseRef: snapshot.comparisonRef
+        )
+
+        XCTAssertEqual(snapshot.comparisonRef, baseBranch)
+        XCTAssertEqual(snapshot.files.map(\.path), ["tracked.txt"])
+        XCTAssertTrue(patch.displayText.contains("+feature change"))
+    }
+
+    func testBranchSourceDoesNotSilentlyFallBackToHeadParent() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+
+        do {
+            _ = try await repository.snapshot(source: .branch)
+            XCTFail("Expected an explicit base-branch requirement")
+        } catch let error as CodexGitRepositoryError {
+            guard case .comparisonRequired = error else {
+                return XCTFail("Expected comparisonRequired, got \(error)")
+            }
+        }
+    }
+
     func testMutationRejectsStaleRevisionThenStagesWithFreshRevision() async throws {
         let fixture = try GitFixture()
         defer { fixture.remove() }

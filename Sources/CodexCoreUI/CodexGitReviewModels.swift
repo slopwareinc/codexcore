@@ -357,6 +357,23 @@ public struct CodexGitBranchPickerOption: Equatable, Sendable {
     }
 }
 
+public struct CodexGitCommitOption: Identifiable, Equatable, Sendable {
+    public var id: String { sha }
+    public let sha: String
+    public let subject: String
+    public let committedAt: Date
+
+    public init(sha: String, subject: String, committedAt: Date) {
+        self.sha = sha
+        self.subject = subject
+        self.committedAt = committedAt
+    }
+
+    public var shortSHA: String {
+        String(sha.prefix(8))
+    }
+}
+
 public struct CodexGitBranchPickerState: Equatable, Sendable {
     public var options: [CodexGitBranchPickerOption]
     public var currentBranchName: String
@@ -429,6 +446,8 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public let branchName: String
     public let upstreamBranchName: String?
     public let branchOptions: [CodexGitBranchPickerOption]
+    public let commitOptions: [CodexGitCommitOption]
+    public let comparisonRef: String?
     public let files: [CodexGitReviewFileChange]
     public let diffStats: CodexGitReviewDiffStats
     public let reviewFilePaths: [String]?
@@ -442,6 +461,8 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         branchName: String,
         upstreamBranchName: String? = nil,
         branchOptions: [CodexGitBranchPickerOption] = [],
+        commitOptions: [CodexGitCommitOption] = [],
+        comparisonRef: String? = nil,
         files: [CodexGitReviewFileChange] = [],
         diffStats: CodexGitReviewDiffStats? = nil,
         reviewFilePaths: [String]? = nil,
@@ -453,6 +474,8 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         self.branchName = branchName.nilIfBlank ?? "HEAD"
         self.upstreamBranchName = upstreamBranchName?.nilIfBlank
         self.branchOptions = branchOptions
+        self.commitOptions = commitOptions
+        self.comparisonRef = comparisonRef?.nilIfBlank
         self.files = files
         self.diffStats = diffStats ?? CodexGitReviewDiffStats.from(files)
         self.fileIndexByID = files.enumerated().reduce(into: [:]) {

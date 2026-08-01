@@ -32,6 +32,7 @@ public struct CodexGitReviewWorkbenchView: View {
     @State private var showsBranch = false
     @State private var showsPullRequest = false
     @State private var showsAIReview = false
+    @State private var showsComparison = false
     @State private var confirmsRevert = false
     @State private var reviewTargetChoice = ReviewTargetChoice.uncommitted
     @State private var reviewTargetValue = ""
@@ -79,6 +80,7 @@ public struct CodexGitReviewWorkbenchView: View {
         .popover(isPresented: $showsBranch) { branchPopover }
         .popover(isPresented: $showsPullRequest) { pullRequestPopover }
         .popover(isPresented: $showsAIReview) { aiReviewPopover }
+        .popover(isPresented: $showsComparison) { comparisonPopover }
         .task {
             if workbench.source != .lastTurn {
                 workbench.refresh()
@@ -102,6 +104,16 @@ public struct CodexGitReviewWorkbenchView: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .accessibilityIdentifier("codex.review.source")
+
+            if let comparisonLabel = workbench.comparisonLabel {
+                Button(comparisonLabel) {
+                    showsComparison = true
+                }
+                .buttonStyle(.borderless)
+                .lineLimit(1)
+                .help(workbench.source == .branch ? "Choose base branch" : "Choose commit")
+                .accessibilityIdentifier("codex.review.comparison")
+            }
 
             if let stats = workbench.snapshot?.diffStats {
                 Text("\(stats.changedFiles)")
@@ -142,18 +154,18 @@ public struct CodexGitReviewWorkbenchView: View {
 
             Menu {
                 Button("Commit…") { showsCommit = true }
-                    .disabled(workbench.source == .lastTurn)
+                    .disabled(!workbench.canUseGitActions)
                 Button("Branch…") { showsBranch = true }
-                    .disabled(workbench.source == .lastTurn)
+                    .disabled(!workbench.canUseGitActions)
                 Button("Push") { workbench.push() }
                     .disabled(
-                        workbench.source == .lastTurn
+                        !workbench.canUseGitActions
                             || workbench.actionState?.isPushEnabled != true
                     )
                 Divider()
                 Button("Create draft PR…") { showsPullRequest = true }
                     .disabled(
-                        workbench.source == .lastTurn
+                        !workbench.canUseGitActions
                             || workbench.actionState?.isCreatePullRequestEnabled != true
                     )
             } label: {
@@ -335,7 +347,7 @@ public struct CodexGitReviewWorkbenchView: View {
                  : "No files match “\(workbench.filter)”")
                 .font(theme.fonts.caption.weight(.semibold))
                 .multilineTextAlignment(.center)
-            if workbench.source != .branch {
+            if workbench.source != .branch && workbench.source != .committed {
                 Button("View branch changes") {
                     workbench.selectSource(.branch)
                 }
@@ -520,6 +532,84 @@ public struct CodexGitReviewWorkbenchView: View {
         }
         .padding(16)
         .frame(width: 340)
+    }
+
+    @ViewBuilder
+    private var comparisonPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if workbench.source == .branch {
+                Text("Compare branch")
+                    .font(theme.fonts.body.weight(.semibold))
+                Text("Choose the base branch. Review compares its merge base with the current HEAD.")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(
+                    workbench.snapshot?.branchPicker.options.filter { !$0.isCurrent } ?? [],
+                    id: \.branchName
+                ) { option in
+                    Button {
+                        showsComparison = false
+                        workbench.selectBaseBranch(option.branchName)
+                    } label: {
+                        HStack {
+                            Text(option.branchName)
+                            Spacer()
+                            if option.branchName == workbench.baseBranch {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                Text("Review commit")
+                    .font(theme.fonts.body.weight(.semibold))
+                if let commits = workbench.snapshot?.commitOptions, !commits.isEmpty {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(commits) { commit in
+                                Button {
+                                    workbench.commitRef = commit.sha
+                                    showsComparison = false
+                                    workbench.applyCommitRef()
+                                } label: {
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Text(commit.shortSHA)
+                                            .font(theme.fonts.code)
+                                            .foregroundStyle(theme.colors.textTertiary)
+                                        Text(commit.subject)
+                                            .lineLimit(1)
+                                        Spacer(minLength: 0)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 230)
+                    Divider()
+                }
+                TextField("Commit SHA or ref", text: $workbench.commitRef)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        showsComparison = false
+                        workbench.applyCommitRef()
+                    }
+                HStack {
+                    Button("Cancel") { showsComparison = false }
+                    Spacer()
+                    Button("Apply") {
+                        showsComparison = false
+                        workbench.applyCommitRef()
+                    }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(workbench.commitRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 330)
     }
 
     private var branchPopover: some View {

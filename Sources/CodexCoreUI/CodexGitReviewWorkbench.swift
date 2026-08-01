@@ -33,6 +33,8 @@ public final class CodexGitReviewWorkbench {
     public var branchName = ""
     public var pullRequestTitle = ""
     public var pullRequestBody = ""
+    public var baseBranch = ""
+    public var commitRef = "HEAD"
     public private(set) var viewedFileIDs: Set<String> = []
 
     private let repository: CodexGitRepository
@@ -74,7 +76,13 @@ public final class CodexGitReviewWorkbench {
     }
 
     public var canMutateSelectedFile: Bool {
-        source != .lastTurn && selectedFile != nil && operationTitle == nil
+        canUseGitActions
+            && selectedFile != nil
+            && operationTitle == nil
+    }
+
+    public var canUseGitActions: Bool {
+        [.uncommitted, .unstaged, .staged].contains(source)
     }
 
     public var emptyDetail: String {
@@ -84,8 +92,19 @@ public final class CodexGitReviewWorkbench {
         return "There are no files in the selected review source."
     }
 
+    public var comparisonLabel: String? {
+        switch source {
+        case .branch:
+            return baseBranch.nilIfBlank.map { "Base: \($0)" } ?? "Choose base"
+        case .committed:
+            return "Commit: \(commitRef.nilIfBlank ?? "HEAD")"
+        default:
+            return nil
+        }
+    }
+
     public var actionState: CodexGitReviewActionState? {
-        guard let snapshot else { return nil }
+        guard canUseGitActions, let snapshot else { return nil }
         return CodexGitReviewSession(
             snapshot: snapshot,
             commitDraft: CodexGitCommitDraft(
@@ -123,10 +142,21 @@ public final class CodexGitReviewWorkbench {
         refreshTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let snapshot = try await repository.snapshot(source: requestSource)
+                let requestedBase = baseBranch.nilIfBlank
+                let requestedCommit = commitRef.nilIfBlank
+                let snapshot = try await repository.snapshot(
+                    source: requestSource,
+                    baseRef: requestedBase,
+                    commitRef: requestedCommit
+                )
                 try Task.checkCancellation()
                 guard generation == requestGeneration, source == requestSource else { return }
                 self.snapshot = snapshot
+                if requestSource == .branch {
+                    baseBranch = snapshot.comparisonRef ?? baseBranch
+                } else if requestSource == .committed {
+                    commitRef = snapshot.comparisonRef ?? commitRef
+                }
                 loadState = .ready
                 reconcileSelection()
                 loadSelectedPatch()
@@ -145,6 +175,17 @@ public final class CodexGitReviewWorkbench {
         guard selectedFileID != id else { return }
         selectedFileID = id
         loadSelectedPatch()
+    }
+
+    public func selectBaseBranch(_ branch: String) {
+        baseBranch = branch
+        selectedFileID = nil
+        refresh()
+    }
+
+    public func applyCommitRef() {
+        selectedFileID = nil
+        refresh()
     }
 
     public func moveSelection(_ offset: Int) {
@@ -216,7 +257,7 @@ public final class CodexGitReviewWorkbench {
     }
 
     private func perform(_ mutation: CodexGitMutation) {
-        guard source != .lastTurn,
+        guard canUseGitActions,
               let revision = snapshot?.revision,
               operationTask == nil else { return }
         operationTitle = mutation.progressTitle
@@ -290,7 +331,12 @@ public final class CodexGitReviewWorkbench {
         patchTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let patch = try await repository.patch(source: requestSource, path: path)
+                let patch = try await repository.patch(
+                    source: requestSource,
+                    path: path,
+                    baseRef: baseBranch.nilIfBlank,
+                    commitRef: commitRef.nilIfBlank
+                )
                 try Task.checkCancellation()
                 guard source == requestSource, selectedFileID == fileID else { return }
                 cache(patch, key: cacheKey)

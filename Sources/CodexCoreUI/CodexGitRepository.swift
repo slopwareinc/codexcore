@@ -5,6 +5,7 @@ public enum CodexGitReviewSource: String, CaseIterable, Identifiable, Sendable {
     case uncommitted
     case unstaged
     case staged
+    case committed
     case branch
 
     public var id: String { rawValue }
@@ -15,6 +16,7 @@ public enum CodexGitReviewSource: String, CaseIterable, Identifiable, Sendable {
         case .uncommitted: "Uncommitted"
         case .unstaged: "Unstaged"
         case .staged: "Staged"
+        case .committed: "Committed"
         case .branch: "Branch"
         }
     }
@@ -25,6 +27,7 @@ public enum CodexGitReviewSource: String, CaseIterable, Identifiable, Sendable {
         case .uncommitted: "No uncommitted changes"
         case .unstaged: "No unstaged changes"
         case .staged: "No staged changes"
+        case .committed: "No changes in this commit"
         case .branch: "No branch changes"
         }
     }
@@ -69,6 +72,7 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
     case stale(expected: CodexGitReviewRevision, actual: CodexGitReviewRevision)
     case unsafePath(String)
     case destructiveUntrackedPath(String)
+    case comparisonRequired(String)
     case commandFailed(command: String, message: String)
     case outputLimitExceeded(command: String)
 
@@ -82,6 +86,8 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
             "Refusing to operate on a path outside the worktree: \(path)"
         case .destructiveUntrackedPath(let path):
             "Refusing to discard untracked file \(path). Move it to Trash explicitly."
+        case .comparisonRequired(let detail):
+            detail
         case .commandFailed(let command, let message):
             "\(command) failed: \(message)"
         case .outputLimitExceeded(let command):
@@ -106,13 +112,20 @@ public actor CodexGitRepository {
         requestedWorkspaceURL = workspaceURL.standardizedFileURL
     }
 
-    public func snapshot(source: CodexGitReviewSource) async throws -> CodexGitReviewSnapshot {
+    public func snapshot(
+        source: CodexGitReviewSource,
+        baseRef: String? = nil,
+        commitRef: String? = nil
+    ) async throws -> CodexGitReviewSnapshot {
         precondition(source != .lastTurn, "Last Turn comes from canonical transcript state")
         _ = try await repositoryRoot()
         async let branchResult = optional(["symbolic-ref", "--quiet", "--short", "HEAD"])
         async let headResult = run(["rev-parse", "HEAD"])
         async let upstreamResult = optional(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
         async let branchesResult = run(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+        async let commitsResult = run([
+            "log", "-n", "25", "--format=%H%x1f%s%x1f%ct%x1e",
+        ])
         async let statusResult = run([
             "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all",
         ])
@@ -124,15 +137,25 @@ public actor CodexGitRepository {
         let branchNames = try await branchesResult.stdout
             .split(separator: "\n")
             .map(String.init)
+        let commits = try await parseCommitOptions(commitsResult.stdout)
+        let comparisonRef = try await resolvedComparisonRef(
+            source: source,
+            requestedBaseRef: baseRef,
+            requestedCommitRef: commitRef,
+            upstream: upstream,
+            branches: branchNames,
+            currentBranch: branch
+        )
         let revision = try await revision(
             source: source,
             branch: branch,
             headOID: headOID,
-            status: status.stdout
+            status: status.stdout,
+            comparisonRef: comparisonRef
         )
         let files = try await files(
             source: source,
-            upstream: upstream,
+            comparisonRef: comparisonRef,
             status: status.stdout
         )
         let unpushedCount: Int
@@ -149,6 +172,8 @@ public actor CodexGitRepository {
             branchOptions: branchNames.map {
                 CodexGitBranchPickerOption(branchName: $0, isCurrent: $0 == branch)
             },
+            commitOptions: commits,
+            comparisonRef: comparisonRef,
             files: files,
             unpushedCommitCount: unpushedCount
         )
@@ -156,7 +181,9 @@ public actor CodexGitRepository {
 
     public func patch(
         source: CodexGitReviewSource,
-        path: String
+        path: String,
+        baseRef: String? = nil,
+        commitRef: String? = nil
     ) async throws -> CodexGitReviewPatchText {
         let safePath = try await validatedPath(path)
         let relativePath = safePath.path.replacingOccurrences(
@@ -169,6 +196,7 @@ public actor CodexGitRepository {
         }
         let arguments = try await diffArguments(
             source: source,
+            comparisonRef: source == .branch ? baseRef : commitRef,
             paths: [relativePath],
             outputOptions: ["--binary"]
         )
@@ -258,16 +286,18 @@ public actor CodexGitRepository {
 
     private func files(
         source: CodexGitReviewSource,
-        upstream: String?,
+        comparisonRef: String?,
         status: String
     ) async throws -> [CodexGitReviewFileChange] {
         let namesArguments = try await diffArguments(
             source: source,
+            comparisonRef: comparisonRef,
             paths: [],
             outputOptions: ["--name-status", "-z"]
         )
         let statsArguments = try await diffArguments(
             source: source,
+            comparisonRef: comparisonRef,
             paths: [],
             outputOptions: ["--numstat", "-z"]
         )
@@ -332,6 +362,7 @@ public actor CodexGitRepository {
 
     private func diffArguments(
         source: CodexGitReviewSource,
+        comparisonRef: String? = nil,
         paths: [String],
         outputOptions: [String] = []
     ) async throws -> [String] {
@@ -348,14 +379,16 @@ public actor CodexGitRepository {
             result.append("--cached")
         case .uncommitted:
             result.append("HEAD")
-        case .branch:
-            if let upstream = try await optional([
-                "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}",
-            ])?.stdout.nilIfBlank {
-                result.append(upstream)
-            } else {
-                result.append("HEAD^")
+        case .committed:
+            guard let comparisonRef else {
+                throw CodexGitRepositoryError.comparisonRequired("Choose a commit to review.")
             }
+            result.append(contentsOf: ["\(comparisonRef)^", comparisonRef])
+        case .branch:
+            guard let comparisonRef else {
+                throw CodexGitRepositoryError.comparisonRequired("Choose a base branch to compare with the current branch.")
+            }
+            result.append("\(comparisonRef)...HEAD")
         }
         if !paths.isEmpty {
             result.append("--")
@@ -376,7 +409,8 @@ public actor CodexGitRepository {
             source: source,
             branch: branch,
             headOID: headOID,
-            status: status
+            status: status,
+            comparisonRef: nil
         )
     }
 
@@ -384,17 +418,59 @@ public actor CodexGitRepository {
         source: CodexGitReviewSource,
         branch: String,
         headOID: String,
-        status: String
+        status: String,
+        comparisonRef: String?
     ) async throws -> CodexGitReviewRevision {
         var fingerprint = CodexStableFingerprint()
         fingerprint.combine(source.rawValue)
         fingerprint.combine(branch)
         fingerprint.combine(headOID)
         fingerprint.combine(status)
+        fingerprint.combine(comparisonRef ?? "")
         if source != .staged {
             fingerprint.combine(try await worktreeContentFingerprint(status: status))
         }
         return .init(sourceID: "git/\(source.rawValue)", value: fingerprint.value)
+    }
+
+    private func resolvedComparisonRef(
+        source: CodexGitReviewSource,
+        requestedBaseRef: String?,
+        requestedCommitRef: String?,
+        upstream: String?,
+        branches: [String],
+        currentBranch: String
+    ) async throws -> String? {
+        switch source {
+        case .lastTurn, .uncommitted, .unstaged, .staged:
+            return nil
+        case .committed:
+            return try await validatedCommitRef(requestedCommitRef?.nilIfBlank ?? "HEAD")
+        case .branch:
+            let requested = requestedBaseRef?.nilIfBlank
+            let candidate = requested
+                ?? upstream
+                ?? branches.first(where: { $0 == "main" && $0 != currentBranch })
+                ?? branches.first(where: { $0 == "master" && $0 != currentBranch })
+            guard let candidate else {
+                throw CodexGitRepositoryError.comparisonRequired(
+                    "No base branch could be determined. Choose a base branch explicitly."
+                )
+            }
+            return try await validatedCommitRef(candidate)
+        }
+    }
+
+    private func validatedCommitRef(_ ref: String) async throws -> String {
+        let trimmed = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              (try await optional(["rev-parse", "--verify", "\(trimmed)^{commit}"])) != nil else {
+            throw CodexGitRepositoryError.commandFailed(
+                command: "git rev-parse --verify",
+                message: "Unknown commit or branch ‘\(trimmed)’."
+            )
+        }
+        return trimmed
     }
 
     /// Porcelain status alone does not change when an already-modified file is
@@ -593,6 +669,20 @@ public actor CodexGitRepository {
         return result
     }
 
+    private func parseCommitOptions(_ output: String) -> [CodexGitCommitOption] {
+        output.split(separator: "\u{1e}", omittingEmptySubsequences: true).compactMap { record in
+            let fields = record
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\u{1f}", omittingEmptySubsequences: false)
+            guard fields.count == 3, let timestamp = TimeInterval(fields[2]) else { return nil }
+            return CodexGitCommitOption(
+                sha: String(fields[0]),
+                subject: String(fields[1]),
+                committedAt: Date(timeIntervalSince1970: timestamp)
+            )
+        }
+    }
+
     @discardableResult
     private func run(
         _ arguments: [String],
@@ -728,7 +818,14 @@ private final class CodexBoundedProcess: @unchecked Sendable {
             }
             let output = try reads.output.get()
             let error = try reads.error.get()
-            process.waitUntilExit()
+            // `Process.waitUntilExit()` can remain blocked on a detached Swift
+            // worker even after both pipes reached EOF and the child was reaped.
+            // Polling `isRunning` keeps this boundary cancellable and avoids
+            // pinning a worker thread indefinitely.
+            while process.isRunning {
+                try Task.checkCancellation()
+                try await Task.sleep(for: .milliseconds(10))
+            }
             self.lock.withLock { self.process = nil }
             try Task.checkCancellation()
             if output.wasTruncated, !allowTruncation {
