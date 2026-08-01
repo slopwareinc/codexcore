@@ -74,16 +74,20 @@ public struct CodexPluginRouteView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().overlay(theme.colors.border)
-            HStack(spacing: 0) {
-                catalogColumn
-                    .frame(minWidth: 390, idealWidth: 460, maxWidth: 540)
+        GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 0) {
+                header
                 Divider().overlay(theme.colors.border)
-                detailPane
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                HStack(spacing: 0) {
+                    catalogColumn
+                        .frame(minWidth: 390, idealWidth: 460, maxWidth: 540)
+                    Divider().overlay(theme.colors.border)
+                    detailPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
         }
         .background(theme.colors.surfaceSunken)
         .onAppear {
@@ -119,8 +123,10 @@ public struct CodexPluginRouteView: View {
                      : "Work with Codex across your favorite tools")
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
+                    .lineLimit(2, reservesSpace: true)
             }
-            .frame(width: 290, alignment: .leading)
+            .frame(width: 330, height: 66, alignment: .leading)
+            .clipped()
 
             Picker("Plugins and skills", selection: $primaryTab) {
                 ForEach(CodexPluginRoutePrimaryTab.allCases, id: \.self) { tab in
@@ -129,7 +135,7 @@ public struct CodexPluginRouteView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 320)
+            .frame(width: 320, height: 66)
 
             Spacer()
 
@@ -168,8 +174,8 @@ public struct CodexPluginRouteView: View {
             .keyboardShortcut("r", modifiers: .command)
         }
         .padding(.horizontal, 22)
-        .padding(.vertical, 16)
-        .frame(minHeight: 82)
+        .frame(height: 98)
+        .clipped()
     }
 
     private var catalogColumn: some View {

@@ -48,6 +48,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
 
     @MainActor
     func testPluginHeaderSegmentedControlDoesNotMoveBetweenTabs() throws {
+        var largeTypeTheme = CodexAgentTheme.officialDark
+        largeTypeTheme.fonts.caption = .system(size: 24)
         let route = CodexPluginRouteView(
             plugins: [plugin(
                 name: "github",
@@ -61,6 +63,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             onRefresh: {},
             onAction: { _ in }
         )
+        .codexAgentTheme(largeTypeTheme)
         .frame(width: 1_100, height: 720)
         let hosting = NSHostingView(rootView: route)
         hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
@@ -73,20 +76,46 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        hosting.layoutSubtreeIfNeeded()
 
         let control = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-        let marketplaceFrame = control.convert(control.bounds, to: hosting)
         control.selectedSegment = 1
         _ = control.sendAction(control.action, to: control.target)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         hosting.layoutSubtreeIfNeeded()
 
         let updated = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
         let skillsFrame = updated.convert(updated.bounds, to: hosting)
-        XCTAssertEqual(marketplaceFrame.origin.x, skillsFrame.origin.x, accuracy: 0.5)
-        XCTAssertEqual(marketplaceFrame.origin.y, skillsFrame.origin.y, accuracy: 0.5)
-        XCTAssertEqual(marketplaceFrame.size.width, skillsFrame.size.width, accuracy: 0.5)
-        XCTAssertEqual(marketplaceFrame.size.height, skillsFrame.size.height, accuracy: 0.5)
+        let skillsSearch = try XCTUnwrap(firstDescendant(of: NSTextField.self, in: hosting))
+        let skillsSearchFrame = skillsSearch.convert(skillsSearch.bounds, to: hosting)
+        XCTAssertGreaterThanOrEqual(skillsFrame.minX, 370)
+
+        updated.selectedSegment = 2
+        _ = updated.sendAction(updated.action, to: updated.target)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        hosting.layoutSubtreeIfNeeded()
+
+        let manageControl = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+        let manageFrame = manageControl.convert(manageControl.bounds, to: hosting)
+        let manageSearch = try XCTUnwrap(firstDescendant(of: NSTextField.self, in: hosting))
+        let manageSearchFrame = manageSearch.convert(manageSearch.bounds, to: hosting)
+        XCTAssertEqual(skillsFrame.origin, manageFrame.origin)
+        XCTAssertEqual(skillsFrame.size, manageFrame.size)
+        XCTAssertEqual(skillsSearchFrame.origin.y, manageSearchFrame.origin.y, accuracy: 0.5)
+
+        manageControl.selectedSegment = 0
+        _ = manageControl.sendAction(manageControl.action, to: manageControl.target)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        hosting.layoutSubtreeIfNeeded()
+
+        let marketplaceControl = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+        let marketplaceFrame = marketplaceControl.convert(marketplaceControl.bounds, to: hosting)
+        let marketplaceSearch = try XCTUnwrap(firstDescendant(of: NSTextField.self, in: hosting))
+        let marketplaceSearchFrame = marketplaceSearch.convert(marketplaceSearch.bounds, to: hosting)
+        XCTAssertEqual(skillsFrame.origin, marketplaceFrame.origin)
+        XCTAssertEqual(skillsFrame.size, marketplaceFrame.size)
+        XCTAssertEqual(skillsSearchFrame.origin.y, marketplaceSearchFrame.origin.y, accuracy: 0.5)
     }
 
     func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
