@@ -3,6 +3,46 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexGitRepositoryTests: XCTestCase {
+    @MainActor
+    func testCancellingReviewRefreshLeavesNoPermanentLoadingState() throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let priorSnapshot = CodexGitReviewSnapshot(branchName: "main")
+        let workbench = CodexGitReviewWorkbench(
+            workspaceURL: fixture.url,
+            lastTurnSession: CodexGitReviewSession(snapshot: priorSnapshot)
+        )
+
+        workbench.selectSource(.uncommitted)
+        XCTAssertEqual(workbench.loadState, .loading)
+
+        workbench.cancelAll()
+
+        XCTAssertNotEqual(workbench.loadState, .loading)
+        XCTAssertNil(workbench.snapshot, "A cancelled source change must not expose a stale Last Turn snapshot")
+    }
+
+    @MainActor
+    func testReviewRefreshCanRestartAfterOverlayCancellation() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        try fixture.write("changed after reopen\n", to: "tracked.txt")
+        let workbench = CodexGitReviewWorkbench(
+            workspaceURL: fixture.url,
+            lastTurnSession: nil
+        )
+
+        workbench.selectSource(.uncommitted)
+        workbench.cancelAll()
+        workbench.refresh()
+
+        for _ in 0..<200 where workbench.loadState == .loading {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(workbench.loadState, .ready)
+        XCTAssertEqual(workbench.snapshot?.files.map(\.path), ["tracked.txt"])
+    }
+
     func testSnapshotsDistinguishStagedUnstagedPartialAndUntracked() async throws {
         let fixture = try GitFixture()
         defer { fixture.remove() }
@@ -317,6 +357,34 @@ final class CodexGitRepositoryTests: XCTestCase {
             "local success"
         )
         XCTAssertTrue(try fixture.git("status", "--porcelain").isEmpty)
+    }
+
+    func testPullRequestDetailsDecodeChecksAndReviewers() throws {
+        let details = try CodexGitRepository.decodePullRequest("""
+        {
+          "number": 170,
+          "title": "Review workbench",
+          "url": "https://github.com/example/repo/pull/170",
+          "isDraft": true,
+          "state": "OPEN",
+          "mergeStateStatus": "BLOCKED",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "baseRefName": "main",
+          "headRefName": "codex/review-workbench-170",
+          "reviewRequests": [{"login":"alice"}],
+          "reviews": [{"author":{"login":"bob"}}],
+          "statusCheckRollup": [
+            {"name":"Tests","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://ci.example/tests"},
+            {"context":"Lint","status":"IN_PROGRESS","conclusion":""}
+          ]
+        }
+        """)
+
+        XCTAssertEqual(details.number, 170)
+        XCTAssertEqual(details.reviewers, ["alice", "bob"])
+        XCTAssertEqual(details.checks.map(\.name), ["Tests", "Lint"])
+        XCTAssertTrue(details.checks[0].passed)
+        XCTAssertFalse(details.checks[1].passed)
     }
 }
 

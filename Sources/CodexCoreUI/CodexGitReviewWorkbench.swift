@@ -18,6 +18,14 @@ public final class CodexGitReviewWorkbench {
         case failed(String)
     }
 
+    public enum PullRequestState: Equatable {
+        case idle
+        case loading
+        case notFound
+        case ready(CodexGitPullRequestDetails)
+        case failed(String)
+    }
+
     public private(set) var source: CodexGitReviewSource = .lastTurn
     public private(set) var snapshot: CodexGitReviewSnapshot?
     public private(set) var loadState: LoadState = .idle
@@ -25,6 +33,8 @@ public final class CodexGitReviewWorkbench {
     public private(set) var operationTitle: String?
     public private(set) var operationMessage: String?
     public private(set) var operationError: String?
+    public private(set) var operationURL: URL?
+    public private(set) var pullRequestState: PullRequestState = .idle
     public var filter = ""
     public var selectedFileID: String?
     public var commitMessage = ""
@@ -42,7 +52,10 @@ public final class CodexGitReviewWorkbench {
     private var refreshTask: Task<Void, Never>?
     private var patchTask: Task<Void, Never>?
     private var operationTask: Task<Void, Never>?
+    private var pullRequestTask: Task<Void, Never>?
     private var generation: UInt64 = 0
+    private var operationGeneration: UInt64 = 0
+    private var pullRequestGeneration: UInt64 = 0
     private var patchCache: [String: CodexGitReviewPatchText] = [:]
     private var patchCacheOrder: [String] = []
     private let maximumCachedPatches = 12
@@ -129,6 +142,7 @@ public final class CodexGitReviewWorkbench {
     public func selectSource(_ source: CodexGitReviewSource) {
         guard self.source != source else { return }
         self.source = source
+        snapshot = nil
         selectedFileID = nil
         patchState = .idle
         if source == .lastTurn {
@@ -153,6 +167,11 @@ public final class CodexGitReviewWorkbench {
         operationError = nil
         refreshTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if generation == requestGeneration {
+                    refreshTask = nil
+                }
+            }
             do {
                 let requestedBase = baseBranch.nilIfBlank
                 let requestedCommit = commitRef.nilIfBlank
@@ -280,19 +299,73 @@ public final class CodexGitReviewWorkbench {
         ))
     }
 
+    public func loadPullRequest() {
+        pullRequestGeneration &+= 1
+        let requestGeneration = pullRequestGeneration
+        pullRequestTask?.cancel()
+        pullRequestState = .loading
+        pullRequestTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if pullRequestGeneration == requestGeneration {
+                    pullRequestTask = nil
+                }
+            }
+            do {
+                let details = try await repository.pullRequest()
+                try Task.checkCancellation()
+                guard pullRequestGeneration == requestGeneration else { return }
+                pullRequestState = details.map(PullRequestState.ready) ?? .notFound
+            } catch is CancellationError {
+                return
+            } catch {
+                guard pullRequestGeneration == requestGeneration else { return }
+                pullRequestState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    public func cancelPullRequestLoad() {
+        pullRequestGeneration &+= 1
+        pullRequestTask?.cancel()
+        pullRequestTask = nil
+        if pullRequestState == .loading {
+            pullRequestState = .idle
+        }
+    }
+
     public func cancelOperation() {
         operationTask?.cancel()
     }
 
     public func cancelAll() {
+        generation &+= 1
+        operationGeneration &+= 1
+        pullRequestGeneration &+= 1
         refreshTask?.cancel()
         patchTask?.cancel()
         operationTask?.cancel()
+        pullRequestTask?.cancel()
+        refreshTask = nil
+        patchTask = nil
+        operationTask = nil
+        pullRequestTask = nil
+        if loadState == .loading {
+            loadState = snapshot == nil ? .idle : .ready
+        }
+        if patchState == .loading {
+            patchState = .idle
+        }
+        if pullRequestState == .loading {
+            pullRequestState = .idle
+        }
+        operationTitle = nil
     }
 
     public func dismissOperationMessage() {
         operationMessage = nil
         operationError = nil
+        operationURL = nil
     }
 
     private func perform(_ mutation: CodexGitMutation) {
@@ -302,12 +375,17 @@ public final class CodexGitReviewWorkbench {
         operationTitle = mutation.progressTitle
         operationMessage = nil
         operationError = nil
+        operationURL = nil
         let requestSource = source
+        operationGeneration &+= 1
+        let requestGeneration = operationGeneration
         operationTask = Task { [weak self] in
             guard let self else { return }
             defer {
-                operationTitle = nil
-                operationTask = nil
+                if operationGeneration == requestGeneration {
+                    operationTitle = nil
+                    operationTask = nil
+                }
             }
             do {
                 let result = try await repository.mutate(
@@ -316,17 +394,23 @@ public final class CodexGitReviewWorkbench {
                     source: requestSource
                 )
                 try Task.checkCancellation()
+                guard operationGeneration == requestGeneration else { return }
                 operationMessage = result.message
+                operationURL = result.externalURL
                 if case .commit = mutation {
                     commitMessage = ""
                 } else if case .commitAndPush = mutation {
                     commitMessage = ""
+                } else if case .createDraftPullRequest = mutation {
+                    pullRequestState = .idle
                 }
                 refresh()
             } catch is CancellationError {
+                guard operationGeneration == requestGeneration else { return }
                 operationMessage = "Operation cancelled. Repository state will be refreshed."
                 refresh()
             } catch {
+                guard operationGeneration == requestGeneration else { return }
                 operationError = error.localizedDescription
                 refresh()
             }

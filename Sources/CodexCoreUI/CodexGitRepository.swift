@@ -245,6 +245,27 @@ public actor CodexGitRepository {
         }
     }
 
+    public func pullRequest() async throws -> CodexGitPullRequestDetails? {
+        _ = try await repositoryRoot()
+        do {
+            let result = try await runExecutable(
+                "gh",
+                arguments: [
+                    "pr", "view",
+                    "--json", "number,title,url,isDraft,state,mergeStateStatus,reviewDecision,baseRefName,headRefName,reviewRequests,reviews,statusCheckRollup",
+                ],
+                maximumOutputBytes: 512 * 1_024
+            )
+            return try Self.decodePullRequest(result.stdout)
+        } catch let error as CodexGitRepositoryError {
+            if case .commandFailed(_, let message) = error,
+               message.localizedCaseInsensitiveContains("no pull requests found") {
+                return nil
+            }
+            throw error
+        }
+    }
+
     public func mutate(
         _ mutation: CodexGitMutation,
         expectedRevision: CodexGitReviewRevision,
@@ -293,6 +314,12 @@ public actor CodexGitRepository {
             let result = try await pushCurrentBranch()
             return .init(message: result.stdout.nilIfBlank ?? "Branch pushed.")
         case .createDraftPullRequest(let title, let body):
+            if let existing = try await pullRequest() {
+                throw CodexGitRepositoryError.commandFailed(
+                    command: "gh pr create",
+                    message: "Pull request #\(existing.number) already exists: \(existing.url.absoluteString)"
+                )
+            }
             let result = try await runExecutable(
                 "gh",
                 arguments: [
@@ -322,6 +349,81 @@ public actor CodexGitRepository {
             try await run(["add", "-A"])
         }
         try await run(["commit", "-m", trimmed])
+    }
+
+    static func decodePullRequest(_ json: String) throws -> CodexGitPullRequestDetails {
+        let payload: PullRequestPayload
+        do {
+            payload = try JSONDecoder().decode(PullRequestPayload.self, from: Data(json.utf8))
+        } catch {
+            throw CodexGitRepositoryError.commandFailed(
+                command: "gh pr view",
+                message: "GitHub returned malformed pull-request details."
+            )
+        }
+        guard let url = URL(string: payload.url) else {
+            throw CodexGitRepositoryError.commandFailed(
+                command: "gh pr view",
+                message: "GitHub returned an invalid pull-request URL."
+            )
+        }
+        let requested = payload.reviewRequests.map(\.login)
+        let reviewed = payload.reviews.compactMap { review in
+            review.author?.login
+        }
+        let reviewers = Array(Set(requested + reviewed)).sorted()
+        let checks = payload.statusCheckRollup.map { check in
+            CodexGitPullRequestCheck(
+                name: check.name ?? check.context ?? check.workflowName ?? "Check",
+                status: check.status ?? "UNKNOWN",
+                conclusion: check.conclusion,
+                detailsURL: check.detailsURL.flatMap(URL.init(string:))
+            )
+        }
+        return CodexGitPullRequestDetails(
+            number: payload.number,
+            title: payload.title,
+            url: url,
+            isDraft: payload.isDraft,
+            state: payload.state,
+            mergeState: payload.mergeStateStatus,
+            reviewDecision: payload.reviewDecision,
+            baseBranch: payload.baseRefName,
+            headBranch: payload.headRefName,
+            reviewers: reviewers,
+            checks: checks
+        )
+    }
+
+    private struct PullRequestPayload: Decodable {
+        struct Actor: Decodable { var login: String }
+        struct Review: Decodable { var author: Actor? }
+        struct Check: Decodable {
+            var name: String?
+            var context: String?
+            var workflowName: String?
+            var status: String?
+            var conclusion: String?
+            var detailsURL: String?
+
+            enum CodingKeys: String, CodingKey {
+                case name, context, workflowName, status, conclusion
+                case detailsURL = "detailsUrl"
+            }
+        }
+
+        var number: Int
+        var title: String
+        var url: String
+        var isDraft: Bool
+        var state: String
+        var mergeStateStatus: String?
+        var reviewDecision: String?
+        var baseRefName: String
+        var headRefName: String
+        var reviewRequests: [Actor]
+        var reviews: [Review]
+        var statusCheckRollup: [Check]
     }
 
     private func pushCurrentBranch() async throws -> CodexGitCommandResult {

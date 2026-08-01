@@ -441,6 +441,63 @@ public struct CodexGitCommitDraft: Equatable, Sendable {
     }
 }
 
+public struct CodexGitPullRequestCheck: Equatable, Sendable, Identifiable {
+    public let name: String
+    public let status: String
+    public let conclusion: String?
+    public let detailsURL: URL?
+
+    public init(name: String, status: String, conclusion: String? = nil, detailsURL: URL? = nil) {
+        self.name = name
+        self.status = status
+        self.conclusion = conclusion
+        self.detailsURL = detailsURL
+    }
+
+    public var id: String { "\(name):\(detailsURL?.absoluteString ?? status)" }
+    public var passed: Bool { ["SUCCESS", "NEUTRAL", "SKIPPED"].contains(conclusion ?? "") }
+}
+
+public struct CodexGitPullRequestDetails: Equatable, Sendable {
+    public let number: Int
+    public let title: String
+    public let url: URL
+    public let isDraft: Bool
+    public let state: String
+    public let mergeState: String?
+    public let reviewDecision: String?
+    public let baseBranch: String
+    public let headBranch: String
+    public let reviewers: [String]
+    public let checks: [CodexGitPullRequestCheck]
+
+    public init(
+        number: Int,
+        title: String,
+        url: URL,
+        isDraft: Bool,
+        state: String,
+        mergeState: String? = nil,
+        reviewDecision: String? = nil,
+        baseBranch: String,
+        headBranch: String,
+        reviewers: [String] = [],
+        checks: [CodexGitPullRequestCheck] = []
+    ) {
+        self.number = number
+        self.title = title
+        self.url = url
+        self.isDraft = isDraft
+        self.state = state
+        self.mergeState = mergeState?.nilIfBlank
+        self.reviewDecision = reviewDecision?.nilIfBlank
+        self.baseBranch = baseBranch
+        self.headBranch = headBranch
+        self.reviewers = reviewers
+        self.checks = checks
+    }
+}
+
 public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public let revision: CodexGitReviewRevision
     public let branchName: String

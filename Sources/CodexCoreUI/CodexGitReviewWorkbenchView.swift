@@ -32,6 +32,7 @@ public struct CodexGitReviewWorkbenchView: View {
     @State private var showsCommit = false
     @State private var showsBranch = false
     @State private var showsPullRequest = false
+    @State private var showsPullRequestDetails = false
     @State private var showsAIReview = false
     @State private var showsComparison = false
     @State private var revertScope: RevertScope?
@@ -96,6 +97,7 @@ public struct CodexGitReviewWorkbenchView: View {
         .popover(isPresented: $showsCommit) { commitPopover }
         .popover(isPresented: $showsBranch) { branchPopover }
         .popover(isPresented: $showsPullRequest) { pullRequestPopover }
+        .popover(isPresented: $showsPullRequestDetails) { pullRequestDetailsPopover }
         .popover(isPresented: $showsAIReview) { aiReviewPopover }
         .popover(isPresented: $showsComparison) { comparisonPopover }
         .task {
@@ -196,6 +198,14 @@ public struct CodexGitReviewWorkbenchView: View {
                             || workbench.actionState?.isPushEnabled != true
                     )
                 Divider()
+                Button("Pull request details…") {
+                    showsPullRequestDetails = true
+                    workbench.loadPullRequest()
+                }
+                .disabled(
+                    !workbench.canUseGitActions
+                        || workbench.snapshot?.hasRemoteBranch != true
+                )
                 Button("Create draft PR…") { showsPullRequest = true }
                     .disabled(
                         !workbench.canUseGitActions
@@ -278,6 +288,10 @@ public struct CodexGitReviewWorkbenchView: View {
             Text(message)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
+            if let url = workbench.operationURL {
+                Button("Open") { NSWorkspace.shared.open(url) }
+                    .buttonStyle(.borderless)
+            }
             Button {
                 workbench.dismissOperationMessage()
             } label: {
@@ -782,6 +796,88 @@ public struct CodexGitReviewWorkbenchView: View {
         }
         .padding(16)
         .frame(width: 380)
+    }
+
+    @ViewBuilder
+    private var pullRequestDetailsPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch workbench.pullRequestState {
+            case .idle, .loading:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading pull request…")
+                }
+            case .notFound:
+                Text("No pull request")
+                    .font(theme.fonts.body.weight(.semibold))
+                Text("The current branch does not have an open pull request.")
+                    .foregroundStyle(theme.colors.textSecondary)
+            case .failed(let message):
+                Text("Pull request unavailable")
+                    .font(theme.fonts.body.weight(.semibold))
+                Text(message)
+                    .foregroundStyle(theme.colors.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Retry") { workbench.loadPullRequest() }
+                    .buttonStyle(.bordered)
+            case .ready(let details):
+                HStack(alignment: .firstTextBaseline) {
+                    Text("#\(details.number) \(details.title)")
+                        .font(theme.fonts.body.weight(.semibold))
+                    Spacer()
+                    Text(details.isDraft ? "Draft" : details.state.capitalized)
+                        .font(theme.fonts.micro.weight(.semibold))
+                        .foregroundStyle(details.isDraft ? theme.colors.warning : theme.colors.success)
+                }
+                Text("\(details.headBranch) → \(details.baseBranch)")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                if let decision = details.reviewDecision {
+                    Label(decision.replacingOccurrences(of: "_", with: " ").capitalized,
+                          systemImage: "person.2")
+                }
+                if !details.reviewers.isEmpty {
+                    Text("Reviewers: \(details.reviewers.joined(separator: ", "))")
+                }
+                Divider()
+                Text("Checks")
+                    .font(theme.fonts.caption.weight(.semibold))
+                if details.checks.isEmpty {
+                    Text("No checks reported")
+                        .foregroundStyle(theme.colors.textTertiary)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 7) {
+                            ForEach(details.checks) { check in
+                                HStack(spacing: 7) {
+                                    Image(systemName: check.passed
+                                          ? "checkmark.circle.fill" : "clock")
+                                        .foregroundStyle(check.passed
+                                                         ? theme.colors.success : theme.colors.warning)
+                                    Text(check.name).lineLimit(1)
+                                    Spacer()
+                                    Text((check.conclusion?.nilIfBlank ?? check.status)
+                                        .replacingOccurrences(of: "_", with: " ").capitalized)
+                                        .font(theme.fonts.micro)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                }
+                HStack {
+                    Button("Refresh") { workbench.loadPullRequest() }
+                    Spacer()
+                    Button("Open on GitHub") { NSWorkspace.shared.open(details.url) }
+                        .keyboardShortcut(.return, modifiers: .command)
+                }
+            }
+        }
+        .font(theme.fonts.caption)
+        .padding(16)
+        .frame(width: 420)
+        .accessibilityIdentifier("codex.review.pull-request-details")
+        .onDisappear { workbench.cancelPullRequestLoad() }
     }
 
     private var aiReviewPopover: some View {
