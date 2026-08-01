@@ -533,7 +533,7 @@ public struct CodexChatWorkspaceView: View {
                         onAddMenuRoute: onComposerAddMenuRoute,
                         onComposerChipClear: onComposerChipClear,
                         onFilesDropped: onFilesDropped,
-                        focusRequest: composerFocusRequest
+                        voiceFocusRequest: composerFocusRequest
                     )
                     .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
                     .padding(.horizontal, 14)
