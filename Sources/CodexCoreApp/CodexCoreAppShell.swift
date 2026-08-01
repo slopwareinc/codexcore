@@ -332,7 +332,6 @@ struct CodexCoreAppShell: View {
         case .automations:
             CodexAutomationRouteView(
                 automations: model.automations,
-                isNewAutomationRequested: $model.isNewScheduledAutomationRequested,
                 onAction: { model.performAutomationRouteAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

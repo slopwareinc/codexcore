@@ -6,18 +6,15 @@ public struct CodexAutomationRouteView: View {
 
     public let automations: [CodexAutomation]
     public let onAction: (CodexAutomationRouteAction) -> Void
-    @Binding private var isNewAutomationRequested: Bool
     @State private var session = CodexAutomationRouteSession()
     @State private var editorAutomation: CodexAutomation?
     @State private var deletionCandidate: CodexAutomation?
 
     public init(
         automations: [CodexAutomation] = [],
-        isNewAutomationRequested: Binding<Bool> = .constant(false),
         onAction: @escaping (CodexAutomationRouteAction) -> Void
     ) {
         self.automations = automations
-        _isNewAutomationRequested = isNewAutomationRequested
         self.onAction = onAction
     }
 
@@ -46,10 +43,6 @@ public struct CodexAutomationRouteView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.colors.surface)
-        .onAppear { performNewAutomationRequestIfNeeded() }
-        .onChange(of: isNewAutomationRequested) { _, requested in
-            if requested { performNewAutomationRequestIfNeeded() }
-        }
         .sheet(item: $editorAutomation) { automation in
             CodexAutomationEditor(automation: automation) { saved in
                 onAction(.save(saved))
@@ -228,11 +221,6 @@ public struct CodexAutomationRouteView: View {
         onAction(action)
     }
 
-    private func performNewAutomationRequestIfNeeded() {
-        guard isNewAutomationRequested else { return }
-        editorAutomation = CodexAutomation(name: "New automation", prompt: "")
-        isNewAutomationRequested = false
-    }
 }
 
 private struct CodexAutomationTemplateButton: View {

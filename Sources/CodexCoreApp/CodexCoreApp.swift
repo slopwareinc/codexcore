@@ -143,21 +143,6 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.toggleSidebarCollapsed()
     }
 
-    @objc private func showAutomations(_ sender: Any?) {
-        showMainWindow()
-        model.selectAppRoute(.automations)
-    }
-
-    @objc private func newScheduledAutomation(_ sender: Any?) {
-        showMainWindow()
-        model.requestNewScheduledAutomation()
-    }
-
-    @objc private func createAutomationViaChat(_ sender: Any?) {
-        showMainWindow()
-        model.performAutomationRouteAction(.createViaChat)
-    }
-
     private func showMainWindow() {
         if mainWindow == nil {
             let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
@@ -197,7 +182,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSRunningApplication.current.activate(options: .activateAllWindows)
     }
 
-    func configureMainMenu() {
+    private func configureMainMenu() {
         let mainMenu = NSMenu()
 
         let appItem = NSMenuItem()
@@ -217,33 +202,6 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         newWindowItem.target = self
         fileMenu.addItem(newWindowItem)
         fileItem.submenu = fileMenu
-
-        let automationsItem = NSMenuItem()
-        mainMenu.addItem(automationsItem)
-        let automationsMenu = NSMenu(title: "Automations")
-        let showAutomationsItem = NSMenuItem(
-            title: "Show Automations",
-            action: #selector(showAutomations(_:)),
-            keyEquivalent: ""
-        )
-        showAutomationsItem.target = self
-        automationsMenu.addItem(showAutomationsItem)
-        automationsMenu.addItem(.separator())
-        let newScheduledItem = NSMenuItem(
-            title: "New Scheduled Automation…",
-            action: #selector(newScheduledAutomation(_:)),
-            keyEquivalent: ""
-        )
-        newScheduledItem.target = self
-        automationsMenu.addItem(newScheduledItem)
-        let createViaChatItem = NSMenuItem(
-            title: "Create Automation via Chat…",
-            action: #selector(createAutomationViaChat(_:)),
-            keyEquivalent: ""
-        )
-        createViaChatItem.target = self
-        automationsMenu.addItem(createViaChatItem)
-        automationsItem.submenu = automationsMenu
 
         let editItem = NSMenuItem()
         mainMenu.addItem(editItem)
