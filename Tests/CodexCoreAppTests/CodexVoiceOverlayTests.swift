@@ -1,4 +1,5 @@
 import AppKit
+import CodexCore
 import Foundation
 import Testing
 import XCTest
@@ -138,5 +139,34 @@ struct CodexVoiceOverlayTests {
             "phase": "listening",
         ])
         #expect(safe == ["displayID": "42", "phase": "listening"])
+    }
+
+    @Test("Voice advertises the explicit end-call dynamic tool")
+    @MainActor
+    func endCallToolMatchesOfficialContract() {
+        for spec in CodexCoreAppModel.voiceTaskToolSpecs {
+            guard case let .dictionary(object) = spec.rawValue,
+                  let nameValue = object["name"],
+                  case let .string(name) = nameValue
+            else { continue }
+            guard name == "end_realtime_voice_call" else { continue }
+            guard let descriptionValue = object["description"],
+                  case let .string(description) = descriptionValue,
+                  let schemaValue = object["inputSchema"],
+                  case let .dictionary(schema) = schemaValue,
+                  let propertiesValue = schema["properties"],
+                  case let .dictionary(properties) = propertiesValue,
+                  let requiredValue = schema["required"],
+                  case let .array(required) = requiredValue
+            else {
+                Issue.record("end-call tool did not have the expected object schema")
+                return
+            }
+            #expect(description.contains("Only call this tool if the user explicitly asks"))
+            #expect(properties.isEmpty)
+            #expect(required.isEmpty)
+            return
+        }
+        Issue.record("end-call tool was not advertised")
     }
 }
