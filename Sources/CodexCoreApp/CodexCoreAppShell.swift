@@ -94,7 +94,7 @@ struct CodexCoreAppShell: View {
             sidebarOverlaySession.dismissImmediately()
         }
         .overlay(alignment: .topTrailing) {
-            if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
+            if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty {
                 VStack(alignment: .trailing, spacing: 10) {
                     if !model.approvalPrompts.isEmpty {
                         CodexApprovalRequestsPanel(
@@ -114,14 +114,6 @@ struct CodexCoreAppShell: View {
                         )
                     }
 
-                    if !model.currentPlan.isEmpty || model.currentDiff != nil {
-                        CodexTurnPlanPanel(
-                            steps: model.currentPlan,
-                            explanation: model.currentPlanExplanation,
-                            diff: model.currentDiff,
-                            onCopyDiff: { diff in model.copyText(diff) }
-                        )
-                    }
                 }
                 .codexAgentTheme(model.theme)
                 .padding(.top, 54)

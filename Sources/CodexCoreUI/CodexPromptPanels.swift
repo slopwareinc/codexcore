@@ -6,19 +6,12 @@ public struct CodexTurnPlanPanel: View {
 
     public let steps: [TurnPlanStep]
     public let explanation: String?
-    public let diff: String?
-    public let onCopyDiff: ((String) -> Void)?
-
     public init(
         steps: [TurnPlanStep],
-        explanation: String?,
-        diff: String?,
-        onCopyDiff: ((String) -> Void)? = nil
+        explanation: String?
     ) {
         self.steps = steps
         self.explanation = explanation
-        self.diff = diff
-        self.onCopyDiff = onCopyDiff
     }
 
     public var body: some View {
@@ -60,30 +53,6 @@ public struct CodexTurnPlanPanel: View {
                 }
             }
 
-            if let diff, !diff.isEmpty {
-                Divider().overlay(theme.colors.border)
-                HStack(spacing: 8) {
-                    Image(systemName: "plusminus")
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .frame(width: 16)
-                    Text(diffSummary(diff))
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Button {
-                        onCopyDiff?(diff)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(theme.fonts.micro)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .help("Copy diff")
-                    .disabled(onCopyDiff == nil)
-                }
-            }
         }
         .padding(12)
         .frame(width: 360)
@@ -109,14 +78,90 @@ public struct CodexTurnPlanPanel: View {
         }
     }
 
-    private func diffSummary(_ diff: String) -> String {
-        let files = diff.components(separatedBy: "diff --git").count - 1
-        let added = diff.split(separator: "\n").filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
-        let removed = diff.split(separator: "\n").filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
-        if files > 0 {
-            return "\(files) file(s) · +\(added) −\(removed)"
+}
+
+public struct CodexPlanSummaryPage: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    public let plan: CodexPlanSummary
+
+    public init(plan: CodexPlanSummary) {
+        self.plan = plan
+    }
+
+    public var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 10) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .foregroundStyle(theme.colors.accent)
+                    Text("Plan")
+                        .font(theme.fonts.panelTitle)
+                        .foregroundStyle(theme.colors.textPrimary)
+                    Spacer(minLength: 0)
+                    Text(plan.progressLabel)
+                        .font(theme.fonts.code)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+
+                if let explanation = plan.explanation?.nilIfBlank {
+                    Text(explanation)
+                        .font(theme.fonts.body)
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: statusImage(step.status))
+                                .font(theme.fonts.actionIcon)
+                                .foregroundStyle(statusColor(step.status))
+                                .frame(width: 20)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(step.step)
+                                    .font(theme.fonts.body)
+                                    .foregroundStyle(step.status == .completed ? theme.colors.textTertiary : theme.colors.textPrimary)
+                                    .strikethrough(step.status == .completed, color: theme.colors.textTertiary)
+                                Text(statusLabel(step.status))
+                                    .font(theme.fonts.caption)
+                                    .foregroundStyle(theme.colors.textTertiary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Step \(index + 1) of \(plan.steps.count), \(statusLabel(step.status)): \(step.step)")
+                    }
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        return "+\(added) −\(removed)"
+        .scrollContentBackground(.hidden)
+    }
+
+    private func statusImage(_ status: TurnPlanStepStatus) -> String {
+        switch status {
+        case .pending: return "circle"
+        case .inProgress: return "circle.dotted.circle"
+        case .completed: return "checkmark.circle.fill"
+        }
+    }
+
+    private func statusColor(_ status: TurnPlanStepStatus) -> Color {
+        switch status {
+        case .pending: return theme.colors.textTertiary
+        case .inProgress: return theme.colors.accent
+        case .completed: return theme.colors.success
+        }
+    }
+
+    private func statusLabel(_ status: TurnPlanStepStatus) -> String {
+        switch status {
+        case .pending: return "Pending"
+        case .inProgress: return "In progress"
+        case .completed: return "Completed"
+        }
     }
 }
 

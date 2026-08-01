@@ -2571,7 +2571,10 @@ final class CodexCoreAppModel {
             gitBranch: gitBranch,
             turnDiff: currentDiff,
             environmentInfo: environmentInfoState,
-            sourceFiles: Array(sourceFiles)
+            sourceFiles: Array(sourceFiles),
+            plan: !isSending && !currentPlan.isEmpty
+                ? CodexPlanSummary(steps: currentPlan, explanation: currentPlanExplanation)
+                : nil
         )
     }
 

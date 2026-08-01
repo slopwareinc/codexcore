@@ -32,6 +32,20 @@ public struct CodexFloatingSummaryPanel: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if let plan = workspaceSummary?.plan {
+                SummarySection(title: "Plan") {
+                    SummaryRow(
+                        title: plan.explanation?.nilIfBlank ?? "View plan",
+                        systemImage: "list.bullet.rectangle",
+                        trailing: AnyView(SummaryPlanProgress(label: plan.progressLabel))
+                    ) {
+                        onSelectTab(CodexAgentPanelTab.plan(plan).id)
+                    }
+                }
+
+                SummaryDivider()
+            }
+
             if let workspaceSummary {
                 SummarySection(title: "Environment", showsAddButton: true) {
                     if let gitReviewSession {
@@ -300,6 +314,18 @@ private struct SummaryDiffStats: View {
                 .foregroundStyle(theme.colors.danger)
         }
         .font(theme.fonts.code)
+    }
+}
+
+private struct SummaryPlanProgress: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(theme.fonts.code)
+            .foregroundStyle(theme.colors.textTertiary)
     }
 }
 
@@ -1106,6 +1132,8 @@ private struct CodexAgentPanelContent: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             switch tab {
+            case .plan(let plan):
+                CodexPlanSummaryPage(plan: plan)
             case .sideChat(let sideChat):
                 transcriptPanel(
                     transcript: sideChat.transcript,
@@ -1236,6 +1264,8 @@ private struct CodexAgentPanelContent: View {
     @ViewBuilder
     private func compactComposer(for tab: CodexAgentPanelTab) -> some View {
         switch tab {
+        case .plan:
+            EmptyView()
         case .sideChat:
             AgentPanelComposer(
                 placeholder: "Ask side chat...",

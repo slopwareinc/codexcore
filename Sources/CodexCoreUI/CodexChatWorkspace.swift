@@ -583,7 +583,8 @@ public struct CodexChatWorkspaceView: View {
         panel.agentTabs(
             sideChat: sideChat,
             subagents: subagents,
-            gitReviewSession: gitReviewSession
+            gitReviewSession: gitReviewSession,
+            plan: workspaceSummary?.plan
         )
     }
 

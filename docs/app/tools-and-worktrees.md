@@ -33,7 +33,7 @@ Open **Browser** for manually navigated documentation and local previews. It is 
 
 ## Review workbench
 
-Open **Review changes** from the Environment summary or select the Review side-panel tab. Review offers Last Turn, Uncommitted, Unstaged, Staged, and Branch sources. Last Turn uses the immutable diff already projected for the current conversation; repository sources are refreshed explicitly from Git.
+Open **Changes** from the shared task summary or select the Review side-panel tab. Completed plans appear as a separate Plan section in that same summary and open a Plan tab; diffs never appear inside Plan. Review offers Last Turn, Uncommitted, Unstaged, Staged, and Branch sources. Last Turn uses the immutable diff already projected for the current conversation; repository sources are refreshed explicitly from Git.
 
 The changed-file navigator supports filtering, keyboard movement, rename metadata, line statistics, and per-file viewed state. It remains beside the unified diff at normal widths and collapses to a compact picker below 520 points. Patches load only for the selected file and are byte-bounded.
 

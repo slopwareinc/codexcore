@@ -34,10 +34,12 @@ public final class CodexWorkspacePanelState: ObservableObject {
     func agentTabs(
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState],
-        gitReviewSession: CodexGitReviewSession? = nil
+        gitReviewSession: CodexGitReviewSession? = nil,
+        plan: CodexPlanSummary? = nil
     ) -> [CodexAgentPanelTab] {
         var tabs: [CodexAgentPanelTab] = []
         if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
+        if let plan { tabs.append(.plan(plan)) }
         if let sideChat { tabs.append(.sideChat(sideChat)) }
         if let openSubagentTabID,
            let subagent = subagents.first(where: { $0.id == openSubagentTabID })

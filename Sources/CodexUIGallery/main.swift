@@ -33,6 +33,7 @@ struct Gallery {
             Scene(name: "glass-roles", width: 720, content: AnyView(GlassRoleSpecimen())),
             Scene(name: "palette", width: 720, content: AnyView(PaletteSpecimen())),
             Scene(name: "plan-panel", width: 420, content: AnyView(PlanPanelScene())),
+            Scene(name: "summary-plan-and-changes", width: 420, content: AnyView(SummaryPlanAndChangesScene())),
             Scene(name: "mcp-sheet", width: 620, content: AnyView(MCPSheetScene())),
             Scene(name: "chips", width: 720, content: AnyView(ChipSpecimen()))
         ]
@@ -487,10 +488,49 @@ private struct PlanPanelScene: View {
                 TurnPlanStep(step: "Make themes dual-appearance", status: .inProgress),
                 TurnPlanStep(step: "Render the gallery", status: .pending)
             ],
-            explanation: "Working through the visual glowup in commits.",
-            diff: "diff --git a/A b/A\n+added line\n-removed line\n+another added\n",
-            onCopyDiff: { _ in }
+            explanation: "Working through the visual glowup in commits."
         )
+    }
+}
+
+private struct SummaryPlanAndChangesScene: View {
+    private let plan = CodexPlanSummary(
+        steps: [
+            TurnPlanStep(step: "Inspect the official bundle", status: .completed),
+            TurnPlanStep(step: "Unify Plan and Changes ownership", status: .inProgress),
+            TurnPlanStep(step: "Validate controlled Git scenarios", status: .pending),
+        ],
+        explanation: "Review workbench parity"
+    )
+
+    private let review = CodexGitReviewSession(
+        snapshot: CodexGitReviewSnapshot(
+            branchName: "codex/review-workbench-170",
+            files: [
+                CodexGitReviewFileChange(
+                    path: "Sources/ReviewWorkbench.swift",
+                    status: .modified,
+                    isStaged: false,
+                    addedLines: 56,
+                    removedLines: 11
+                )
+            ]
+        )
+    )
+
+    var body: some View {
+        CodexFloatingSummaryPanel(
+            sideChat: nil,
+            subagents: [],
+            workspaceSummary: CodexWorkspaceSummaryContext(
+                workspacePath: "/Users/person/Projects/CodexCore",
+                gitBranch: "codex/review-workbench-170",
+                plan: plan
+            ),
+            gitReviewSession: review,
+            onSelectTab: { _ in }
+        )
+        .padding(24)
     }
 }
 
