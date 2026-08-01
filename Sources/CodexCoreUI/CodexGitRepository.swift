@@ -74,6 +74,7 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
     case stale(expected: CodexGitReviewRevision, actual: CodexGitReviewRevision)
     case unsafePath(String)
     case destructiveUntrackedPath(String)
+    case unsafeRepositoryState(String)
     case comparisonRequired(String)
     case partialSuccess(String)
     case commandFailed(command: String, message: String)
@@ -89,6 +90,8 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
             "Refusing to operate on a path outside the worktree: \(path)"
         case .destructiveUntrackedPath(let path):
             "Refusing to discard untracked file \(path). Move it to Trash explicitly."
+        case .unsafeRepositoryState(let detail):
+            "Git operation blocked while \(detail). Finish or abort that operation, then refresh Review."
         case .comparisonRequired(let detail):
             detail
         case .partialSuccess(let detail):
@@ -109,6 +112,8 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
 public actor CodexGitRepository {
     public static let maximumMetadataBytes = 4 * 1_024 * 1_024
     public static let maximumPatchBytes = 256 * 1_024
+    public static let maximumVisibleUntrackedFiles = 5_000
+    private static let maximumUntrackedMetadataBytes = 512 * 1_024
 
     private let requestedWorkspaceURL: URL
     private var rootURL: URL?
@@ -128,18 +133,27 @@ public actor CodexGitRepository {
         async let headResult = run(["rev-parse", "HEAD"])
         async let upstreamResult = optional(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
         async let branchesResult = run(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+        async let remotesResult = run(["remote"])
         async let commitsResult = run([
             "log", "-n", "25", "--format=%H%x1f%s%x1f%ct%x1e",
         ])
         async let statusResult = run([
-            "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all",
+            "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=no",
         ])
+        async let untrackedResult = source == .unstaged || source == .uncommitted
+            ? untrackedSnapshot()
+            : UntrackedSnapshot.empty
 
         let branch = try await branchResult?.stdout.nilIfBlank ?? "HEAD"
         let headOID = try await headResult.stdout
         let upstream = try await upstreamResult?.stdout.nilIfBlank
         let status = try await statusResult
+        let untracked = try await untrackedResult
+        let revisionStatus = status.stdout + untracked.porcelainStatus
         let branchNames = try await branchesResult.stdout
+            .split(separator: "\n")
+            .map(String.init)
+        let remoteNames = try await remotesResult.stdout
             .split(separator: "\n")
             .map(String.init)
         let commits = try await parseCommitOptions(commitsResult.stdout)
@@ -155,17 +169,21 @@ public actor CodexGitRepository {
             source: source,
             branch: branch,
             headOID: headOID,
-            status: status.stdout,
+            status: revisionStatus,
             comparisonRef: comparisonRef
         )
         let files = try await files(
             source: source,
             comparisonRef: comparisonRef,
-            status: status.stdout
+            status: status.stdout,
+            untrackedPaths: untracked.paths
         )
         let unpushedCount: Int
         if upstream != nil,
            let result = try await optional(["rev-list", "--count", "@{upstream}..HEAD"]) {
+            unpushedCount = Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        } else if !remoteNames.isEmpty,
+                  let result = try await optional(["rev-list", "--count", "HEAD", "--not", "--remotes"]) {
             unpushedCount = Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
         } else {
             unpushedCount = 0
@@ -174,13 +192,15 @@ public actor CodexGitRepository {
             revision: revision,
             branchName: branch,
             upstreamBranchName: upstream,
+            remoteNames: remoteNames,
             branchOptions: branchNames.map {
                 CodexGitBranchPickerOption(branchName: $0, isCurrent: $0 == branch)
             },
             commitOptions: commits,
             comparisonRef: comparisonRef,
             files: files,
-            unpushedCommitCount: unpushedCount
+            unpushedCommitCount: unpushedCount,
+            ignoredChangeCount: untracked.didTruncate ? 1 : 0
         )
     }
 
@@ -196,7 +216,7 @@ public actor CodexGitRepository {
             with: ""
         )
         if (source == .unstaged || source == .uncommitted),
-           try await untrackedPaths().contains(relativePath) {
+           try await isUntracked(relativePath) {
             return try untrackedPatch(url: safePath, relativePath: relativePath)
         }
         let arguments = try await diffArguments(
@@ -230,6 +250,7 @@ public actor CodexGitRepository {
         expectedRevision: CodexGitReviewRevision,
         source: CodexGitReviewSource
     ) async throws -> CodexGitMutationResult {
+        try await ensureSafeMutationState()
         let actual = try await currentRevision(source: source)
         guard actual == expectedRevision else {
             throw CodexGitRepositoryError.stale(expected: expectedRevision, actual: actual)
@@ -243,11 +264,11 @@ public actor CodexGitRepository {
             return .init(message: "Unstaged \(paths.count) file\(paths.count == 1 ? "" : "s").")
         case .revertTracked(let paths):
             let safe = try await validatedRelativePaths(paths)
-            let untracked = Set(try await untrackedPaths())
+            let untracked = Set(try await untrackedPaths(matching: safe))
             if let path = safe.first(where: { untracked.contains($0) }) {
                 throw CodexGitRepositoryError.destructiveUntrackedPath(path)
             }
-            try await run(["restore", "--worktree", "--"] + safe)
+            try await run(["restore", "--source=HEAD", "--staged", "--worktree", "--"] + safe)
             return .init(message: "Reverted \(paths.count) tracked file\(paths.count == 1 ? "" : "s").")
         case .createBranch(let name):
             try await run(["switch", "-c", try validatedBranchName(name)])
@@ -329,10 +350,37 @@ public actor CodexGitRepository {
         return try await run(["push", "--porcelain", "--set-upstream", remote, branch])
     }
 
+    /// Refuse every mutation while another Git writer or a history-changing
+    /// operation owns the repository. Reads remain available so Review can
+    /// explain and recover from the state without racing the operation.
+    private func ensureSafeMutationState() async throws {
+        let gitDirectoryResult = try await run(["rev-parse", "--absolute-git-dir"])
+        let gitDirectory = URL(
+            fileURLWithPath: gitDirectoryResult.stdout
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let markers: [(String, String)] = [
+            ("index.lock", "another Git process holds the index lock"),
+            ("MERGE_HEAD", "a merge is in progress"),
+            ("CHERRY_PICK_HEAD", "a cherry-pick is in progress"),
+            ("REVERT_HEAD", "a revert is in progress"),
+            ("BISECT_LOG", "a bisect is in progress"),
+            ("rebase-merge", "a rebase is in progress"),
+            ("rebase-apply", "a rebase or apply operation is in progress"),
+            ("sequencer", "a sequenced Git operation is in progress"),
+        ]
+        if let marker = markers.first(where: {
+            FileManager.default.fileExists(atPath: gitDirectory.appending(path: $0.0).path)
+        }) {
+            throw CodexGitRepositoryError.unsafeRepositoryState(marker.1)
+        }
+    }
+
     private func files(
         source: CodexGitReviewSource,
         comparisonRef: String?,
-        status: String
+        status: String,
+        untrackedPaths: [String]
     ) async throws -> [CodexGitReviewFileChange] {
         let namesArguments = try await diffArguments(
             source: source,
@@ -389,7 +437,7 @@ public actor CodexGitRepository {
         }
         if source == .unstaged || source == .uncommitted {
             let known = Set(files.map(\.path))
-            files.append(contentsOf: try await untrackedPaths()
+            files.append(contentsOf: untrackedPaths
                 .filter { !known.contains($0) }
                 .map {
                     CodexGitReviewFileChange(
@@ -446,15 +494,19 @@ public actor CodexGitRepository {
         let branch = try await optional(["symbolic-ref", "--quiet", "--short", "HEAD"])?.stdout.nilIfBlank ?? "HEAD"
         async let headResult = run(["rev-parse", "HEAD"])
         async let statusResult = run([
-            "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all",
+            "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=no",
         ])
+        async let untrackedResult = source == .unstaged || source == .uncommitted
+            ? untrackedSnapshot()
+            : UntrackedSnapshot.empty
         let headOID = try await headResult.stdout
         let status = try await statusResult.stdout
+        let untracked = try await untrackedResult
         return try await revision(
             source: source,
             branch: branch,
             headOID: headOID,
-            status: status,
+            status: status + untracked.porcelainStatus,
             comparisonRef: nil
         )
     }
@@ -613,10 +665,50 @@ public actor CodexGitRepository {
         return trimmed
     }
 
-    private func untrackedPaths() async throws -> [String] {
-        try await run(["ls-files", "--others", "--exclude-standard", "-z"]).stdout
+    private func untrackedPaths(matching paths: [String]) async throws -> [String] {
+        guard !paths.isEmpty else { return [] }
+        return try await run(
+            ["ls-files", "--others", "--exclude-standard", "-z", "--"] + paths
+        ).stdout
             .split(separator: "\0")
             .map(String.init)
+    }
+
+    private func isUntracked(_ path: String) async throws -> Bool {
+        !(try await untrackedPaths(matching: [path])).isEmpty
+    }
+
+    private struct UntrackedSnapshot: Sendable {
+        var paths: [String]
+        var didTruncate: Bool
+
+        static let empty = UntrackedSnapshot(paths: [], didTruncate: false)
+
+        var porcelainStatus: String {
+            paths.map { "? \($0)\0" }.joined()
+        }
+    }
+
+    private func untrackedSnapshot() async throws -> UntrackedSnapshot {
+        let result = try await run(
+            ["ls-files", "--others", "--exclude-standard", "-z"],
+            maximumOutputBytes: Self.maximumUntrackedMetadataBytes,
+            allowTruncation: true
+        )
+        var paths = result.stdout.split(separator: "\0").map(String.init)
+        // A truncated byte stream can end inside a path. Never expose that
+        // fragment as an actionable file.
+        if result.wasTruncated, !result.stdout.hasSuffix("\0"), !paths.isEmpty {
+            paths.removeLast()
+        }
+        let exceededRecordLimit = paths.count > Self.maximumVisibleUntrackedFiles
+        if exceededRecordLimit {
+            paths.removeSubrange(Self.maximumVisibleUntrackedFiles...)
+        }
+        return UntrackedSnapshot(
+            paths: paths,
+            didTruncate: result.wasTruncated || exceededRecordLimit
+        )
     }
 
     private func untrackedPatch(
@@ -774,6 +866,7 @@ public actor CodexGitRepository {
 private struct CodexGitCommandResult: Sendable {
     var stdout: String
     var stderr: String
+    var wasTruncated: Bool
 }
 
 private final class CodexBoundedProcess: @unchecked Sendable {
@@ -885,7 +978,11 @@ private final class CodexBoundedProcess: @unchecked Sendable {
                     message: stderr.nilIfBlank ?? stdout.nilIfBlank ?? "Exit \(process.terminationStatus)"
                 )
             }
-            return CodexGitCommandResult(stdout: stdout, stderr: stderr)
+            return CodexGitCommandResult(
+                stdout: stdout,
+                stderr: stderr,
+                wasTruncated: output.wasTruncated
+            )
         }.value
     }
 

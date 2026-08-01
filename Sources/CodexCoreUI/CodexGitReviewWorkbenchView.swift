@@ -311,6 +311,7 @@ public struct CodexGitReviewWorkbenchView: View {
                 }
                 .accessibilityIdentifier("codex.review.file-list")
             }
+            boundedChangesNotice
             Divider().overlay(theme.colors.border)
             HStack {
                 Text("\(workbench.viewedCount)/\(workbench.snapshot?.files.count ?? 0) viewed")
@@ -341,6 +342,7 @@ public struct CodexGitReviewWorkbenchView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("codex.review.compact-file-picker")
             }
+            boundedChangesNotice
         }
         .padding(8)
         .background(theme.colors.surface.opacity(0.55))
@@ -361,6 +363,22 @@ public struct CodexGitReviewWorkbenchView: View {
                 return .handled
             }
             .accessibilityIdentifier("codex.review.file-filter")
+    }
+
+    @ViewBuilder
+    private var boundedChangesNotice: some View {
+        if (workbench.snapshot?.ignoredChangeCount ?? 0) > 0 {
+            Label(
+                "Additional untracked files are hidden to keep Review responsive.",
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(theme.fonts.micro)
+            .foregroundStyle(theme.colors.warning)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("codex.review.bounded-changes-notice")
+        }
     }
 
     private func moveSelection(_ direction: MoveCommandDirection) {
@@ -582,17 +600,13 @@ public struct CodexGitReviewWorkbenchView: View {
                     showsCommit = false
                     workbench.commit()
                 }
-                .disabled(workbench.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(workbench.actionState?.isCommitEnabled != true)
                 Button("Commit and push") {
                     showsCommit = false
                     workbench.commitAndPush()
                 }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(
-                    workbench.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || workbench.snapshot?.upstreamBranchName == nil
-                            && workbench.snapshot?.branchName == "HEAD"
-                )
+                .disabled(workbench.actionState?.isCommitAndPushEnabled != true)
             }
         }
         .padding(16)

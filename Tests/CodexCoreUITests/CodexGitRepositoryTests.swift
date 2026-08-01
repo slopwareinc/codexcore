@@ -79,6 +79,24 @@ final class CodexGitRepositoryTests: XCTestCase {
         XCTAssertLessThan(started.duration(to: .now), .seconds(2))
     }
 
+    func testLargeUntrackedTreeIsBoundedAndDisclosed() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let generated = fixture.url.appending(path: "generated")
+        try FileManager.default.createDirectory(at: generated, withIntermediateDirectories: true)
+        for index in 0...CodexGitRepository.maximumVisibleUntrackedFiles {
+            try Data("x".utf8).write(to: generated.appending(path: "file-\(index).txt"))
+        }
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let started = ContinuousClock.now
+
+        let snapshot = try await repository.snapshot(source: .uncommitted)
+
+        XCTAssertEqual(snapshot.files.count, CodexGitRepository.maximumVisibleUntrackedFiles)
+        XCTAssertEqual(snapshot.ignoredChangeCount, 1)
+        XCTAssertLessThan(started.duration(to: .now), .seconds(8))
+    }
+
     func testCommittedSourceReviewsExactlyTheSelectedCommit() async throws {
         let fixture = try GitFixture()
         defer { fixture.remove() }
@@ -194,6 +212,54 @@ final class CodexGitRepositoryTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: fixture.url.appending(path: "new.txt").path
         ))
+    }
+
+    func testMutationRefusesRepositoryOperationMarkers() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        try fixture.write("changed\n", to: "tracked.txt")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let snapshot = try await repository.snapshot(source: .unstaged)
+        let gitDirectory = try fixture.git("rev-parse", "--absolute-git-dir")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try Data().write(to: URL(fileURLWithPath: gitDirectory).appending(path: "index.lock"))
+
+        do {
+            _ = try await repository.mutate(
+                .stage(paths: ["tracked.txt"]),
+                expectedRevision: snapshot.revision,
+                source: .unstaged
+            )
+            XCTFail("Expected unsafe repository state rejection")
+        } catch let error as CodexGitRepositoryError {
+            guard case .unsafeRepositoryState(let detail) = error else {
+                return XCTFail("Expected unsafeRepositoryState, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("index lock"))
+        }
+        XCTAssertEqual(try fixture.git("diff", "--cached", "--name-only"), "")
+    }
+
+    func testRevertClearsStagedAndUnstagedChangesTogether() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        try fixture.write("staged change\n", to: "tracked.txt")
+        try fixture.git("add", "tracked.txt")
+        try fixture.write("unstaged after staged\n", to: "tracked.txt")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let snapshot = try await repository.snapshot(source: .uncommitted)
+
+        _ = try await repository.mutate(
+            .revertTracked(paths: ["tracked.txt"]),
+            expectedRevision: snapshot.revision,
+            source: .uncommitted
+        )
+
+        XCTAssertEqual(try fixture.git("status", "--porcelain"), "")
+        XCTAssertEqual(
+            try String(contentsOf: fixture.url.appending(path: "tracked.txt"), encoding: .utf8),
+            "base\n"
+        )
     }
 
     func testCommitAndPushCreatesUpstreamForNewBranch() async throws {

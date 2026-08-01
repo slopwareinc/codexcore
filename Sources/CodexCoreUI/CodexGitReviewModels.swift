@@ -445,6 +445,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public let revision: CodexGitReviewRevision
     public let branchName: String
     public let upstreamBranchName: String?
+    public let remoteNames: [String]
     public let branchOptions: [CodexGitBranchPickerOption]
     public let commitOptions: [CodexGitCommitOption]
     public let comparisonRef: String?
@@ -460,6 +461,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         revision: CodexGitReviewRevision = .manual,
         branchName: String,
         upstreamBranchName: String? = nil,
+        remoteNames: [String] = [],
         branchOptions: [CodexGitBranchPickerOption] = [],
         commitOptions: [CodexGitCommitOption] = [],
         comparisonRef: String? = nil,
@@ -473,6 +475,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         self.revision = revision
         self.branchName = branchName.nilIfBlank ?? "HEAD"
         self.upstreamBranchName = upstreamBranchName?.nilIfBlank
+        self.remoteNames = remoteNames
         self.branchOptions = branchOptions
         self.commitOptions = commitOptions
         self.comparisonRef = comparisonRef?.nilIfBlank
@@ -547,6 +550,10 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
 
     public var hasRemoteBranch: Bool {
         upstreamBranchName != nil
+    }
+
+    public var hasPushRemote: Bool {
+        hasRemoteBranch || !remoteNames.isEmpty
     }
 
     public var hasUncommittedChanges: Bool {
@@ -759,7 +766,7 @@ public struct CodexGitReviewSession: Equatable, Sendable {
         let commitAndPushReason: String?
         if let commitReason {
             commitAndPushReason = commitReason
-        } else if !snapshot.hasRemoteBranch {
+        } else if !snapshot.hasPushRemote {
             commitAndPushReason = "Push target is unavailable"
         } else {
             commitAndPushReason = nil
@@ -806,7 +813,7 @@ public struct CodexGitReviewSession: Equatable, Sendable {
         if snapshot.unpushedCommitCount == 0 {
             return "No commits to push"
         }
-        if !snapshot.hasRemoteBranch {
+        if !snapshot.hasPushRemote {
             return "Push target is unavailable"
         }
         return nil
