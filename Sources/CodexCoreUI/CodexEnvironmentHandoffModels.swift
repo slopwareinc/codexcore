@@ -17,6 +17,23 @@ public enum CodexProjectEnvironmentSelection: String, CaseIterable, Equatable, S
     }
 }
 
+public struct CodexProjectEnvironmentRepositorySnapshot: Equatable, Sendable {
+    public var branchName: String?
+    public var branches: [String]
+    public var dirtyFileCount: Int
+
+    public init(branchName: String?, branches: [String], dirtyFileCount: Int) {
+        self.branchName = branchName
+        self.branches = branches
+        self.dirtyFileCount = max(0, dirtyFileCount)
+    }
+}
+
+public protocol CodexProjectEnvironmentProviding: CodexWorktreeHandoffProviding {
+    func repositorySnapshot() async throws -> CodexProjectEnvironmentRepositorySnapshot
+    func checkoutBranch(_ branchName: String) async throws -> CodexProjectEnvironmentRepositorySnapshot
+}
+
 public enum CodexEnvironmentInfoState: Equatable, Sendable {
     case loading
     case available(cwd: String?, shellName: String, shellPath: String)
@@ -346,6 +363,22 @@ public enum CodexWorktreeHandoffSession {
 
 public struct CodexUnsupportedWorktreeHandoffProvider: CodexWorktreeHandoffProviding {
     public init() {}
+
+    public func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
+        throw CodexUnsupportedWorktreeHandoffError()
+    }
+}
+
+public struct CodexUnsupportedProjectEnvironmentProvider: CodexProjectEnvironmentProviding {
+    public init() {}
+
+    public func repositorySnapshot() async throws -> CodexProjectEnvironmentRepositorySnapshot {
+        throw CodexUnsupportedWorktreeHandoffError()
+    }
+
+    public func checkoutBranch(_ branchName: String) async throws -> CodexProjectEnvironmentRepositorySnapshot {
+        throw CodexUnsupportedWorktreeHandoffError()
+    }
 
     public func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
         throw CodexUnsupportedWorktreeHandoffError()
