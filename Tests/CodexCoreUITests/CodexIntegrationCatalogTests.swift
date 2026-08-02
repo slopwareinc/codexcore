@@ -11,6 +11,36 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(CodexPluginRoutePage.pluginDetail("github"), .pluginDetail("github"))
     }
 
+    func testOfficialCatalogLayoutAndExpansionMetricsStayConsistentAcrossTabs() {
+        XCTAssertEqual(CodexPluginLayoutMetrics.contentWidth, 736)
+        XCTAssertEqual(CodexPluginLayoutMetrics.rowHeight, 64)
+        XCTAssertEqual(CodexPluginLayoutMetrics.rowSpacing, 8)
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.visibleCount(total: 12, collapsedLimit: 5, isExpanded: false),
+            5
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.visibleCount(total: 12, collapsedLimit: 5, isExpanded: true),
+            12
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.moreLabel(
+                names: ["One", "Two", "Three", "GitHub", "Slack", "Gmail", "Drive", "Linear"],
+                collapsedLimit: 3,
+                isExpanded: false
+            ),
+            "See GitHub, Slack, and 3 more"
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.moreLabel(names: ["One", "Two"], collapsedLimit: 5, isExpanded: false),
+            nil
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.moreLabel(names: ["One", "Two"], collapsedLimit: 1, isExpanded: true),
+            "Show less"
+        )
+    }
+
     @MainActor
     func testPluginRouteVirtualizesLargeMarketplaceWithNSTableView() throws {
         let plugins = (0..<2_200).map { index in
@@ -87,6 +117,34 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         hosting.layoutSubtreeIfNeeded()
 
         XCTAssertNil(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+    }
+
+    @MainActor
+    func testManagePageAllocatesAVisibleVirtualizedInventory() throws {
+        let route = CodexPluginRouteView(
+            plugins: [plugin(
+                name: "browser",
+                displayName: "Browser",
+                detail: "Control the in-app browser",
+                installed: true,
+                enabled: true
+            )],
+            skills: [],
+            mcpServers: [],
+            initialTab: .manage,
+            onRefresh: {},
+            onAction: { _ in }
+        )
+        .frame(width: 1_100, height: 720)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hosting
+        settle(hosting)
+
+        let table = try XCTUnwrap(firstDescendant(of: NSTableView.self, in: hosting))
+        XCTAssertEqual(table.numberOfRows, 1)
+        XCTAssertGreaterThan(table.frame.height, 300)
     }
 
     @MainActor
@@ -171,6 +229,52 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(skillToggles.count, 2)
         XCTAssertEqual(skillToggles.filter { $0.0 == personalSkill.path && $0.1 }.count, 1)
         XCTAssertEqual(skillToggles.filter { $0.0 == systemSkill.path && !$0.1 }.count, 1)
+    }
+
+    @MainActor
+    func testManageUsesSwitchesForLocalPluginsAndStatusChecksForAccountPlugins() throws {
+        let local = plugin(
+            name: "browser",
+            displayName: "Browser",
+            detail: "Control the in-app browser",
+            installed: true,
+            enabled: true
+        )
+        var account = plugin(
+            name: "gmail",
+            displayName: "Gmail",
+            detail: "Read and manage Gmail",
+            installed: true,
+            enabled: true
+        )
+        account.marketplaceName = "openai-curated-remote"
+        account.sourceType = "remote"
+
+        XCTAssertTrue(local.supportsEnabledToggle)
+        XCTAssertFalse(account.supportsEnabledToggle)
+
+        let route = CodexPluginCatalogTable(
+            plugins: [local, account],
+            selectedPluginID: .constant(nil),
+            showsToggle: true,
+            pendingPluginIDs: [],
+            theme: .officialDark,
+            onAction: { _ in }
+        )
+        .frame(width: 736, height: 160)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 736, height: 160)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hosting
+        settle(hosting)
+
+        XCTAssertEqual(allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }.count, 1)
+        XCTAssertEqual(
+            allDescendants(of: NSImageView.self, in: hosting)
+                .filter { !$0.isHidden && $0.accessibilityLabel() == "Enabled" }
+                .count,
+            1
+        )
     }
 
     @MainActor

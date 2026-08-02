@@ -395,6 +395,15 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         return marketplaceDisplayName
     }
 
+    /// The official client only exposes an enabled switch for locally managed
+    /// plugins. Account-backed remote plugins are installed/removed as a unit
+    /// and appear with a status checkmark in Manage.
+    public var supportsEnabledToggle: Bool {
+        guard installed else { return false }
+        if sourceType?.lowercased() == "remote" { return false }
+        return !marketplaceName.lowercased().contains("curated-remote")
+    }
+
     public struct MarketplaceContext: Equatable, Sendable {
         public var name: String
         public var displayName: String
@@ -1267,7 +1276,10 @@ public struct CodexPluginRouteState: Equatable, Sendable {
     }
 
     private func filtered(_ plugins: [CodexPluginSummary]) -> [CodexPluginSummary] {
-        let plugins = plugins.filter(matchesFilter)
+        // Marketplace source filters do not apply to the installed inventory.
+        // Leaking "By OpenAI" into Manage produced non-zero tab counts with an
+        // empty list for local and workspace plugins.
+        let plugins = primaryTab == .marketplace ? plugins.filter(matchesFilter) : plugins
         let needle = normalizedSearch
         guard !needle.isEmpty else { return plugins }
         return plugins.filter { plugin in

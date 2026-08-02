@@ -2,6 +2,12 @@
 import AppKit
 import SwiftUI
 
+enum CodexPluginLayoutMetrics {
+    static let contentWidth: CGFloat = 736
+    static let rowHeight: CGFloat = 64
+    static let rowSpacing: CGFloat = 8
+}
+
 struct CodexPluginCatalogTable: NSViewRepresentable {
     let plugins: [CodexPluginSummary]
     @Binding var selectedPluginID: String?
@@ -21,8 +27,8 @@ struct CodexPluginCatalogTable: NSViewRepresentable {
         table.selectionHighlightStyle = .none
         table.allowsEmptySelection = true
         table.allowsMultipleSelection = false
-        table.rowHeight = 62
-        table.intercellSpacing = NSSize(width: 0, height: 2)
+        table.rowHeight = CodexPluginLayoutMetrics.rowHeight
+        table.intercellSpacing = NSSize(width: 0, height: CodexPluginLayoutMetrics.rowSpacing)
         table.addTableColumn(NSTableColumn(identifier: .init("plugin")))
         table.delegate = context.coordinator
         table.dataSource = context.coordinator
@@ -154,6 +160,8 @@ private final class CodexPluginCatalogCell: NSTableCellView {
     private let detailLabel = NSTextField(labelWithString: "")
     private let actionButton = NSButton()
     private let enabledSwitch = NSSwitch()
+    private let statusImageView = NSImageView()
+    private let trailingControls = NSStackView()
     private var plugin: CodexPluginSummary?
     private var theme: CodexAgentTheme?
     private var selected = false
@@ -190,17 +198,30 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         labels.translatesAutoresizingMaskIntoConstraints = false
         chrome.addSubview(labels)
 
+        trailingControls.translatesAutoresizingMaskIntoConstraints = false
+        trailingControls.orientation = .horizontal
+        trailingControls.alignment = .centerY
+        trailingControls.spacing = 8
+        chrome.addSubview(trailingControls)
+
         actionButton.translatesAutoresizingMaskIntoConstraints = false
         actionButton.target = self
         actionButton.action = #selector(performPrimaryAction)
         actionButton.controlSize = .small
-        chrome.addSubview(actionButton)
+        trailingControls.addArrangedSubview(actionButton)
 
         enabledSwitch.translatesAutoresizingMaskIntoConstraints = false
         enabledSwitch.target = self
         enabledSwitch.action = #selector(toggleEnabled)
         enabledSwitch.controlSize = .small
-        chrome.addSubview(enabledSwitch)
+        trailingControls.addArrangedSubview(enabledSwitch)
+
+        statusImageView.translatesAutoresizingMaskIntoConstraints = false
+        statusImageView.symbolConfiguration = .init(pointSize: 13, weight: .medium)
+        statusImageView.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Enabled")
+        statusImageView.setAccessibilityElement(true)
+        statusImageView.setAccessibilityLabel("Enabled")
+        trailingControls.addArrangedSubview(statusImageView)
 
         NSLayoutConstraint.activate([
             chrome.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -213,11 +234,11 @@ private final class CodexPluginCatalogCell: NSTableCellView {
             iconView.heightAnchor.constraint(equalToConstant: 36),
             labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             labels.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
-            labels.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
-            actionButton.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -8),
-            actionButton.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
-            enabledSwitch.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -8),
-            enabledSwitch.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: trailingControls.leadingAnchor, constant: -8),
+            trailingControls.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -8),
+            trailingControls.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
+            statusImageView.widthAnchor.constraint(equalToConstant: 28),
+            statusImageView.heightAnchor.constraint(equalToConstant: 28),
         ])
     }
 
@@ -255,16 +276,20 @@ private final class CodexPluginCatalogCell: NSTableCellView {
                 }
             }
         }
-        enabledSwitch.isHidden = !showsToggle
+        let showsEnabledSwitch = showsToggle && plugin.supportsEnabledToggle
+        enabledSwitch.isHidden = !showsEnabledSwitch
         enabledSwitch.state = plugin.enabled ? .on : .off
         enabledSwitch.isEnabled = !isPending
+        statusImageView.isHidden = !(showsToggle && !showsEnabledSwitch && plugin.installed)
+        statusImageView.contentTintColor = effectiveAppearance.codexResolve(theme.colors.textTertiary)
         actionButton.isHidden = showsToggle
         actionButton.isEnabled = !isPending
+        actionButton.isBordered = true
+        actionButton.bezelStyle = .rounded
         if !showsToggle {
             if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
                 actionButton.title = "Add"
                 actionButton.image = nil
-                actionButton.bezelStyle = .rounded
             } else {
                 actionButton.title = ""
                 actionButton.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More actions")
@@ -294,7 +319,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
             return
         }
         let menu = NSMenu()
-        if plugin.installed {
+        if plugin.supportsEnabledToggle {
             menu.addItem(actionItem(plugin.enabled ? "Disable" : "Enable") { [weak self] in
                 self?.onAction?(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled))
             })

@@ -34,7 +34,11 @@ struct Gallery {
             Scene(name: "palette", width: 720, content: AnyView(PaletteSpecimen())),
             Scene(name: "plan-panel", width: 420, content: AnyView(PlanPanelScene())),
             Scene(name: "mcp-sheet", width: 620, content: AnyView(MCPSheetScene())),
-            Scene(name: "plugins-marketplace", width: 1180, content: AnyView(PluginsMarketplaceScene())),
+            Scene(name: "plugins-marketplace", width: 1180, content: AnyView(PluginsRouteScene(tab: .marketplace))),
+            Scene(name: "plugins-skills", width: 1180, content: AnyView(PluginsRouteScene(tab: .skills))),
+            Scene(name: "plugins-manage", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage))),
+            Scene(name: "plugins-manage-apps", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .apps))),
+            Scene(name: "plugins-manage-skills", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .skills))),
             Scene(name: "chips", width: 720, content: AnyView(ChipSpecimen()))
         ]
     }
@@ -124,7 +128,7 @@ struct Gallery {
             .codexAgentTheme(theme)
             .environment(\.colorScheme, scheme)
 
-        if scene.name == "plugins-marketplace" {
+        if scene.name.hasPrefix("plugins-") {
             try renderHosted(root, width: scene.width, height: 768, to: url)
             return
         }
@@ -152,17 +156,41 @@ struct Gallery {
         let bounds = CGRect(x: 0, y: 0, width: width, height: height)
         let view = NSHostingView(rootView: content)
         view.frame = bounds
+        let window = NSWindow(
+            contentRect: bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
         view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        view.layoutSubtreeIfNeeded()
+        realizeTableRows(in: view)
         view.displayIfNeeded()
 
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: bounds) else {
-            throw GalleryError.renderFailed("plugins-marketplace")
+            throw GalleryError.renderFailed("hosted scene")
         }
         view.cacheDisplay(in: bounds, to: bitmap)
         guard let png = bitmap.representation(using: .png, properties: [:]) else {
-            throw GalleryError.renderFailed("plugins-marketplace")
+            throw GalleryError.renderFailed("hosted scene")
         }
         try png.write(to: url)
+    }
+
+    private static func realizeTableRows(in view: NSView) {
+        if let table = view as? NSTableView {
+            table.reloadData()
+            table.layoutSubtreeIfNeeded()
+            for row in 0..<min(table.numberOfRows, 20) {
+                _ = table.view(atColumn: 0, row: row, makeIfNecessary: true)
+                _ = table.rowView(atRow: row, makeIfNecessary: true)
+            }
+            table.displayIfNeeded()
+        }
+        view.subviews.forEach(realizeTableRows)
     }
 
     enum GalleryError: Error, CustomStringConvertible {
@@ -559,7 +587,10 @@ private struct MCPSheetScene: View {
     }
 }
 
-private struct PluginsMarketplaceScene: View {
+private struct PluginsRouteScene: View {
+    let tab: CodexPluginRoutePrimaryTab
+    var manageTab: CodexPluginManageTab = .plugins
+
     private let plugins = [
         CodexPluginSummary(
             id: "openai:computer-use",
@@ -607,16 +638,49 @@ private struct PluginsMarketplaceScene: View {
             marketplaceDisplayName: "By OpenAI",
             category: "Developer tools",
             developerName: "OpenAI",
+            installed: true,
+            enabled: true,
             installPolicy: "AVAILABLE",
+            sourceType: "remote",
             capabilities: ["apps", "skills"]
+        )
+    ]
+
+    private let skills = [
+        CodexSkillSummary(
+            name: "browser:control-in-app-browser",
+            displayName: "Browser: Control in-app browser",
+            description: "Open, navigate, and inspect pages in Codex's in-app browser.",
+            path: "/tmp/openai-bundled/browser/skills/control-in-app-browser/SKILL.md",
+            scope: "user",
+            enabled: true,
+            defaultPrompt: "Open the in-app browser and inspect my local application."
+        ),
+        CodexSkillSummary(
+            name: "agents-sdk",
+            displayName: "Agents SDK",
+            description: "Build AI agents on Cloudflare Workers using the Agents SDK.",
+            path: "/tmp/skills/agents-sdk/SKILL.md",
+            scope: "user",
+            enabled: true
+        ),
+        CodexSkillSummary(
+            name: "imagegen",
+            displayName: "Image generation",
+            description: "Generate and edit raster images.",
+            path: "/tmp/system-skills/imagegen/SKILL.md",
+            scope: "system",
+            enabled: true
         )
     ]
 
     var body: some View {
         CodexPluginRouteView(
             plugins: plugins,
-            skills: [],
+            skills: skills,
             mcpServers: [CodexMCPServerStatus(name: "filesystem", displayName: "Filesystem", startupStatus: "ready")],
+            initialTab: tab,
+            initialManageTab: manageTab,
             onRefresh: {},
             onAction: { _ in }
         )

@@ -25,13 +25,15 @@ public struct CodexPluginRouteView: View {
     public let onRefresh: () -> Void
     public let onAction: (CodexPluginRouteAction) -> Void
 
-    @State private var page: CodexPluginRoutePage = .plugins
-    @State private var manageTab: CodexPluginManageTab = .plugins
+    @State private var page: CodexPluginRoutePage
+    @State private var manageTab: CodexPluginManageTab
     @State private var filter: CodexPluginCatalogFilter = .openAI
     @State private var searchQuery = ""
     @State private var selectedPluginID: String?
     @State private var pluginDetailReturnPage: CodexPluginRoutePage = .plugins
     @State private var skillDetailID: String?
+    @State private var expandedMarketplaceSections: Set<String> = []
+    @State private var expandedSkillSections: Set<String> = []
     @FocusState private var isSearchFocused: Bool
 
     public init(
@@ -46,6 +48,8 @@ public struct CodexPluginRouteView: View {
         launcherTarget: CodexComposerPluginLauncher? = nil,
         pendingPluginIDs: Set<String> = [],
         pendingSkillIDs: Set<String> = [],
+        initialTab: CodexPluginRoutePrimaryTab = .marketplace,
+        initialManageTab: CodexPluginManageTab = .plugins,
         onLoad: @escaping () -> Void = {},
         onRefresh: @escaping () -> Void,
         onAction: @escaping (CodexPluginRouteAction) -> Void
@@ -61,6 +65,13 @@ public struct CodexPluginRouteView: View {
         self.launcherTarget = launcherTarget
         self.pendingPluginIDs = pendingPluginIDs
         self.pendingSkillIDs = pendingSkillIDs
+        let initialPage: CodexPluginRoutePage = switch initialTab {
+        case .marketplace: .plugins
+        case .skills: .skills
+        case .manage: .manage
+        }
+        _page = State(initialValue: initialPage)
+        _manageTab = State(initialValue: initialManageTab)
         self.onLoad = onLoad
         self.onRefresh = onRefresh
         self.onAction = onAction
@@ -182,7 +193,7 @@ public struct CodexPluginRouteView: View {
             }
         }
         .padding(.horizontal, 18)
-        .frame(height: 58)
+        .frame(height: 46)
     }
 
     @ViewBuilder private var toolbarNavigation: some View {
@@ -309,7 +320,7 @@ public struct CodexPluginRouteView: View {
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 48)
-            .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: CodexPluginLayoutMetrics.contentWidth, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
     }
@@ -333,7 +344,7 @@ public struct CodexPluginRouteView: View {
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 48)
-            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: CodexPluginLayoutMetrics.contentWidth, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
     }
@@ -343,25 +354,25 @@ public struct CodexPluginRouteView: View {
             HStack(alignment: .center, spacing: 18) {
                 manageTabs
                 Spacer()
-                searchField(placeholder: manageTab == .skills ? "Search skills" : "Search plugins", showsFilter: false)
-                    .frame(width: 280)
+                searchField(placeholder: manageSearchPlaceholder, showsFilter: false)
+                    .frame(width: 180)
             }
             statusMessages
             manageInventory
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 30)
-        .frame(maxWidth: 900, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: CodexPluginLayoutMetrics.contentWidth, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity)
     }
 
     private func pageTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.system(size: 26, weight: .semibold))
+                .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(theme.colors.textPrimary)
             Text(subtitle)
-                .font(.system(size: 17))
+                .font(.system(size: 16))
                 .foregroundStyle(theme.colors.textSecondary)
         }
         .padding(.top, 12)
@@ -384,7 +395,7 @@ public struct CodexPluginRouteView: View {
                 }
             }
             .padding(.horizontal, 14)
-            .frame(height: 44)
+            .frame(height: 40)
             .background(theme.colors.surfaceElevated, in: Capsule())
             if showsFilter {
                 Menu {
@@ -398,7 +409,7 @@ public struct CodexPluginRouteView: View {
                     }
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease")
-                        .frame(width: 44, height: 44)
+                        .frame(width: 36, height: 36)
                         .background(theme.colors.surfaceElevated, in: Circle())
                 }
                 .menuStyle(.borderlessButton)
@@ -461,20 +472,27 @@ public struct CodexPluginRouteView: View {
         } else {
             let featured = routeState.featuredPlugins
             if !featured.isEmpty {
-                marketplaceSection("Featured", plugins: Array(featured.prefix(4)), totalCount: featured.count)
+                marketplaceSection("Featured", plugins: featured, collapsedLimit: 4)
             }
             ForEach(groupedMarketplacePlugins(excluding: Set(featured.map(\.id))), id: \.title) { group in
-                marketplaceSection(group.title, plugins: Array(group.plugins.prefix(6)), totalCount: group.plugins.count)
+                marketplaceSection(group.title, plugins: group.plugins, collapsedLimit: 6)
             }
         }
     }
 
-    private func marketplaceSection(_ title: String, plugins: [CodexPluginSummary], totalCount: Int) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func marketplaceSection(_ title: String, plugins: [CodexPluginSummary], collapsedLimit: Int) -> some View {
+        let isExpanded = expandedMarketplaceSections.contains(title)
+        let visibleCount = CodexCatalogSectionPresentation.visibleCount(
+            total: plugins.count,
+            collapsedLimit: collapsedLimit,
+            isExpanded: isExpanded
+        )
+        let displayedPlugins = Array(plugins.prefix(visibleCount))
+        return VStack(alignment: .leading, spacing: 14) {
             Text(title).font(theme.fonts.chat.weight(.semibold))
             Divider().overlay(theme.colors.border)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 28), GridItem(.flexible())], spacing: 14) {
-                ForEach(plugins) { plugin in
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 28), GridItem(.flexible())], spacing: 8) {
+                ForEach(displayedPlugins) { plugin in
                     OfficialPluginRow(
                         plugin: plugin,
                         isPending: isPending(plugin),
@@ -483,13 +501,22 @@ public struct CodexPluginRouteView: View {
                     )
                 }
             }
-            if totalCount > plugins.count {
-                Button("See \(totalCount - plugins.count) more") {
-                    searchQuery = title
+            if let label = CodexCatalogSectionPresentation.moreLabel(
+                names: plugins.map(\.displayName),
+                collapsedLimit: collapsedLimit,
+                isExpanded: isExpanded
+            ) {
+                Button {
+                    if isExpanded { expandedMarketplaceSections.remove(title) }
+                    else { expandedMarketplaceSections.insert(title) }
+                } label: {
+                    Text(label)
+                        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
                 }
                 .buttonStyle(.plain)
                 .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textSecondary)
+                .accessibilityLabel("\(label) in \(title)")
             }
         }
     }
@@ -537,12 +564,12 @@ public struct CodexPluginRouteView: View {
 
     @ViewBuilder private var manageInventory: some View {
         switch manageTab {
-        case .plugins, .apps:
+        case .plugins:
             let visible = routeState.visiblePlugins
             if isLoadingPlugins && visible.isEmpty {
                 loadingRows
             } else if visible.isEmpty {
-                emptyState(title: manageTab == .apps ? "No apps" : "No plugins", detail: "Installed items appear here.")
+                emptyState(title: "No plugins", detail: "Installed plugins appear here.")
             } else {
                 CodexPluginCatalogTable(
                     plugins: visible,
@@ -552,20 +579,30 @@ public struct CodexPluginRouteView: View {
                     theme: theme,
                     onAction: onAction
                 )
+                .frame(maxWidth: .infinity, minHeight: 320, maxHeight: .infinity)
             }
+        case .apps:
+            ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { managedAppRows } }
         case .mcps:
-            ScrollView { LazyVStack(spacing: 2) { mcpRows } }
+            ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { mcpRows } }
         case .skills:
-            ScrollView { LazyVStack(spacing: 2) { managedSkillRows } }
+            ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { managedSkillRows } }
         }
     }
 
     @ViewBuilder private func skillSection(_ title: String, skills: [CodexSkillSummary]) -> some View {
         if !skills.isEmpty {
+            let collapsedLimit = 5
+            let isExpanded = expandedSkillSections.contains(title)
+            let visibleCount = CodexCatalogSectionPresentation.visibleCount(
+                total: skills.count,
+                collapsedLimit: collapsedLimit,
+                isExpanded: isExpanded
+            )
             VStack(alignment: .leading, spacing: 16) {
                 Text(title).font(theme.fonts.chat.weight(.semibold))
-                LazyVStack(spacing: 2) {
-                    ForEach(skills.prefix(8)) { skill in
+                LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) {
+                    ForEach(skills.prefix(visibleCount)) { skill in
                         OfficialSkillRow(
                             skill: skill,
                             icon: pluginIcon(for: skill),
@@ -576,14 +613,22 @@ public struct CodexPluginRouteView: View {
                         )
                     }
                 }
-                if skills.count > 8 {
-                    let remainingNames = skills.dropFirst(8).prefix(2).map(\.displayName).joined(separator: ", ")
-                    let remainingCount = max(0, skills.count - 10)
-                    Text(remainingCount > 0
-                        ? "See \(remainingNames), and \(remainingCount) more"
-                        : "See \(remainingNames)")
+                if let label = CodexCatalogSectionPresentation.moreLabel(
+                    names: skills.map(\.displayName),
+                    collapsedLimit: collapsedLimit,
+                    isExpanded: isExpanded
+                ) {
+                    Button {
+                        if isExpanded { expandedSkillSections.remove(title) }
+                        else { expandedSkillSections.insert(title) }
+                    } label: {
+                        Text(label)
+                            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
                         .font(theme.fonts.caption)
                         .foregroundStyle(theme.colors.textTertiary)
+                        .accessibilityLabel("\(label) in \(title)")
                 }
             }
         }
@@ -607,6 +652,39 @@ public struct CodexPluginRouteView: View {
         }
     }
 
+    @ViewBuilder private var managedAppRows: some View {
+        let visible = routeState.visiblePlugins
+        if isLoadingPlugins && visible.isEmpty {
+            loadingRows
+        } else if visible.isEmpty {
+            emptyState(title: "No apps", detail: "Apps included by installed plugins appear here.")
+        } else {
+            ForEach(visible) { plugin in
+                Button {
+                    selectedPluginID = plugin.id
+                } label: {
+                    HStack(spacing: 12) {
+                        CodexPluginIconView(reference: plugin.icon, size: 36)
+                            .frame(width: 40, height: 40)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(plugin.displayName).font(theme.fonts.label).lineLimit(1)
+                            Text(plugin.detail).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .accessibilityLabel("Installed")
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: CodexPluginLayoutMetrics.rowHeight)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(plugin.displayName), installed app")
+            }
+        }
+    }
+
     @ViewBuilder private var mcpRows: some View {
         let visible = routeState.visibleMCPServers
         if visible.isEmpty {
@@ -626,7 +704,7 @@ public struct CodexPluginRouteView: View {
                         .foregroundStyle(server.error == nil ? theme.colors.textTertiary : theme.colors.danger)
                 }
                 .padding(.horizontal, 10)
-                .frame(height: 62)
+                .frame(height: CodexPluginLayoutMetrics.rowHeight)
                 .accessibilityElement(children: .combine)
             }
         }
@@ -658,7 +736,7 @@ public struct CodexPluginRouteView: View {
                     }
                     Spacer()
                 }
-                .frame(height: 58)
+                .frame(height: CodexPluginLayoutMetrics.rowHeight)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -691,6 +769,15 @@ public struct CodexPluginRouteView: View {
     private var isPluginDetail: Bool {
         if case .pluginDetail = page { return true }
         return false
+    }
+
+    private var manageSearchPlaceholder: String {
+        switch manageTab {
+        case .plugins: "Search plugins"
+        case .apps: "Search apps"
+        case .mcps: "Search MCPs"
+        case .skills: "Search skills"
+        }
     }
 
     private func groupedMarketplacePlugins(excluding excluded: Set<String>) -> [(title: String, plugins: [CodexPluginSummary])] {
@@ -789,14 +876,14 @@ private struct OfficialPluginRow: View {
                     .disabled(isPending)
             }
         }
-        .frame(height: 48)
+        .frame(height: CodexPluginLayoutMetrics.rowHeight)
         .accessibilityElement(children: .contain)
     }
 
     private var pluginMenu: some View {
         Menu {
             Button("View details", action: onOpen)
-            if plugin.installed {
+            if plugin.supportsEnabledToggle {
                 Button(plugin.enabled ? "Disable" : "Enable") {
                     onAction(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled))
                 }
@@ -858,7 +945,7 @@ struct OfficialSkillRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: 62)
+        .frame(height: CodexPluginLayoutMetrics.rowHeight)
     }
 }
 
@@ -872,40 +959,54 @@ struct OfficialSkillDetailSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 14) {
-                CodexPluginIconView(reference: icon, size: 42, fallbackSystemName: "hammer")
-                    .frame(width: 52, height: 52)
-                    .background(theme.colors.surfaceSunken, in: Circle())
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Text(skill.displayName).font(.system(size: 23, weight: .semibold))
-                        Text("Skill").font(.system(size: 21)).foregroundStyle(theme.colors.textSecondary)
+            ZStack(alignment: .topTrailing) {
+                VStack(alignment: .leading, spacing: 18) {
+                    CodexPluginIconView(reference: icon, size: 46, fallbackSystemName: "hammer")
+                        .frame(width: 56, height: 56)
+                        .background(theme.colors.surfaceSunken, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    HStack(alignment: .center, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(skill.displayName).font(.system(size: 24, weight: .semibold))
+                            Text("Skill").font(.system(size: 21)).foregroundStyle(theme.colors.textSecondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { skill.enabled },
+                            set: { onAction(.setSkillEnabled(.init(skill: skill), enabled: $0)) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(isPending)
+                        .accessibilityLabel("Toggle skill enabled state")
+                        Menu {
+                            Button(skill.enabled ? "Disable skill" : "Enable skill") {
+                                onAction(.setSkillEnabled(.init(skill: skill), enabled: !skill.enabled))
+                            }
+                            if let prompt = skill.defaultPrompt {
+                                Button("Try in chat") { onAction(.tryInChat(prompt: prompt)) }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis").frame(width: 28, height: 28)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .disabled(isPending)
                     }
-                    Text(skill.detail).font(theme.fonts.chat).foregroundStyle(theme.colors.textSecondary).lineLimit(4)
+
+                    Text(skill.detail)
+                        .font(theme.fonts.chat)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(4)
                 }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { skill.enabled },
-                    set: { onAction(.setSkillEnabled(.init(skill: skill), enabled: $0)) }
-                ))
-                .labelsHidden().toggleStyle(.switch)
-                .disabled(isPending)
-                .accessibilityLabel("Toggle skill enabled state")
-                Menu {
-                    Button(skill.enabled ? "Disable skill" : "Enable skill") {
-                        onAction(.setSkillEnabled(.init(skill: skill), enabled: !skill.enabled))
-                    }
-                    if let prompt = skill.defaultPrompt {
-                        Button("Try in chat") { onAction(.tryInChat(prompt: prompt)) }
-                    }
-                } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden)
-                .disabled(isPending)
-                Button(action: onClose) { Image(systemName: "xmark").frame(width: 28, height: 28) }
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark").frame(width: 32, height: 32)
+                }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Close skill details")
             }
-            .padding(20)
+            .padding(28)
 
             ScrollView {
                 Text(skill.description.nilIfBlank ?? skill.detail)
@@ -914,13 +1015,14 @@ struct OfficialSkillDetailSheet: View {
                     .lineSpacing(4)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(18)
+                    .padding(22)
                     .background(theme.colors.surfaceSunken.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 20)
             }
 
             HStack {
-                if skill.scope == "user" {
+                if skill.scope?.lowercased() == "user" {
                     Button("Uninstall", role: .destructive) { onAction(.uninstallSkill(.init(skill: skill))) }
                         .buttonStyle(.bordered)
                         .disabled(isPending)
@@ -933,9 +1035,11 @@ struct OfficialSkillDetailSheet: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .background(theme.colors.surface)
         }
-        .frame(width: 720, height: 620)
+        .frame(width: 900, height: 780)
         .background(theme.colors.surface)
     }
 }
@@ -1017,7 +1121,7 @@ private struct OfficialPluginDetailPage: View {
             .padding(.horizontal, 24)
             .padding(.top, 22)
             .padding(.bottom, 48)
-            .frame(maxWidth: 680, alignment: .leading)
+            .frame(maxWidth: CodexPluginLayoutMetrics.contentWidth, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
     }
@@ -1027,7 +1131,7 @@ private struct OfficialPluginDetailPage: View {
             if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
                 Button("Add") { onAction(.installPlugin(.init(plugin: plugin))) }
             }
-            if plugin.installed {
+            if plugin.supportsEnabledToggle {
                 Button(plugin.enabled ? "Disable" : "Enable") {
                     onAction(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled))
                 }
@@ -1063,5 +1167,22 @@ private struct OfficialPluginDetailPage: View {
 private extension String {
     var trimmedForPluginSearch: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum CodexCatalogSectionPresentation {
+    static func visibleCount(total: Int, collapsedLimit: Int, isExpanded: Bool) -> Int {
+        isExpanded ? total : min(total, collapsedLimit)
+    }
+
+    static func moreLabel(names: [String], collapsedLimit: Int, isExpanded: Bool) -> String? {
+        guard names.count > collapsedLimit else { return nil }
+        if isExpanded { return "Show less" }
+
+        let hidden = Array(names.dropFirst(collapsedLimit))
+        let preview = hidden.prefix(2).joined(separator: ", ")
+        let remaining = hidden.count - min(hidden.count, 2)
+        if remaining > 0 { return "See \(preview), and \(remaining) more" }
+        return "See \(preview)"
     }
 }
