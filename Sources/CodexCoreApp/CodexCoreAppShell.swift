@@ -310,11 +310,12 @@ struct CodexCoreAppShell: View {
                 pluginErrorMessage: model.pluginErrorMessage,
                 skillErrorMessage: model.skillErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
-                controlPlanePhases: model.runtimeSession.integrationControlPlaneSession.phases,
                 launcherTarget: model.pluginLauncherTarget,
-                onRefresh: { Task { await model.refreshPlugins() } },
-                onAction: { model.performPluginCatalogAction($0) },
-                onControlPlaneRequest: { model.performPluginControlPlaneAction($0) }
+                pendingPluginIDs: model.pendingPluginActionIDs,
+                pendingSkillIDs: model.pendingSkillActionIDs,
+                onLoad: { model.requestPluginRefresh() },
+                onRefresh: { model.requestPluginRefresh() },
+                onAction: { model.performPluginCatalogAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.theme)

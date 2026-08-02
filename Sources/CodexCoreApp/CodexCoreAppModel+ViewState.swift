@@ -3,6 +3,11 @@ import CodexCoreUI
 
 @MainActor
 extension CodexCoreAppModel {
+    private var observedIntegrationCatalogSession: CodexIntegrationCatalogSession {
+        _ = integrationCatalogRevision
+        return runtimeSession.integrationCatalogSession
+    }
+
     var connectionState: ConnectionState {
         authSession.connectionState
     }
@@ -129,43 +134,43 @@ extension CodexCoreAppModel {
     }
 
     var mcpServers: [CodexMCPServerStatus] {
-        runtimeSession.integrationCatalogSession.mcpServers
+        observedIntegrationCatalogSession.mcpServers
     }
 
     var isLoadingMCPServers: Bool {
-        runtimeSession.integrationCatalogSession.isLoadingMCPServers
+        observedIntegrationCatalogSession.isLoadingMCPServers
     }
 
     var mcpErrorMessage: String? {
-        runtimeSession.integrationCatalogSession.mcpErrorMessage
+        observedIntegrationCatalogSession.mcpErrorMessage
     }
 
     var plugins: [CodexPluginSummary] {
-        runtimeSession.integrationCatalogSession.plugins
+        observedIntegrationCatalogSession.plugins
     }
 
     var isLoadingPlugins: Bool {
-        runtimeSession.integrationCatalogSession.isLoadingPlugins
+        observedIntegrationCatalogSession.isLoadingPlugins
     }
 
     var pluginErrorMessage: String? {
-        runtimeSession.integrationCatalogSession.pluginErrorMessage
+        observedIntegrationCatalogSession.pluginErrorMessage
     }
 
     var pluginLoadErrors: [String] {
-        runtimeSession.integrationCatalogSession.pluginLoadErrors
+        observedIntegrationCatalogSession.pluginLoadErrors
     }
 
     var skills: [CodexSkillSummary] {
-        runtimeSession.integrationCatalogSession.skills
+        observedIntegrationCatalogSession.skills
     }
 
     var isLoadingSkills: Bool {
-        runtimeSession.integrationCatalogSession.isLoadingSkills
+        observedIntegrationCatalogSession.isLoadingSkills
     }
 
     var skillErrorMessage: String? {
-        runtimeSession.integrationCatalogSession.skillErrorMessage
+        observedIntegrationCatalogSession.skillErrorMessage
     }
 
     var approvalPrompts: [CodexApprovalPrompt] {
