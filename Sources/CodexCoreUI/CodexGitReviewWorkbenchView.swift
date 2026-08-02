@@ -510,6 +510,11 @@ public struct CodexGitReviewWorkbenchView: View {
             HStack {
                 Button("Cancel") { showsCommit = false }
                 Spacer()
+                Button("Commit and push") {
+                    showsCommit = false
+                    workbench.commitAndPush()
+                }
+                .disabled(workbench.actionState?.isCommitAndPushEnabled != true)
                 Button("Commit") {
                     showsCommit = false
                     workbench.commit()

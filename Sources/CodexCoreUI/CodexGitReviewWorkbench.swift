@@ -189,6 +189,10 @@ public final class CodexGitReviewWorkbench {
         perform(.commit(message: commitMessage, includeUnstaged: includeUnstaged))
     }
 
+    public func commitAndPush() {
+        perform(.commitAndPush(message: commitMessage, includeUnstaged: includeUnstaged))
+    }
+
     public func push() {
         perform(.push)
     }
@@ -238,6 +242,8 @@ public final class CodexGitReviewWorkbench {
                 try Task.checkCancellation()
                 operationMessage = result.message
                 if case .commit = mutation {
+                    commitMessage = ""
+                } else if case .commitAndPush = mutation {
                     commitMessage = ""
                 }
                 refresh()

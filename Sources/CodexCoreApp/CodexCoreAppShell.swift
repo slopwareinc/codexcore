@@ -389,7 +389,7 @@ struct CodexCoreAppShell: View {
                 mountedPanels: model.mountedWorkspacePanels,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
-                gitReviewSession: nil,
+                gitReviewSession: model.gitReviewSession,
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 leadingTitlebarInset: model.sidebarSnapshot.isCollapsed

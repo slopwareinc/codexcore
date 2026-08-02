@@ -37,6 +37,7 @@ public enum CodexGitMutation: Sendable, Equatable {
     case createBranch(name: String)
     case checkoutBranch(name: String)
     case commit(message: String, includeUnstaged: Bool)
+    case commitAndPush(message: String, includeUnstaged: Bool)
     case push
     case createDraftPullRequest(title: String, body: String)
 
@@ -48,6 +49,7 @@ public enum CodexGitMutation: Sendable, Equatable {
         case .createBranch: "Creating branch"
         case .checkoutBranch: "Switching branch"
         case .commit: "Creating commit"
+        case .commitAndPush: "Committing and pushing"
         case .push: "Pushing branch"
         case .createDraftPullRequest: "Creating draft pull request"
         }
@@ -223,18 +225,12 @@ public actor CodexGitRepository {
             try await run(["switch", try validatedBranchName(name)])
             return .init(message: "Switched to \(name).")
         case .commit(let message, let includeUnstaged):
-            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                throw CodexGitRepositoryError.commandFailed(
-                    command: "git commit",
-                    message: "Commit message is required."
-                )
-            }
-            if includeUnstaged {
-                try await run(["add", "-A"])
-            }
-            try await run(["commit", "-m", trimmed])
+            try await commit(message: message, includeUnstaged: includeUnstaged)
             return .init(message: "Commit created.")
+        case .commitAndPush(let message, let includeUnstaged):
+            try await commit(message: message, includeUnstaged: includeUnstaged)
+            let result = try await run(["push", "--porcelain"])
+            return .init(message: result.stdout.nilIfBlank ?? "Commit created and branch pushed.")
         case .push:
             let result = try await run(["push", "--porcelain"])
             return .init(message: result.stdout.nilIfBlank ?? "Branch pushed.")
@@ -254,6 +250,20 @@ public actor CodexGitRepository {
                 externalURL: URL(string: value.split(separator: "\n").last.map(String.init) ?? "")
             )
         }
+    }
+
+    private func commit(message: String, includeUnstaged: Bool) async throws {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CodexGitRepositoryError.commandFailed(
+                command: "git commit",
+                message: "Commit message is required."
+            )
+        }
+        if includeUnstaged {
+            try await run(["add", "-A"])
+        }
+        try await run(["commit", "-m", trimmed])
     }
 
     private func files(

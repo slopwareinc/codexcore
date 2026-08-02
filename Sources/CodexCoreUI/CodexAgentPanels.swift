@@ -49,18 +49,18 @@ public struct CodexFloatingSummaryPanel: View {
                         }
                     }
 
-                    SummaryRow(
-                        title: workspaceSummary.environmentModeTitle,
-                        systemImage: workspaceSummary.environmentModeTitle == "Worktree"
-                            ? "square.stack.3d.up"
-                            : "laptopcomputer",
-                        trailingSystemImage: "chevron.down"
-                    )
-
-                    SummaryRow(
-                        title: workspaceSummary.gitBranch?.nilIfBlank ?? "No branch",
-                        systemImage: "arrow.triangle.branch",
-                        trailingSystemImage: "chevron.down"
+                    CodexProjectEnvironmentPanel(
+                        environment: CodexProjectEnvironmentState(
+                            selection: workspaceSummary.environmentModeTitle == "Worktree" ? .worktree : .local,
+                            workspacePath: workspaceSummary.workspacePath,
+                            branchName: workspaceSummary.gitBranch,
+                            runtimeInfo: workspaceSummary.environmentInfo
+                        ),
+                        threadTitle: chatTitle,
+                        provider: CodexLocalProjectEnvironmentProvider(
+                            workspaceURL: URL(fileURLWithPath: workspaceSummary.workspacePath)
+                        ),
+                        onCompletion: onEnvironmentHandoffCompletion
                     )
 
                     if workspaceSummary.gitBranch?.nilIfBlank != nil {

@@ -709,6 +709,8 @@ final class CodexCoreAppModel {
 
     func handleWorktreeHandoffCompletion(_ completion: CodexWorktreeHandoffCompletion) {
         appendActivity(completion.activity)
+        guard completion.resultCard != nil else { return }
+        Task { await switchWorkspace(to: completion.environment.workspacePath) }
     }
 
     func clearComposerChip(_ kind: CodexComposerChipKind) {
