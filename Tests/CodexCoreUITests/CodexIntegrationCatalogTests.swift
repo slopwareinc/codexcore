@@ -5,16 +5,10 @@ import SwiftUI
 @testable import CodexCoreUI
 
 final class CodexIntegrationCatalogTests: XCTestCase {
-    func testPluginRouteSplitsCatalogAndDetailIntoEqualColumns() {
-        let availableWidth: CGFloat = 1_180
-        let columnWidth = CodexPluginRouteLayout.equalColumnWidth(availableWidth: availableWidth)
-
-        XCTAssertEqual(columnWidth, 589.5)
-        XCTAssertEqual(
-            columnWidth * 2 + CodexPluginRouteLayout.splitDividerWidth,
-            availableWidth
-        )
-        XCTAssertEqual(CodexPluginRouteLayout.equalColumnWidth(availableWidth: 0), 0)
+    func testOfficialPluginNavigationUsesSeparateMarketplaceManageAndDetailPages() {
+        XCTAssertNotEqual(CodexPluginRoutePage.plugins, .skills)
+        XCTAssertNotEqual(CodexPluginRoutePage.plugins, .manage)
+        XCTAssertEqual(CodexPluginRoutePage.pluginDetail("github"), .pluginDetail("github"))
     }
 
     @MainActor
@@ -30,11 +24,11 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                 category: "Productivity"
             )
         }
-        let route = CodexPluginRouteView(
+        let route = CodexPluginCatalogTable(
             plugins: plugins,
-            skills: [],
-            mcpServers: [],
-            onRefresh: {},
+            selectedPluginID: .constant(nil),
+            showsToggle: false,
+            theme: .officialDark,
             onAction: { _ in }
         )
         .frame(width: 1_000, height: 700)
@@ -59,7 +53,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
     }
 
     @MainActor
-    func testPluginHeaderSegmentedControlDoesNotMoveBetweenTabs() throws {
+    func testOfficialPluginHeaderUsesTwoTabsInsteadOfThreeWaySegmentedControl() throws {
         var largeTypeTheme = CodexAgentTheme.officialDark
         largeTypeTheme.fonts.caption = .system(size: 24)
         let route = CodexPluginRouteView(
@@ -91,43 +85,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         hosting.layoutSubtreeIfNeeded()
 
-        let control = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-        control.selectedSegment = 1
-        _ = control.sendAction(control.action, to: control.target)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        hosting.layoutSubtreeIfNeeded()
-
-        let updated = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-        let skillsFrame = updated.convert(updated.bounds, to: hosting)
-        let skillsSearch = try XCTUnwrap(firstDescendant(of: NSTextField.self, in: hosting))
-        let skillsSearchFrame = skillsSearch.convert(skillsSearch.bounds, to: hosting)
-        XCTAssertGreaterThanOrEqual(skillsFrame.minX, 370)
-
-        updated.selectedSegment = 2
-        _ = updated.sendAction(updated.action, to: updated.target)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        hosting.layoutSubtreeIfNeeded()
-
-        let manageControl = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-        let manageFrame = manageControl.convert(manageControl.bounds, to: hosting)
-        let manageSearch = try XCTUnwrap(firstDescendant(of: NSTextField.self, in: hosting))
-        let manageSearchFrame = manageSearch.convert(manageSearch.bounds, to: hosting)
-        XCTAssertEqual(skillsFrame.origin, manageFrame.origin)
-        XCTAssertEqual(skillsFrame.size, manageFrame.size)
-        XCTAssertEqual(skillsSearchFrame.origin.y, manageSearchFrame.origin.y, accuracy: 0.5)
-
-        manageControl.selectedSegment = 0
-        _ = manageControl.sendAction(manageControl.action, to: manageControl.target)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        hosting.layoutSubtreeIfNeeded()
-
-        let marketplaceControl = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-        let marketplaceFrame = marketplaceControl.convert(marketplaceControl.bounds, to: hosting)
-        let marketplaceSearch = try XCTUnwrap(firstDescendant(of: NSTextField.self, in: hosting))
-        let marketplaceSearchFrame = marketplaceSearch.convert(marketplaceSearch.bounds, to: hosting)
-        XCTAssertEqual(skillsFrame.origin, marketplaceFrame.origin)
-        XCTAssertEqual(skillsFrame.size, marketplaceFrame.size)
-        XCTAssertEqual(skillsSearchFrame.origin.y, marketplaceSearchFrame.origin.y, accuracy: 0.5)
+        XCTAssertNil(firstDescendant(of: NSSegmentedControl.self, in: hosting))
     }
 
     @MainActor
@@ -144,11 +102,11 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         systemSkill.path = "/tmp/system-skills/imagegen/SKILL.md"
         systemSkill.scope = "system"
         let recorder = CatalogActionRecorder()
-        let route = CodexPluginRouteView(
+        let route = CodexPluginCatalogTable(
             plugins: [installedPlugin],
-            skills: [personalSkill, systemSkill],
-            mcpServers: [],
-            onRefresh: {},
+            selectedPluginID: .constant(nil),
+            showsToggle: true,
+            theme: .officialDark,
             onAction: { recorder.actions.append($0) }
         )
         .frame(width: 1_100, height: 720)
@@ -164,34 +122,50 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         hosting.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
 
-        let tabs = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-        tabs.selectedSegment = 2
-        _ = tabs.sendAction(tabs.action, to: tabs.target)
         settle(hosting)
 
         let pluginSwitches = allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }
-        XCTAssertEqual(pluginSwitches.count, 2, "Manage row and selected plugin detail must both be interactive")
-        pluginSwitches.forEach { $0.performClick(nil) }
+        XCTAssertEqual(pluginSwitches.count, 1, "The managed plugin row must expose an interactive switch")
+        pluginSwitches[0].performClick(nil)
         XCTAssertEqual(
             recorder.actions,
-            Array(repeating: .setPluginEnabled(.init(plugin: installedPlugin), enabled: false), count: 2)
+            [.setPluginEnabled(.init(plugin: installedPlugin), enabled: false)]
         )
 
         recorder.actions.removeAll()
-        let updatedTabs = try XCTUnwrap(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-        updatedTabs.selectedSegment = 1
-        _ = updatedTabs.sendAction(updatedTabs.action, to: updatedTabs.target)
-        settle(hosting)
+        let skillRow = OfficialSkillRow(
+            skill: personalSkill,
+            icon: .init(),
+            showsToggle: true,
+            onOpen: {},
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 700, height: 62)
+        let skillHosting = NSHostingView(rootView: skillRow)
+        skillHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 62)
+        let skillWindow = NSWindow(contentRect: skillHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        skillWindow.contentView = skillHosting
+        settle(skillHosting)
+        try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: skillHosting)).performClick(nil)
 
-        let skillSwitches = allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }
-        XCTAssertEqual(skillSwitches.count, 3, "Two skill rows and the selected skill detail must be interactive")
-        skillSwitches.forEach { $0.performClick(nil) }
+        let detail = OfficialSkillDetailSheet(
+            skill: systemSkill,
+            icon: .init(),
+            onClose: {},
+            onAction: { recorder.actions.append($0) }
+        )
+        let detailHosting = NSHostingView(rootView: detail)
+        detailHosting.frame = NSRect(x: 0, y: 0, width: 720, height: 620)
+        let detailWindow = NSWindow(contentRect: detailHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        detailWindow.contentView = detailHosting
+        settle(detailHosting)
+        try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: detailHosting)).performClick(nil)
         let skillToggles = recorder.actions.compactMap { action -> (String, Bool)? in
             guard case .setSkillEnabled(let target, let enabled) = action else { return nil }
             return (target.path, enabled)
         }
-        XCTAssertEqual(skillToggles.count, 3)
-        XCTAssertEqual(skillToggles.filter { $0.0 == personalSkill.path && $0.1 }.count, 2)
+        XCTAssertEqual(skillToggles.count, 2)
+        XCTAssertEqual(skillToggles.filter { $0.0 == personalSkill.path && $0.1 }.count, 1)
         XCTAssertEqual(skillToggles.filter { $0.0 == systemSkill.path && !$0.1 }.count, 1)
     }
 

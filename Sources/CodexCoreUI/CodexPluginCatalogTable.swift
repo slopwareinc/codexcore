@@ -20,8 +20,8 @@ struct CodexPluginCatalogTable: NSViewRepresentable {
         table.selectionHighlightStyle = .none
         table.allowsEmptySelection = true
         table.allowsMultipleSelection = false
-        table.rowHeight = 76
-        table.intercellSpacing = NSSize(width: 0, height: 7)
+        table.rowHeight = 62
+        table.intercellSpacing = NSSize(width: 0, height: 2)
         table.addTableColumn(NSTableColumn(identifier: .init("plugin")))
         table.delegate = context.coordinator
         table.dataSource = context.coordinator
@@ -141,7 +141,6 @@ private final class CodexPluginCatalogCell: NSTableCellView {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
-    private let marketplaceLabel = NSTextField(labelWithString: "")
     private let actionButton = NSButton()
     private let enabledSwitch = NSSwitch()
     private var plugin: CodexPluginSummary?
@@ -157,26 +156,23 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         translatesAutoresizingMaskIntoConstraints = false
         chrome.translatesAutoresizingMaskIntoConstraints = false
         chrome.wantsLayer = true
-        chrome.layer?.cornerRadius = 9
-        chrome.layer?.borderWidth = 1
+        chrome.layer?.cornerRadius = 8
         addSubview(chrome)
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+        iconView.symbolConfiguration = .init(pointSize: 18, weight: .medium)
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.contentTintColor = .tertiaryLabelColor
         chrome.addSubview(iconView)
 
-        for label in [titleLabel, detailLabel, marketplaceLabel] {
+        for label in [titleLabel, detailLabel] {
             label.translatesAutoresizingMaskIntoConstraints = false
             label.lineBreakMode = .byTruncatingTail
         }
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         detailLabel.font = .systemFont(ofSize: 12)
         detailLabel.maximumNumberOfLines = 2
-        marketplaceLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-
-        let labels = NSStackView(views: [titleLabel, detailLabel, marketplaceLabel])
+        let labels = NSStackView(views: [titleLabel, detailLabel])
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 2
@@ -196,20 +192,20 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         chrome.addSubview(enabledSwitch)
 
         NSLayoutConstraint.activate([
-            chrome.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
-            chrome.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+            chrome.leadingAnchor.constraint(equalTo: leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: trailingAnchor),
             chrome.topAnchor.constraint(equalTo: topAnchor),
             chrome.bottomAnchor.constraint(equalTo: bottomAnchor),
-            iconView.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 11),
+            iconView.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 8),
             iconView.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 30),
-            iconView.heightAnchor.constraint(equalToConstant: 30),
-            labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 9),
+            iconView.widthAnchor.constraint(equalToConstant: 36),
+            iconView.heightAnchor.constraint(equalToConstant: 36),
+            labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             labels.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
             labels.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
-            actionButton.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
+            actionButton.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -8),
             actionButton.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
-            enabledSwitch.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
+            enabledSwitch.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -8),
             enabledSwitch.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
         ])
     }
@@ -231,8 +227,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         self.onAction = onAction
         titleLabel.stringValue = plugin.displayName
         detailLabel.stringValue = plugin.detail
-        marketplaceLabel.stringValue = plugin.marketplaceDisplayName
-        iconView.image = NSImage(systemSymbolName: plugin.installed ? "checkmark.circle.fill" : "puzzlepiece.extension", accessibilityDescription: nil)
+        iconView.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
         iconTask?.cancel()
         let prefersDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         if let url = plugin.icon.url(prefersDark: prefersDark) {
@@ -304,15 +299,9 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         let appearance = effectiveAppearance
         titleLabel.textColor = appearance.codexResolve(theme.colors.textPrimary)
         detailLabel.textColor = appearance.codexResolve(theme.colors.textSecondary)
-        marketplaceLabel.textColor = appearance.codexResolve(theme.colors.textTertiary)
-        iconView.contentTintColor = appearance.codexResolve(
-            plugin?.installed == true ? theme.colors.success : theme.colors.textTertiary
-        )
+        iconView.contentTintColor = appearance.codexResolve(theme.colors.textTertiary)
         chrome.layer?.backgroundColor = appearance.codexResolve(
-            selected ? theme.colors.accentSoft.opacity(0.5) : theme.colors.surfaceElevated.opacity(0.64)
-        ).cgColor
-        chrome.layer?.borderColor = appearance.codexResolve(
-            selected ? theme.colors.accent : theme.colors.border
+            selected ? theme.colors.surfaceElevated : Color.clear
         ).cgColor
     }
 }
