@@ -10,6 +10,11 @@ private enum PluginCatalogToggleRollback {
     case skill(path: String, enabled: Bool)
 }
 
+private enum PluginCatalogMutationKey: Hashable {
+    case plugin(String)
+    case skill(String)
+}
+
 func defaultWorkspacePath() -> String {
     let current = FileManager.default.currentDirectoryPath
     if current != "/" { return current }
@@ -30,6 +35,8 @@ final class CodexCoreAppModel {
     // CodexChatRuntimeSession is intentionally not observable. Every catalog
     // write must flow through publishIntegrationCatalogSession so SwiftUI sees it.
     private(set) var integrationCatalogRevision = 0
+    private(set) var pendingPluginActionIDs: Set<String> = []
+    private(set) var pendingSkillActionIDs: Set<String> = []
 
     var workspacePath = defaultWorkspacePath()
     var apiKey = ""
@@ -75,6 +82,7 @@ final class CodexCoreAppModel {
     private var accountPreferredDisplayName: String?
     private var skillsChangedObservationTask: Task<Void, Never>?
     private var skillsChangedObservationGeneration: UInt64 = 0
+    private var integrationCatalogRefreshGeneration: UInt64 = 0
     private var didBootstrapPluginMarketplaces = false
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
@@ -123,17 +131,20 @@ final class CodexCoreAppModel {
     var isBottomTerminalRunning = false
 
     private let clipboardService: any CodexClipboardService
+    private let pluginCatalogActionProviderOverride: (any CodexPluginCatalogActionProvider)?
     let preferenceStore: any CodexStringListPreferenceStore
     let codexHome: CodexHome
 
     init(
         codexHome: CodexHome = .default,
         clipboardService: any CodexClipboardService,
-        preferenceStore: any CodexStringListPreferenceStore
+        preferenceStore: any CodexStringListPreferenceStore,
+        pluginCatalogActionProvider: (any CodexPluginCatalogActionProvider)? = nil
     ) {
         self.codexHome = codexHome
         self.dictationSession = CodexComposerDictationSession()
         self.clipboardService = clipboardService
+        self.pluginCatalogActionProviderOverride = pluginCatalogActionProvider
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
@@ -1730,6 +1741,8 @@ final class CodexCoreAppModel {
             publishIntegrationCatalogSession(session)
             return
         }
+        integrationCatalogRefreshGeneration &+= 1
+        let refreshGeneration = integrationCatalogRefreshGeneration
 
         if !didBootstrapPluginMarketplaces {
             let sources = CodexPluginMarketplaceDiscovery.sources(codexHome: codexHome)
@@ -1758,12 +1771,23 @@ final class CodexCoreAppModel {
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
+        guard refreshGeneration == integrationCatalogRefreshGeneration else {
+            Self.pluginCatalogLogger.info("discarded stale catalog refresh generation=\(refreshGeneration)")
+            return
+        }
         publishIntegrationCatalogSession(session)
         appendIntegrationActivity(pluginActivity)
         appendIntegrationActivity(skillActivity)
     }
 
     func performPluginCatalogAction(_ action: CodexPluginRouteAction) {
+        let mutationKey = pluginCatalogMutationKey(for: action)
+        if let mutationKey, isPluginCatalogMutationPending(mutationKey) {
+            Self.pluginCatalogLogger.info("ignored duplicate catalog action while mutation is pending")
+            return
+        }
+        if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: true) }
+
         let toggleRollback: PluginCatalogToggleRollback?
         switch action {
         case .setPluginEnabled(let target, let enabled):
@@ -1782,14 +1806,34 @@ final class CodexCoreAppModel {
             Self.pluginCatalogLogger.info(
                 "skill toggle requested name=\(target.displayName, privacy: .public) enabled=\(enabled) optimisticMatch=\(previous != nil) path=\(target.path, privacy: .private)"
             )
-        case .installPlugin, .uninstallPlugin, .uninstallSkill, .tryInChat:
+        case .installPlugin(let target):
+            toggleRollback = nil
+            Self.pluginCatalogLogger.info(
+                "plugin install requested id=\(target.id, privacy: .public) marketplace=\(target.marketplaceName, privacy: .public)"
+            )
+        case .uninstallPlugin(let target):
+            toggleRollback = nil
+            Self.pluginCatalogLogger.info("plugin uninstall requested id=\(target.id, privacy: .public)")
+        case .uninstallSkill(let target):
+            toggleRollback = nil
+            Self.pluginCatalogLogger.info("skill uninstall requested name=\(target.name, privacy: .public)")
+        case .tryInChat:
             toggleRollback = nil
         }
 
         Task {
-            guard let codex else {
+            let provider: (any CodexPluginCatalogActionProvider)?
+            if let pluginCatalogActionProviderOverride {
+                provider = pluginCatalogActionProviderOverride
+            } else if let codex {
+                provider = CodexAppServerPluginCatalogActionProvider(codex: codex)
+            } else {
+                provider = nil
+            }
+            guard let provider else {
                 Self.pluginCatalogLogger.error("catalog action rejected because app-server is disconnected")
                 restoreCatalogToggle(toggleRollback)
+                if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: false) }
                 appendIntegrationActivity(.init(
                     title: "Plugin action unavailable",
                     detail: "Connect to Codex before changing plugins or skills."
@@ -1798,15 +1842,15 @@ final class CodexCoreAppModel {
             }
             let outcome = await CodexPluginCatalogActionSession.perform(
                 action,
-                provider: CodexAppServerPluginCatalogActionProvider(codex: codex)
+                provider: provider
             )
-            if outcome.shouldRefresh {
+            if outcome.didSucceed {
                 Self.pluginCatalogLogger.info(
                     "catalog action succeeded result=\(outcome.activity.title, privacy: .public)"
                 )
-            } else if toggleRollback != nil {
+            } else {
                 Self.pluginCatalogLogger.error(
-                    "catalog toggle failed result=\(outcome.activity.title, privacy: .public) detail=\(outcome.activity.detail, privacy: .private)"
+                    "catalog action failed result=\(outcome.activity.title, privacy: .public) detail=\(outcome.activity.detail, privacy: .private)"
                 )
             }
             if let draftPrompt = outcome.draftPrompt {
@@ -1816,11 +1860,39 @@ final class CodexCoreAppModel {
                 composerSession.setDraft(draftPrompt, for: currentThreadID)
             }
             appendIntegrationActivity(outcome.activity)
-            if outcome.shouldRefresh {
+            if outcome.didSucceed, outcome.shouldRefresh {
                 await refreshPlugins()
-            } else {
+            } else if !outcome.didSucceed {
                 restoreCatalogToggle(toggleRollback)
             }
+            if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: false) }
+        }
+    }
+
+    private func pluginCatalogMutationKey(for action: CodexPluginRouteAction) -> PluginCatalogMutationKey? {
+        switch action {
+        case .installPlugin(let target), .uninstallPlugin(let target), .setPluginEnabled(let target, _):
+            return .plugin(target.id)
+        case .setSkillEnabled(let target, _), .uninstallSkill(let target):
+            return .skill(target.name.contains(":") ? target.name : target.path)
+        case .tryInChat:
+            return nil
+        }
+    }
+
+    private func isPluginCatalogMutationPending(_ key: PluginCatalogMutationKey) -> Bool {
+        switch key {
+        case .plugin(let id): pendingPluginActionIDs.contains(id)
+        case .skill(let id): pendingSkillActionIDs.contains(id)
+        }
+    }
+
+    private func setPluginCatalogMutationPending(_ key: PluginCatalogMutationKey, pending: Bool) {
+        switch key {
+        case .plugin(let id):
+            if pending { pendingPluginActionIDs.insert(id) } else { pendingPluginActionIDs.remove(id) }
+        case .skill(let id):
+            if pending { pendingSkillActionIDs.insert(id) } else { pendingSkillActionIDs.remove(id) }
         }
     }
 

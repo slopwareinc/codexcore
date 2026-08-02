@@ -28,6 +28,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             plugins: plugins,
             selectedPluginID: .constant(nil),
             showsToggle: false,
+            pendingPluginIDs: [],
             theme: .officialDark,
             onAction: { _ in }
         )
@@ -106,6 +107,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             plugins: [installedPlugin],
             selectedPluginID: .constant(nil),
             showsToggle: true,
+            pendingPluginIDs: [],
             theme: .officialDark,
             onAction: { recorder.actions.append($0) }
         )
@@ -137,6 +139,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             skill: personalSkill,
             icon: .init(),
             showsToggle: true,
+            isPending: false,
             onOpen: {},
             onAction: { recorder.actions.append($0) }
         )
@@ -151,6 +154,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let detail = OfficialSkillDetailSheet(
             skill: systemSkill,
             icon: .init(),
+            isPending: false,
             onClose: {},
             onAction: { recorder.actions.append($0) }
         )
@@ -167,6 +171,58 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(skillToggles.count, 2)
         XCTAssertEqual(skillToggles.filter { $0.0 == personalSkill.path && $0.1 }.count, 1)
         XCTAssertEqual(skillToggles.filter { $0.0 == systemSkill.path && !$0.1 }.count, 1)
+    }
+
+    @MainActor
+    func testPluginAddEmitsInstallAndPendingControlsCannotBeClickedTwice() throws {
+        let available = plugin(
+            name: "linear",
+            displayName: "Linear",
+            detail: "Plan and build products",
+            installed: false,
+            enabled: false,
+            installPolicy: "AVAILABLE"
+        )
+        let recorder = CatalogActionRecorder()
+        let active = CodexPluginCatalogTable(
+            plugins: [available],
+            selectedPluginID: .constant(nil),
+            showsToggle: false,
+            pendingPluginIDs: [],
+            theme: .officialDark,
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 700, height: 100)
+        let activeHosting = NSHostingView(rootView: active)
+        activeHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 100)
+        let activeWindow = NSWindow(contentRect: activeHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        activeWindow.contentView = activeHosting
+        settle(activeHosting)
+
+        let add = try XCTUnwrap(allDescendants(of: NSButton.self, in: activeHosting).first { $0.title == "Add" })
+        XCTAssertTrue(add.isEnabled)
+        add.performClick(nil)
+        XCTAssertEqual(recorder.actions, [.installPlugin(.init(plugin: available))])
+
+        let pending = CodexPluginCatalogTable(
+            plugins: [available],
+            selectedPluginID: .constant(nil),
+            showsToggle: false,
+            pendingPluginIDs: [available.protocolID],
+            theme: .officialDark,
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 700, height: 100)
+        let pendingHosting = NSHostingView(rootView: pending)
+        pendingHosting.frame = activeHosting.frame
+        let pendingWindow = NSWindow(contentRect: pendingHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        pendingWindow.contentView = pendingHosting
+        settle(pendingHosting)
+
+        let pendingAdd = try XCTUnwrap(allDescendants(of: NSButton.self, in: pendingHosting).first { $0.title == "Add" })
+        XCTAssertFalse(pendingAdd.isEnabled)
+        pendingAdd.performClick(nil)
+        XCTAssertEqual(recorder.actions.count, 1)
     }
 
     func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
@@ -936,13 +992,29 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(install.marketplacePath?.rawValue, .string("/tmp/marketplace.json"))
         XCTAssertNil(install.remoteMarketplaceName)
 
+        let remote = CodexPluginSummary(
+            id: "openai-curated-remote:gmail",
+            protocolID: "gmail@openai-curated-remote",
+            name: "gmail",
+            marketplaceName: "openai-curated-remote",
+            installed: false,
+            enabled: false,
+            installPolicy: "AVAILABLE"
+        )
+        let remoteInstall = CodexPluginProtocolMutation.installParams(for: .init(plugin: remote))
+        XCTAssertNil(remoteInstall.marketplacePath)
+        XCTAssertEqual(remoteInstall.remoteMarketplaceName, "openai-curated-remote")
+        XCTAssertEqual(remoteInstall.pluginName, "gmail")
+
         let uninstall = CodexPluginProtocolMutation.uninstallParams(for: target)
         XCTAssertEqual(uninstall.pluginID, "github@local")
 
         let toggle = CodexPluginProtocolMutation.pluginEnabledParams(for: target, enabled: false)
-        XCTAssertEqual(toggle.keyPath, "plugins.\"github@local\".enabled")
-        XCTAssertEqual(toggle.mergeStrategy, .upsert)
-        XCTAssertEqual(toggle.value, .bool(false))
+        XCTAssertEqual(toggle.edits.count, 1)
+        XCTAssertEqual(toggle.edits[0].keyPath, "plugins.github@local.enabled")
+        XCTAssertEqual(toggle.edits[0].mergeStrategy, .upsert)
+        XCTAssertEqual(toggle.edits[0].value, .bool(false))
+        XCTAssertEqual(toggle.reloadUserConfig, true)
 
         let skillTarget = CodexSkillActionTarget(skill: skill(
             name: "browser:control",
@@ -950,9 +1022,21 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             enabled: true
         ))
         let skillToggle = CodexPluginProtocolMutation.skillEnabledParams(for: skillTarget, enabled: false)
-        XCTAssertNil(skillToggle.name, "App server requires exactly one selector; canonical skill paths are unambiguous")
-        XCTAssertEqual(skillToggle.path?.rawValue, .string(skillTarget.path))
+        XCTAssertEqual(skillToggle.name, "browser:control")
+        XCTAssertNil(skillToggle.path, "Namespaced plugin skills are addressed by name in the official control plane")
         XCTAssertFalse(skillToggle.enabled)
+
+        let personalSkillTarget = CodexSkillActionTarget(skill: skill(
+            name: "release-notes",
+            displayName: "Release Notes",
+            enabled: true
+        ))
+        let personalSkillToggle = CodexPluginProtocolMutation.skillEnabledParams(
+            for: personalSkillTarget,
+            enabled: false
+        )
+        XCTAssertNil(personalSkillToggle.name)
+        XCTAssertEqual(personalSkillToggle.path?.rawValue, .string(personalSkillTarget.path))
 
         let uninstallSkill = CodexPluginProtocolMutation.skillUninstallParams(for: skillTarget)
         XCTAssertEqual(uninstallSkill.path.rawValue, .string("/tmp/skills/browser:control"))

@@ -322,6 +322,8 @@ struct CodexCoreAppShell: View {
                 skillErrorMessage: model.skillErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
                 launcherTarget: model.pluginLauncherTarget,
+                pendingPluginIDs: model.pendingPluginActionIDs,
+                pendingSkillIDs: model.pendingSkillActionIDs,
                 onLoad: { model.requestPluginRefresh() },
                 onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) }

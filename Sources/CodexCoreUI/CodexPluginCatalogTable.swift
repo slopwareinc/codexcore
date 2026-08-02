@@ -6,6 +6,7 @@ struct CodexPluginCatalogTable: NSViewRepresentable {
     let plugins: [CodexPluginSummary]
     @Binding var selectedPluginID: String?
     let showsToggle: Bool
+    let pendingPluginIDs: Set<String>
     let theme: CodexAgentTheme
     let onAction: (CodexPluginRouteAction) -> Void
 
@@ -55,7 +56,11 @@ struct CodexPluginCatalogTable: NSViewRepresentable {
 
         func apply(parent: CodexPluginCatalogTable, forceReload: Bool = false) {
             self.parent = parent
-            let signature = Self.signature(for: parent.plugins, showsToggle: parent.showsToggle)
+            let signature = Self.signature(
+                for: parent.plugins,
+                showsToggle: parent.showsToggle,
+                pendingPluginIDs: parent.pendingPluginIDs
+            )
             let contentChanged = forceReload || signature != contentSignature
             let selectionChanged = selectedID != parent.selectedPluginID
             contentSignature = signature
@@ -83,6 +88,7 @@ struct CodexPluginCatalogTable: NSViewRepresentable {
                 plugin: plugin,
                 selected: plugin.id == parent.selectedPluginID,
                 showsToggle: parent.showsToggle,
+                isPending: parent.pendingPluginIDs.contains(plugin.protocolID),
                 theme: parent.theme,
                 onAction: parent.onAction
             )
@@ -111,9 +117,14 @@ struct CodexPluginCatalogTable: NSViewRepresentable {
             }
         }
 
-        private static func signature(for plugins: [CodexPluginSummary], showsToggle: Bool) -> Int {
+        private static func signature(
+            for plugins: [CodexPluginSummary],
+            showsToggle: Bool,
+            pendingPluginIDs: Set<String>
+        ) -> Int {
             var hasher = Hasher()
             hasher.combine(showsToggle)
+            hasher.combine(pendingPluginIDs)
             hasher.combine(plugins.count)
             for plugin in plugins {
                 hasher.combine(plugin.id)
@@ -217,6 +228,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         plugin: CodexPluginSummary,
         selected: Bool,
         showsToggle: Bool,
+        isPending: Bool,
         theme: CodexAgentTheme,
         onAction: @escaping (CodexPluginRouteAction) -> Void
     ) {
@@ -245,7 +257,9 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         }
         enabledSwitch.isHidden = !showsToggle
         enabledSwitch.state = plugin.enabled ? .on : .off
+        enabledSwitch.isEnabled = !isPending
         actionButton.isHidden = showsToggle
+        actionButton.isEnabled = !isPending
         if !showsToggle {
             if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
                 actionButton.title = "Add"

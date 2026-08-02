@@ -753,11 +753,18 @@ public struct CodexSkillActionTarget: Equatable, Sendable {
 
 public struct CodexPluginActionOutcome: Equatable, Sendable {
     public var activity: CodexIntegrationCatalogActivity
+    public var didSucceed: Bool
     public var shouldRefresh: Bool
     public var draftPrompt: String?
 
-    public init(activity: CodexIntegrationCatalogActivity, shouldRefresh: Bool = false, draftPrompt: String? = nil) {
+    public init(
+        activity: CodexIntegrationCatalogActivity,
+        didSucceed: Bool = true,
+        shouldRefresh: Bool = false,
+        draftPrompt: String? = nil
+    ) {
         self.activity = activity
+        self.didSucceed = didSucceed
         self.shouldRefresh = shouldRefresh
         self.draftPrompt = draftPrompt
     }
@@ -789,13 +796,16 @@ public enum CodexPluginProtocolMutation {
     public static func pluginEnabledParams(
         for target: CodexPluginActionTarget,
         enabled: Bool
-    ) -> CodexSchemaConfigValueWriteParams {
-        let escapedID = target.id.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        return CodexSchemaConfigValueWriteParams(
-            keyPath: "plugins.\"\(escapedID)\".enabled",
-            mergeStrategy: .upsert,
-            value: .bool(enabled)
+    ) -> CodexSchemaConfigBatchWriteParams {
+        CodexSchemaConfigBatchWriteParams(
+            edits: [
+                CodexSchemaConfigEdit(
+                    keyPath: "plugins.\(target.id).enabled",
+                    mergeStrategy: .upsert,
+                    value: .bool(enabled)
+                )
+            ],
+            reloadUserConfig: true
         )
     }
 
@@ -803,7 +813,13 @@ public enum CodexPluginProtocolMutation {
         for target: CodexSkillActionTarget,
         enabled: Bool
     ) -> CodexSchemaSkillsConfigWriteParams {
-        CodexSchemaSkillsConfigWriteParams(
+        if target.name.contains(":") {
+            return CodexSchemaSkillsConfigWriteParams(
+                enabled: enabled,
+                name: target.name
+            )
+        }
+        return CodexSchemaSkillsConfigWriteParams(
             enabled: enabled,
             path: CodexAppServerSchemaValue(.string(target.path))
         )
@@ -872,7 +888,7 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
 
     public func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
         do {
-            _ = try await codex.configValueWrite(
+            _ = try await codex.configBatchWrite(
                 CodexPluginProtocolMutation.pluginEnabledParams(for: target, enabled: enabled)
             )
             return success(
@@ -903,7 +919,7 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
             return CodexPluginActionOutcome(activity: .init(
                 title: "Can’t uninstall \(target.displayName)",
                 detail: "Only personal skills can be uninstalled from this surface."
-            ))
+            ), didSucceed: false)
         }
         do {
             _ = try await codex.remove(CodexPluginProtocolMutation.skillUninstallParams(for: target))
@@ -922,7 +938,8 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
 
     private func failure(_ title: String, error: Error) -> CodexPluginActionOutcome {
         CodexPluginActionOutcome(
-            activity: CodexIntegrationCatalogActivity(title: title, detail: error.localizedDescription)
+            activity: CodexIntegrationCatalogActivity(title: title, detail: error.localizedDescription),
+            didSucceed: false
         )
     }
 }

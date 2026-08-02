@@ -19,6 +19,8 @@ public struct CodexPluginRouteView: View {
     public let skillErrorMessage: String?
     public let pluginLoadErrors: [String]
     public let launcherTarget: CodexComposerPluginLauncher?
+    public let pendingPluginIDs: Set<String>
+    public let pendingSkillIDs: Set<String>
     public let onLoad: () -> Void
     public let onRefresh: () -> Void
     public let onAction: (CodexPluginRouteAction) -> Void
@@ -42,6 +44,8 @@ public struct CodexPluginRouteView: View {
         skillErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
         launcherTarget: CodexComposerPluginLauncher? = nil,
+        pendingPluginIDs: Set<String> = [],
+        pendingSkillIDs: Set<String> = [],
         onLoad: @escaping () -> Void = {},
         onRefresh: @escaping () -> Void,
         onAction: @escaping (CodexPluginRouteAction) -> Void
@@ -55,6 +59,8 @@ public struct CodexPluginRouteView: View {
         self.skillErrorMessage = skillErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
         self.launcherTarget = launcherTarget
+        self.pendingPluginIDs = pendingPluginIDs
+        self.pendingSkillIDs = pendingSkillIDs
         self.onLoad = onLoad
         self.onRefresh = onRefresh
         self.onAction = onAction
@@ -87,6 +93,14 @@ public struct CodexPluginRouteView: View {
         page == .skills || (page == .manage && manageTab == .skills)
             ? isLoadingSkills
             : isLoadingPlugins
+    }
+
+    private func isPending(_ plugin: CodexPluginSummary) -> Bool {
+        pendingPluginIDs.contains(plugin.protocolID)
+    }
+
+    private func isPending(_ skill: CodexSkillSummary) -> Bool {
+        pendingSkillIDs.contains(skill.name.contains(":") ? skill.name : skill.path)
     }
 
     public var body: some View {
@@ -123,6 +137,7 @@ public struct CodexPluginRouteView: View {
                 OfficialSkillDetailSheet(
                     skill: skill,
                     icon: pluginIcon(for: skill),
+                    isPending: isPending(skill),
                     onClose: { skillDetailID = nil },
                     onAction: onAction
                 )
@@ -265,6 +280,7 @@ public struct CodexPluginRouteView: View {
                 OfficialPluginDetailPage(
                     plugin: plugin,
                     skills: associatedSkills(with: plugin),
+                    isPending: isPending(plugin),
                     onAction: onAction
                 )
             } else {
@@ -461,6 +477,7 @@ public struct CodexPluginRouteView: View {
                 ForEach(plugins) { plugin in
                     OfficialPluginRow(
                         plugin: plugin,
+                        isPending: isPending(plugin),
                         onOpen: { selectedPluginID = plugin.id },
                         onAction: onAction
                     )
@@ -487,6 +504,7 @@ public struct CodexPluginRouteView: View {
                     plugins: routeState.visiblePlugins,
                     selectedPluginID: $selectedPluginID,
                     showsToggle: false,
+                    pendingPluginIDs: pendingPluginIDs,
                     theme: theme,
                     onAction: onAction
                 )
@@ -530,6 +548,7 @@ public struct CodexPluginRouteView: View {
                     plugins: visible,
                     selectedPluginID: $selectedPluginID,
                     showsToggle: true,
+                    pendingPluginIDs: pendingPluginIDs,
                     theme: theme,
                     onAction: onAction
                 )
@@ -551,6 +570,7 @@ public struct CodexPluginRouteView: View {
                             skill: skill,
                             icon: pluginIcon(for: skill),
                             showsToggle: false,
+                            isPending: isPending(skill),
                             onOpen: { skillDetailID = skill.id },
                             onAction: onAction
                         )
@@ -579,6 +599,7 @@ public struct CodexPluginRouteView: View {
                     skill: skill,
                     icon: pluginIcon(for: skill),
                     showsToggle: true,
+                    isPending: isPending(skill),
                     onOpen: { skillDetailID = skill.id },
                     onAction: onAction
                 )
@@ -738,6 +759,7 @@ public struct CodexPluginRouteView: View {
 private struct OfficialPluginRow: View {
     @Environment(\.codexAgentTheme) private var theme
     let plugin: CodexPluginSummary
+    let isPending: Bool
     let onOpen: () -> Void
     let onAction: (CodexPluginRouteAction) -> Void
 
@@ -756,11 +778,15 @@ private struct OfficialPluginRow: View {
             }
             .buttonStyle(.plain)
             if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
-                Button("Add") { onAction(.installPlugin(.init(plugin: plugin))) }
+                Button { onAction(.installPlugin(.init(plugin: plugin))) } label: {
+                    if isPending { ProgressView().controlSize(.small) } else { Text("Add") }
+                }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .disabled(isPending)
             } else {
                 pluginMenu
+                    .disabled(isPending)
             }
         }
         .frame(height: 48)
@@ -795,6 +821,7 @@ struct OfficialSkillRow: View {
     let skill: CodexSkillSummary
     let icon: CodexPluginIconReference
     let showsToggle: Bool
+    let isPending: Bool
     let onOpen: () -> Void
     let onAction: (CodexPluginRouteAction) -> Void
 
@@ -822,6 +849,7 @@ struct OfficialSkillRow: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .disabled(isPending)
                 .accessibilityLabel("Toggle skill enabled state")
             } else if skill.enabled {
                 Image(systemName: "checkmark")
@@ -838,6 +866,7 @@ struct OfficialSkillDetailSheet: View {
     @Environment(\.codexAgentTheme) private var theme
     let skill: CodexSkillSummary
     let icon: CodexPluginIconReference
+    let isPending: Bool
     let onClose: () -> Void
     let onAction: (CodexPluginRouteAction) -> Void
 
@@ -860,6 +889,7 @@ struct OfficialSkillDetailSheet: View {
                     set: { onAction(.setSkillEnabled(.init(skill: skill), enabled: $0)) }
                 ))
                 .labelsHidden().toggleStyle(.switch)
+                .disabled(isPending)
                 .accessibilityLabel("Toggle skill enabled state")
                 Menu {
                     Button(skill.enabled ? "Disable skill" : "Enable skill") {
@@ -870,6 +900,7 @@ struct OfficialSkillDetailSheet: View {
                     }
                 } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                .disabled(isPending)
                 Button(action: onClose) { Image(systemName: "xmark").frame(width: 28, height: 28) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Close skill details")
@@ -892,6 +923,7 @@ struct OfficialSkillDetailSheet: View {
                 if skill.scope == "user" {
                     Button("Uninstall", role: .destructive) { onAction(.uninstallSkill(.init(skill: skill))) }
                         .buttonStyle(.bordered)
+                        .disabled(isPending)
                 }
                 Spacer()
                 if let prompt = skill.defaultPrompt {
@@ -912,6 +944,7 @@ private struct OfficialPluginDetailPage: View {
     @Environment(\.codexAgentTheme) private var theme
     let plugin: CodexPluginSummary
     let skills: [CodexSkillSummary]
+    let isPending: Bool
     let onAction: (CodexPluginRouteAction) -> Void
 
     var body: some View {
@@ -1004,6 +1037,7 @@ private struct OfficialPluginDetailPage: View {
             }
         } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .disabled(isPending)
         .accessibilityLabel("More actions for \(plugin.displayName)")
     }
 
