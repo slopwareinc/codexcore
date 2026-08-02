@@ -117,6 +117,7 @@ public struct CodexChatWorkspaceView: View {
     private let onCloseTranscriptMessage: ((UUID) -> Void)?
     private let onSelectSubagentTranscript: (String?) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
+    private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenMCPDetails: (() -> Void)?
     private let onRefreshMCPServers: (() -> Void)?
     private let onToggleSidebar: () -> Void
@@ -134,6 +135,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
+    @State private var transcriptReviewRequest: CodexTranscriptReviewRequest?
 
     /// Creates a workspace and reports the subagent transcript currently visible
     /// in its side panel through `onSelectSubagentTranscript`.
@@ -204,6 +206,7 @@ public struct CodexChatWorkspaceView: View {
         onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
+        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenMCPDetails: (() -> Void)? = nil,
         onRefreshMCPServers: (() -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
@@ -283,6 +286,7 @@ public struct CodexChatWorkspaceView: View {
         self.onCloseTranscriptMessage = onCloseTranscriptMessage
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.onOpenThread = onOpenThread
+        self.onStartReview = onStartReview
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onRefreshMCPServers = onRefreshMCPServers
         self.onToggleSidebar = onToggleSidebar
@@ -392,6 +396,7 @@ public struct CodexChatWorkspaceView: View {
                 onRemoveResponseAnnotation: removeResponseAnnotation,
                 onOpenSubagent: openPanelTab,
                 onOpenThread: onOpenThread,
+                onOpenReviewRequest: reviewPanelAction,
                 onEditUserMessage: { rawText in
                     if let decoded = CodexComposerPromptCodec.decode(rawText) {
                         draft = decoded.request
@@ -584,7 +589,8 @@ public struct CodexChatWorkspaceView: View {
         panel.agentTabs(
             sideChat: sideChat,
             subagents: subagents,
-            gitReviewSession: gitReviewSession
+            gitReviewSession: transcriptReviewRequest?.session ?? gitReviewSession,
+            plan: workspaceSummary?.plan
         )
     }
 
@@ -651,11 +657,14 @@ public struct CodexChatWorkspaceView: View {
             mountedFilesSessions: mountedFilesSessions,
             mountedFilePreviewSessions: mountedFilePreviewSessions,
             modelOptions: modelOptions,
+            workspaceURL: URL(fileURLWithPath: workspacePath),
+            selectedReviewFilePath: transcriptReviewRequest?.selectedFilePath,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
+            onStartReview: onStartReview,
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
@@ -687,6 +696,15 @@ public struct CodexChatWorkspaceView: View {
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen = true
         }
+    }
+
+    private func openReviewPanel(_ request: CodexTranscriptReviewRequest) {
+        transcriptReviewRequest = request
+        openPanelTab(CodexAgentPanelTab.review(request.session).id)
+    }
+
+    private var reviewPanelAction: (CodexTranscriptReviewRequest) -> Void {
+        openReviewPanel
     }
 
     private func closeSubagentTab(_ id: String) {

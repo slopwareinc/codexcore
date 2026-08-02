@@ -1,4 +1,5 @@
 @testable import CodexCoreUI
+import CodexCore
 import Testing
 
 struct CodexWorkspaceSummaryContextTests {
@@ -23,5 +24,24 @@ struct CodexWorkspaceSummaryContextTests {
         )
 
         #expect(context.environmentModeTitle == "Worktree")
+    }
+
+    @Test func planSummaryReportsProgressWithoutOwningDiffState() {
+        let plan = CodexPlanSummary(
+            steps: [
+                TurnPlanStep(step: "Inspect", status: .completed),
+                TurnPlanStep(step: "Implement", status: .inProgress),
+            ],
+            explanation: "Review workbench"
+        )
+
+        let context = CodexWorkspaceSummaryContext(
+            workspacePath: "/tmp/Project",
+            turnDiff: "diff --git a/A b/A\n+change",
+            plan: plan
+        )
+
+        #expect(context.plan?.progressLabel == "1/2")
+        #expect(context.diffStatsLine == "+1 -0 across 1 file(s)")
     }
 }

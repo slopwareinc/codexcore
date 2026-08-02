@@ -256,6 +256,79 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(!cell.approvalButtonsVisibleForTesting)
     }
 
+    @Test func completedTurnChangesCardHostsInlineAndRoutesReviewActions() async throws {
+        let diff = """
+        diff --git a/Sources/Workbench.swift b/Sources/Workbench.swift
+        --- a/Sources/Workbench.swift
+        +++ b/Sources/Workbench.swift
+        @@ -1 +1,2 @@
+        -old
+        +new
+        +more
+        diff --git a/Sources/Second.swift b/Sources/Second.swift
+        --- a/Sources/Second.swift
+        +++ b/Sources/Second.swift
+        @@ -0,0 +1 @@
+        +second
+        """
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.workGroup(.init(
+                        id: "work",
+                        rows: [.fileChange(.init(
+                            id: "files",
+                            files: ["Sources/Workbench.swift"],
+                            status: .completed,
+                            diff: diff
+                        ))],
+                        isLive: false
+                    ))],
+                    finalAnswer: .init(id: "answer", text: "Done.", isStreaming: false),
+                    status: .done(durationMs: 10)
+                )])
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let card = try #require(snapshot.itemsByID.values.first { $0.turnDiff != nil })
+        var actions: [CodexTranscriptRenderAction] = []
+        let cell = CodexTranscriptCollectionItem()
+        _ = cell.view
+        cell.view.frame = NSRect(x: 0, y: 0, width: 860, height: card.measuredHeight)
+        cell.configure(
+            item: card,
+            appKitTheme: .init(.officialDark, colorScheme: .dark),
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            canOpenReview: true,
+            performAction: { actions.append($0) },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+
+        #expect(cell.hasHostedViewForTesting)
+        cell.openTurnDiffReviewForTesting(filePath: "Sources/Second.swift")
+        cell.toggleTurnDiffForTesting()
+        guard case .openReview(let request) = actions.first else {
+            Issue.record("Expected the file row to open Review")
+            return
+        }
+        #expect(request.selectedFilePath == "Sources/Second.swift")
+        #expect(request.session.snapshot.files.map(\.path) == [
+            "Sources/Workbench.swift", "Sources/Second.swift"
+        ])
+        let selectedPatch = request.session.snapshot.files.last?.patchText.fullText
+        #expect(selectedPatch?.contains("+second") == true)
+        #expect(selectedPatch?.contains("+more") == false)
+        #expect(actions.last == .toggleRow(rowID: "turn-diff:turn"))
+    }
+
     @Test func defaultWorkGroupUsesOneCompactSemanticSummary() async throws {
         let projector = CodexTranscriptRenderProjector()
         let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)

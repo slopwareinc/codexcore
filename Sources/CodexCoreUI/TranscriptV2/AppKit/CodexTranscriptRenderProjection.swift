@@ -77,6 +77,7 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openThread(CodexThreadReferenceV2)
     case openURL(String)
     case openFile(path: String, line: Int?)
+    case openReview(CodexTranscriptReviewRequest)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
 }
 
@@ -198,6 +199,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var workRow: CodexTranscriptWorkRowRender?
     var agentChips: [CodexTranscriptAgentChipRender]
     var diffPanel: CodexTranscriptDiffPanelRender?
+    var turnDiff: CodexTranscriptTurnDiffRender?
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
@@ -456,6 +458,7 @@ actor CodexTranscriptRenderProjector {
                     workRow: draft.workRow,
                     agentChips: draft.agentChips,
                     diffPanel: draft.diffPanel,
+                    turnDiff: draft.turnDiff,
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
@@ -502,6 +505,10 @@ actor CodexTranscriptRenderProjector {
                 : Self.shouldRenderWork(turn)
             let tailMode = Self.isWorkTailMode(turn)
             let workExpanded = Self.workIsExpanded(turn, presentation: presentation)
+            let turnDiff = Self.turnDiffRender(
+                turn: turn,
+                isExpanded: presentation.expandedRowIDs.contains("turn-diff:\(turn.id)")
+            )
             if showsWork {
                 let header = Self.workHeader(turn, expanded: workExpanded, presentedAt: presentedAt)
                 append(ItemDraft(
@@ -837,6 +844,27 @@ actor CodexTranscriptRenderProjector {
                 }
             }
 
+            if let turnDiff {
+                let rowHeight = CodexTranscriptTurnDiffCard.rowHeight
+                let disclosureHeight: CGFloat = turnDiff.hiddenFileCount > 0 || turnDiff.isExpanded
+                    ? rowHeight : 0
+                append(ItemDraft(
+                    id: "\(sectionID):turn-diff",
+                    fingerprint: "turn-diff:\(String(describing: turnDiff))",
+                    turnDiff: turnDiff,
+                    accessibilityLabel: "\(turnDiff.title), \(turnDiff.totalAdded) additions and \(turnDiff.totalRemoved) removals",
+                    maxWidthKind: .card,
+                    fixedHeight: CodexTranscriptTurnDiffCard.topSpacing
+                        + CodexTranscriptTurnDiffCard.headerHeight
+                        + CodexTranscriptTurnDiffCard.listVerticalInset * 2
+                        + CGFloat(turnDiff.visibleFiles.count) * rowHeight
+                        + disclosureHeight,
+                    // A card carries more visual weight than a text line, so it
+                    // gets a full gap instead of the tight interactive spacing.
+                    bottomSpacing: CodexTranscriptColumnMetrics.turnGap
+                ))
+            }
+
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 let sourceID = "\(sectionID):final:\(answer.id)"
                 for draft in contentDrafts(
@@ -968,6 +996,7 @@ private extension CodexTranscriptRenderProjector {
         var workRow: CodexTranscriptWorkRowRender?
         var agentChips: [CodexTranscriptAgentChipRender]
         var diffPanel: CodexTranscriptDiffPanelRender?
+        var turnDiff: CodexTranscriptTurnDiffRender?
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
@@ -994,6 +1023,7 @@ private extension CodexTranscriptRenderProjector {
             workRow: CodexTranscriptWorkRowRender? = nil,
             agentChips: [CodexTranscriptAgentChipRender] = [],
             diffPanel: CodexTranscriptDiffPanelRender? = nil,
+            turnDiff: CodexTranscriptTurnDiffRender? = nil,
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
@@ -1020,6 +1050,7 @@ private extension CodexTranscriptRenderProjector {
             self.workRow = workRow
             self.agentChips = agentChips
             self.diffPanel = diffPanel
+            self.turnDiff = turnDiff
             self.code = code
             self.footer = footer
             self.productTool = productTool

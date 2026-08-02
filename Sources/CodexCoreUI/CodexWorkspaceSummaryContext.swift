@@ -1,4 +1,23 @@
 import Foundation
+import CodexCore
+
+public struct CodexPlanSummary: Equatable, Sendable {
+    public var steps: [TurnPlanStep]
+    public var explanation: String?
+
+    public init(steps: [TurnPlanStep], explanation: String? = nil) {
+        self.steps = steps
+        self.explanation = explanation
+    }
+
+    public var completedCount: Int {
+        steps.count { $0.status == .completed }
+    }
+
+    public var progressLabel: String {
+        "\(completedCount)/\(steps.count)"
+    }
+}
 
 public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
     public var workspacePath: String
@@ -6,19 +25,22 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
     public var turnDiff: String?
     public var environmentInfo: CodexEnvironmentInfoState
     public var sourceFiles: [CodexReferencedFile]
+    public var plan: CodexPlanSummary?
 
     public init(
         workspacePath: String,
         gitBranch: String? = nil,
         turnDiff: String? = nil,
         environmentInfo: CodexEnvironmentInfoState = .unavailable,
-        sourceFiles: [CodexReferencedFile] = []
+        sourceFiles: [CodexReferencedFile] = [],
+        plan: CodexPlanSummary? = nil
     ) {
         self.workspacePath = workspacePath
         self.gitBranch = gitBranch
         self.turnDiff = turnDiff
         self.environmentInfo = environmentInfo
         self.sourceFiles = sourceFiles
+        self.plan = plan
     }
 
     public var workspaceLine: String {

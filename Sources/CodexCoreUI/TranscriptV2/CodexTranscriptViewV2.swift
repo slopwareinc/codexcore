@@ -63,6 +63,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onRemoveResponseAnnotation: (String) -> Void
     private let onOpenSubagent: (String) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
+    private let onOpenReview: (() -> Void)?
+    private let onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)?
     private let onEditUserMessage: (String) -> Void
     private let onForkChat: (() -> Void)?
     private let pendingApprovals: [CodexApprovalPrompt]
@@ -84,6 +86,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
+        onOpenReview: (() -> Void)? = nil,
+        onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
@@ -103,6 +107,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
         self.onOpenSubagent = onOpenSubagent
         self.onOpenThread = onOpenThread
+        self.onOpenReview = onOpenReview
+        self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
@@ -127,6 +133,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
+        onOpenReview: (() -> Void)? = nil,
+        onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
@@ -146,6 +154,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
         self.onOpenSubagent = onOpenSubagent
         self.onOpenThread = onOpenThread
+        self.onOpenReview = onOpenReview
+        self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
@@ -177,6 +187,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 productToolRenderer: productToolRenderer,
                 onOpenSubagent: onOpenSubagent,
                 onOpenThread: onOpenThread,
+                onOpenReview: resolvedOpenReview,
                 onEditUserMessage: onEditUserMessage,
                 onForkChat: onForkChat,
                 onResolveApproval: onResolveApproval,
@@ -227,6 +238,12 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 .padding(.top, 12)
             }
         }
+    }
+
+    private var resolvedOpenReview: ((CodexTranscriptReviewRequest) -> Void)? {
+        if let onOpenReviewRequest { return onOpenReviewRequest }
+        guard let onOpenReview else { return nil }
+        return { _ in onOpenReview() }
     }
 
     private var effectivePresentation: CodexThreadUIPresentation {

@@ -130,11 +130,11 @@ enum CodeReviewPayloadParser {
 
     private static func extractJSONObjectCandidates(_ text: String) -> [String] {
         let bytes = Array(text.utf8)
-        var startIndex = 0
+        var searchIndex = 0
         var candidates: [String] = []
 
-        while let relativeStart = text[text.index(text.startIndex, offsetBy: startIndex)...].firstIndex(of: "{") {
-            let absoluteStart = text.distance(from: text.startIndex, to: relativeStart)
+        while searchIndex < bytes.count,
+              let absoluteStart = bytes[searchIndex...].firstIndex(of: 123) {
             var depth = 0
             var inString = false
             var isEscaped = false
@@ -164,15 +164,16 @@ enum CodeReviewPayloadParser {
                     }
                     depth -= 1
                     if depth == 0 {
-                        let startIdx = text.index(text.startIndex, offsetBy: absoluteStart)
-                        let endIdx = text.index(text.startIndex, offsetBy: index)
-                        candidates.append(String(text[startIdx...endIdx]))
+                        candidates.append(String(
+                            decoding: bytes[absoluteStart...index],
+                            as: UTF8.self
+                        ))
                         break
                     }
                 }
             }
 
-            startIndex = absoluteStart + 1
+            searchIndex = absoluteStart + 1
         }
 
         return candidates

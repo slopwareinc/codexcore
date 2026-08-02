@@ -174,6 +174,7 @@ public struct CodexSideChatState: Identifiable, Equatable, Sendable {
 }
 
 public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
+    case plan(CodexPlanSummary)
     case sideChat(CodexSideChatState)
     case subagent(CodexSubagentState)
     case review(CodexGitReviewSession)
@@ -185,6 +186,7 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
 
     public var id: String {
         switch self {
+        case .plan: return "plan"
         case .sideChat(let sideChat): return sideChat.id
         case .subagent(let subagent): return subagent.id
         case .review: return "review"
@@ -193,6 +195,7 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
 
     public var title: String {
         switch self {
+        case .plan: return "Plan"
         case .sideChat(let sideChat): return sideChat.title
         case .subagent(let subagent): return subagent.name
         case .review: return "Review"
@@ -201,6 +204,7 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
 
     public var systemImage: String {
         switch self {
+        case .plan: return "list.bullet.rectangle"
         case .sideChat: return "rectangle.split.2x1"
         case .subagent: return "person.wave.2"
         case .review: return "doc.text.magnifyingglass"
@@ -209,6 +213,7 @@ public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
 
     public var transcript: CodexTranscriptV2 {
         switch self {
+        case .plan: return .init()
         case .sideChat(let sideChat): return sideChat.transcript
         case .subagent(let subagent): return subagent.transcript
         case .review: return .init()

@@ -236,11 +236,21 @@ extension CodexCoreAppModel {
     }
 
     var gitReviewSession: CodexGitReviewSession? {
-        CodexGitReviewSnapshot
-            .fromTurnDiff(branchName: gitBranch, turnDiff: currentDiff)
-            .map { snapshot in
-                CodexGitReviewSession(snapshot: snapshot)
-            }
+        if let snapshot = CodexGitReviewSnapshot.fromTurnDiff(
+            branchName: gitBranch,
+            turnDiff: currentDiff
+        ) {
+            return CodexGitReviewSession(snapshot: snapshot)
+        }
+        // A Git checkout can be reviewed, committed, and pushed before the
+        // current turn has produced any edits. Without this the summary's
+        // Changes, Commit or push, and Create pull request rows would go dead
+        // in a perfectly normal repository; Review opens on its Last Turn
+        // empty state and offers the repository sources from there.
+        guard let branch = gitBranch?.nilIfBlank else { return nil }
+        return CodexGitReviewSession(
+            snapshot: CodexGitReviewSnapshot(branchName: branch)
+        )
     }
 
     var followUpBehavior: CodexFollowUpBehavior {

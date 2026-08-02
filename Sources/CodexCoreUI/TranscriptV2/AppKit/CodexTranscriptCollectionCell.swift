@@ -260,6 +260,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var appKitTheme: CodexTranscriptAppKitTheme?
     private var swiftUITheme = CodexAgentTheme.officialDark
     private var contentHorizontalOffset: CGFloat = 0
+    private var canOpenReview = false
     private var performAction: ((CodexTranscriptRenderAction) -> Void)?
     private var copy: ((String) -> Void)?
     private var editUserMessage: ((String) -> Void)?
@@ -401,6 +402,18 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func selectDiffTabForTesting(at index: Int) {
         guard diffTabButtons.indices.contains(index) else { return }
         selectDiffTab(diffTabButtons[index])
+    }
+    func openTurnDiffReviewForTesting() {
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest()))
+    }
+    func openTurnDiffReviewForTesting(filePath: String) {
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest(selectedFilePath: filePath)))
+    }
+    func toggleTurnDiffForTesting() {
+        guard let rowID = item?.turnDiff?.rowID else { return }
+        performAction?(.toggleRow(rowID: rowID))
     }
 
     override func loadView() {
@@ -632,6 +645,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         swiftUITheme: CodexAgentTheme,
         contentHorizontalOffset: CGFloat,
         productToolRenderer: CodexProductToolRendererV2?,
+        canOpenReview: Bool = false,
         performAction: @escaping (CodexTranscriptRenderAction) -> Void,
         copy: @escaping (String) -> Void,
         editUserMessage: @escaping (String) -> Void,
@@ -651,6 +665,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.appKitTheme = appKitTheme
         self.swiftUITheme = swiftUITheme
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.canOpenReview = canOpenReview
         self.performAction = performAction
         self.copy = copy
         self.editUserMessage = editUserMessage
@@ -723,6 +738,23 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             if item.action != nil { ensureActionControl() }
             if case .codeComment = directive.kind, item.preparedText != nil { ensureTextControls() }
             configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
+        } else if let turnDiff = item.turnDiff {
+            let hosting = NSHostingView(rootView: AnyView(
+                CodexTranscriptTurnDiffCard(
+                    render: turnDiff,
+                    onReview: canOpenReview
+                        ? { [weak self] request in self?.performAction?(.openReview(request)) }
+                        : nil,
+                    onToggleExpanded: { [weak self] in
+                        self?.performAction?(.toggleRow(rowID: turnDiff.rowID))
+                    }
+                )
+                .padding(.top, CodexTranscriptTurnDiffCard.topSpacing)
+                .codexAgentTheme(swiftUITheme)
+            ))
+            hosting.setAccessibilityLabel(item.accessibilityLabel)
+            hostedView = hosting
+            view.addSubview(hosting)
         } else if let diffPanel = item.diffPanel {
             ensureTextControls()
             ensureCopyControl()

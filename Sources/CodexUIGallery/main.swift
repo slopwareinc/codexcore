@@ -1,6 +1,6 @@
 import AppKit
 import CodexCore
-import CodexCoreUI
+@_spi(VisualTesting) import CodexCoreUI
 import SwiftUI
 
 // Renders component scenes to PNG for visual review.
@@ -33,6 +33,14 @@ struct Gallery {
             Scene(name: "glass-roles", width: 720, content: AnyView(GlassRoleSpecimen())),
             Scene(name: "palette", width: 720, content: AnyView(PaletteSpecimen())),
             Scene(name: "plan-panel", width: 420, content: AnyView(PlanPanelScene())),
+            Scene(name: "summary-plan-and-changes", width: 420, content: AnyView(SummaryPlanAndChangesScene())),
+            Scene(name: "transcript-turn-changes", width: 860, content: AnyView(TranscriptTurnChangesScene())),
+            Scene(name: "review-workbench", width: 900, content: AnyView(ReviewWorkbenchScene())),
+            Scene(name: "review-workbench-modified", width: 900, content: AnyView(
+                CodexGitReviewWorkbenchGalleryFixture(
+                    selectedPath: "Sources/CodexCoreUI/CodexGitReviewWorkbenchView.swift"
+                )
+            )),
             Scene(name: "mcp-sheet", width: 620, content: AnyView(MCPSheetScene())),
             Scene(name: "plugins-marketplace", width: 1180, content: AnyView(PluginsRouteScene(tab: .marketplace))),
             Scene(name: "plugins-skills", width: 1180, content: AnyView(PluginsRouteScene(tab: .skills))),
@@ -543,10 +551,64 @@ private struct PlanPanelScene: View {
                 TurnPlanStep(step: "Make themes dual-appearance", status: .inProgress),
                 TurnPlanStep(step: "Render the gallery", status: .pending)
             ],
-            explanation: "Working through the visual glowup in commits.",
-            diff: "diff --git a/A b/A\n+added line\n-removed line\n+another added\n",
-            onCopyDiff: { _ in }
+            explanation: "Working through the visual glowup in commits."
         )
+    }
+}
+
+private struct SummaryPlanAndChangesScene: View {
+    private let plan = CodexPlanSummary(
+        steps: [
+            TurnPlanStep(step: "Inspect the official bundle", status: .completed),
+            TurnPlanStep(step: "Unify Plan and Changes ownership", status: .inProgress),
+            TurnPlanStep(step: "Validate controlled Git scenarios", status: .pending),
+        ],
+        explanation: "Review workbench parity"
+    )
+
+    private let review = CodexGitReviewSession(
+        snapshot: CodexGitReviewSnapshot(
+            branchName: "codex/review-workbench-170",
+            files: [
+                CodexGitReviewFileChange(
+                    path: "Sources/ReviewWorkbench.swift",
+                    status: .modified,
+                    isStaged: false,
+                    addedLines: 56,
+                    removedLines: 11
+                )
+            ]
+        )
+    )
+
+    var body: some View {
+        CodexFloatingSummaryPanel(
+            sideChat: nil,
+            subagents: [],
+            workspaceSummary: CodexWorkspaceSummaryContext(
+                workspacePath: "/Users/person/Projects/CodexCore",
+                gitBranch: "codex/review-workbench-170",
+                plan: plan
+            ),
+            gitReviewSession: review,
+            onSelectTab: { _ in }
+        )
+        .padding(24)
+    }
+}
+
+private struct TranscriptTurnChangesScene: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            CodexTranscriptTurnDiffGalleryFixture()
+            Text("The Review workbench now keeps turn edits beside the final response.")
+        }
+    }
+}
+
+private struct ReviewWorkbenchScene: View {
+    var body: some View {
+        CodexGitReviewWorkbenchGalleryFixture()
     }
 }
 

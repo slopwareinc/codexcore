@@ -16,6 +16,12 @@ rise with a tapered neighboring-marker mount on hover, show the user request
 and assistant result in a native Liquid Glass preview, and jump to the selected
 turn without requiring host integration.
 
+Completed file-edit cards can open Review through `onOpenReviewRequest`. The
+request contains the originating turn's bounded review session and the clicked
+file path, so a host can open its Review panel directly on that file. The
+existing parameterless `onOpenReview` callback remains available for hosts
+that only need a generic Review route.
+
 ## Workspace skeleton
 
 ```swift

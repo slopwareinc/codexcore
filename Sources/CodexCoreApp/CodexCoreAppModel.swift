@@ -865,6 +865,14 @@ final class CodexCoreAppModel {
         accountRateLimitsSnapshot = response.rateLimits
     }
 
+    #if DEBUG
+    /// Git branch resolution shells out, so tests set the resolved value
+    /// directly instead of standing up a repository.
+    func setGitBranchForTesting(_ branch: String?) {
+        gitBranch = branch
+    }
+    #endif
+
     private func refreshGitBranch() {
         let path = workspacePath
         Task {
@@ -1513,6 +1521,7 @@ final class CodexCoreAppModel {
 
         if project.contains(workspacePath: workspacePath) {
             workspacePath = newPrimary
+            refreshGitBranch()
             sidebarNavigationSession.syncCurrentWorkspace(
                 newPrimary,
                 currentThreadID: currentThreadID
@@ -1599,6 +1608,7 @@ final class CodexCoreAppModel {
         }
 
         workspacePath = normalized
+        refreshGitBranch()
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         saveExpandedSidebarProjects()
         invalidatePendingChatSelection()
@@ -2368,6 +2378,7 @@ final class CodexCoreAppModel {
             let normalized = CodexProjectSummary.normalizedPath(workspace)
             if normalized != CodexProjectSummary.normalizedPath(workspacePath) {
                 workspacePath = normalized
+                refreshGitBranch()
                 sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
                 invalidatePendingChatSelection()
                 clearThreadState()
@@ -2977,7 +2988,10 @@ final class CodexCoreAppModel {
             gitBranch: gitBranch,
             turnDiff: currentDiff,
             environmentInfo: environmentInfoState,
-            sourceFiles: Array(sourceFiles)
+            sourceFiles: Array(sourceFiles),
+            plan: !isSending && !currentPlan.isEmpty
+                ? CodexPlanSummary(steps: currentPlan, explanation: currentPlanExplanation)
+                : nil
         )
     }
 
