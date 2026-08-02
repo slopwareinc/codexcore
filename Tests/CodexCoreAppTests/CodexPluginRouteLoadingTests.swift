@@ -1,4 +1,5 @@
 import Testing
+import Observation
 @testable import CodexCoreApp
 @testable import CodexCoreUI
 
@@ -57,6 +58,51 @@ struct CodexPluginRouteLoadingTests {
         #expect(model.runtimeSession.integrationCatalogSession.skills[0].enabled == false)
         await drainMainActorTasks()
         #expect(model.runtimeSession.integrationCatalogSession.skills[0].enabled == true)
+    }
+
+    @Test("Changing plugins and skills invalidates the UI observations that drive their switches")
+    func catalogTogglesPublishTheOptimisticStateToSwiftUI() {
+        let model = CodexCoreAppModel()
+        let plugin = CodexPluginSummary(
+            id: "local:github",
+            protocolID: "github@local",
+            name: "github",
+            marketplaceName: "local",
+            installed: true,
+            enabled: true
+        )
+        let skill = CodexSkillSummary(
+            name: "writer",
+            path: "/tmp/skills/writer/SKILL.md",
+            scope: "user",
+            enabled: true
+        )
+        model.runtimeSession.integrationCatalogSession = CodexIntegrationCatalogSession(
+            plugins: [plugin],
+            skills: [skill]
+        )
+        nonisolated(unsafe) var pluginInvalidationCount = 0
+
+        withObservationTracking {
+            _ = model.plugins.first?.enabled
+        } onChange: {
+            pluginInvalidationCount += 1
+        }
+        model.performPluginCatalogAction(.setPluginEnabled(.init(plugin: plugin), enabled: false))
+
+        #expect(model.plugins.first?.enabled == false)
+        #expect(pluginInvalidationCount == 1)
+
+        nonisolated(unsafe) var skillInvalidationCount = 0
+        withObservationTracking {
+            _ = model.skills.first?.enabled
+        } onChange: {
+            skillInvalidationCount += 1
+        }
+        model.performPluginCatalogAction(.setSkillEnabled(.init(skill: skill), enabled: false))
+
+        #expect(model.skills.first?.enabled == false)
+        #expect(skillInvalidationCount == 1)
     }
 }
 
