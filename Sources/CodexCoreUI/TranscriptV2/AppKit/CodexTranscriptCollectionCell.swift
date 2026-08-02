@@ -404,8 +404,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         selectDiffTab(diffTabButtons[index])
     }
     func openTurnDiffReviewForTesting() {
-        guard item?.turnDiff != nil, canOpenReview else { return }
-        performAction?(.openReview)
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest()))
+    }
+    func openTurnDiffReviewForTesting(filePath: String) {
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest(selectedFilePath: filePath)))
     }
     func toggleTurnDiffForTesting() {
         guard let rowID = item?.turnDiff?.rowID else { return }
@@ -739,12 +743,13 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 CodexTranscriptTurnDiffCard(
                     render: turnDiff,
                     onReview: canOpenReview
-                        ? { [weak self] in self?.performAction?(.openReview) }
+                        ? { [weak self] request in self?.performAction?(.openReview(request)) }
                         : nil,
                     onToggleExpanded: { [weak self] in
                         self?.performAction?(.toggleRow(rowID: turnDiff.rowID))
                     }
                 )
+                .padding(.top, CodexTranscriptTurnDiffCard.topSpacing)
                 .codexAgentTheme(swiftUITheme)
             ))
             hosting.setAccessibilityLabel(item.accessibilityLabel)

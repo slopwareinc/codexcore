@@ -265,6 +265,11 @@ struct CodexTranscriptAppKitIntegrationTests {
         -old
         +new
         +more
+        diff --git a/Sources/Second.swift b/Sources/Second.swift
+        --- a/Sources/Second.swift
+        +++ b/Sources/Second.swift
+        @@ -0,0 +1 @@
+        +second
         """
         let snapshot = try await CodexTranscriptRenderProjector().project(
             presentation: .init(
@@ -308,9 +313,20 @@ struct CodexTranscriptAppKitIntegrationTests {
         )
 
         #expect(cell.hasHostedViewForTesting)
-        cell.openTurnDiffReviewForTesting()
+        cell.openTurnDiffReviewForTesting(filePath: "Sources/Second.swift")
         cell.toggleTurnDiffForTesting()
-        #expect(actions == [.openReview, .toggleRow(rowID: "turn-diff:turn")])
+        guard case .openReview(let request) = actions.first else {
+            Issue.record("Expected the file row to open Review")
+            return
+        }
+        #expect(request.selectedFilePath == "Sources/Second.swift")
+        #expect(request.session.snapshot.files.map(\.path) == [
+            "Sources/Workbench.swift", "Sources/Second.swift"
+        ])
+        let selectedPatch = request.session.snapshot.files.last?.patchText.fullText
+        #expect(selectedPatch?.contains("+second") == true)
+        #expect(selectedPatch?.contains("+more") == false)
+        #expect(actions.last == .toggleRow(rowID: "turn-diff:turn"))
     }
 
     @Test func defaultWorkGroupUsesOneCompactSemanticSummary() async throws {

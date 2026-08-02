@@ -208,6 +208,11 @@ public final class CodexGitReviewWorkbench {
         loadSelectedPatch()
     }
 
+    public func selectFile(path: String) {
+        guard let file = snapshot?.files.first(where: { $0.path == path }) else { return }
+        selectFile(id: file.id)
+    }
+
     public func retrySelectedPatch() {
         loadSelectedPatch()
     }

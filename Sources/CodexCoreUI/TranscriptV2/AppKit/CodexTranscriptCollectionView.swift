@@ -33,7 +33,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onRemoveResponseAnnotation: (String) -> Void
     var productToolRenderer: CodexProductToolRendererV2?
     var onOpenSubagent: (String) -> Void
-    var onOpenReview: (() -> Void)?
+    var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
     var onEditUserMessage: (String) -> Void
     var onForkChat: (() -> Void)?
     var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
@@ -112,7 +112,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
         private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
         private var onOpenSubagent: (String) -> Void = { _ in }
-        private var onOpenReview: (() -> Void)?
+        private var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
         private var onEditUserMessage: (String) -> Void = { _ in }
         private var onForkChat: (() -> Void)?
         private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
@@ -206,7 +206,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: any CodexClipboardService,
             productToolRenderer: CodexProductToolRendererV2?,
             onOpenSubagent: @escaping (String) -> Void,
-            onOpenReview: (() -> Void)? = nil,
+            onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
             onEditUserMessage: @escaping (String) -> Void,
             onForkChat: (() -> Void)?,
             onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
@@ -715,8 +715,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             case .openSubagent(let threadID):
                 onOpenSubagent(threadID)
                 return
-            case .openReview:
-                onOpenReview?()
+            case .openReview(let request):
+                onOpenReview?(request)
                 return
             case .openURL(let value):
                 guard let url = URL(string: value), url.scheme?.lowercased() == "https" else { return }

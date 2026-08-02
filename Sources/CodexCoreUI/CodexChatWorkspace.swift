@@ -134,6 +134,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
+    @State private var transcriptReviewRequest: CodexTranscriptReviewRequest?
 
     /// Creates a workspace and reports the subagent transcript currently visible
     /// in its side panel through `onSelectSubagentTranscript`.
@@ -391,7 +392,7 @@ public struct CodexChatWorkspaceView: View {
                 onUpsertResponseAnnotation: upsertResponseAnnotation,
                 onRemoveResponseAnnotation: removeResponseAnnotation,
                 onOpenSubagent: openPanelTab,
-                onOpenReview: reviewPanelAction,
+                onOpenReviewRequest: reviewPanelAction,
                 onEditUserMessage: { rawText in
                     if let decoded = CodexComposerPromptCodec.decode(rawText) {
                         draft = decoded.request
@@ -584,7 +585,7 @@ public struct CodexChatWorkspaceView: View {
         panel.agentTabs(
             sideChat: sideChat,
             subagents: subagents,
-            gitReviewSession: gitReviewSession,
+            gitReviewSession: transcriptReviewRequest?.session ?? gitReviewSession,
             plan: workspaceSummary?.plan
         )
     }
@@ -653,6 +654,7 @@ public struct CodexChatWorkspaceView: View {
             mountedFilePreviewSessions: mountedFilePreviewSessions,
             modelOptions: modelOptions,
             workspaceURL: URL(fileURLWithPath: workspacePath),
+            selectedReviewFilePath: transcriptReviewRequest?.selectedFilePath,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
@@ -692,14 +694,13 @@ public struct CodexChatWorkspaceView: View {
         }
     }
 
-    private func openReviewPanel() {
-        guard let gitReviewSession else { return }
-        openPanelTab(CodexAgentPanelTab.review(gitReviewSession).id)
+    private func openReviewPanel(_ request: CodexTranscriptReviewRequest) {
+        transcriptReviewRequest = request
+        openPanelTab(CodexAgentPanelTab.review(request.session).id)
     }
 
-    private var reviewPanelAction: (() -> Void)? {
-        guard gitReviewSession != nil else { return nil }
-        return openReviewPanel
+    private var reviewPanelAction: (CodexTranscriptReviewRequest) -> Void {
+        openReviewPanel
     }
 
     private func closeSubagentTab(_ id: String) {

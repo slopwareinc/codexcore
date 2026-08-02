@@ -986,6 +986,45 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(expandedCard.isExpanded)
     }
 
+    @Test func addedFileReachesReviewAsAUnifiedPatch() async throws {
+        // Added files arrive as bare content. Review renders unified diffs, so
+        // unmarked content would read as unchanged context in both gutters.
+        let turn = CodexTurnV2(
+            id: "turn-added",
+            narrative: [.workGroup(.init(
+                id: "work",
+                rows: [.fileChange(.init(
+                    id: "files",
+                    changes: [CodexFileChangeV2(
+                        id: "change",
+                        path: "games/guess_game.py",
+                        kind: .added,
+                        diff: "import random\nsecret = 4"
+                    )],
+                    status: .completed
+                ))],
+                isLive: false
+            ))],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let card = try #require(snapshot.itemsByID.values.first { $0.turnDiff != nil }?.turnDiff)
+        let file = try #require(card.reviewSession.snapshot.files.first)
+        let patch = file.displayPatch
+
+        #expect(patch.hasPrefix("diff --git a/games/guess_game.py"))
+        #expect(patch.contains("@@ -0,0 +1,"))
+        #expect(patch.contains("\n+import random"))
+
+        let document = CodexReviewDiffDocument.parse(patch)
+        #expect(document.hasOldSide == false)
+        #expect(document.rows.contains { $0.kind == .add && $0.text == "import random" })
+    }
+
     @Test func activeTurnDoesNotPromoteIncompleteEdits() async throws {
         let turn = CodexTurnV2(
             id: "active",

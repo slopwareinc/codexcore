@@ -76,7 +76,7 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openSubagent(threadID: String)
     case openURL(String)
     case openFile(path: String, line: Int?)
-    case openReview
+    case openReview(CodexTranscriptReviewRequest)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
 }
 
@@ -841,16 +841,23 @@ actor CodexTranscriptRenderProjector {
             }
 
             if let turnDiff {
+                let rowHeight = CodexTranscriptTurnDiffCard.rowHeight
                 let disclosureHeight: CGFloat = turnDiff.hiddenFileCount > 0 || turnDiff.isExpanded
-                    ? 42 : 0
+                    ? rowHeight : 0
                 append(ItemDraft(
                     id: "\(sectionID):turn-diff",
                     fingerprint: "turn-diff:\(String(describing: turnDiff))",
                     turnDiff: turnDiff,
                     accessibilityLabel: "\(turnDiff.title), \(turnDiff.totalAdded) additions and \(turnDiff.totalRemoved) removals",
                     maxWidthKind: .card,
-                    fixedHeight: 84 + CGFloat(turnDiff.visibleFiles.count) * 42 + disclosureHeight,
-                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                    fixedHeight: CodexTranscriptTurnDiffCard.topSpacing
+                        + CodexTranscriptTurnDiffCard.headerHeight
+                        + CodexTranscriptTurnDiffCard.listVerticalInset * 2
+                        + CGFloat(turnDiff.visibleFiles.count) * rowHeight
+                        + disclosureHeight,
+                    // A card carries more visual weight than a text line, so it
+                    // gets a full gap instead of the tight interactive spacing.
+                    bottomSpacing: CodexTranscriptColumnMetrics.turnGap
                 ))
             }
 
