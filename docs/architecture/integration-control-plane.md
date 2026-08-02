@@ -15,8 +15,11 @@ not call `Codex.perform` or construct JSON-RPC methods directly.
 - `CodexCoreAppModel.performIntegrationControlPlaneRequest(_:)` is the app-level
   entry point for detail panes and confirmed mutations.
 - `CodexAppServerPluginCatalogActionProvider` wires the existing install,
-  uninstall, plugin-enable, and skill-enable controls. The richer plugin UI can
-  use the general app-model entry point for marketplace and sharing flows.
+  uninstall, plugin-enable, skill-enable, and personal-skill removal controls
+  directly to `Codex`. `CodexIntegrationControlPlanePluginCatalogActionProvider`
+  exposes the same catalog action seam through a host-supplied control-plane
+  provider. The richer plugin UI can use the general app-model entry point for
+  marketplace and sharing flows.
 
 Catalog refresh also hydrates `app/list`, `app/installed`, `plugin/installed`,
 `hooks/list`, and layered `config/read` state. The existing plugin, skill, and
@@ -42,8 +45,9 @@ later refresh failed.
 Hooks configuration and other control-plane settings use generated
 `config/read`, `config/value/write`, and `config/batchWrite` parameters. Plugin
 enabled state is written at `plugins.<plugin-name>.enabled`; skill enabled state
-uses `skills/config/write`. MCP configuration changes should be followed by
-`config/mcpServer/reload` only after the write succeeds.
+uses `skills/config/write`, while removal of a personal skill uses `fs/remove`
+behind the skill-configuration permission boundary. MCP configuration changes
+should be followed by `config/mcpServer/reload` only after the write succeeds.
 
 Generated protocol files are pinned to the runtime in `Tools/UPSTREAM_VERSION`.
 If a future runtime lacks one of these methods, follow

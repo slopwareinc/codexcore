@@ -73,7 +73,7 @@ final class CodexIntegrationControlPlaneTests: XCTestCase {
             await recorder.record(request)
             return .dictionary([:])
         }
-        let actions = CodexAppServerPluginCatalogActionProvider(provider: provider)
+        let actions = CodexIntegrationControlPlanePluginCatalogActionProvider(provider: provider)
         let target = CodexPluginActionTarget(plugin: CodexPluginSummary(
             id: "local:github",
             name: "github",

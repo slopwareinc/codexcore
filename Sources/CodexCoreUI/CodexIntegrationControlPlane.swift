@@ -34,6 +34,7 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
     case skillsList(CodexSchemaSkillsListParams)
     case skillsConfigWrite(CodexSchemaSkillsConfigWriteParams)
     case skillsExtraRootsSet(CodexSchemaSkillsExtraRootsSetParams)
+    case fsRemove(CodexSchemaFSRemoveParams)
     case hooksList(CodexSchemaHooksListParams)
 
     public var surface: CodexIntegrationControlPlaneSurface {
@@ -49,7 +50,7 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
              .pluginShareSave, .pluginShareUpdateTargets, .pluginShareList,
              .pluginShareCheckout, .pluginShareDelete, .pluginInstall, .pluginUninstall:
             .plugins
-        case .skillsList, .skillsConfigWrite, .skillsExtraRootsSet:
+        case .skillsList, .skillsConfigWrite, .skillsExtraRootsSet, .fsRemove:
             .skills
         case .hooksList:
             .hooks
@@ -86,6 +87,7 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
         case .skillsList: "skills/list"
         case .skillsConfigWrite: "skills/config/write"
         case .skillsExtraRootsSet: "skills/extraRoots/set"
+        case .fsRemove: "fs/remove"
         case .hooksList: "hooks/list"
         }
     }
@@ -102,7 +104,7 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
              .pluginInstall, .pluginUninstall, .pluginShareSave,
              .pluginShareUpdateTargets, .pluginShareCheckout, .pluginShareDelete:
             .pluginMutation
-        case .skillsConfigWrite, .skillsExtraRootsSet: .skillConfigurationWrite
+        case .skillsConfigWrite, .skillsExtraRootsSet, .fsRemove: .skillConfigurationWrite
         default: nil
         }
     }
@@ -175,6 +177,7 @@ public struct CodexAppServerIntegrationControlPlaneProvider: CodexIntegrationCon
         case .skillsList(let params): try await encode(codex.skillsList(params))
         case .skillsConfigWrite(let params): try await encode(codex.skillsConfigWrite(params))
         case .skillsExtraRootsSet(let params): try await codex.skillsExtraRootsSet(params)
+        case .fsRemove(let params): try await encode(codex.remove(params))
         case .hooksList(let params): try await encode(codex.hooksList(params))
         }
     }
@@ -262,7 +265,7 @@ public struct CodexIntegrationControlPlaneSession: Equatable, Sendable {
 
 /// Implements the action seam consumed by the current plugin route. Richer UI
 /// can use `CodexIntegrationControlPlaneSession` directly for detail/share flows.
-public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActionProvider {
+public struct CodexIntegrationControlPlanePluginCatalogActionProvider: CodexPluginCatalogActionProvider {
     private let provider: any CodexIntegrationControlPlaneProvider
 
     public init(provider: any CodexIntegrationControlPlaneProvider) {
@@ -303,6 +306,22 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
         await mutation(
             .skillsConfigWrite(.init(enabled: enabled, name: target.name, path: Self.path(target.path))),
             successTitle: "Updated \(target.displayName)"
+        )
+    }
+
+    public func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
+        guard target.scope == "user" else {
+            return .init(
+                activity: .init(
+                    title: "Can’t uninstall \(target.displayName)",
+                    detail: "Only personal skills can be uninstalled from this surface."
+                ),
+                didSucceed: false
+            )
+        }
+        return await mutation(
+            .fsRemove(CodexPluginProtocolMutation.skillUninstallParams(for: target)),
+            successTitle: "Uninstalled \(target.displayName)"
         )
     }
 
