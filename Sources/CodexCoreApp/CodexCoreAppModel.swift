@@ -1853,8 +1853,9 @@ final class CodexCoreAppModel {
         }
 
         var session = runtimeSession.integrationCatalogSession
+        let provider = CodexAppServerIntegrationControlPlaneProvider(codex: codex)
         let activity = await session.refreshMCPServers(
-            using: codex,
+            using: provider,
             threadID: currentThreadID,
             errorMessage: CodexErrorFormat.localizedDescription
         )
@@ -1869,26 +1870,88 @@ final class CodexCoreAppModel {
         }
 
         var session = runtimeSession.integrationCatalogSession
+        let provider = CodexAppServerIntegrationControlPlaneProvider(codex: codex)
         let pluginActivity = await session.refreshPlugins(
-            using: codex,
+            using: provider,
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         let skillActivity = await session.refreshSkills(
-            using: codex,
+            using: provider,
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         runtimeSession.integrationCatalogSession = session
         appendIntegrationActivity(pluginActivity)
         appendIntegrationActivity(skillActivity)
+        await refreshIntegrationControlPlaneInventory(using: provider)
+    }
+
+    /// Host seam for detail panes and mutation confirmations owned by the
+    /// plugin UI. Responses remain in `integrationControlPlaneSession`, keyed
+    /// by the request's app-server method name.
+    @discardableResult
+    func performIntegrationControlPlaneRequest(
+        _ request: CodexIntegrationControlPlaneRequest
+    ) async -> CodexJSONValue? {
+        guard let codex else {
+            runtimeSession.integrationControlPlaneSession.requireConnection(
+                for: request.surface,
+                message: "Connect to Codex before using \(request.surface.rawValue)."
+            )
+            return nil
+        }
+
+        let provider = CodexAppServerIntegrationControlPlaneProvider(codex: codex)
+        return await performIntegrationControlPlaneRequest(request, using: provider)
+    }
+
+    @discardableResult
+    private func performIntegrationControlPlaneRequest(
+        _ request: CodexIntegrationControlPlaneRequest,
+        using provider: any CodexIntegrationControlPlaneProvider,
+        announces: Bool = true
+    ) async -> CodexJSONValue? {
+        var session = runtimeSession.integrationControlPlaneSession
+        let activity = await session.perform(
+            request,
+            provider: provider,
+            errorMessage: CodexErrorFormat.localizedDescription
+        )
+        runtimeSession.integrationControlPlaneSession = session
+        if announces || session.phase(for: request.surface) != .loaded {
+            appendIntegrationActivity(activity)
+        }
+        return session.response(for: request)
+    }
+
+    private func refreshIntegrationControlPlaneInventory(
+        using provider: any CodexIntegrationControlPlaneProvider
+    ) async {
+        let threadID = currentThreadID
+        let requests: [CodexIntegrationControlPlaneRequest] = [
+            .appList(.init(forceRefetch: false, limit: 100, threadID: threadID)),
+            .appInstalled(.init(forceRefresh: false, threadID: threadID)),
+            .pluginInstalled(.init(cwds: protocolWorkspaceRoots)),
+            .hooksList(.init(cwds: workspaceRoots)),
+            .configRead(.init(cwd: workspacePath, includeLayers: true)),
+        ]
+        for request in requests {
+            _ = await performIntegrationControlPlaneRequest(request, using: provider, announces: false)
+        }
     }
 
     func performPluginCatalogAction(_ action: CodexPluginRouteAction) {
         Task {
+            let provider: any CodexPluginCatalogActionProvider
+            if let codex {
+                provider = CodexAppServerPluginCatalogActionProvider(codex: codex)
+            } else {
+                provider = CodexUnsupportedPluginCatalogActionProvider()
+            }
             let outcome = await CodexPluginCatalogActionSession.perform(
                 action,
-                provider: CodexUnsupportedPluginCatalogActionProvider()
+                provider: provider
             )
             if let draftPrompt = outcome.draftPrompt {
                 sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
@@ -1899,6 +1962,27 @@ final class CodexCoreAppModel {
             appendIntegrationActivity(outcome.activity)
             if outcome.shouldRefresh {
                 await refreshPlugins()
+            }
+        }
+    }
+
+    func performPluginControlPlaneAction(_ request: CodexIntegrationControlPlaneRequest) {
+        Task {
+            let response = await performIntegrationControlPlaneRequest(request)
+            if case .mcpOAuthLogin = request,
+               case .dictionary(let object)? = response,
+               case .string(let authorizationURL)? = object["authorizationUrl"],
+               let url = URL(string: authorizationURL) {
+                NSWorkspace.shared.open(url)
+            }
+
+            switch request.permissionBoundary {
+            case .pluginMutation, .skillConfigurationWrite, .configurationWrite:
+                await refreshPlugins()
+            case .externalAuthentication:
+                await refreshMCPServers()
+            case .externalResourceRead, .externalToolExecution, nil:
+                break
             }
         }
     }
@@ -2800,6 +2884,7 @@ final class CodexCoreAppModel {
         threadListSession.reset(currentWorkspacePath: workspacePath)
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         runtimeSession.integrationCatalogSession.reset()
+        runtimeSession.integrationControlPlaneSession.reset()
         configurationSession.reset()
         invalidatePendingChatSelection()
         clearThreadState()

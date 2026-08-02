@@ -176,6 +176,10 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var marketplacePath: String?
     public var category: String?
     public var developerName: String?
+    public var logoPath: String?
+    public var logoDarkPath: String?
+    public var logoURL: String?
+    public var logoDarkURL: String?
     public var installed: Bool
     public var enabled: Bool
     public var installPolicy: String
@@ -202,6 +206,10 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         marketplacePath: String? = nil,
         category: String? = nil,
         developerName: String? = nil,
+        logoPath: String? = nil,
+        logoDarkPath: String? = nil,
+        logoURL: String? = nil,
+        logoDarkURL: String? = nil,
         installed: Bool = false,
         enabled: Bool = false,
         installPolicy: String = "NOT_AVAILABLE",
@@ -227,6 +235,10 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.marketplacePath = marketplacePath
         self.category = category
         self.developerName = developerName
+        self.logoPath = logoPath
+        self.logoDarkPath = logoDarkPath
+        self.logoURL = logoURL
+        self.logoDarkURL = logoDarkURL
         self.installed = installed
         self.enabled = enabled
         self.installPolicy = installPolicy
@@ -263,6 +275,10 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             marketplacePath: marketplace.path,
             category: Self.string(in: interface, keys: ["category"]),
             developerName: Self.string(in: interface, keys: ["developerName"]),
+            logoPath: Self.string(in: interface, keys: ["logo"]),
+            logoDarkPath: Self.string(in: interface, keys: ["logoDark"]),
+            logoURL: Self.string(in: interface, keys: ["logoUrl"]),
+            logoDarkURL: Self.string(in: interface, keys: ["logoUrlDark"]),
             installed: Self.bool(from: object["installed"]) ?? false,
             enabled: Self.bool(from: object["enabled"]) ?? false,
             installPolicy: Self.string(in: object, keys: ["installPolicy"]) ?? "NOT_AVAILABLE",
@@ -578,6 +594,44 @@ public enum CodexPluginRoutePrimaryTab: String, CaseIterable, Equatable, Sendabl
     }
 }
 
+public enum CodexPluginBrowseScope: String, CaseIterable, Equatable, Sendable {
+    case openAI
+    case workspace
+    case personal
+
+    public var title: String {
+        switch self {
+        case .openAI: "By OpenAI"
+        case .workspace: "By your workspace"
+        case .personal: "Personal"
+        }
+    }
+}
+
+public struct CodexPluginCatalogSection: Identifiable, Equatable, Sendable {
+    public var title: String
+    public var plugins: [CodexPluginSummary]
+
+    public var id: String { title }
+
+    public init(title: String, plugins: [CodexPluginSummary]) {
+        self.title = title
+        self.plugins = plugins
+    }
+}
+
+public struct CodexSkillCatalogSection: Identifiable, Equatable, Sendable {
+    public var title: String
+    public var skills: [CodexSkillSummary]
+
+    public var id: String { title }
+
+    public init(title: String, skills: [CodexSkillSummary]) {
+        self.title = title
+        self.skills = skills
+    }
+}
+
 public enum CodexPluginManageTab: String, CaseIterable, Equatable, Sendable {
     case plugins
     case apps
@@ -879,6 +933,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
     public var mcpServers: [CodexMCPServerStatus]
     public var primaryTab: CodexPluginRoutePrimaryTab
     public var manageTab: CodexPluginManageTab
+    public var browseScope: CodexPluginBrowseScope
     public var searchQuery: String
     public var selectedPluginID: String?
     public var selectedSkillID: String?
@@ -890,6 +945,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         mcpServers: [CodexMCPServerStatus] = [],
         primaryTab: CodexPluginRoutePrimaryTab = .marketplace,
         manageTab: CodexPluginManageTab = .plugins,
+        browseScope: CodexPluginBrowseScope = .openAI,
         searchQuery: String = "",
         selectedPluginID: String? = nil,
         selectedSkillID: String? = nil,
@@ -900,6 +956,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         self.mcpServers = mcpServers
         self.primaryTab = primaryTab
         self.manageTab = manageTab
+        self.browseScope = browseScope
         self.searchQuery = searchQuery
         self.selectedPluginID = selectedPluginID
         self.selectedSkillID = selectedSkillID
@@ -928,6 +985,47 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         }
         .sorted { lhs, rhs in
             if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    public var marketplaceSections: [CodexPluginCatalogSection] {
+        let scoped = filtered(marketplacePlugins.filter(matchesBrowseScope))
+        let installed = scoped.filter(\.installed)
+        let available = scoped.filter { !$0.installed }
+        var sections: [CodexPluginCatalogSection] = []
+        if !installed.isEmpty {
+            sections.append(.init(title: "Installed", plugins: installed))
+        }
+        let buckets = Dictionary(grouping: available) { plugin in
+            plugin.category?.nilIfBlank ?? (plugin.developerName == "OpenAI" ? "Featured" : plugin.sourceLabel)
+        }
+        sections += buckets.map { title, plugins in
+            .init(
+                title: title,
+                plugins: plugins.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.title == "Featured" { return true }
+            if rhs.title == "Featured" { return false }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+        return sections
+    }
+
+    public var skillSections: [CodexSkillCatalogSection] {
+        let groups = Dictionary(grouping: visibleSkills) { skill in
+            skill.scope == "repo" ? "Workspace" : skill.scopeLabel
+        }
+        return groups.map { title, skills in
+            CodexSkillCatalogSection(title: title, skills: skills)
+        }
+        .sorted { lhs, rhs in
+            let order = ["Personal", "Workspace", "System"]
+            let left = order.firstIndex(of: lhs.title) ?? order.count
+            let right = order.firstIndex(of: rhs.title) ?? order.count
+            if left != right { return left < right }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
     }
@@ -987,6 +1085,21 @@ public struct CodexPluginRouteState: Equatable, Sendable {
 
     private var normalizedSearch: String {
         searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func matchesBrowseScope(_ plugin: CodexPluginSummary) -> Bool {
+        switch browseScope {
+        case .openAI:
+            return plugin.developerName?.localizedCaseInsensitiveCompare("OpenAI") == .orderedSame
+                || plugin.sourceType == "remote"
+                || (plugin.developerName == nil && plugin.sourceType == nil)
+        case .workspace:
+            return plugin.sourceType == "git"
+                || plugin.marketplaceName.localizedCaseInsensitiveContains("workspace")
+        case .personal:
+            return plugin.sourceType == "local"
+                || plugin.marketplaceName.localizedCaseInsensitiveContains("personal")
+        }
     }
 
     private func filtered(_ plugins: [CodexPluginSummary]) -> [CodexPluginSummary] {

@@ -1,6 +1,30 @@
 import Foundation
 
 extension Codex {
+    public func mcpServerOAuthLogin(
+        _ params: CodexSchemaMCPServerOAuthLoginParams
+    ) async throws -> CodexSchemaMCPServerOAuthLoginResponse {
+        try await perform(CodexRequest.mcpServerOAuthLogin(params))
+    }
+
+    public func mcpServerStatusList(
+        _ params: CodexSchemaListMCPServerStatusParams
+    ) async throws -> CodexSchemaListMCPServerStatusResponse {
+        try await perform(CodexRequest.mcpServerStatusList(params))
+    }
+
+    public func mcpServerResourceRead(
+        _ params: CodexSchemaMCPResourceReadParams
+    ) async throws -> CodexSchemaMCPResourceReadResponse {
+        try await perform(CodexRequest.mcpServerResourceRead(params))
+    }
+
+    public func mcpServerToolCall(
+        _ params: CodexSchemaMCPServerToolCallParams
+    ) async throws -> CodexSchemaMCPServerToolCallResponse {
+        try await perform(CodexRequest.mcpServerToolCall(params))
+    }
+
     @discardableResult
     public func configMCPServerReload() async throws -> CodexJSONValue {
         try CodexJSONValue(encoding: await perform(CodexRequest.configMCPServerReload()))
@@ -30,6 +54,49 @@ extension Codex {
         _ params: CodexSchemaSkillsConfigWriteParams
     ) async throws -> CodexSchemaSkillsConfigWriteResponse {
         try await perform(CodexRequest.skillsConfigWrite(params))
+    }
+
+    public func skillsList(
+        _ params: CodexSchemaSkillsListParams
+    ) async throws -> CodexSchemaSkillsListResponse {
+        try await perform(CodexRequest.skillsList(params))
+    }
+
+    @discardableResult
+    public func skillsExtraRootsSet(
+        _ params: CodexSchemaSkillsExtraRootsSetParams
+    ) async throws -> CodexJSONValue {
+        try CodexJSONValue(encoding: await perform(CodexRequest.skillsExtraRootsSet(params)))
+    }
+
+    public func hooksList(
+        _ params: CodexSchemaHooksListParams
+    ) async throws -> CodexSchemaHooksListResponse {
+        try await perform(CodexRequest.hooksList(params))
+    }
+
+    public func appList(
+        _ params: CodexSchemaAppsListParams
+    ) async throws -> CodexSchemaAppsListResponse {
+        try await perform(CodexRequest.appList(params))
+    }
+
+    public func appRead(
+        _ params: CodexSchemaAppsReadParams
+    ) async throws -> CodexSchemaAppsReadResponse {
+        try await perform(CodexRequest.appRead(params))
+    }
+
+    public func appInstalled(
+        _ params: CodexSchemaAppsInstalledParams
+    ) async throws -> CodexSchemaAppsInstalledResponse {
+        try await perform(CodexRequest.appInstalled(params))
+    }
+
+    public func pluginList(
+        _ params: CodexSchemaPluginListParams
+    ) async throws -> CodexSchemaPluginListResponse {
+        try await perform(CodexRequest.pluginList(params))
     }
 
     public func marketplaceAdd(

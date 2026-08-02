@@ -217,6 +217,10 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                                 "longDescription": .string("Resume long running agent work."),
                                 "developerName": .string("OpenAI"),
                                 "category": .string("Agents"),
+                                "logo": .string("/tmp/plugin-light.png"),
+                                "logoDark": .string("/tmp/plugin-dark.png"),
+                                "logoUrl": .string("https://example.com/plugin-light.png"),
+                                "logoUrlDark": .string("https://example.com/plugin-dark.png"),
                                 "capabilities": .array([.string("skills"), .string("prompts")]),
                                 "screenshots": .array([]),
                                 "screenshotUrls": .array([])
@@ -264,6 +268,10 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(plugins[0].sourceLabel, "Local")
         XCTAssertEqual(plugins[0].sourceDetail, "/tmp/plugins/resume-from-opencode")
         XCTAssertEqual(plugins[0].marketplaceDisplayName, "Local marketplace")
+        XCTAssertEqual(plugins[0].logoPath, "/tmp/plugin-light.png")
+        XCTAssertEqual(plugins[0].logoDarkPath, "/tmp/plugin-dark.png")
+        XCTAssertEqual(plugins[0].logoURL, "https://example.com/plugin-light.png")
+        XCTAssertEqual(plugins[0].logoDarkURL, "https://example.com/plugin-dark.png")
         XCTAssertEqual(plugins[0].capabilities, ["skills", "prompts"])
         XCTAssertEqual(plugins[0].detail, "Resume a previous OpenCode session")
         XCTAssertEqual(plugins[1].statusLabel, "Available")
@@ -538,6 +546,76 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(detail.primaryAction, .setSkillEnabled(CodexSkillActionTarget(skill: enabled), enabled: false))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Use the browser to inspect localhost."))
         XCTAssertFalse(detail.canUninstall)
+    }
+
+    func testPluginBrowseSectionsFollowOfficialScopeAndGroupingModel() {
+        let openAI = CodexPluginSummary(
+            id: "remote:github",
+            name: "github",
+            displayName: "GitHub",
+            shortDescription: "Work with repositories",
+            marketplaceName: "remote",
+            category: "Developer tools",
+            developerName: "OpenAI",
+            installPolicy: "AVAILABLE",
+            sourceType: "remote"
+        )
+        let workspace = CodexPluginSummary(
+            id: "workspace:review",
+            name: "review",
+            displayName: "Review",
+            shortDescription: "Review this workspace",
+            marketplaceName: "workspace",
+            category: "Developer tools",
+            installPolicy: "AVAILABLE",
+            sourceType: "git"
+        )
+        let personal = CodexPluginSummary(
+            id: "personal:notes",
+            name: "notes",
+            displayName: "Notes",
+            shortDescription: "Personal notes",
+            marketplaceName: "personal",
+            category: "Productivity",
+            installed: true,
+            enabled: true,
+            installPolicy: "INSTALLED_BY_DEFAULT",
+            sourceType: "local"
+        )
+
+        XCTAssertEqual(
+            CodexPluginRouteState(plugins: [personal, workspace, openAI], browseScope: .openAI)
+                .marketplaceSections.flatMap(\.plugins).map(\.displayName),
+            ["GitHub"]
+        )
+        XCTAssertEqual(
+            CodexPluginRouteState(plugins: [personal, workspace, openAI], browseScope: .workspace)
+                .marketplaceSections.flatMap(\.plugins).map(\.displayName),
+            ["Review"]
+        )
+        XCTAssertEqual(
+            CodexPluginRouteState(plugins: [personal, workspace, openAI], browseScope: .personal)
+                .marketplaceSections.map(\.title),
+            ["Installed"]
+        )
+    }
+
+    func testSkillBrowseSectionsUsePersonalWorkspaceSystemOrder() {
+        let personal = CodexSkillSummary(
+            name: "personal", displayName: "Personal", detail: "Personal", description: "Personal",
+            path: "/tmp/personal/SKILL.md", scope: "user", enabled: true
+        )
+        let workspace = CodexSkillSummary(
+            name: "workspace", displayName: "Workspace", detail: "Workspace", description: "Workspace",
+            path: "/tmp/workspace/SKILL.md", scope: "repo", enabled: true
+        )
+        let system = CodexSkillSummary(
+            name: "system", displayName: "System", detail: "System", description: "System",
+            path: "/tmp/system/SKILL.md", scope: "system", enabled: true
+        )
+
+        let state = CodexPluginRouteState(plugins: [], skills: [system, workspace, personal])
+        XCTAssertEqual(state.skillSections.map(\.title), ["Personal", "Workspace", "System"])
     }
 
     func testPluginCatalogActionsAreMockableAndBounded() async {

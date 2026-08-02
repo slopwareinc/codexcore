@@ -42,6 +42,19 @@ open and cross-device schedule synchronization—will require an upstream
 protocol upgrade; generated protocol files must then be refreshed through the
 normal protocol-upgrade workflow.
 
+## Plugins and skills
+
+The Plugins route follows three connected workflows. Browse uses the installed
+strip, OpenAI/workspace/personal scope filters, and grouped catalog rows. Skills
+are grouped by Personal, Workspace, and System scope. Select any row for its
+description, capabilities, source metadata, enable/install controls, and a
+**Try in chat** action when the manifest supplies a default prompt.
+
+Choose **Manage** beside Installed to search and configure Plugins, Apps, MCPs,
+and Skills in one place. MCP rows expose OAuth login when required. The create
+menu also adds or upgrades plugin marketplaces; completed mutations refresh the
+catalog from app-server state.
+
 ## Projects and chats
 
 The sidebar groups chats by project. Chats can be pinned, archived, renamed, forked, copied, searched, and resumed. Projects can be selected, grouped, pinned, reordered, edited, removed, revealed in Finder, or used to archive their chats. Chat reorder/hide/reveal actions are not supported.

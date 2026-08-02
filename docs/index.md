@@ -34,6 +34,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 ## Understand and contribute
 
 - [Architecture overview](architecture/overview.md)
+- [Integration control-plane seams](architecture/integration-control-plane.md)
 - [Configuration reference](reference/configuration.md)
 - [Runtime compatibility](reference/runtime-compatibility.md)
 - [Products and module boundaries](reference/products.md)
