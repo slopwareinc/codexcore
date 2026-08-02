@@ -1,5 +1,13 @@
 import SwiftUI
 
+enum CodexPluginRouteLayout {
+    static let splitDividerWidth: CGFloat = 1
+
+    static func equalColumnWidth(availableWidth: CGFloat) -> CGFloat {
+        max(0, (availableWidth - splitDividerWidth) / 2)
+    }
+}
+
 public struct CodexPluginRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -75,15 +83,19 @@ public struct CodexPluginRouteView: View {
 
     public var body: some View {
         GeometryReader { geometry in
+            let columnWidth = CodexPluginRouteLayout.equalColumnWidth(availableWidth: geometry.size.width)
             VStack(alignment: .leading, spacing: 0) {
                 header
                 Divider().overlay(theme.colors.border)
                 HStack(spacing: 0) {
                     catalogColumn
-                        .frame(minWidth: 390, idealWidth: 460, maxWidth: 540)
-                    Divider().overlay(theme.colors.border)
+                        .frame(width: columnWidth)
+                    Rectangle()
+                        .fill(theme.colors.border)
+                        .frame(width: CodexPluginRouteLayout.splitDividerWidth)
                     detailPane
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .frame(width: columnWidth)
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
@@ -528,10 +540,10 @@ private struct PluginFeaturedCard: View {
     let onAction: (CodexPluginRouteAction) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Button(action: onSelect) {
                 HStack(alignment: .top, spacing: 10) {
-                    CodexPluginIconView(reference: plugin.icon, size: 34)
+                    CodexPluginIconView(reference: plugin.icon, size: 38)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(plugin.displayName).font(theme.fonts.label).lineLimit(1)
                         Text(plugin.detail)
@@ -543,19 +555,39 @@ private struct PluginFeaturedCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
-            HStack {
-                if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
-                    Button("Add") { onAction(.installPlugin(.init(plugin: plugin))) }.buttonStyle(.borderedProminent).controlSize(.small)
-                } else { Text(plugin.statusLabel).font(theme.fonts.micro).foregroundStyle(theme.colors.success) }
+            Spacer(minLength: 0)
+            HStack(alignment: .center, spacing: 8) {
+                cardStatus
                 Spacer()
                 pluginActionsMenu(plugin)
             }
         }
-        .padding(11)
-        .frame(maxWidth: .infinity, minHeight: 122, maxHeight: 122, alignment: .topLeading)
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 128, maxHeight: 128, alignment: .topLeading)
         .background(theme.colors.surfaceElevated.opacity(0.68), in: RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous).stroke(theme.colors.border))
         .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder private var cardStatus: some View {
+        if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
+            Button("Add") { onAction(.installPlugin(.init(plugin: plugin))) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        } else if plugin.installed {
+            let color = plugin.enabled ? theme.colors.success : theme.colors.textTertiary
+            Label(plugin.enabled ? "Installed" : "Disabled", systemImage: plugin.enabled ? "checkmark.circle.fill" : "pause.circle.fill")
+                .font(theme.fonts.caption.weight(.semibold))
+                .foregroundStyle(color)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(color.opacity(0.11), in: Capsule())
+                .accessibilityLabel("\(plugin.displayName) is \(plugin.enabled ? "installed and enabled" : "installed and disabled")")
+        } else {
+            Text(plugin.statusLabel)
+                .font(theme.fonts.caption.weight(.medium))
+                .foregroundStyle(theme.colors.textTertiary)
+        }
     }
 
     private func pluginActionsMenu(_ plugin: CodexPluginSummary) -> some View {
@@ -563,7 +595,12 @@ private struct PluginFeaturedCard: View {
             if plugin.installed { Button(plugin.enabled ? "Disable" : "Enable") { onAction(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled)) } }
             if plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT" { Button("Remove", role: .destructive) { onAction(.uninstallPlugin(.init(plugin: plugin))) } }
             if let prompt = plugin.defaultPrompt { Button("Try in chat") { onAction(.tryInChat(prompt: prompt)) } }
-        } label: { Image(systemName: "ellipsis").frame(width: 24, height: 24) }
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 26, height: 26)
+                .background(theme.colors.surfaceSunken.opacity(0.5), in: Circle())
+                .contentShape(Circle())
+        }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .help("More actions for \(plugin.displayName)")

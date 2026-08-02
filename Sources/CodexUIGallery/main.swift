@@ -594,7 +594,8 @@ private struct PluginsMarketplaceScene: View {
             websiteURL: "https://openai.com",
             privacyPolicyURL: "https://openai.com/privacy",
             termsOfServiceURL: "https://openai.com/terms",
-            capabilities: ["Interactive", "Read", "Write"]
+            capabilities: ["Interactive", "Read", "Write"],
+            isFeatured: true
         ),
         CodexPluginSummary(
             id: "openai:github",

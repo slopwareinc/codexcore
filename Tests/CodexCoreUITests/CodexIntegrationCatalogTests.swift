@@ -5,6 +5,18 @@ import SwiftUI
 @testable import CodexCoreUI
 
 final class CodexIntegrationCatalogTests: XCTestCase {
+    func testPluginRouteSplitsCatalogAndDetailIntoEqualColumns() {
+        let availableWidth: CGFloat = 1_180
+        let columnWidth = CodexPluginRouteLayout.equalColumnWidth(availableWidth: availableWidth)
+
+        XCTAssertEqual(columnWidth, 589.5)
+        XCTAssertEqual(
+            columnWidth * 2 + CodexPluginRouteLayout.splitDividerWidth,
+            availableWidth
+        )
+        XCTAssertEqual(CodexPluginRouteLayout.equalColumnWidth(availableWidth: 0), 0)
+    }
+
     @MainActor
     func testPluginRouteVirtualizesLargeMarketplaceWithNSTableView() throws {
         let plugins = (0..<2_200).map { index in
