@@ -484,6 +484,47 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         )
     }
 
+    func testPluginSummaryResolvesRelativeManifestIconsAgainstPublishedSourcePath() throws {
+        let raw: CodexJSONValue = .dictionary([
+            "id": .string("gmail@openai-curated-remote"),
+            "name": .string("gmail"),
+            "installed": .bool(true),
+            "enabled": .bool(true),
+            "installPolicy": .string("AVAILABLE"),
+            "authPolicy": .string("ON_USE"),
+            "source": .dictionary([
+                "type": .string("local"),
+                "path": .string("/tmp/plugins/gmail/0.1.5")
+            ]),
+            "interface": .dictionary([
+                "logo": .string("./assets/gmail.png"),
+                "logoDark": .string("assets/gmail-dark.png"),
+                "composerIcon": .string("./assets/gmail-small.svg"),
+                "capabilities": .array([])
+            ])
+        ])
+
+        let plugin = try XCTUnwrap(CodexPluginSummary(
+            raw: raw,
+            marketplace: .init(name: "openai-curated-remote")
+        ))
+
+        XCTAssertEqual(plugin.icon.logo, "/tmp/plugins/gmail/0.1.5/assets/gmail.png")
+        XCTAssertEqual(plugin.icon.logoDark, "/tmp/plugins/gmail/0.1.5/assets/gmail-dark.png")
+        XCTAssertEqual(plugin.icon.composerIcon, "/tmp/plugins/gmail/0.1.5/assets/gmail-small.svg")
+    }
+
+    @MainActor
+    func testPluginImageRepositoryLoadsPublishedLocalAssetSynchronously() throws {
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-plugin-icon-\(UUID().uuidString).tiff")
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        let symbol = try XCTUnwrap(NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil))
+        try XCTUnwrap(symbol.tiffRepresentation).write(to: temporaryURL)
+
+        XCTAssertNotNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
+    }
+
     func testIntegrationCatalogSessionOwnsMCPAndPluginLoadingState() {
         let mcpResponse: CodexJSONValue = .dictionary([
             "data": .array([

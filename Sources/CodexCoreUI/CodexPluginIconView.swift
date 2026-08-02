@@ -26,6 +26,13 @@ enum CodexPluginImageRepository {
         cache.setObject(image, forKey: url as NSURL)
         return image
     }
+
+    static func cachedOrLocalImage(for url: URL) -> NSImage? {
+        if let cached = cache.object(forKey: url as NSURL) { return cached }
+        guard url.isFileURL, let image = NSImage(contentsOf: url) else { return nil }
+        cache.setObject(image, forKey: url as NSURL)
+        return image
+    }
 }
 
 struct CodexPluginIconView: View {
@@ -41,11 +48,16 @@ struct CodexPluginIconView: View {
         reference.url(prefersDark: colorScheme == .dark)
     }
 
+    private var localImage: NSImage? {
+        guard let url, url.isFileURL else { return nil }
+        return CodexPluginImageRepository.cachedOrLocalImage(for: url)
+    }
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: max(7, size * 0.24), style: .continuous)
                 .fill(theme.colors.accentSoft.opacity(0.55))
-            if let image {
+            if let image = image ?? localImage {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -61,6 +73,9 @@ struct CodexPluginIconView: View {
         .task(id: url) {
             image = nil
             guard let url else { return }
+            // App-server local assets should render on the first frame. Remote marketplace
+            // artwork continues through the shared asynchronous cache.
+            if url.isFileURL { return }
             image = await CodexPluginImageRepository.image(for: url)
         }
         .accessibilityHidden(true)

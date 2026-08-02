@@ -284,6 +284,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         let pluginID = Self.string(in: object, keys: ["id"])?.nilIfBlank ?? name
         let interface = Self.dictionary(from: object["interface"])
         let source = Self.dictionary(from: object["source"])
+        let sourcePath = Self.string(in: source, keys: ["path"])
         self.init(
             id: "\(marketplace.name):\(pluginID)",
             protocolID: pluginID,
@@ -309,9 +310,18 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             privacyPolicyURL: Self.string(in: interface, keys: ["privacyPolicyUrl"]),
             termsOfServiceURL: Self.string(in: interface, keys: ["termsOfServiceUrl"]),
             icon: CodexPluginIconReference(
-                logo: Self.string(in: interface, keys: ["logoUrl", "logo"]),
-                logoDark: Self.string(in: interface, keys: ["logoUrlDark", "logoDark"]),
-                composerIcon: Self.string(in: interface, keys: ["composerIconUrl", "composerIcon"])
+                logo: Self.resolvedAsset(
+                    Self.string(in: interface, keys: ["logoUrl", "logo"]),
+                    pluginSourcePath: sourcePath
+                ),
+                logoDark: Self.resolvedAsset(
+                    Self.string(in: interface, keys: ["logoUrlDark", "logoDark"]),
+                    pluginSourcePath: sourcePath
+                ),
+                composerIcon: Self.resolvedAsset(
+                    Self.string(in: interface, keys: ["composerIconUrl", "composerIcon"]),
+                    pluginSourcePath: sourcePath
+                )
             ),
             capabilities: Self.stringArray(from: interface["capabilities"]),
             keywords: Self.stringArray(from: object["keywords"])
@@ -429,6 +439,20 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         string(in: source, keys: ["path"])
             ?? string(in: source, keys: ["url"])
             ?? string(in: source, keys: ["refName"])
+    }
+
+    /// App-server currently publishes absolute local paths and signed remote URLs. Resolving
+    /// relative paths as well keeps older/local marketplace manifests usable without making
+    /// the view layer guess which plugin directory owns an asset.
+    private static func resolvedAsset(_ value: String?, pluginSourcePath: String?) -> String? {
+        guard let value = value?.nilIfBlank else { return nil }
+        if let url = URL(string: value), url.scheme != nil { return value }
+        if value.hasPrefix("/") { return value }
+        guard let pluginSourcePath = pluginSourcePath?.nilIfBlank else { return value }
+        return URL(fileURLWithPath: pluginSourcePath, isDirectory: true)
+            .appendingPathComponent(value)
+            .standardizedFileURL
+            .path
     }
 
     private static func dictionary(from value: CodexJSONValue?) -> [String: CodexJSONValue] {

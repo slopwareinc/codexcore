@@ -231,12 +231,16 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         iconTask?.cancel()
         let prefersDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         if let url = plugin.icon.url(prefersDark: prefersDark) {
-            let pluginID = plugin.id
-            iconTask = Task { [weak self] in
-                guard let image = await CodexPluginImageRepository.image(for: url),
-                      !Task.isCancelled,
-                      self?.representedPluginID == pluginID else { return }
-                self?.iconView.image = image
+            if url.isFileURL, let image = CodexPluginImageRepository.cachedOrLocalImage(for: url) {
+                iconView.image = image
+            } else {
+                let pluginID = plugin.id
+                iconTask = Task { [weak self] in
+                    guard let image = await CodexPluginImageRepository.image(for: url),
+                          !Task.isCancelled,
+                          self?.representedPluginID == pluginID else { return }
+                    self?.iconView.image = image
+                }
             }
         }
         enabledSwitch.isHidden = !showsToggle
