@@ -44,7 +44,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.9.0` wi
 | Plugin, skill, and MCP inventory | Supported (read-only) | Inspect and refresh work; install/uninstall/enable/disable actions are presentation only. |
 | Current-turn diff preview | Conditional | Appears only for a parseable unified diff; shows summary/counts, not repository review. |
 | Branch/review/jump/commit/push/pull request | Unsupported | Controls are disabled or no-op. Use Git tooling outside the app. |
-| Automations | Unsupported | Not shown in the reference app because scheduling, persistence, runs, and history are not implemented. |
+| Automations | Supported | Local TOML-backed schedules run as independent chats while the app is open; native completion notifications require the packaged app and macOS permission. No first-class app-server automation API exists in the pinned protocol. |
 | Mobile remote control | Deferred | Product UI and pairing flow are removed pending [#190](https://github.com/slopwareinc/CodexCore/issues/190); generated remote-control protocol wrappers remain available for a future reintroduction. |
 | Plugin mutation | Unsupported | Install/uninstall/enable/disable controls are omitted; inventory, refresh, and “Try in Chat” remain. |
 | Environment/worktree handoff | Unsupported | Creation and handoff controls are omitted. Use external Git tooling. |

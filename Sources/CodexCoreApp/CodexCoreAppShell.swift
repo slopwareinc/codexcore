@@ -288,9 +288,9 @@ struct CodexCoreAppShell: View {
 
     private func routeDisplaysConversation(_ route: CodexAppRoute) -> Bool {
         switch route {
-        case .chat, .search, .automations:
+        case .chat, .search:
             true
-        case .plugins, .settingsAbout:
+        case .plugins, .automations, .settingsAbout:
             false
         }
     }
@@ -318,6 +318,7 @@ struct CodexCoreAppShell: View {
             .codexAgentTheme(model.theme)
         case .automations:
             CodexAutomationRouteView(
+                automations: model.automations,
                 onAction: { model.performAutomationRouteAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

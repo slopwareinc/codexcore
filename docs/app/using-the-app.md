@@ -9,12 +9,38 @@ The reference app is a native Codex host and living integration example. The [su
 - **Chat:** project threads, transcript, composer, approvals, plans, and tools.
 - **Search:** find and resume existing chats.
 - **Plugins:** inspect plugins, skills, and MCP-backed capabilities.
+- **Automations:** create, schedule, pause, edit, run, and delete recurring Codex chats.
 - **Settings:** appearance, history, sidebar, integrations, and application information.
 
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to
 select, or Escape to close.
+
+## Automations
+
+Automations are stored locally under the active Codex home in
+`automations/<id>/automation.toml`. Templates and **Create via chat** open the
+ordinary new-chat composer with an unsent prompt, preserving its project,
+permission, model, and attachment controls. The dashboard also supports direct
+scheduled creation, editing, enable/disable, run now, and deletion.
+
+The app sidebar includes **Automations** alongside the other primary routes.
+
+When Codex is connected and the app is running, a due automation starts an
+independent background thread without changing the chat currently on screen.
+The dashboard records running, successful, and failed lifecycle state and posts
+a native macOS notification on completion when notification permission is
+available. Native notifications are enabled for the packaged `.app`; development
+launches through `swift run` skip them because macOS does not provide an
+application notification identity to an unbundled executable. Existing
+automation chats are preserved when a schedule is deleted.
+
+The pinned app-server protocol has no automation request or notification
+methods. Full server-owned parity—including runs while the desktop app is not
+open and cross-device schedule synchronization—will require an upstream
+protocol upgrade; generated protocol files must then be refreshed through the
+normal protocol-upgrade workflow.
 
 ## Projects and chats
 

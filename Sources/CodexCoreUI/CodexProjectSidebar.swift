@@ -264,13 +264,15 @@ public struct CodexProjectSidebar: View {
                 isCollapsed: snapshot.isCollapsed,
                 action: onOpenSearch
             )
-            SidebarCommandRow(
-                systemImage: CodexAppRoute.plugins.systemImage,
-                title: CodexAppRoute.plugins.title,
-                isSelected: snapshot.selectedRoute == .plugins,
-                isCollapsed: snapshot.isCollapsed,
-                action: { onSelectRoute(.plugins) }
-            )
+            ForEach(CodexAppRoute.primarySidebarRoutes, id: \.rawValue) { route in
+                SidebarCommandRow(
+                    systemImage: route.systemImage,
+                    title: route.title,
+                    isSelected: snapshot.selectedRoute == route,
+                    isCollapsed: snapshot.isCollapsed,
+                    action: { onSelectRoute(route) }
+                )
+            }
         }
     }
 
