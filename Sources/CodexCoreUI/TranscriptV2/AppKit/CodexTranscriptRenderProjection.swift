@@ -74,6 +74,7 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case toggleRow(rowID: String)
     case selectDiffFile(rowID: String, index: Int)
     case openSubagent(threadID: String)
+    case openThread(CodexThreadReferenceV2)
     case openURL(String)
     case openFile(path: String, line: Int?)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
@@ -702,7 +703,10 @@ actor CodexTranscriptRenderProjector {
                             id: "\(sectionID):product:\(call.id)",
                             fingerprint: "product:\(String(describing: call))",
                             productTool: call,
-                            accessibilityLabel: "Tool \([call.namespace, call.tool].compactMap { $0 }.joined(separator: " "))",
+                            action: CodexProductToolPresentationV2.threadReference(call).map {
+                                .openThread($0)
+                            },
+                            accessibilityLabel: CodexProductToolPresentationV2.accessibilityLabel(call),
                             maxWidthKind: .card,
                             fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
                             bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
@@ -1127,12 +1131,15 @@ private extension CodexTranscriptRenderProjector {
 
         switch directive.name {
         case "created-thread":
-            let legacy = attributes["clientThreadId"]?.replacingOccurrences(of: "client-new-thread:", with: "")
-            let threadID = attributes["threadId"] ?? attributes["threadID"] ?? legacy
-            let pendingID = attributes["pendingWorktreeId"] ?? attributes["pendingWorktreeID"]
+            let clientID = attributes["clientThreadId"]?.replacingOccurrences(of: "client-new-thread:", with: "")
+            let threadID = attributes["threadId"] ?? attributes["threadID"]
+            let pendingID = attributes["pendingWorktreeId"] ?? attributes["pendingWorktreeID"] ?? clientID
             render = .init(kind: .createdThread(threadID: threadID, pendingWorktreeID: pendingID), raw: raw)
-            action = pendingID == nil ? threadID.map(CodexTranscriptRenderAction.openSubagent) : nil
-            label = "Created thread · \(Self.shortIdentifier(threadID ?? pendingID ?? "pending"))"
+            action = pendingID == nil
+                ? threadID.map { .openThread(.init(threadID: $0)) }
+                : nil
+            label = (pendingID == nil ? "Chat created" : "Worktree chat queued")
+                + " · \(Self.shortIdentifier(threadID ?? pendingID ?? "pending"))"
         case "git-stage", "git-commit", "git-create-branch", "git-push":
             let verb = String(directive.name.dropFirst(4))
             let branch = attributes["branch"]
@@ -1417,6 +1424,30 @@ private extension CodexTranscriptRenderProjector {
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
         var drafts: [ItemDraft] = []
+        if let source = user.delegationSource {
+            let row = CodexTranscriptWorkRowRender(
+                kind: .other,
+                label: "Sent by Codex from another chat",
+                status: .completed,
+                systemImage: "bubble.left.and.bubble.right",
+                style: .inlineActivity,
+                durationMs: nil,
+                isExpanded: false,
+                hasDetail: false,
+                isSubagentLink: false
+            )
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):delegation-source",
+                fingerprint: "delegation-source:\(source)",
+                workRow: row,
+                action: .openThread(source),
+                accessibilityLabel: "Sent by Codex from another chat. Open source chat",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
+                bottomSpacing: 2
+            ))
+        }
         if !user.responseAnnotations.isEmpty {
             let count = user.responseAnnotations.count
             let summary = user.responseAnnotations.enumerated().map { index, annotation in
@@ -1491,7 +1522,7 @@ private extension CodexTranscriptRenderProjector {
                 textRole: .user,
                 preparedText: prepared,
                 copyText: user.text.isEmpty ? user.displayText : user.text,
-                editUserText: user.rawText,
+                editUserText: user.delegationSource == nil ? user.rawText : nil,
                 accessibilityLabel: "You: \(visibleUserText)",
                 isTrailingAligned: true,
                 maxWidthKind: .user,

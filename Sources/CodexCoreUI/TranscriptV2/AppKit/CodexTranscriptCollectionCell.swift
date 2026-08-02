@@ -856,7 +856,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             } else {
                 ensureActionControl()
                 actionButton.isHidden = false
-                actionButton.isEnabled = false
+                actionButton.isEnabled = item.action != nil
                 actionButton.font = appKitTheme.captionFont
                 actionButton.contentTintColor = appKitTheme.textTertiary
                 actionButton.title = CodexProductToolPresentationV2.label(productTool)
@@ -869,6 +869,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 actionButton.imageHugsTitle = true
                 if productTool.status == .inProgress { actionButton.startShimmer() }
                 actionButton.setAccessibilityLabel(item.accessibilityLabel)
+                (view as? CodexTranscriptHoverView)?.usesPointingHand = item.action != nil
             }
         }
 
@@ -1204,7 +1205,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private static func directiveLabel(_ kind: CodexTranscriptDirectiveRender.Kind) -> String {
         switch kind {
         case .createdThread(let threadID, let pendingID):
-            return "Created thread · " + shortIdentifier(threadID ?? pendingID ?? "pending")
+            let prefix = pendingID == nil ? "Chat created" : "Worktree chat queued"
+            return prefix + " · " + shortIdentifier(threadID ?? pendingID ?? "pending")
         case .gitAction(let verb, let branch, _):
             return switch verb {
             case "stage": "Staged changes"

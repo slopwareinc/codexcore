@@ -22,6 +22,9 @@ public struct CodexSubagentV2: Identifiable, Sendable {
     public var prompt: String?
     public var depth: Int
     public var parentThreadID: String?
+    /// Lossless app-server collaboration lifecycle, including future values.
+    public var collaborationLifecycle: CodexCollabAgentLifecycle?
+    public var statusMessage: String?
     public var status: CodexSubagentLiveStatusV2
     public var transcript: CodexTranscriptV2
     public var createdAt: Date
@@ -35,6 +38,8 @@ public struct CodexSubagentV2: Identifiable, Sendable {
         prompt: String? = nil,
         depth: Int = 1,
         parentThreadID: String? = nil,
+        collaborationLifecycle: CodexCollabAgentLifecycle? = nil,
+        statusMessage: String? = nil,
         status: CodexSubagentLiveStatusV2 = .pending,
         transcript: CodexTranscriptV2 = .init(),
         createdAt: Date = Date(),
@@ -47,6 +52,8 @@ public struct CodexSubagentV2: Identifiable, Sendable {
         self.prompt = prompt
         self.depth = depth
         self.parentThreadID = parentThreadID
+        self.collaborationLifecycle = collaborationLifecycle
+        self.statusMessage = statusMessage
         self.status = status
         self.transcript = transcript
         self.createdAt = createdAt
@@ -184,6 +191,41 @@ public struct CodexSubagentStoreV2: Sendable {
 
     public func agent(threadID: String) -> CodexSubagentV2? { agentsByID[threadID] }
     public func contains(threadID: String) -> Bool { agentsByID[threadID] != nil }
+
+    /// Rebuilds lightweight identity and lifecycle state for every recursive
+    /// descendant while leaving transcript ownership with the selected lease.
+    @discardableResult
+    public mutating func applyGraphSnapshot(
+        _ graph: CodexThreadGraphSnapshot,
+        root: CodexThreadGraphKey
+    ) -> [CodexSubagentDiscoveryV2] {
+        let descendants = graph.descendants(of: root)
+        var discoveries: [CodexSubagentDiscoveryV2] = []
+        for key in descendants {
+            guard let node = graph.nodes[key] else { continue }
+            let discovery = CodexSubagentDiscoveryV2(
+                threadID: key.threadID.rawValue,
+                parentThreadID: node.parent?.threadID.rawValue,
+                agentPath: node.agentPath,
+                prompt: node.prompt
+            )
+            _ = register(discovery)
+            discoveries.append(discoveriesByID[discovery.threadID] ?? discovery)
+            guard var agent = agentsByID[discovery.threadID] else { continue }
+            agent.nickname = node.agentNickname ?? agent.nickname
+            agent.role = node.agentRole ?? agent.role
+            agent.agentPath = node.agentPath ?? agent.agentPath
+            agent.parentThreadID = node.parent?.threadID.rawValue ?? agent.parentThreadID
+            agent.depth = node.depth ?? agent.depth
+            agent.collaborationLifecycle = node.lifecycle ?? agent.collaborationLifecycle
+            agent.statusMessage = node.errorMessage ?? node.resultMessage ?? agent.statusMessage
+            if let lifecycle = node.lifecycle {
+                agent.status = Self.status(from: lifecycle, message: agent.statusMessage)
+            }
+            agentsByID[discovery.threadID] = agent
+        }
+        return discoveries
+    }
 
     /// Discovers direct children from parent collaboration items. This works at
     /// the exact frame that announces a child, before thread metadata arrives.
@@ -502,22 +544,29 @@ private extension CodexSubagentStoreV2 {
         guard let states else { return }
         for (id, rawState) in states {
             guard let state = CodexJSONCoercion.dictionary(from: rawState),
-                  let rawStatus = state.string("status")?.lowercased(),
+                  let rawStatus = state.string("status"),
                   agentsByID[id] != nil else { continue }
-            switch rawStatus {
-            case "completed", "done":
-                agentsByID[id]?.status = .completed(durationMs: nil)
-            case "failed", "error":
-                agentsByID[id]?.status = .failed(
-                    message: state.string("message") ?? "Subagent failed"
-                )
-            case "closed", "shutdown":
-                agentsByID[id]?.status = .closed
-            case "running", "working":
-                agentsByID[id]?.status = .working(since: nil)
-            default:
-                break
-            }
+            let lifecycle = CodexCollabAgentLifecycle(rawValue: rawStatus)
+            let message = state.string("message")
+            agentsByID[id]?.collaborationLifecycle = lifecycle
+            agentsByID[id]?.statusMessage = message
+            agentsByID[id]?.status = Self.status(from: lifecycle, message: message)
+        }
+    }
+
+    static func status(
+        from lifecycle: CodexCollabAgentLifecycle,
+        message: String?
+    ) -> CodexSubagentLiveStatusV2 {
+        switch lifecycle {
+        case .pendingInit: .pending
+        case .running: .working(since: nil)
+        case .completed: .completed(durationMs: nil)
+        case .shutdown: .closed
+        case .interrupted: .failed(message: message ?? "Subagent interrupted")
+        case .errored: .failed(message: message ?? "Subagent errored")
+        case .notFound: .failed(message: message ?? "Subagent not found")
+        case .unknown: .pending
         }
     }
 

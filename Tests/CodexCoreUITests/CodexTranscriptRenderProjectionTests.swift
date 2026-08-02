@@ -360,8 +360,117 @@ struct CodexTranscriptRenderProjectionTests {
             return
         }
         #expect(threadID == "019f670d-ce61-7cb2-a1eb-3b9bc5256026")
-        #expect(content[1].action == .openSubagent(threadID: threadID!))
+        #expect(content[1].action == .openThread(.init(threadID: threadID!)))
         #expect(content[2].preparedText?.attributedString.string.contains("After the handoff") == true)
+    }
+
+    @Test func pendingCreatedThreadDirectiveDoesNotResumeClientSetupIDAsAThread() async throws {
+        let turn = CodexTurnV2(
+            id: "turn",
+            finalAnswer: .init(
+                id: "final",
+                text: "::created-thread{clientThreadId=\"client-new-thread:setup-id\"}",
+                isStreaming: false
+            ),
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.directive != nil })
+        guard case .createdThread(let threadID, let pendingID) = item.directive?.kind else {
+            Issue.record("Expected a pending created-thread directive")
+            return
+        }
+        #expect(threadID == nil)
+        #expect(pendingID == "setup-id")
+        #expect(item.action == nil)
+    }
+
+    @Test func independentThreadCommunicationRendersBidirectionalNavigation() async throws {
+        let source = CodexThreadReferenceV2(hostID: "local", threadID: "source-thread")
+        let target = CodexThreadReferenceV2(hostID: "remote-host", threadID: "target-thread")
+        let send = CodexProductToolCallV2(
+            id: "send",
+            tool: "send_message_to_thread",
+            namespace: "codex_app",
+            arguments: .dictionary([
+                "threadId": .string(target.threadID),
+                "hostId": .string(target.hostID!),
+                "prompt": .string("Status?")
+            ]),
+            status: .completed,
+            contentItems: [],
+            success: true
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            userMessage: .init(
+                id: "user",
+                text: "Reply from the other task",
+                delegationSource: source
+            ),
+            narrative: [.productToolCall(send)],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+
+        let incoming = try #require(snapshot.itemsByID.values.first {
+            $0.workRow?.label == "Sent by Codex from another chat"
+        })
+        #expect(incoming.action == .openThread(source))
+        let outgoing = try #require(snapshot.itemsByID.values.first { $0.productTool?.id == "send" })
+        #expect(CodexProductToolPresentationV2.label(send) == "Sent message to chat")
+        #expect(outgoing.action == .openThread(target))
+        let delegatedBubble = try #require(snapshot.itemsByID.values.first {
+            $0.id.rawValue.contains(":user:user") && $0.textRole == .user
+        })
+        #expect(delegatedBubble.editUserText == nil)
+    }
+
+    @Test func completedCreateThreadToolRendersClickableChatCreatedCard() async throws {
+        let result = #"{"threadId":"created-thread","hostId":"remote-host"}"#
+        let call = CodexProductToolCallV2(
+            id: "create",
+            tool: "create_thread",
+            namespace: "codex_app",
+            arguments: .dictionary([:]),
+            status: .completed,
+            contentItems: [.dictionary([
+                "type": .string("inputText"),
+                "text": .string(result)
+            ])],
+            success: true
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.productToolCall(call)],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+
+        let card = try #require(snapshot.itemsByID.values.first { $0.productTool?.id == call.id })
+        #expect(CodexProductToolPresentationV2.label(call) == "Chat created")
+        #expect(card.accessibilityLabel == "Chat created. Open chat")
+        #expect(card.action == .openThread(.init(hostID: "remote-host", threadID: "created-thread")))
     }
 
     @Test func identicalOrdinaryMarkdownIsRetainedAndHitsPreparedTextCache() async throws {
