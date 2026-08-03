@@ -19,6 +19,29 @@ final class ServerRequestProtocolTests: XCTestCase {
         }
     }
 
+    func testUnknownMCPElicitationModeRemainsDeclinable() throws {
+        let parsed = try CodexServerRequestParser.parse(
+            connectionEpoch: 1,
+            id: .string("unknown-mode"),
+            method: CodexServerRequestKind.mcpElicitation.method,
+            params: [
+                "threadId": .string("thread"),
+                "serverName": .string("calendar"),
+                "message": .string("Future prompt"),
+                "mode": .string("future/form/v2"),
+            ]
+        )
+
+        guard case .mcpElicitation(let request) = parsed.body else {
+            return XCTFail("Expected MCP elicitation request")
+        }
+        XCTAssertEqual(request.mode.unknownMode, "future/form/v2")
+        XCTAssertEqual(
+            try parsed.validate(result: .dictionary(["action": .string("decline")])).jsonValue,
+            .dictionary(["action": .string("decline")])
+        )
+    }
+
     func testNotificationOptOutPolicyAllowsOnlyBoundedDiagnostics() {
         let requested = [
             CodexAppServerNotificationMethod.threadStarted.rawValue,

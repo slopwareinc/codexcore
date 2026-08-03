@@ -33,6 +33,17 @@ public extension Codex {
         try await perform(CodexRequest.fsWatch(params))
     }
 
+    /// Register before `watch(_:)` to receive the watch's change stream.
+    func observeFSChanges(
+        watchID: String,
+        maximumChangeCount: Int = 512
+    ) async throws -> AsyncThrowingStream<CodexSchemaFSChangedNotification, Error> {
+        try await session.observeFSChanges(
+            watchID: watchID,
+            maximumChangeCount: maximumChangeCount
+        )
+    }
+
     func unwatch(_ params: CodexSchemaFSUnwatchParams) async throws -> CodexSchemaFSUnwatchResponse {
         try await perform(CodexRequest.fsUnwatch(params))
     }

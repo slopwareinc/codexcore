@@ -185,6 +185,161 @@ final class SessionOperationPrimitivesTests: XCTestCase {
             XCTAssertEqual(error, .disconnected(connectionEpoch: 9))
         }
     }
+
+    func testOperationHubsRouteKeyedEventsAndTearDownByEpoch() async throws {
+        var fileHub = CodexFSChangeObserverHub()
+        let fileObservation = fileHub.observe(connectionEpoch: 4, watchID: "watch")
+        let fileChange = CodexSchemaFSChangedNotification(changedPaths: [], watchID: "watch")
+        XCTAssertEqual(
+            fileHub.publish(connectionEpoch: 3, notification: fileChange),
+            0
+        )
+        XCTAssertEqual(
+            fileHub.publish(connectionEpoch: 4, notification: fileChange),
+            1
+        )
+        var fileIterator = fileObservation.changes.makeAsyncIterator()
+        XCTAssertEqual(try await fileIterator.next(), fileChange)
+        XCTAssertTrue(fileHub.cancel(fileObservation.id))
+        XCTAssertNil(try await fileIterator.next())
+
+        var processHub = CodexProcessObserverHub()
+        let processObservation = try processHub.observe(
+            connectionEpoch: 2,
+            processHandle: "process"
+        )
+        let output = CodexSchemaProcessOutputDeltaNotification(
+            capReached: false,
+            deltaBase64: "aGVsbG8=",
+            processHandle: "process",
+            stream: .stdout
+        )
+        let exited = CodexSchemaProcessExitedNotification(
+            exitCode: 7,
+            processHandle: "process",
+            stderr: "",
+            stderrCapReached: false,
+            stdout: "",
+            stdoutCapReached: false
+        )
+        XCTAssertEqual(
+            processHub.publish(connectionEpoch: 2, event: .output(output)),
+            1
+        )
+        XCTAssertEqual(
+            processHub.publish(connectionEpoch: 2, event: .exited(exited)),
+            1
+        )
+        var processIterator = processObservation.events.makeAsyncIterator()
+        XCTAssertEqual(try await processIterator.next(), .output(output))
+        XCTAssertEqual(try await processIterator.next(), .exited(exited))
+        XCTAssertNil(try await processIterator.next())
+
+        var fuzzyHub = CodexFuzzyFileSearchObserverHub()
+        let fuzzyObservation = fuzzyHub.observe(connectionEpoch: 8, sessionID: "search")
+        let update = CodexSchemaFuzzyFileSearchSessionUpdatedNotification(
+            files: [],
+            query: "readme",
+            sessionID: "search"
+        )
+        let completion = CodexSchemaFuzzyFileSearchSessionCompletedNotification(sessionID: "search")
+        XCTAssertEqual(
+            fuzzyHub.publish(connectionEpoch: 8, event: .updated(update)),
+            1
+        )
+        XCTAssertEqual(
+            fuzzyHub.publish(connectionEpoch: 8, event: .completed(completion)),
+            1
+        )
+        var fuzzyIterator = fuzzyObservation.events.makeAsyncIterator()
+        XCTAssertEqual(try await fuzzyIterator.next(), .updated(update))
+        XCTAssertEqual(try await fuzzyIterator.next(), .completed(completion))
+        XCTAssertNil(try await fuzzyIterator.next())
+
+        var epochHub = CodexFSChangeObserverHub()
+        let oldEpoch = epochHub.observe(connectionEpoch: 1, watchID: "same")
+        let newEpoch = epochHub.observe(connectionEpoch: 2, watchID: "same")
+        XCTAssertEqual(epochHub.disconnect(connectionEpoch: 1), 1)
+        var oldIterator = oldEpoch.changes.makeAsyncIterator()
+        do {
+            _ = try await oldIterator.next()
+            XCTFail("Old epoch observer should fail on disconnect")
+        } catch let error as CodexFSChangeObserverError {
+            XCTAssertEqual(error, .disconnected(connectionEpoch: 1))
+        }
+        XCTAssertEqual(epochHub.publish(connectionEpoch: 2, notification: fileChange), 1)
+        var newIterator = newEpoch.changes.makeAsyncIterator()
+        XCTAssertEqual(try await newIterator.next(), fileChange)
+        XCTAssertTrue(epochHub.cancel(newEpoch.id))
+    }
+
+    func testGlobalAndImportOperationHubsSupportCancellationAndEpochTeardown() async throws {
+        var appHub = CodexAppListObserverHub()
+        let appObservation = appHub.observe(connectionEpoch: 5)
+        let app = CodexSchemaAppListUpdatedNotification(data: [])
+        XCTAssertEqual(appHub.publish(connectionEpoch: 5, event: app), 1)
+        var appIterator = appObservation.events.makeAsyncIterator()
+        XCTAssertEqual(try await appIterator.next(), app)
+        XCTAssertTrue(appHub.cancel(appObservation.id))
+        XCTAssertNil(try await appIterator.next())
+
+        var importHub = CodexExternalAgentConfigImportObserverHub()
+        let importObservation = importHub.observe(connectionEpoch: 6, importID: "import")
+        let result = CodexSchemaExternalAgentConfigImportTypeResult(
+            failures: [],
+            itemType: .mCPSERVERCONFIG,
+            successes: []
+        )
+        let progress = CodexSchemaExternalAgentConfigImportProgressNotification(
+            importID: "import",
+            itemTypeResults: [result]
+        )
+        let completed = CodexSchemaExternalAgentConfigImportCompletedNotification(
+            importID: "import",
+            itemTypeResults: [result]
+        )
+        XCTAssertEqual(
+            importHub.publish(connectionEpoch: 6, event: .progress(progress)),
+            1
+        )
+        XCTAssertEqual(
+            importHub.publish(connectionEpoch: 6, event: .completed(completed)),
+            1
+        )
+        var importIterator = importObservation.events.makeAsyncIterator()
+        XCTAssertEqual(try await importIterator.next(), .progress(progress))
+        XCTAssertEqual(try await importIterator.next(), .completed(completed))
+        XCTAssertNil(try await importIterator.next())
+
+        var oauthHub = CodexMCPServerOAuthLoginObserverHub()
+        let oauthObservation = oauthHub.observe(
+            connectionEpoch: 7,
+            name: "calendar",
+            threadID: nil
+        )
+        let oauth = CodexSchemaMCPServerOAuthLoginCompletedNotification(
+            name: "calendar",
+            success: true
+        )
+        XCTAssertEqual(oauthHub.publish(connectionEpoch: 7, notification: oauth), 1)
+        var oauthIterator = oauthObservation.completions.makeAsyncIterator()
+        XCTAssertEqual(try await oauthIterator.next(), oauth)
+        XCTAssertNil(try await oauthIterator.next())
+
+        var sandboxHub = CodexWindowsSandboxSetupObserverHub()
+        let sandboxObservation = sandboxHub.observe(connectionEpoch: 11)
+        XCTAssertEqual(
+            sandboxHub.disconnect(connectionEpoch: 11),
+            1
+        )
+        var sandboxIterator = sandboxObservation.events.makeAsyncIterator()
+        do {
+            _ = try await sandboxIterator.next()
+            XCTFail("Sandbox observer should fail on epoch teardown")
+        } catch let error as CodexGlobalOperationObserverError {
+            XCTAssertEqual(error, .disconnected(connectionEpoch: 11))
+        }
+    }
 }
 
 private extension SessionOperationPrimitivesTests {

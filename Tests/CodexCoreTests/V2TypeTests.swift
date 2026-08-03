@@ -107,6 +107,79 @@ final class V2TypeTests: XCTestCase {
         XCTAssertEqual(CodexInput.mention(name: "README", path: "README.md").jsonValue, .dictionary(["type": .string("mention"), "name": .string("README"), "path": .string("README.md")]))
     }
 
+    func testInputWireMappingIncludesAudioImageDetailAndTextElements() throws {
+        let element = CodexSchemaTextElement(
+            byteRange: .init(start: 0, end: 4),
+            placeholder: "file"
+        )
+        XCTAssertEqual(
+            CodexInput.text("file", textElements: [element]).jsonValue,
+            .dictionary([
+                "type": .string("text"),
+                "text": .string("file"),
+                "text_elements": .array([
+                    .dictionary([
+                        "byteRange": .dictionary(["start": .int(0), "end": .int(4)]),
+                        "placeholder": .string("file"),
+                    ])
+                ]),
+            ])
+        )
+        XCTAssertEqual(
+            CodexInput.image(url: "https://example.com/a.png", detail: .high).jsonValue,
+            .dictionary([
+                "type": .string("image"),
+                "url": .string("https://example.com/a.png"),
+                "detail": .string("high"),
+            ])
+        )
+        XCTAssertEqual(
+            CodexInput.localImage(path: "/tmp/a.png", detail: .original).jsonValue,
+            .dictionary([
+                "type": .string("localImage"),
+                "path": .string("/tmp/a.png"),
+                "detail": .string("original"),
+            ])
+        )
+        XCTAssertEqual(
+            CodexInput.audio(url: "data:audio/wav;base64,AA==").jsonValue,
+            .dictionary([
+                "type": .string("audio"),
+                "url": .string("data:audio/wav;base64,AA=="),
+            ])
+        )
+        XCTAssertEqual(
+            CodexInput.localAudio(path: "/tmp/input.wav").jsonValue,
+            .dictionary([
+                "type": .string("localAudio"),
+                "path": .string("/tmp/input.wav"),
+            ])
+        )
+    }
+
+    func testGranularApprovalPolicyEncodesCurrentUnionShape() throws {
+        let policy = AskForApproval.granular(.init(
+            mcpElicitations: true,
+            rules: false,
+            sandboxApproval: true,
+            requestPermissions: false,
+            skillApproval: true
+        ))
+        let encoded = try CodexJSONValue(encoding: policy)
+        XCTAssertEqual(
+            encoded,
+            .dictionary(["granular": .dictionary([
+                "mcp_elicitations": .bool(true),
+                "rules": .bool(false),
+                "sandbox_approval": .bool(true),
+                "request_permissions": .bool(false),
+                "skill_approval": .bool(true),
+            ])])
+        )
+        XCTAssertEqual(try encoded.decode(AskForApproval.self), policy)
+        XCTAssertNil(AskForApproval(rawValue: "on-failure"))
+    }
+
     func testDynamicToolSpecEncodesInThreadStartParams() throws {
         let params = ThreadStartParams(
             cwd: "/tmp/walkable",
