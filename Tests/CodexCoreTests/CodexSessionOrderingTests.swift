@@ -19,6 +19,7 @@ final class CodexSessionOrderingTests: XCTestCase {
             initializeParams["capabilities"]?.objectValue
         )
         XCTAssertEqual(capabilities["experimentalApi"], .bool(true))
+        XCTAssertEqual(capabilities["mcpServerOpenaiFormElicitation"], .bool(true))
 
         await session.stop()
     }
@@ -2362,6 +2363,38 @@ final class CodexSessionOrderingTests: XCTestCase {
         await drainScheduler()
         let attemptsAfterOpeningGate = await transport.openAttemptCount
         XCTAssertEqual(attemptsAfterOpeningGate, 1)
+    }
+
+    func testReconnectAttemptsEnterTerminalFailureAtConfiguredLimit() async throws {
+        let transport = ControllableCodexFrameTransport(failedOpenAttempts: 10)
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .init(
+                isEnabled: true,
+                initialDelayMilliseconds: 0,
+                maximumDelayMilliseconds: 0,
+                multiplier: 1,
+                maximumAttempts: 2
+            )),
+            reconnectSleep: { _ in }
+        )
+        let start = Task { try await session.start() }
+
+        do {
+            _ = try await start.value
+            XCTFail("The start waiter should fail after retry exhaustion")
+        } catch {
+            guard case OrderingTestError.configuredOpenFailure = error else {
+                return XCTFail("Unexpected start error: \(error)")
+            }
+        }
+
+        guard case .failed(let message) = await session.lifecycle else {
+            return XCTFail("Expected terminal failed lifecycle")
+        }
+        XCTAssertTrue(message.contains("configuredOpenFailure"))
+        XCTAssertEqual(await transport.openAttemptCount, 2)
+        await session.stop()
     }
 
     func testCleanReaderEOFBecomesConnectionLossWithoutDisabledReconnect() async throws {

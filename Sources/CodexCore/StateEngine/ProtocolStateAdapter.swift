@@ -153,6 +153,118 @@ public struct ProtocolStateAdapter: Sendable {
     }
 }
 
+// MARK: - Typed turn-error overlay
+
+/// The generated `CodexErrorInfo` is intentionally an opaque JSON value
+/// because the upstream schema uses an open union. This additive overlay
+/// recognizes the currently documented variants while retaining unknown data.
+public enum CodexTurnErrorInfo: Sendable, Equatable {
+    case contextWindowExceeded
+    case usageLimitExceeded
+    case sessionBudgetExceeded
+    case serverOverloaded
+    case cyberPolicy
+    case internalServerError
+    case unauthorized
+    case badRequest
+    case threadRollbackFailed
+    case sandboxError
+    case other
+    case httpConnectionFailed(httpStatusCode: Int?)
+    case responseStreamConnectionFailed(httpStatusCode: Int?)
+    case responseStreamDisconnected(httpStatusCode: Int?)
+    case responseTooManyFailedAttempts(httpStatusCode: Int?)
+    case activeTurnNotSteerable(httpStatusCode: Int?)
+    case unknown(type: String?, raw: CodexJSONValue)
+
+    public var type: String {
+        switch self {
+        case .contextWindowExceeded: "contextWindowExceeded"
+        case .usageLimitExceeded: "usageLimitExceeded"
+        case .sessionBudgetExceeded: "sessionBudgetExceeded"
+        case .serverOverloaded: "serverOverloaded"
+        case .cyberPolicy: "cyberPolicy"
+        case .internalServerError: "internalServerError"
+        case .unauthorized: "unauthorized"
+        case .badRequest: "badRequest"
+        case .threadRollbackFailed: "threadRollbackFailed"
+        case .sandboxError: "sandboxError"
+        case .other: "other"
+        case .httpConnectionFailed: "httpConnectionFailed"
+        case .responseStreamConnectionFailed: "responseStreamConnectionFailed"
+        case .responseStreamDisconnected: "responseStreamDisconnected"
+        case .responseTooManyFailedAttempts: "responseTooManyFailedAttempts"
+        case .activeTurnNotSteerable: "activeTurnNotSteerable"
+        case .unknown(let type, _): type ?? "unknown"
+        }
+    }
+
+    public var httpStatusCode: Int? {
+        switch self {
+        case .httpConnectionFailed(let statusCode),
+             .responseStreamConnectionFailed(let statusCode),
+             .responseStreamDisconnected(let statusCode),
+             .responseTooManyFailedAttempts(let statusCode),
+             .activeTurnNotSteerable(let statusCode):
+            statusCode
+        default:
+            nil
+        }
+    }
+
+    init(rawValue: CodexJSONValue) {
+        guard let object = rawValue.objectValue,
+              let rawType = object.string(at: "type") else {
+            self = .unknown(type: nil, raw: rawValue)
+            return
+        }
+        let statusCode = object.int(at: "httpStatusCode")
+            ?? object.int(at: "http_status_code")
+            ?? object.int(at: "statusCode")
+        switch rawType {
+        case "contextWindowExceeded", "context_window_exceeded": self = .contextWindowExceeded
+        case "usageLimitExceeded", "usage_limit_exceeded": self = .usageLimitExceeded
+        case "sessionBudgetExceeded", "session_budget_exceeded": self = .sessionBudgetExceeded
+        case "serverOverloaded", "server_overloaded": self = .serverOverloaded
+        case "cyberPolicy", "cyber_policy": self = .cyberPolicy
+        case "internalServerError", "internal_server_error": self = .internalServerError
+        case "unauthorized": self = .unauthorized
+        case "badRequest", "bad_request": self = .badRequest
+        case "threadRollbackFailed", "thread_rollback_failed": self = .threadRollbackFailed
+        case "sandboxError", "sandbox_error": self = .sandboxError
+        case "other": self = .other
+        case "httpConnectionFailed", "http_connection_failed":
+            self = .httpConnectionFailed(httpStatusCode: statusCode)
+        case "responseStreamConnectionFailed", "response_stream_connection_failed":
+            self = .responseStreamConnectionFailed(httpStatusCode: statusCode)
+        case "responseStreamDisconnected", "response_stream_disconnected":
+            self = .responseStreamDisconnected(httpStatusCode: statusCode)
+        case "responseTooManyFailedAttempts", "response_too_many_failed_attempts":
+            self = .responseTooManyFailedAttempts(httpStatusCode: statusCode)
+        case "activeTurnNotSteerable", "active_turn_not_steerable":
+            self = .activeTurnNotSteerable(httpStatusCode: statusCode)
+        default:
+            self = .unknown(type: rawType, raw: rawValue)
+        }
+    }
+}
+
+public typealias CodexErrorInfo = CodexTurnErrorInfo
+
+public extension CanonicalTurnError {
+    /// Typed interpretation of `codexErrorInfo`; the original raw value stays
+    /// available through `codexErrorInfo` for forward-compatible consumers.
+    var typedCodexErrorInfo: CodexTurnErrorInfo? {
+        codexErrorInfo.map(CodexTurnErrorInfo.init(rawValue:))
+    }
+
+    /// Alias suitable for callers that prefer the shorter error-info name.
+    var codexErrorInfoKind: CodexTurnErrorInfo? { typedCodexErrorInfo }
+
+    /// HTTP status carried by connection/stream error variants, when present.
+    var httpStatusCode: Int? { typedCodexErrorInfo?.httpStatusCode }
+}
+
 // MARK: - Exhaustive notification disposition
 
 private extension ProtocolStateAdapter {

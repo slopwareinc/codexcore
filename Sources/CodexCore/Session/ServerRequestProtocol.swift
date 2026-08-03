@@ -253,6 +253,23 @@ public enum CodexMCPElicitationMode: Sendable, Equatable {
     case form(requestedSchema: CodexJSONValue)
     case openAIForm(requestedSchema: CodexJSONValue)
     case url(elicitationID: String, url: String)
+
+    /// Unknown upstream modes are represented as an inert URL-shaped mode so
+    /// existing presentation code can decline them without attempting to
+    /// interpret an unrecognized schema. The original mode remains available
+    /// through `unknownMode` for diagnostics.
+    public static func unknown(_ mode: String) -> Self {
+        .url(elicitationID: "unknown:(mode)", url: "")
+    }
+
+    public var unknownMode: String? {
+        guard case .url(let elicitationID, let url) = self,
+              url.isEmpty,
+              elicitationID.hasPrefix("unknown:") else {
+            return nil
+        }
+        return String(elicitationID.dropFirst("unknown:".count))
+    }
 }
 
 public struct CodexMCPElicitationServerRequest: Sendable, Equatable {
@@ -558,7 +575,7 @@ public enum CodexServerRequestParser {
                     url: try ServerRequestJSON.string(params, "url", context: method)
                 )
             default:
-                throw CodexServerRequestParseError.invalidField(method: method, field: "mode")
+                mode = .unknown(modeName)
             }
             body = .mcpElicitation(.init(
                 scope: .init(threadID: threadID, turnID: turnID),

@@ -45,6 +45,11 @@ let codex = try await Codex(
 
 Production policy should be explicit about commands, paths, network access, and session-scoped grants. Do not copy `codex-run`'s auto-approval handler into an end-user application.
 
+Approval policies include `untrusted`, `onRequest`, and `never`, plus the
+structured `AskForApproval.granular` form for independently controlling MCP
+elicitation, rules, sandbox approval, permission requests, and skill approval.
+The obsolete `on-failure` wire value is not accepted.
+
 Handlers return `.result(CodexJSONValue)`, so validated results are encoded at the boundary. GA legacy denials carry a rejection reason:
 
 ```swift

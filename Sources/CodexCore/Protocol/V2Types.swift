@@ -37,11 +37,99 @@ public struct ApprovalSettings: Codable, Sendable, Equatable {
     }
 }
 
-public enum AskForApproval: String, Codable, Sendable, Equatable {
+public struct AskForApprovalGranular: Codable, Sendable, Equatable {
+    public var mcpElicitations: Bool?
+    public var rules: Bool?
+    public var sandboxApproval: Bool?
+    public var requestPermissions: Bool?
+    public var skillApproval: Bool?
+
+    public init(
+        mcpElicitations: Bool? = nil,
+        rules: Bool? = nil,
+        sandboxApproval: Bool? = nil,
+        requestPermissions: Bool? = nil,
+        skillApproval: Bool? = nil
+    ) {
+        self.mcpElicitations = mcpElicitations
+        self.rules = rules
+        self.sandboxApproval = sandboxApproval
+        self.requestPermissions = requestPermissions
+        self.skillApproval = skillApproval
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mcpElicitations = "mcp_elicitations"
+        case rules
+        case sandboxApproval = "sandbox_approval"
+        case requestPermissions = "request_permissions"
+        case skillApproval = "skill_approval"
+    }
+}
+
+/// Approval policy union from the current app-server schema. The legacy
+/// `on-failure` arm is intentionally absent; granular policies retain each
+/// independently controlled approval surface.
+public enum AskForApproval: Codable, Sendable, Equatable {
     case untrusted
-    case onFailure = "on-failure"
-    case onRequest = "on-request"
+    case onRequest
     case never
+    case granular(AskForApprovalGranular)
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "untrusted": self = .untrusted
+        case "on-request": self = .onRequest
+        case "never": self = .never
+        default: return nil
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .untrusted: "untrusted"
+        case .onRequest: "on-request"
+        case .never: "never"
+        case .granular: "granular"
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let value = try CodexJSONValue(from: decoder)
+        switch value {
+        case .string(let raw):
+            guard let parsed = Self(rawValue: raw) else {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: decoder.codingPath, debugDescription: "Unknown approval policy")
+                )
+            }
+            self = parsed
+        case .dictionary(let object):
+            guard let granular = object["granular"] else {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: decoder.codingPath, debugDescription: "Expected granular approval policy")
+                )
+            }
+            self = .granular(try granular.decode(AskForApprovalGranular.self))
+        default:
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Invalid approval policy")
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        let value: CodexJSONValue
+        switch self {
+        case .untrusted, .onRequest, .never:
+            value = .string(rawValue)
+        case .granular(let granular):
+            value = .dictionary([
+                "granular": try CodexJSONValue(encoding: granular),
+            ])
+        }
+        try value.encode(to: encoder)
+    }
 }
 
 public enum ApprovalsReviewer: String, Codable, Sendable, Equatable {
@@ -145,21 +233,46 @@ public enum ThreadHistoryMode: String, Codable, Sendable, Equatable {
 }
 
 public enum CodexInput: Sendable, Equatable {
-    case text(String)
-    case image(url: String)
-    case localImage(path: String)
+    case text(String, textElements: [CodexSchemaTextElement]? = nil)
+    case image(url: String, detail: CodexSchemaImageDetail? = nil)
+    case localImage(path: String, detail: CodexSchemaImageDetail? = nil)
+    case audio(url: String)
+    case localAudio(path: String)
     case skill(name: String, path: String)
     case mention(name: String, path: String)
     case raw(CodexJSONValue)
 
     public var jsonValue: CodexJSONValue {
         switch self {
-        case .text(let text):
-            return .dictionary(["type": .string("text"), "text": .string(text)])
-        case .image(let url):
-            return .dictionary(["type": .string("image"), "url": .string(url)])
-        case .localImage(let path):
-            return .dictionary(["type": .string("localImage"), "path": .string(path)])
+        case .text(let text, let textElements):
+            var object: [String: CodexJSONValue] = [
+                "type": .string("text"),
+                "text": .string(text),
+            ]
+            if let textElements {
+                if let encoded = try? CodexJSONValue(encoding: textElements) {
+                    object["text_elements"] = encoded
+                }
+            }
+            return .dictionary(object)
+        case .image(let url, let detail):
+            var object: [String: CodexJSONValue] = [
+                "type": .string("image"),
+                "url": .string(url),
+            ]
+            if let detail { object["detail"] = .string(detail.rawValue) }
+            return .dictionary(object)
+        case .localImage(let path, let detail):
+            var object: [String: CodexJSONValue] = [
+                "type": .string("localImage"),
+                "path": .string(path),
+            ]
+            if let detail { object["detail"] = .string(detail.rawValue) }
+            return .dictionary(object)
+        case .audio(let url):
+            return .dictionary(["type": .string("audio"), "url": .string(url)])
+        case .localAudio(let path):
+            return .dictionary(["type": .string("localAudio"), "path": .string(path)])
         case .skill(let name, let path):
             return .dictionary(["type": .string("skill"), "name": .string(name), "path": .string(path)])
         case .mention(let name, let path):
