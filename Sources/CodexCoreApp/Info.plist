@@ -21,7 +21,9 @@
     <key>CFBundleShortVersionString</key>
     <string>0.9.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>0</string>
+    <key>CodexCoreGitCommit</key>
+    <string>UNPACKAGED</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>NSHighResolutionCapable</key>
@@ -30,6 +32,10 @@
     <string>CodexCore uses the microphone for dictation and realtime Voice chats.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>CodexCore uses speech recognition to turn dictation into composer text.</string>
+    <key>SUFeedURL</key>
+    <string>https://updates.example.invalid/codexcore/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
