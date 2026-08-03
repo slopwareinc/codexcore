@@ -18,9 +18,95 @@ struct CodexTranscriptCollectionDiagnostics: Sendable, Equatable {
     var render = CodexTranscriptRenderDiagnostics()
 }
 
+struct CodexTranscriptFindMatch: Sendable, Equatable {
+    var itemID: CodexTranscriptRenderItemID
+    var range: NSRange
+    var turnID: String
+    var expansionRowIDs: [String]
+}
+
+enum CodexTranscriptFindProjection {
+    static let matchLimit = 1_000
+    static let commandOutputCharacterLimit = 20_000
+
+    static func matches(
+        query: String,
+        snapshot: CodexTranscriptRenderSnapshot,
+        presentation: CodexThreadUIPresentation
+    ) -> (matches: [CodexTranscriptFindMatch], hitLimit: Bool) {
+        guard !query.isEmpty else { return ([], false) }
+        var documents: [(CodexTranscriptRenderItemID, String, String, [String])] = []
+        var visibleCommandOutputIDs: Set<CodexTranscriptRenderItemID> = []
+        for id in snapshot.orderedItemIDs {
+            guard let item = snapshot.itemsByID[id] else { continue }
+            switch item.textRole {
+            case .user, .commentary, .finalAnswer:
+                if let text = item.preparedText?.attributedString.string {
+                    documents.append((id, text, item.turnID, []))
+                }
+            case .expandedOutput:
+                if let text = item.preparedText?.attributedString.string,
+                   id.rawValue.hasSuffix(":detail") {
+                    documents.append((id, text, item.turnID, []))
+                    visibleCommandOutputIDs.insert(id)
+                }
+            default:
+                break
+            }
+        }
+        for turn in presentation.transcript.turns {
+            for segment in turn.conversationSegments {
+                for entry in segment.narrative {
+                    guard case .workGroup(let group) = entry else { continue }
+                    for row in group.rows {
+                        guard case .command(let command) = row,
+                              let output = command.output, !output.isEmpty else { continue }
+                        let itemID = CodexTranscriptRenderItemID(
+                            rawValue: "\(presentation.threadID):turn:\(turn.id):row:\(command.id):detail"
+                        )
+                        guard !visibleCommandOutputIDs.contains(itemID) else { continue }
+                        documents.append((
+                            itemID,
+                            String(output.prefix(commandOutputCharacterLimit)),
+                            turn.id,
+                            [group.id, command.id]
+                        ))
+                    }
+                }
+            }
+        }
+
+        var result: [CodexTranscriptFindMatch] = []
+        for document in documents {
+            let text = document.1 as NSString
+            var remaining = NSRange(location: 0, length: text.length)
+            while remaining.length > 0 {
+                let range = text.range(
+                    of: query,
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    range: remaining
+                )
+                guard range.location != NSNotFound else { break }
+                result.append(.init(
+                    itemID: document.0,
+                    range: range,
+                    turnID: document.2,
+                    expansionRowIDs: document.3
+                ))
+                if result.count == matchLimit { return (result, true) }
+                let nextLocation = NSMaxRange(range)
+                guard nextLocation < text.length else { break }
+                remaining = NSRange(location: nextLocation, length: text.length - nextLocation)
+            }
+        }
+        return (result, false)
+    }
+}
+
 struct CodexTranscriptListHost: NSViewRepresentable {
     @Environment(\.codexAgentTheme) private var swiftUITheme
     @Environment(\.codexClipboardService) private var clipboardService
+    @Environment(\.codexTranscriptFileNavigationService) private var fileNavigationService
     @Environment(\.colorScheme) private var colorScheme
 
     var presentation: CodexThreadUIPresentation
@@ -36,6 +122,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
     var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
     var onEditUserMessage: (String) -> Void
+    var onRetryTurn: ((CodexUserMessageV2) -> Void)?
     var onForkChat: (() -> Void)?
     var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     var retryRevision: Int
@@ -64,11 +151,13 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             swiftUITheme: swiftUITheme,
             colorScheme: colorScheme,
             clipboardService: clipboardService,
+            fileNavigationService: fileNavigationService,
             productToolRenderer: productToolRenderer,
             onOpenSubagent: onOpenSubagent,
             onOpenThread: onOpenThread,
             onOpenReview: onOpenReview,
             onEditUserMessage: onEditUserMessage,
+            onRetryTurn: onRetryTurn,
             onForkChat: onForkChat,
             onResolveApproval: onResolveApproval,
             retryRevision: retryRevision,
@@ -109,6 +198,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var appKitTheme: CodexTranscriptAppKitTheme?
         private var swiftUITheme = CodexAgentTheme.officialDark
         private var clipboardService: any CodexClipboardService = CodexNoopClipboardService()
+        private var fileNavigationService: any CodexTranscriptFileNavigationService =
+            CodexNoopTranscriptFileNavigationService()
         private var productToolRenderer: CodexProductToolRendererV2?
         private var responseAnnotations: [CodexResponseTextAnnotation] = []
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
@@ -117,6 +208,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
         private var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
         private var onEditUserMessage: (String) -> Void = { _ in }
+        private var onRetryTurn: ((CodexUserMessageV2) -> Void)?
         private var onForkChat: (() -> Void)?
         private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
         private var onProjectionError: (String?) -> Void = { _ in }
@@ -140,6 +232,10 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var turnMinimapTargetYByTurnID: [String: CGFloat] = [:]
         private var lastEagerLayoutSize: NSSize?
         private var lastEagerLayoutBottomInset: CGFloat?
+        private var findQuery = ""
+        private var findMatches: [CodexTranscriptFindMatch] = []
+        private var activeFindMatchIndex: Int?
+        private var findHitLimit = false
         private(set) var diagnostics = CodexTranscriptCollectionDiagnostics()
 
         private struct CanonicalProjectionIdentity: Equatable {
@@ -166,6 +262,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             installDataSource(on: collectionView)
             container.onJumpToLatest = { [weak self] in self?.jumpToLatest() }
             container.onWidthChange = { [weak self] width in self?.widthDidChange(width) }
+            container.onFindQueryChange = { [weak self] query in self?.updateFindQuery(query) }
+            container.onFindNext = { [weak self] backwards in self?.advanceFind(backwards: backwards) }
             container.turnMinimap.onSelect = { [weak self] entry in
                 self?.jumpToTurn(entry)
             }
@@ -207,11 +305,14 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             swiftUITheme: CodexAgentTheme,
             colorScheme: ColorScheme,
             clipboardService: any CodexClipboardService,
+            fileNavigationService: any CodexTranscriptFileNavigationService =
+                CodexNoopTranscriptFileNavigationService(),
             productToolRenderer: CodexProductToolRendererV2?,
             onOpenSubagent: @escaping (String) -> Void,
             onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
             onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
             onEditUserMessage: @escaping (String) -> Void,
+            onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
             onForkChat: (() -> Void)?,
             onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
             retryRevision: Int = 0,
@@ -244,6 +345,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.appKitTheme = nextTheme
             self.swiftUITheme = swiftUITheme
             self.clipboardService = clipboardService
+            self.fileNavigationService = fileNavigationService
             self.productToolRenderer = productToolRenderer
             self.responseAnnotations = responseAnnotations
             self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
@@ -252,6 +354,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.onOpenThread = onOpenThread
             self.onOpenReview = onOpenReview
             self.onEditUserMessage = onEditUserMessage
+            self.onRetryTurn = onRetryTurn
             self.onForkChat = onForkChat
             self.onResolveApproval = onResolveApproval
             self.onProjectionError = onProjectionError
@@ -317,9 +420,19 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         }
 
         var shortTranscriptTopInsetForTesting: CGFloat { shortTranscriptTopInset }
+        var findMatchesForTesting: [CodexTranscriptFindMatch] { findMatches }
+        var activeFindMatchIndexForTesting: Int? { activeFindMatchIndex }
+
+        func updateFindQueryForTesting(_ query: String) { updateFindQuery(query) }
+        func advanceFindForTesting(backwards: Bool = false) { advanceFind(backwards: backwards) }
 
         func renderedItemForTesting(_ id: CodexTranscriptRenderItemID) -> CodexTranscriptRenderItem? {
             currentSnapshot?.itemsByID[id]
+        }
+
+        func decoratedItemForTesting(_ id: CodexTranscriptRenderItemID) -> CodexTranscriptRenderItem? {
+            guard let item = currentSnapshot?.itemsByID[id], let appKitTheme else { return nil }
+            return decorated(item, theme: appKitTheme)
         }
 
         func collectionItemForTesting(_ id: CodexTranscriptRenderItemID) -> CodexTranscriptCollectionItem? {
@@ -407,6 +520,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             with item: CodexTranscriptRenderItem
         ) {
             guard let theme = appKitTheme else { return }
+            let item = decorated(item, theme: theme)
             collectionItem.configure(
                 item: item,
                 appKitTheme: theme,
@@ -417,7 +531,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 performAction: { [weak self] action in self?.perform(action) },
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
                 editUserMessage: { [weak self] text in self?.onEditUserMessage(text) },
+                retryTurn: onRetryTurn,
                 forkChat: onForkChat,
+                fileNavigationService: fileNavigationService,
                 responseAnnotations: responseAnnotations,
                 upsertResponseAnnotation: onUpsertResponseAnnotation,
                 removeResponseAnnotation: onRemoveResponseAnnotation,
@@ -426,6 +542,152 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     self?.preferredHeightChanged(id: id, revision: revision, height: height)
                 }
             )
+        }
+
+        private func decorated(
+            _ item: CodexTranscriptRenderItem,
+            theme: CodexTranscriptAppKitTheme
+        ) -> CodexTranscriptRenderItem {
+            guard let preparedText = item.preparedText else { return item }
+            let result = NSMutableAttributedString(attributedString: preparedText.attributedString)
+            var changed = false
+            if item.textRole == .commentary || item.textRole == .finalAnswer {
+                for candidate in CodexTranscriptFileCitationParser.candidates(in: result.string) {
+                    guard NSMaxRange(candidate.range) <= result.length,
+                          result.attribute(.link, at: candidate.range.location, effectiveRange: nil) == nil,
+                          fileNavigationService.resolve(candidate.reference) != nil,
+                          let url = CodexTranscriptFileCitationLink.url(for: candidate.reference)
+                    else { continue }
+                    result.addAttributes([
+                        .link: url,
+                        .foregroundColor: theme.accent,
+                        .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    ], range: candidate.range)
+                    changed = true
+                }
+            }
+            for (index, match) in findMatches.enumerated() where match.itemID == item.id {
+                guard NSMaxRange(match.range) <= result.length else { continue }
+                let color = index == activeFindMatchIndex
+                    ? theme.warning.withAlphaComponent(0.7)
+                    : theme.warning.withAlphaComponent(0.3)
+                result.addAttribute(.backgroundColor, value: color, range: match.range)
+                changed = true
+            }
+            guard changed else { return item }
+            var decorated = item
+            decorated.preparedText = CodexPreparedTranscriptText(result)
+            return decorated
+        }
+
+        private func updateFindQuery(_ query: String) {
+            let previousIDs = Set(findMatches.map(\.itemID))
+            findQuery = query
+            rebuildFindMatches(preservingActiveItem: false)
+            reconfigureVisibleFindItems(previousIDs: previousIDs)
+            if !findMatches.isEmpty { navigateToActiveFindMatch() }
+        }
+
+        private func rebuildFindMatches(preservingActiveItem: Bool) {
+            guard let snapshot = currentSnapshot, let presentation = currentPresentation else {
+                findMatches = []
+                activeFindMatchIndex = nil
+                findHitLimit = false
+                updateFindBarCount()
+                return
+            }
+            let previous = preservingActiveItem
+                ? activeFindMatchIndex.flatMap { findMatches.indices.contains($0) ? findMatches[$0] : nil }
+                : nil
+            let projection = CodexTranscriptFindProjection.matches(
+                query: findQuery,
+                snapshot: snapshot,
+                presentation: presentation
+            )
+            findMatches = projection.matches
+            findHitLimit = projection.hitLimit
+            if let previous,
+               let index = findMatches.firstIndex(where: {
+                   $0.itemID == previous.itemID && $0.range == previous.range
+               }) {
+                activeFindMatchIndex = index
+            } else {
+                activeFindMatchIndex = findMatches.isEmpty ? nil : 0
+            }
+            updateFindBarCount()
+        }
+
+        private func updateFindBarCount() {
+            container?.updateFindCount(
+                active: activeFindMatchIndex.map { $0 + 1 } ?? 0,
+                matches: findMatches.count,
+                hitLimit: findHitLimit,
+                limit: CodexTranscriptFindProjection.matchLimit
+            )
+        }
+
+        private func advanceFind(backwards: Bool) {
+            guard !findMatches.isEmpty else { return }
+            let previousID = activeFindMatchIndex.map { findMatches[$0].itemID }
+            let current = activeFindMatchIndex ?? 0
+            activeFindMatchIndex = backwards
+                ? (current - 1 + findMatches.count) % findMatches.count
+                : (current + 1) % findMatches.count
+            updateFindBarCount()
+            guard let activeFindMatchIndex else { return }
+            let nextID = findMatches[activeFindMatchIndex].itemID
+            reconfigureVisibleFindItems(previousIDs: Set([previousID, nextID].compactMap { $0 }))
+            navigateToActiveFindMatch()
+        }
+
+        private func navigateToActiveFindMatch() {
+            guard let activeFindMatchIndex, findMatches.indices.contains(activeFindMatchIndex),
+                  var presentation = currentPresentation else { return }
+            let match = findMatches[activeFindMatchIndex]
+            var needsProjection = false
+            if !match.expansionRowIDs.isEmpty {
+                if !presentation.expandedWorkTurnIDs.contains(match.turnID) {
+                    presentation.expandedWorkTurnIDs.insert(match.turnID)
+                    presentationStore?.setWorkExpanded(
+                        true,
+                        turnID: match.turnID,
+                        threadID: ThreadID(presentation.threadID)
+                    )
+                    needsProjection = true
+                }
+                for rowID in match.expansionRowIDs where !presentation.expandedRowIDs.contains(rowID) {
+                    presentation.expandedRowIDs.insert(rowID)
+                    presentationStore?.setRowExpanded(
+                        true,
+                        rowID: rowID,
+                        threadID: ThreadID(presentation.threadID)
+                    )
+                    needsProjection = true
+                }
+            }
+            if needsProjection {
+                currentPresentation = presentation
+                requestProjection(width: max(container?.scrollView.contentSize.width ?? lastProjectedWidth, 320))
+                return
+            }
+            guard let indexPath = dataSource?.indexPath(for: match.itemID), let container else { return }
+            container.collectionView.scrollToItems(at: [indexPath], scrollPosition: .centeredVertically)
+            if let item = container.collectionView.item(at: indexPath) as? CodexTranscriptCollectionItem,
+               let rendered = currentSnapshot?.itemsByID[match.itemID] {
+                configure(item, with: rendered)
+            }
+        }
+
+        private func reconfigureVisibleFindItems(previousIDs: Set<CodexTranscriptRenderItemID>) {
+            guard let container, let snapshot = currentSnapshot else { return }
+            let ids = previousIDs.union(findMatches.map(\.itemID))
+            for indexPath in container.collectionView.indexPathsForVisibleItems() {
+                guard let id = dataSource?.itemIdentifier(for: indexPath), ids.contains(id),
+                      let rendered = snapshot.itemsByID[id],
+                      let item = container.collectionView.item(at: indexPath) as? CodexTranscriptCollectionItem
+                else { continue }
+                configure(item, with: rendered)
+            }
         }
 
         private func apply(
@@ -463,6 +725,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 forceReconfigureAll = false
             }
             currentSnapshot = projected
+            if !findQuery.isEmpty { rebuildFindMatches(preservingActiveItem: true) }
             diagnostics.insertedItemCount += nextIDs.subtracting(previousIDs).count
             diagnostics.deletedItemCount += previousIDs.subtracting(nextIDs).count
             diagnostics.reconfiguredItemCount += changedIDs.count
@@ -626,6 +889,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             updateJumpButton()
             rebuildTurnMinimap()
             updateTicker(projected)
+            if !findQuery.isEmpty { navigateToActiveFindMatch() }
             let elapsed = startedAt.duration(to: .now)
             let milliseconds = Double(elapsed.components.seconds) * 1_000
                 + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
@@ -730,9 +994,10 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 guard let url = URL(string: value), url.scheme?.lowercased() == "https" else { return }
                 NSWorkspace.shared.open(url)
                 return
-            case .openFile(let path, _):
-                let resolved = (path as NSString).expandingTildeInPath
-                NSWorkspace.shared.selectFile(resolved, inFileViewerRootedAtPath: "")
+            case .openFile(let path, let line):
+                let reference = CodexTranscriptFileReference(path: path, line: line)
+                guard let resolved = fileNavigationService.resolve(reference) else { return }
+                fileNavigationService.open(resolved)
                 return
             case .resolveApproval(let requestID, let approve):
                 onResolveApproval(requestID, approve)
@@ -994,6 +1259,95 @@ final class CodexTranscriptCollectionView: NSCollectionView {
 }
 
 @MainActor
+final class CodexTranscriptFindSearchField: NSSearchField {
+    var onEscape: (() -> Void)?
+
+    override func cancelOperation(_ sender: Any?) {
+        onEscape?()
+    }
+}
+
+@MainActor
+final class CodexTranscriptFindBar: NSView, NSSearchFieldDelegate {
+    let searchField = CodexTranscriptFindSearchField()
+    private let countLabel = NSTextField(labelWithString: "0 / 0")
+    private let previousButton = NSButton()
+    private let nextButton = NSButton()
+    private let closeButton = NSButton()
+    var onQueryChange: ((String) -> Void)?
+    var onNext: ((Bool) -> Void)?
+    var onClose: (() -> Void)?
+    var countTextForTesting: String { countLabel.stringValue }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.96).cgColor
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.borderWidth = 1
+        searchField.placeholderString = "Find in conversation"
+        searchField.delegate = self
+        searchField.onEscape = { [weak self] in self?.onClose?() }
+        addSubview(searchField)
+        countLabel.alignment = .right
+        countLabel.lineBreakMode = .byTruncatingTail
+        countLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(countLabel)
+        configure(previousButton, symbol: "chevron.up", label: "Previous match", action: #selector(previous))
+        configure(nextButton, symbol: "chevron.down", label: "Next match", action: #selector(next))
+        configure(closeButton, symbol: "xmark", label: "Close find", action: #selector(close))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let y = (bounds.height - 26) / 2
+        closeButton.frame = NSRect(x: bounds.width - 32, y: y, width: 24, height: 26)
+        nextButton.frame = NSRect(x: closeButton.frame.minX - 27, y: y, width: 24, height: 26)
+        previousButton.frame = NSRect(x: nextButton.frame.minX - 27, y: y, width: 24, height: 26)
+        countLabel.frame = NSRect(x: previousButton.frame.minX - 168, y: y + 4, width: 162, height: 18)
+        searchField.frame = NSRect(x: 8, y: y, width: max(90, countLabel.frame.minX - 14), height: 26)
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        onQueryChange?(searchField.stringValue)
+    }
+
+    func updateCount(active: Int, matches: Int, hitLimit: Bool, limit: Int) {
+        countLabel.stringValue = hitLimit
+            ? "\(active) / \(matches) · \(limit) match limit"
+            : "\(active) / \(matches)"
+        countLabel.toolTip = hitLimit ? "Showing the first \(limit) matches" : nil
+        previousButton.isEnabled = matches > 0
+        nextButton.isEnabled = matches > 0
+    }
+
+    private func configure(
+        _ button: NSButton,
+        symbol: String,
+        label: String,
+        action: Selector
+    ) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        button.imagePosition = .imageOnly
+        button.bezelStyle = .inline
+        button.target = self
+        button.action = action
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        addSubview(button)
+    }
+
+    @objc private func previous() { onNext?(true) }
+    @objc private func next() { onNext?(false) }
+    @objc private func close() { onClose?() }
+}
+
+@MainActor
 final class CodexTranscriptCollectionContainerView: NSView {
     private static let jumpButtonImages: [String: NSImage] = [
         "arrow.down": NSImage(
@@ -1011,8 +1365,11 @@ final class CodexTranscriptCollectionContainerView: NSView {
     let jumpButton = NSButton()
     let turnMinimap = CodexTranscriptTurnMinimapView()
     let turnPreview = CodexTranscriptTurnPreviewView()
+    let findBar = CodexTranscriptFindBar()
     var onJumpToLatest: (() -> Void)?
     var onWidthChange: ((CGFloat) -> Void)?
+    var onFindQueryChange: ((String) -> Void)?
+    var onFindNext: ((Bool) -> Void)?
     private var turnMinimapTheme: CodexTranscriptAppKitTheme?
     private var turnPreviewHideTask: Task<Void, Never>?
     var bottomContentInset: CGFloat = 0 {
@@ -1068,6 +1425,11 @@ final class CodexTranscriptCollectionContainerView: NSView {
         turnMinimap.isHidden = true
         addSubview(turnMinimap)
         addSubview(turnPreview)
+        findBar.isHidden = true
+        findBar.onQueryChange = { [weak self] query in self?.onFindQueryChange?(query) }
+        findBar.onNext = { [weak self] backwards in self?.onFindNext?(backwards) }
+        findBar.onClose = { [weak self] in self?.dismissFind() }
+        addSubview(findBar)
         turnPreview.onHoverChanged = { [weak self] isHovered in
             if isHovered {
                 self?.turnPreviewHideTask?.cancel()
@@ -1102,7 +1464,51 @@ final class CodexTranscriptCollectionContainerView: NSView {
             width: 30,
             height: minimapHeight
         )
+        findBar.frame = NSRect(
+            x: max(12, bounds.width - 510),
+            y: max(12, bounds.height - 50),
+            width: min(498, max(280, bounds.width - 24)),
+            height: 38
+        )
         onWidthChange?(viewportWidth)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if modifiers.contains(.command), key == "f" {
+            showFind()
+            return true
+        }
+        if modifiers.contains(.command), key == "g" {
+            showFind()
+            onFindNext?(modifiers.contains(.shift))
+            return true
+        }
+        if event.keyCode == 53, !findBar.isHidden {
+            dismissFind()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    func showFind() {
+        findBar.isHidden = false
+        findBar.searchField.selectText(nil)
+        window?.makeFirstResponder(findBar.searchField)
+    }
+
+    func dismissFind() {
+        findBar.isHidden = true
+        if !findBar.searchField.stringValue.isEmpty {
+            findBar.searchField.stringValue = ""
+            onFindQueryChange?("")
+        }
+        window?.makeFirstResponder(collectionView)
+    }
+
+    func updateFindCount(active: Int, matches: Int, hitLimit: Bool, limit: Int) {
+        findBar.updateCount(active: active, matches: matches, hitLimit: hitLimit, limit: limit)
     }
 
     @objc private func jump() {

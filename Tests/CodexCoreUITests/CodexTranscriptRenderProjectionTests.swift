@@ -114,6 +114,133 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(header.accessibilityLabel.contains("Interrupted after 12s"))
     }
 
+    @Test func fileCitationParserIsConservativeAndPreservesLocations() {
+        let text = "Open Sources/CodexCoreUI/View.swift:42:7, ./Tests/ViewTests.swift:9, and Package.swift. Ignore example.com, settings.json, and dev@example.com."
+        let candidates = CodexTranscriptFileCitationParser.candidates(in: text)
+
+        #expect(candidates.map(\.reference) == [
+            .init(path: "Sources/CodexCoreUI/View.swift", line: 42, column: 7),
+            .init(path: "./Tests/ViewTests.swift", line: 9),
+            .init(path: "Package.swift"),
+        ])
+        #expect(candidates.map { (text as NSString).substring(with: $0.range) } == [
+            "Sources/CodexCoreUI/View.swift:42:7",
+            "./Tests/ViewTests.swift:9",
+            "Package.swift",
+        ])
+    }
+
+    @Test func workspaceFileNavigationRejectsMissingAndEscapingPaths() {
+        let workspace = URL(fileURLWithPath: "/tmp/project")
+        let existing = Set([
+            workspace.appending(path: "Sources/App.swift").standardizedFileURL,
+            workspace.appending(path: "Package.swift").standardizedFileURL,
+        ])
+        let service = CodexWorkspaceTranscriptFileNavigationService(
+            workspaceURL: workspace,
+            fileExists: { existing.contains($0) },
+            openFile: { _ in },
+            revealFile: { _ in }
+        )
+
+        #expect(service.resolve(.init(path: "Sources/App.swift", line: 12))?.fileURL ==
+            workspace.appending(path: "Sources/App.swift").standardizedFileURL)
+        #expect(service.resolve(.init(path: "Package.swift")) != nil)
+        #expect(service.resolve(.init(path: "README.md")) == nil)
+        #expect(service.resolve(.init(path: "../outside.swift")) == nil)
+        #expect(service.resolve(.init(path: "/tmp/outside.swift")) == nil)
+    }
+
+    @Test func findProjectionSearchesMessagesAndCollapsedCommandOutputWithABoundedMatchSet() async throws {
+        let command = CodexCommandRowV2(
+            id: "command",
+            command: "printf needle",
+            label: "Ran command",
+            action: .run,
+            status: .completed,
+            output: "hidden needle output"
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            userMessage: .init(id: "user", text: "needle in prompt"),
+            narrative: [.workGroup(.init(id: "group", rows: [.command(command)]))],
+            finalAnswer: .init(id: "answer", text: "needle in answer", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [turn])
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let projection = CodexTranscriptFindProjection.matches(
+            query: "needle",
+            snapshot: snapshot,
+            presentation: presentation
+        )
+
+        #expect(projection.matches.count == 3)
+        let commandMatch = try #require(projection.matches.first { !$0.expansionRowIDs.isEmpty })
+        #expect(commandMatch.expansionRowIDs == ["group", "command"])
+        #expect(commandMatch.itemID.rawValue.hasSuffix(":row:command:detail"))
+
+        let repeated = Array(repeating: "hit", count: CodexTranscriptFindProjection.matchLimit + 5)
+            .joined(separator: " ")
+        let limitedTurn = CodexTurnV2(
+            id: "limited",
+            userMessage: .init(id: "limited-user", text: repeated),
+            status: .done(durationMs: nil)
+        )
+        let limitedPresentation = CodexThreadUIPresentation(
+            threadID: "limited-thread",
+            transcript: .init(turns: [limitedTurn])
+        )
+        let limitedSnapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: limitedPresentation,
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let limited = CodexTranscriptFindProjection.matches(
+            query: "hit",
+            snapshot: limitedSnapshot,
+            presentation: limitedPresentation
+        )
+        #expect(limited.matches.count == CodexTranscriptFindProjection.matchLimit)
+        #expect(limited.hitLimit)
+    }
+
+    @Test func terminalTurnsExposeRetryOnlyOnTheirAssistantAffordance() async throws {
+        let user = CodexUserMessageV2(id: "user", text: "Try this", rawText: "raw prompt")
+        let completed = CodexTurnV2(
+            id: "completed",
+            userMessage: user,
+            finalAnswer: .init(id: "answer", text: "Done", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        let failed = CodexTurnV2(
+            id: "failed",
+            userMessage: user,
+            narrative: [.notice(.init(id: "notice", message: "Stopped"))],
+            status: .failed(message: "Failed")
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [completed, failed])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+
+        let completedRetry = snapshot.itemsByID.values.filter { $0.retryUserMessage != nil && $0.turnID == "completed" }
+        #expect(completedRetry.count == 1)
+        #expect(completedRetry.first?.footer?.kind == .finalAnswer)
+        let failedRetry = snapshot.itemsByID.values.filter { $0.retryUserMessage != nil && $0.turnID == "failed" }
+        #expect(failedRetry.count == 1)
+        #expect(failedRetry.first?.workHeader != nil)
+        #expect(failedRetry.first?.retryUserMessage?.rawText == "raw prompt")
+    }
+
     @Test func onlyCompletedAssistantResponseTextAllowsAnnotations() async throws {
         let projector = CodexTranscriptRenderProjector()
         let completed = try await projector.project(
