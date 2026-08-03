@@ -372,12 +372,16 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(CodexSlashCommand.observedCommands.map(\.title), [
             "Compact",
             "Fast",
+            "Feedback",
             "Fork",
             "Goal",
+            "Init",
             "MCP",
             "Model",
+            "New chat",
             "Plan mode",
             "Reasoning",
+            "Review",
             "Side",
             "Status"
         ])
@@ -474,6 +478,14 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "path": .string("/tmp/skills/disabled/SKILL.md"),
                             "scope": .string("repo"),
                             "enabled": .bool(false)
+                        ]),
+                        .dictionary([
+                            "name": .string("manual-only"),
+                            "description": .string("Must be explicitly invoked by the user"),
+                            "path": .string("/tmp/skills/manual-only/SKILL.md"),
+                            "scope": .string("repo"),
+                            "enabled": .bool(true),
+                            "disable-model-invocation": .bool(true)
                         ])
                     ]),
                     "errors": .array([])

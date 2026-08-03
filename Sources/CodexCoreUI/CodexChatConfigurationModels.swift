@@ -1027,6 +1027,12 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             systemImage: "bolt.fill"
         ),
         CodexSlashCommand(
+            id: "feedback",
+            title: "Feedback",
+            detail: "Send feedback about Codex",
+            systemImage: "bubble.left.and.exclamationmark.bubble.right"
+        ),
+        CodexSlashCommand(
             id: "fork",
             title: "Fork",
             detail: "Continue this chat in a new task",
@@ -1038,6 +1044,13 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             title: "Goal",
             detail: "Set a goal to keep pursuing",
             systemImage: "target"
+        ),
+        CodexSlashCommand(
+            id: "init",
+            title: "Init",
+            detail: "Create an AGENTS.md for this project",
+            systemImage: "doc.badge.plus",
+            requiresEmptyComposer: true
         ),
         CodexSlashCommand(
             id: "mcp",
@@ -1052,6 +1065,13 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             systemImage: "sparkles"
         ),
         CodexSlashCommand(
+            id: "new",
+            title: "New chat",
+            detail: "Start a new chat",
+            systemImage: "square.and.pencil",
+            requiresEmptyComposer: true
+        ),
+        CodexSlashCommand(
             id: "plan",
             title: "Plan mode",
             detail: "Plan before editing",
@@ -1062,6 +1082,12 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             title: "Reasoning",
             detail: "Change reasoning effort",
             systemImage: "brain"
+        ),
+        CodexSlashCommand(
+            id: "review",
+            title: "Review",
+            detail: "Review the current changes",
+            systemImage: "checkmark.bubble"
         ),
         CodexSlashCommand(
             id: "side",
@@ -1190,6 +1216,8 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
     private static func skillCommand(from value: CodexJSONValue) -> CodexSlashCommand? {
         guard case .dictionary(let object) = value,
               (CodexJSONCoercion.bool(in: object, key: "enabled") ?? true),
+              !(CodexJSONCoercion.bool(in: object, key: "disable-model-invocation") ?? false),
+              !(CodexJSONCoercion.bool(in: object, key: "disableModelInvocation") ?? false),
               let name = string(in: object, keys: ["name"]),
               let path = string(in: object, keys: ["path"]) else {
             return nil
@@ -1214,6 +1242,36 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
             skillName: name,
             skillPath: path
         )
+    }
+
+    public static func promptCommands(from prompts: [CodexPromptLibraryEntry]) -> [CodexSlashCommand] {
+        prompts.map { prompt in
+            let source: (section: String, badge: String?, image: String)
+            switch prompt.source {
+            case .user:
+                source = ("Prompts", "Personal", "text.book.closed")
+            case .mcp(let serverName):
+                source = ("MCP prompts", serverName, "server.rack")
+            }
+            return CodexSlashCommand(
+                id: "prompt:\(prompt.name)",
+                title: prompt.name,
+                detail: prompt.argumentHint.map { "\(prompt.description) · \($0)" } ?? prompt.description,
+                systemImage: source.image,
+                section: source.section,
+                scopeBadge: source.badge,
+                draftText: prompt.body
+            )
+        }.sorted { lhs, rhs in
+            lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    public static func mergedCommands(
+        prompts: [CodexPromptLibraryEntry],
+        skillsResponse: CodexJSONValue
+    ) -> [CodexSlashCommand] {
+        observedCommands + promptCommands(from: prompts) + skillCommands(from: skillsResponse)
     }
 
     private static func scopeBadge(from rawScope: String?) -> String? {

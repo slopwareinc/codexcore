@@ -102,4 +102,8 @@ final class CodexManagedPolicyRequirementsTests: XCTestCase {
     func testGitSettingsRouteIsAvailable() {
         XCTAssertTrue(CodexSettingsRoute.availableRoutes.contains(.git))
     }
+
+    func testAgentInstructionsSettingsRouteIsAvailable() {
+        XCTAssertTrue(CodexSettingsRoute.availableRoutes.contains(.agents))
+    }
 }
