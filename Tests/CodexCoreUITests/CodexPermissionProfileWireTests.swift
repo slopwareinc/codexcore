@@ -7,7 +7,7 @@ final class CodexPermissionProfileWireTests: XCTestCase {
         assertWireConfiguration(
             .readOnly,
             permissions: ":read-only",
-            approvalPolicy: "on-request",
+            approvalPolicy: "untrusted",
             approvalsReviewer: "user"
         )
         assertWireConfiguration(
@@ -21,6 +21,12 @@ final class CodexPermissionProfileWireTests: XCTestCase {
             permissions: ":workspace",
             approvalPolicy: "on-request",
             approvalsReviewer: "auto_review"
+        )
+        assertWireConfiguration(
+            .guardianSubagent,
+            permissions: ":workspace",
+            approvalPolicy: "on-request",
+            approvalsReviewer: "guardian_subagent"
         )
         assertWireConfiguration(
             .fullAccess,
@@ -39,9 +45,10 @@ final class CodexPermissionProfileWireTests: XCTestCase {
                 reviewer: String
             )
         ] = [
-            (.readOnly, "on-request", "user"),
+            (.readOnly, "untrusted", "user"),
             (.askForApproval, "on-request", "user"),
             (.approveForMe, "on-request", "auto_review"),
+            (.guardianSubagent, "on-request", "guardian_subagent"),
             (.fullAccess, "never", "user"),
         ]
         for expectation in expectations {

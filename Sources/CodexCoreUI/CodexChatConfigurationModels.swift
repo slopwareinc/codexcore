@@ -21,6 +21,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     case readOnly
     case askForApproval
     case approveForMe
+    case guardianSubagent
     case fullAccess
     case custom
 
@@ -31,6 +32,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         case .readOnly: return "Read only"
         case .askForApproval: return "Ask for approval"
         case .approveForMe: return "Approve for me"
+        case .guardianSubagent: return "Guardian subagent"
         case .fullAccess: return "Full access"
         case .custom: return "Custom (config.toml)"
         }
@@ -44,6 +46,8 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
             return "always ask to edit external files and use the internet"
         case .approveForMe:
             return "only ask for potentially unsafe actions"
+        case .guardianSubagent:
+            return "have a guardian subagent review potentially unsafe actions"
         case .fullAccess:
             return "unrestricted internet and files"
         case .custom:
@@ -55,7 +59,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         switch self {
         case .readOnly:
             return .denyAll
-        case .askForApproval, .approveForMe, .fullAccess, .custom:
+        case .askForApproval, .approveForMe, .guardianSubagent, .fullAccess, .custom:
             return .autoReview
         }
     }
@@ -64,7 +68,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         switch self {
         case .readOnly:
             return .readOnly
-        case .askForApproval, .approveForMe, .custom:
+        case .askForApproval, .approveForMe, .guardianSubagent, .custom:
             return .workspaceWrite
         case .fullAccess:
             return .fullAccess
@@ -74,7 +78,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     public var permissionProfileID: String? {
         switch self {
         case .readOnly: return ":read-only"
-        case .askForApproval, .approveForMe: return ":workspace"
+        case .askForApproval, .approveForMe, .guardianSubagent: return ":workspace"
         case .fullAccess: return ":danger-full-access"
         case .custom: return nil
         }
@@ -87,31 +91,47 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     /// catalog scan or app-server request.
     package var permissionProfileWireConfiguration: CodexPermissionProfileWireConfiguration {
         switch self {
-        case .readOnly, .askForApproval:
+        case .readOnly:
             return CodexPermissionProfileWireConfiguration(
                 permissions: permissionProfileID,
                 approvalPolicy: CodexSchemaAskForApproval(
-                    .string(AskForApproval.onRequest.rawValue)
+                    .string("untrusted")
                 ),
                 approvalsReviewer: CodexSchemaApprovalsReviewer(
-                    rawValue: ApprovalsReviewer.user.rawValue
+                    rawValue: "user"
                 )
+            )
+        case .askForApproval:
+            return CodexPermissionProfileWireConfiguration(
+                permissions: permissionProfileID,
+                approvalPolicy: CodexSchemaAskForApproval(
+                    .string("on-request")
+                ),
+                approvalsReviewer: .user
             )
         case .approveForMe:
             return CodexPermissionProfileWireConfiguration(
                 permissions: permissionProfileID,
                 approvalPolicy: CodexSchemaAskForApproval(
-                    .string(AskForApproval.onRequest.rawValue)
+                    .string("on-request")
                 ),
                 approvalsReviewer: .autoReview
+            )
+        case .guardianSubagent:
+            return CodexPermissionProfileWireConfiguration(
+                permissions: permissionProfileID,
+                approvalPolicy: CodexSchemaAskForApproval(
+                    .string("on-request")
+                ),
+                approvalsReviewer: .guardianSubagent
             )
         case .fullAccess:
             return CodexPermissionProfileWireConfiguration(
                 permissions: permissionProfileID,
                 approvalPolicy: CodexSchemaAskForApproval(
-                    .string(AskForApproval.never.rawValue)
+                    .string("never")
                 ),
-                approvalsReviewer: .user
+                approvalsReviewer: CodexSchemaApprovalsReviewer(rawValue: "user")
             )
         case .custom:
             return CodexPermissionProfileWireConfiguration(permissions: nil)
@@ -119,29 +139,37 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     }
 
     public static let defaultOptions: [CodexApprovalSelection] = [
+        .readOnly,
         .askForApproval,
         .approveForMe,
+        .guardianSubagent,
         .fullAccess,
         .custom
     ]
 
-    public static func options(from profiles: [CodexPermissionProfileSummary]) -> [CodexApprovalSelection] {
-        guard !profiles.isEmpty else { return defaultOptions }
+    public static func options(
+        from profiles: [CodexPermissionProfileSummary],
+        requirements: CodexManagedPolicyRequirements? = nil
+    ) -> [CodexApprovalSelection] {
+        guard !profiles.isEmpty else {
+            return requirements?.narrowApprovalOptions(defaultOptions) ?? defaultOptions
+        }
         let ids = Set(profiles.lazy.filter(\.allowed).map(\.id))
         var options: [CodexApprovalSelection] = []
 
-        if ids.contains(":read-only") {
+        if ids.contains(":read-only") || ids.contains("read-only") {
             options.append(.readOnly)
         }
-        if ids.contains(":workspace") {
-            options.append(contentsOf: [.askForApproval, .approveForMe])
+        if ids.contains(":workspace") || ids.contains("workspace") || ids.contains("workspace-write") {
+            options.append(contentsOf: [.askForApproval, .approveForMe, .guardianSubagent])
         }
-        if ids.contains(":danger-full-access") {
+        if ids.contains(":danger-full-access") || ids.contains("danger-full-access") {
             options.append(.fullAccess)
         }
 
         options.append(.custom)
-        return options.isEmpty ? defaultOptions : options
+        let fallback = options.isEmpty ? defaultOptions : options
+        return requirements?.narrowApprovalOptions(fallback) ?? fallback
     }
 
     package static func selection(
@@ -152,7 +180,12 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         case ":read-only", "read-only":
             return .readOnly
         case ":workspace", "workspace", "workspace-write":
-            return approvalsReviewer == .user ? .askForApproval : .approveForMe
+            switch approvalsReviewer {
+            case .user: return .askForApproval
+            case .autoReview: return .approveForMe
+            case .guardianSubagent: return .guardianSubagent
+            case .unrecognized: return .custom
+            }
         case ":danger-full-access", "danger-full-access":
             return .fullAccess
         case nil:
@@ -160,6 +193,261 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         default:
             return .custom
         }
+    }
+}
+
+/// One managed setting exposed by `configRequirements/read`.
+///
+/// A missing allow-list means the installation did not constrain that setting.
+/// An explicitly empty allow-list is therefore different: it is a managed
+/// setting that currently permits no values.
+public struct CodexManagedPolicyConstraint: Equatable, Sendable {
+    public let allowedValues: [String]?
+    public let isAdminLocked: Bool
+
+    public init(
+        allowedValues: [String]? = nil,
+        isAdminLocked: Bool? = nil
+    ) {
+        self.allowedValues = allowedValues
+        self.isAdminLocked = isAdminLocked ?? (allowedValues != nil)
+    }
+
+    public var isRestricted: Bool {
+        isAdminLocked
+    }
+
+    public func allows(_ value: String) -> Bool {
+        guard let allowedValues else { return true }
+        return allowedValues.contains(value)
+    }
+}
+
+public struct CodexManagedDefaultPermissions: Equatable, Sendable {
+    public let value: String?
+    public let isAdminLocked: Bool
+
+    public init(value: String? = nil, isAdminLocked: Bool? = nil) {
+        self.value = value
+        self.isAdminLocked = isAdminLocked ?? (value != nil)
+    }
+}
+
+/// The subset of installation policy that affects CodexCoreUI controls.
+///
+/// This type intentionally stores wire values as strings. The generated
+/// protocol currently represents approval policies as an opaque JSON wrapper,
+/// and keeping the UI layer on that generated surface avoids coupling it to
+/// the stale hand-written protocol conveniences.
+public struct CodexManagedPolicyRequirements: Equatable, Sendable {
+    public let allowedApprovalPolicies: CodexManagedPolicyConstraint
+    public let allowedSandboxModes: CodexManagedPolicyConstraint
+    public let allowedReviewers: CodexManagedPolicyConstraint
+    public let allowedWebSearchModes: CodexManagedPolicyConstraint
+    public let allowedPermissionProfiles: CodexManagedPolicyConstraint
+    public let defaultPermissions: CodexManagedDefaultPermissions
+
+    public init(
+        allowedApprovalPolicies: [String]? = nil,
+        allowedSandboxModes: [String]? = nil,
+        allowedReviewers: [String]? = nil,
+        allowedWebSearchModes: [String]? = nil,
+        allowedPermissionProfiles: [String]? = nil,
+        defaultPermissions: String? = nil,
+        approvalPoliciesAdminLocked: Bool? = nil,
+        sandboxModesAdminLocked: Bool? = nil,
+        reviewersAdminLocked: Bool? = nil,
+        webSearchModesAdminLocked: Bool? = nil,
+        permissionProfilesAdminLocked: Bool? = nil,
+        defaultPermissionsAdminLocked: Bool? = nil
+    ) {
+        self.allowedApprovalPolicies = CodexManagedPolicyConstraint(
+            allowedValues: allowedApprovalPolicies,
+            isAdminLocked: approvalPoliciesAdminLocked
+        )
+        self.allowedSandboxModes = CodexManagedPolicyConstraint(
+            allowedValues: allowedSandboxModes,
+            isAdminLocked: sandboxModesAdminLocked
+        )
+        self.allowedReviewers = CodexManagedPolicyConstraint(
+            allowedValues: allowedReviewers,
+            isAdminLocked: reviewersAdminLocked
+        )
+        self.allowedWebSearchModes = CodexManagedPolicyConstraint(
+            allowedValues: allowedWebSearchModes,
+            isAdminLocked: webSearchModesAdminLocked
+        )
+        self.allowedPermissionProfiles = CodexManagedPolicyConstraint(
+            allowedValues: allowedPermissionProfiles,
+            isAdminLocked: permissionProfilesAdminLocked
+        )
+        self.defaultPermissions = CodexManagedDefaultPermissions(
+            value: defaultPermissions,
+            isAdminLocked: defaultPermissionsAdminLocked
+        )
+    }
+
+    public init(requirements: CodexSchemaConfigRequirements?) {
+        self.init(
+            allowedApprovalPolicies: requirements?.allowedApprovalPolicies?.compactMap(Self.string),
+            allowedSandboxModes: requirements?.allowedSandboxModes?.map(\.rawValue),
+            allowedReviewers: requirements?.allowedApprovalsReviewers?.map(\.rawValue),
+            allowedWebSearchModes: requirements?.allowedWebSearchModes?.map(\.rawValue),
+            allowedPermissionProfiles: requirements.map {
+                Self.allowedProfileIDs(from: $0)
+            } ?? nil,
+            defaultPermissions: requirements?.defaultPermissions
+        )
+    }
+
+    public init(_ requirements: CodexSchemaConfigRequirements) {
+        self.init(requirements: requirements)
+    }
+
+    public var isManaged: Bool {
+        allowedApprovalPolicies.isAdminLocked
+            || allowedSandboxModes.isAdminLocked
+            || allowedReviewers.isAdminLocked
+            || allowedWebSearchModes.isAdminLocked
+            || allowedPermissionProfiles.isAdminLocked
+            || defaultPermissions.isAdminLocked
+    }
+
+    public var isApprovalPolicyAdminLocked: Bool {
+        allowedApprovalPolicies.isAdminLocked
+    }
+
+    public var isSandboxModeAdminLocked: Bool {
+        allowedSandboxModes.isAdminLocked
+    }
+
+    public var isReviewerAdminLocked: Bool {
+        allowedReviewers.isAdminLocked
+    }
+
+    public var isWebSearchModeAdminLocked: Bool {
+        allowedWebSearchModes.isAdminLocked
+    }
+
+    public var noticeTitle: String {
+        "Managed by your organization"
+    }
+
+    public var noticeDetail: String {
+        let categories = restrictedCategories
+        guard !categories.isEmpty else {
+            return "Some settings are restricted by this installation."
+        }
+        return "Restricted by this installation: "
+            + categories.joined(separator: ", ")
+            + "."
+    }
+
+    public var restrictedCategories: [String] {
+        var categories: [String] = []
+        if allowedApprovalPolicies.isAdminLocked { categories.append("approval policies") }
+        if allowedSandboxModes.isAdminLocked { categories.append("sandbox modes") }
+        if allowedReviewers.isAdminLocked { categories.append("approval reviewers") }
+        if allowedWebSearchModes.isAdminLocked { categories.append("web search") }
+        if allowedPermissionProfiles.isAdminLocked { categories.append("permission profiles") }
+        if defaultPermissions.isAdminLocked { categories.append("default permissions") }
+        return categories
+    }
+
+    public func allows(_ selection: CodexApprovalSelection) -> Bool {
+        let wire = selection.permissionProfileWireConfiguration
+        guard allowsProfile(selection.permissionProfileID),
+              allows(wire.approvalPolicy),
+              allows(wire.approvalsReviewer),
+              allowedSandboxModes.allows(selection.sandbox.threadMode.rawValue)
+        else {
+            return false
+        }
+
+        // Custom config has no explicit wire values to intersect. Once any
+        // permission constraint is managed, allowing it would provide an
+        // uncheckable escape hatch around the installation policy.
+        if selection == .custom {
+            return !hasPermissionRestriction
+        }
+        return true
+    }
+
+    public func narrowApprovalOptions(
+        _ options: [CodexApprovalSelection]
+    ) -> [CodexApprovalSelection] {
+        options.filter(allows)
+    }
+
+    public func approvalOptions(
+        from profiles: [CodexPermissionProfileSummary]
+    ) -> [CodexApprovalSelection] {
+        CodexApprovalSelection.options(from: profiles, requirements: self)
+    }
+
+    public func narrowSandboxModes(
+        _ modes: [CodexSchemaSandboxMode]
+    ) -> [CodexSchemaSandboxMode] {
+        modes.filter { allowedSandboxModes.allows($0.rawValue) }
+    }
+
+    public func narrowReviewers(
+        _ reviewers: [CodexSchemaApprovalsReviewer]
+    ) -> [CodexSchemaApprovalsReviewer] {
+        reviewers.filter { allowedReviewers.allows($0.rawValue) }
+    }
+
+    public func narrowWebSearchModes(
+        _ modes: [CodexSchemaWebSearchMode]
+    ) -> [CodexSchemaWebSearchMode] {
+        modes.filter { allowedWebSearchModes.allows($0.rawValue) }
+    }
+
+    public func defaultApprovalSelection(
+        in options: [CodexApprovalSelection]
+    ) -> CodexApprovalSelection? {
+        guard let value = defaultPermissions.value else { return nil }
+        return options.first {
+            $0.permissionProfileID == value || $0.rawValue == value
+        }
+    }
+
+    private var hasPermissionRestriction: Bool {
+        allowedApprovalPolicies.isAdminLocked
+            || allowedSandboxModes.isAdminLocked
+            || allowedReviewers.isAdminLocked
+            || allowedPermissionProfiles.isAdminLocked
+            || defaultPermissions.isAdminLocked
+    }
+
+    private func allowsProfile(_ profileID: String?) -> Bool {
+        guard let profileID else {
+            return !allowedPermissionProfiles.isAdminLocked
+        }
+        return allowedPermissionProfiles.allows(profileID)
+    }
+
+    private func allows(_ value: CodexSchemaAskForApproval?) -> Bool {
+        guard let value, let string = Self.string(value) else {
+            return !allowedApprovalPolicies.isAdminLocked
+        }
+        return allowedApprovalPolicies.allows(string)
+    }
+
+    private func allows(_ value: CodexSchemaApprovalsReviewer?) -> Bool {
+        guard let value else { return !allowedReviewers.isAdminLocked }
+        return allowedReviewers.allows(value.rawValue)
+    }
+
+    private static func string(_ value: CodexSchemaAskForApproval) -> String? {
+        CodexJSONCoercion.flatString(from: value.rawValue)
+    }
+
+    private static func allowedProfileIDs(
+        from requirements: CodexSchemaConfigRequirements
+    ) -> [String]? {
+        guard let profiles = requirements.allowedPermissionProfiles else { return nil }
+        return profiles.compactMap { $0.value ? $0.key : nil }
     }
 }
 
@@ -505,7 +793,8 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
                     ? CodexReasoningSelection.defaultOptions
                     : supportedReasoning,
                 serviceTiers: serviceTiers,
-                defaultServiceTierID: model.defaultServiceTier
+                defaultServiceTierID: model.defaultServiceTier,
+                isFastModel: model.additionalSpeedTiers?.isEmpty == false
             )
         }
     }

@@ -160,5 +160,9 @@ public enum CodexComposerModelMenuModel {
             || option.id.localizedCaseInsensitiveContains("speed")
             || option.modelIdentifier?.localizedCaseInsensitiveContains("speed") == true
             || option.displayName.localizedCaseInsensitiveContains("speed")
+            || option.serviceTiers.contains(where: {
+                $0.id.localizedCaseInsensitiveContains("fast")
+                    || $0.displayName.localizedCaseInsensitiveContains("fast")
+            })
     }
 }
