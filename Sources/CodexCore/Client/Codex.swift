@@ -1,3 +1,5 @@
+import Dispatch
+import Darwin
 import Foundation
 
 /// Process and handshake configuration for one app-server session.
@@ -103,6 +105,145 @@ public struct CodexConfig: Sendable {
     }
 }
 
+/// A runtime patch-level difference that is safe to continue with because the
+/// pinned major and minor versions still match. Hosts can surface this warning
+/// without treating a compatible Homebrew patch upgrade as a launch failure.
+public struct CodexRuntimeVersionWarning: Sendable, Equatable, CustomStringConvertible {
+    public let path: String
+    public let expected: String
+    public let actual: String
+
+    public init(path: String, expected: String, actual: String) {
+        self.path = path
+        self.expected = expected
+        self.actual = actual
+    }
+
+    public var description: String {
+        "Codex runtime at \(path) is \(actual); this SDK pins \(expected). The patch version differs, but major.minor matches."
+    }
+}
+
+private struct CodexSemanticVersion: Sendable, Hashable {
+    let major: Int
+    let minor: Int
+    let patch: Int
+
+    init?(_ value: String) {
+        let core = value.split(separator: "-", maxSplits: 1).first.map(String.init) ?? value
+        let components = core.split(separator: ".")
+        guard components.count == 3,
+              let major = Int(components[0]),
+              let minor = Int(components[1]),
+              let patch = Int(components[2]),
+              major >= 0,
+              minor >= 0,
+              patch >= 0 else {
+            return nil
+        }
+        self.major = major
+        self.minor = minor
+        self.patch = patch
+    }
+}
+
+private func runtimeVersionMismatchComponent(expected: String, actual: String) -> String {
+    let expectedVersion = expected.split(separator: " ").last.map(String.init)
+        .flatMap(CodexSemanticVersion.init)
+    let actualVersion = actual.split(separator: " ").last.map(String.init)
+        .flatMap(CodexSemanticVersion.init)
+
+    guard let expectedVersion, let actualVersion else {
+        return "runtime version"
+    }
+    if expectedVersion.major != actualVersion.major {
+        return "major version"
+    }
+    if expectedVersion.minor != actualVersion.minor {
+        return "minor version"
+    }
+    return "patch version"
+}
+
+private final class CodexRuntimeVersionWarningBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var warning: CodexRuntimeVersionWarning?
+
+    func store(_ warning: CodexRuntimeVersionWarning?) {
+        lock.withLock {
+            self.warning = warning
+        }
+    }
+
+    var value: CodexRuntimeVersionWarning? {
+        lock.withLock { warning }
+    }
+}
+
+private struct CodexRuntimeProbeCacheKey: Sendable, Hashable {
+    let path: String
+    let modificationDate: Date?
+}
+
+private enum CodexRuntimeProbeOutcome: Sendable {
+    case success(CodexRuntimeVersionWarning?)
+    case failure(CodexSDKError)
+}
+
+private final class CodexRuntimeProbeCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcomes: [CodexRuntimeProbeCacheKey: CodexRuntimeProbeOutcome] = [:]
+
+    func outcome(for key: CodexRuntimeProbeCacheKey) -> CodexRuntimeProbeOutcome? {
+        lock.withLock { outcomes[key] }
+    }
+
+    func store(_ outcome: CodexRuntimeProbeOutcome, for key: CodexRuntimeProbeCacheKey) {
+        lock.withLock {
+            outcomes[key] = outcome
+        }
+    }
+}
+
+private struct CodexRuntimeResolutionCacheKey: Sendable, Hashable {
+    let codexHomePath: String
+    let codexHomeConfigModificationDate: Date?
+    let path: String
+    let shell: String?
+    let appBundle: String?
+    let appBundlePath: String?
+}
+
+private final class CodexRuntimeResolutionCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: [CodexRuntimeResolutionCacheKey: String] = [:]
+
+    func path(for key: CodexRuntimeResolutionCacheKey) -> String? {
+        lock.withLock { paths[key] }
+    }
+
+    func store(_ path: String, for key: CodexRuntimeResolutionCacheKey) {
+        lock.withLock {
+            paths[key] = path
+        }
+    }
+}
+
+private final class CodexResolvedPathBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var path: String?
+
+    func store(_ path: String) {
+        lock.withLock {
+            self.path = path
+        }
+    }
+
+    var value: String? {
+        lock.withLock { path }
+    }
+}
+
 public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, LocalizedError {
     case runtimeNotFound
     case invalidRuntimePath(String)
@@ -115,19 +256,23 @@ public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, Locali
     public var description: String {
         switch self {
         case .runtimeNotFound:
-            "Codex runtime not found. Set CodexConfig.codexBinaryPath or [codexcore].codex_binary_path in CODEX_HOME/config.toml; set CODEX_BINARY or CODEX_APP_BUNDLE; install codex on PATH; or install Codex.app."
+            return "Codex runtime not found. Set CodexConfig.codexBinaryPath or [codexcore].codex_binary_path in CODEX_HOME/config.toml; set CODEX_BINARY or CODEX_APP_BUNDLE; install codex on PATH; or install Codex.app."
         case .invalidRuntimePath(let path):
-            "Codex runtime not found at \(path)."
+            return "Codex runtime not found at \(path)."
         case .invalidCodexCoreConfig(let path, let reason):
-            "Invalid CodexCore configuration at \(path): \(reason)"
+            return "Invalid CodexCore configuration at \(path): \(reason)"
         case .runtimeVersionProbeFailed(let path, let reason):
-            "Could not determine the Codex runtime version at \(path): \(reason)"
+            return "Could not determine the Codex runtime version at \(path): \(reason)"
         case .runtimeVersionMismatch(let path, let expected, let actual):
-            "Codex runtime at \(path) is \(actual); this SDK requires \(expected)."
+            let mismatch = runtimeVersionMismatchComponent(
+                expected: expected,
+                actual: actual
+            )
+            return "Codex runtime at \(path) has a \(mismatch) mismatch: \(actual); this SDK requires \(expected)."
         case .invalidResponse(let method, let value):
-            "Invalid \(method) response: \(value)"
+            return "Invalid \(method) response: \(value)"
         case .codexHomeMismatch(let expected, let actual):
-            "Codex app-server initialized with CODEX_HOME=\(actual), expected \(expected)."
+            return "Codex app-server initialized with CODEX_HOME=\(actual), expected \(expected)."
         }
     }
 
@@ -143,26 +288,49 @@ public final class Codex: Sendable {
     public let session: CodexSession
     public let metadata: InitializeResponse
     public let codexHome: CodexHome
+    public let runtimeVersionWarning: CodexRuntimeVersionWarning?
+
+    private static let runtimeProbeCache = CodexRuntimeProbeCache()
+    private static let runtimeResolutionCache = CodexRuntimeResolutionCache()
 
     public convenience init(
         config: CodexConfig = CodexConfig(),
         serverRequestHandler: CodexSessionServerRequestHandler? = nil
     ) async throws {
-        let transport = try Self.makeDefaultTransport(config: config)
+        let warningBox = CodexRuntimeVersionWarningBox()
+        let transport = try Self.makeDefaultTransport(
+            config: config,
+            warningBox: warningBox
+        )
         try await self.init(
             transport: transport,
             config: config,
-            serverRequestHandler: serverRequestHandler
+            serverRequestHandler: serverRequestHandler,
+            runtimeVersionWarningBox: warningBox
         )
     }
 
     /// Creates and starts exactly one canonical session over an ordered frame
     /// transport. The initializer does not accept the legacy callback transport
     /// or a caller-provided store.
-    public init(
+    public convenience init(
         transport: any CodexFrameTransport,
         config: CodexConfig = CodexConfig(),
         serverRequestHandler: CodexSessionServerRequestHandler? = nil
+    ) async throws {
+        try await self.init(
+            transport: transport,
+            config: config,
+            serverRequestHandler: serverRequestHandler,
+            runtimeVersionWarningBox: nil
+        )
+    }
+
+    private init(
+        transport: any CodexFrameTransport,
+        config: CodexConfig,
+        serverRequestHandler: CodexSessionServerRequestHandler?,
+        runtimeVersionWarningBox: CodexRuntimeVersionWarningBox?
     ) async throws {
         let session = CodexSession(
             transport: transport,
@@ -200,6 +368,7 @@ public final class Codex: Sendable {
         self.session = session
         self.metadata = metadata
         self.codexHome = config.codexHome
+        self.runtimeVersionWarning = runtimeVersionWarningBox?.value
     }
 
     public func close() async {
@@ -282,7 +451,10 @@ public final class Codex: Sendable {
         )
     }
 
-    private static func makeDefaultTransport(config: CodexConfig) throws -> CodexStdioTransport {
+    private static func makeDefaultTransport(
+        config: CodexConfig,
+        warningBox: CodexRuntimeVersionWarningBox? = nil
+    ) throws -> CodexStdioTransport {
         let binaryURL = try resolveCodexBinary(config: config)
 
         return CodexStdioTransport(
@@ -292,7 +464,8 @@ public final class Codex: Sendable {
             currentDirectoryURL: config.cwd.map { URL(fileURLWithPath: $0) },
             prepareForLaunch: {
                 try config.codexHome.prepareForLaunch()
-                try Self.verifyPinnedRuntime(at: binaryURL)
+                let warning = try Self.verifyPinnedRuntime(at: binaryURL)
+                warningBox?.store(warning)
             }
         )
     }
@@ -300,52 +473,76 @@ public final class Codex: Sendable {
     /// Verifies the resolved executable itself before the SDK starts an
     /// app-server. `InitializeResponse.userAgent` remains descriptive server
     /// metadata; protocol identity is pinned at the process-launch boundary.
-    private static func verifyPinnedRuntime(at executableURL: URL) throws {
-        let result: (status: Int32, output: String)
+    private static func verifyPinnedRuntime(
+        at executableURL: URL
+    ) throws -> CodexRuntimeVersionWarning? {
+        let key = CodexRuntimeProbeCacheKey(
+            path: executableURL.path,
+            modificationDate: runtimeModificationDate(at: executableURL)
+        )
+        if let outcome = runtimeProbeCache.outcome(for: key) {
+            return try resolveRuntimeProbeOutcome(outcome)
+        }
+
+        let outcome: CodexRuntimeProbeOutcome
         do {
-            let process = Process()
-            process.executableURL = executableURL
-            process.arguments = ["--version"]
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            result = (
-                process.terminationStatus,
-                String(data: data, encoding: .utf8) ?? ""
-            )
+            let result: (status: Int32, output: String)
+            do {
+                let process = Process()
+                process.executableURL = executableURL
+                process.arguments = ["--version"]
+                let output = Pipe()
+                process.standardOutput = output
+                process.standardError = output
+                try process.run()
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                result = (
+                    process.terminationStatus,
+                    String(data: data, encoding: .utf8) ?? ""
+                )
+            } catch {
+                throw CodexSDKError.runtimeVersionProbeFailed(
+                    path: executableURL.path,
+                    reason: String(describing: error)
+                )
+            }
+
+            guard result.status == 0 else {
+                let diagnostic = boundedRuntimeProbeDiagnostic(result.output)
+                throw CodexSDKError.runtimeVersionProbeFailed(
+                    path: executableURL.path,
+                    reason: diagnostic.isEmpty
+                        ? "`--version` exited with status \(result.status)."
+                        : "`--version` exited with status \(result.status): \(diagnostic)"
+                )
+            }
+
+            outcome = .success(try validatePinnedRuntimeVersionOutput(
+                result.output,
+                executablePath: executableURL.path
+            ))
+        } catch let error as CodexSDKError {
+            outcome = .failure(error)
         } catch {
-            throw CodexSDKError.runtimeVersionProbeFailed(
+            outcome = .failure(.runtimeVersionProbeFailed(
                 path: executableURL.path,
                 reason: String(describing: error)
-            )
+            ))
         }
 
-        guard result.status == 0 else {
-            let diagnostic = boundedRuntimeProbeDiagnostic(result.output)
-            throw CodexSDKError.runtimeVersionProbeFailed(
-                path: executableURL.path,
-                reason: diagnostic.isEmpty
-                    ? "`--version` exited with status \(result.status)."
-                    : "`--version` exited with status \(result.status): \(diagnostic)"
-            )
-        }
-
-        try validatePinnedRuntimeVersionOutput(
-            result.output,
-            executablePath: executableURL.path
-        )
+        runtimeProbeCache.store(outcome, for: key)
+        return try resolveRuntimeProbeOutcome(outcome)
     }
 
     /// Internal for focused parser tests. The real CLI currently prints
     /// `codex-cli <version>`; line and whitespace normalization tolerates shell
-    /// wrappers and harmless diagnostics without weakening the exact version.
+    /// wrappers and harmless diagnostics. A patch-only difference is accepted
+    /// and returned as a warning; major/minor differences remain hard failures.
     static func validatePinnedRuntimeVersionOutput(
         _ output: String,
         executablePath: String
-    ) throws {
+    ) throws -> CodexRuntimeVersionWarning? {
         let lines = output
             .split(whereSeparator: \Character.isNewline)
             .map { line in
@@ -362,14 +559,35 @@ public final class Codex: Sendable {
                     reason: "`--version` did not include a version after \(CodexPinnedRuntime.package)."
                 )
             }
-            guard components[1] == CodexPinnedRuntime.version else {
+            guard let expectedVersion = CodexSemanticVersion(CodexPinnedRuntime.version),
+                  let actualVersion = CodexSemanticVersion(components[1]) else {
+                throw CodexSDKError.runtimeVersionProbeFailed(
+                    path: executablePath,
+                    reason: "`--version` returned an unsupported semantic version: \(components[1])"
+                )
+            }
+            guard actualVersion.major == expectedVersion.major else {
                 throw CodexSDKError.runtimeVersionMismatch(
                     path: executablePath,
                     expected: CodexPinnedRuntime.descriptor,
                     actual: "\(components[0]) \(components[1])"
                 )
             }
-            return
+            guard actualVersion.minor == expectedVersion.minor else {
+                throw CodexSDKError.runtimeVersionMismatch(
+                    path: executablePath,
+                    expected: CodexPinnedRuntime.descriptor,
+                    actual: "\(components[0]) \(components[1])"
+                )
+            }
+            guard actualVersion.patch == expectedVersion.patch else {
+                return CodexRuntimeVersionWarning(
+                    path: executablePath,
+                    expected: CodexPinnedRuntime.descriptor,
+                    actual: "\(components[0]) \(components[1])"
+                )
+            }
+            return nil
         }
 
         let diagnostic = boundedRuntimeProbeDiagnostic(output)
@@ -392,14 +610,42 @@ public final class Codex: Sendable {
         return String(normalized.prefix(512))
     }
 
+    private static func resolveRuntimeProbeOutcome(
+        _ outcome: CodexRuntimeProbeOutcome
+    ) throws -> CodexRuntimeVersionWarning? {
+        switch outcome {
+        case .success(let warning):
+            return warning
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    private static func runtimeModificationDate(at executableURL: URL) -> Date? {
+        try? FileManager.default.attributesOfItem(
+            atPath: executableURL.path
+        )[.modificationDate] as? Date
+    }
+
     /// Resolves the Codex runtime executable used to launch the local app-server.
     ///
     /// Precedence is explicit SDK config, the isolated home's
     /// `[codexcore].codex_binary_path` pin, `CODEX_BINARY`, `CODEX_BIN`, `codex`
-    /// from `PATH`, then a macOS Codex app bundle.
+    /// from `PATH`, standard Homebrew locations, a login-shell lookup, then a
+    /// macOS Codex app bundle. Discovered paths are cached while their inputs
+    /// remain unchanged.
     public static func resolveCodexBinary(config: CodexConfig = CodexConfig()) throws -> URL {
-        let fileManager = FileManager.default
+        try resolveCodexBinary(
+            config: config,
+            environment: ProcessInfo.processInfo.environment
+        )
+    }
 
+    static func resolveCodexBinary(
+        config: CodexConfig,
+        environment: [String: String],
+        fileManager: FileManager = .default
+    ) throws -> URL {
         if let path = config.codexBinaryPath {
             guard fileManager.isExecutableFile(atPath: path) else {
                 throw CodexSDKError.invalidRuntimePath(path)
@@ -415,33 +661,147 @@ public final class Codex: Sendable {
         }
 
         for key in ["CODEX_BINARY", "CODEX_BIN"] {
-            guard let path = ProcessInfo.processInfo.environment[key], !path.isEmpty else { continue }
+            guard let path = environment[key], !path.isEmpty else { continue }
             guard fileManager.isExecutableFile(atPath: path) else {
                 throw CodexSDKError.invalidRuntimePath(path)
             }
             return URL(fileURLWithPath: path)
         }
 
-        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        let cacheKey = CodexRuntimeResolutionCacheKey(
+            codexHomePath: config.codexHome.path,
+            codexHomeConfigModificationDate: runtimeModificationDate(
+                at: config.codexHome.configFileURL
+            ),
+            path: environment["PATH"] ?? "",
+            shell: environment["SHELL"],
+            appBundle: environment["CODEX_APP_BUNDLE"],
+            appBundlePath: environment["CODEX_APP_BUNDLE_PATH"]
+        )
+        if let cachedPath = runtimeResolutionCache.path(for: cacheKey),
+           fileManager.isExecutableFile(atPath: cachedPath) {
+            return URL(fileURLWithPath: cachedPath)
+        }
+
+        let pathValue = environment["PATH"] ?? ""
         for directory in pathValue.split(separator: ":") {
             let candidate = String(directory) + "/codex"
             if fileManager.isExecutableFile(atPath: candidate) {
-                return URL(fileURLWithPath: candidate)
+                return cacheResolvedRuntimePath(candidate, for: cacheKey)
             }
         }
 
-        for appBundleURL in codexAppBundleCandidates(fileManager: fileManager) {
+        for directory in ["/opt/homebrew/bin", "/usr/local/bin"] {
+            let candidate = directory + "/codex"
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return cacheResolvedRuntimePath(candidate, for: cacheKey)
+            }
+        }
+
+        if let candidate = loginShellCodexPath(
+            environment: environment,
+            fileManager: fileManager
+        ) {
+            return cacheResolvedRuntimePath(candidate, for: cacheKey)
+        }
+
+        for appBundleURL in codexAppBundleCandidates(
+            fileManager: fileManager,
+            environment: environment
+        ) {
             let candidate = appBundleURL
                 .appendingPathComponent("Contents")
                 .appendingPathComponent("Resources")
                 .appendingPathComponent("codex")
                 .path
             if fileManager.isExecutableFile(atPath: candidate) {
-                return URL(fileURLWithPath: candidate)
+                return cacheResolvedRuntimePath(candidate, for: cacheKey)
             }
         }
 
         throw CodexSDKError.runtimeNotFound
+    }
+
+    private static func cacheResolvedRuntimePath(
+        _ path: String,
+        for key: CodexRuntimeResolutionCacheKey
+    ) -> URL {
+        runtimeResolutionCache.store(path, for: key)
+        return URL(fileURLWithPath: path)
+    }
+
+    /// Finder-launched apps do not inherit the user's interactive PATH. A
+    /// bounded login-shell probe recovers shell-managed paths without allowing
+    /// a broken shell startup file to hold up app launch indefinitely.
+    private static func loginShellCodexPath(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String? {
+        var shells: [String] = []
+        if let configuredShell = environment["SHELL"], !configuredShell.isEmpty {
+            shells.append(configuredShell)
+        }
+        shells.append(contentsOf: ["/bin/zsh", "/bin/bash"])
+
+        var seenShells: Set<String> = []
+        for shell in shells where seenShells.insert(shell).inserted {
+            guard fileManager.isExecutableFile(atPath: shell) else { continue }
+            if let path = runLoginShellLookup(
+                shell: shell,
+                environment: environment
+            ) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private static func runLoginShellLookup(
+        shell: String,
+        environment: [String: String]
+    ) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-lc", "command -v codex"]
+        process.environment = environment
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let result = CodexResolvedPathBox()
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            if process.terminationStatus == 0,
+               let line = String(data: data, encoding: .utf8)?
+                .split(whereSeparator: \Character.isNewline)
+                .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+                .first(where: {
+                    !$0.isEmpty && FileManager.default.isExecutableFile(atPath: $0)
+                }),
+               FileManager.default.isExecutableFile(atPath: line) {
+                result.store(line)
+            }
+            finished.signal()
+        }
+
+        guard finished.wait(timeout: .now() + .milliseconds(350)) == .success else {
+            if process.isRunning {
+                process.terminate()
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            }
+            _ = finished.wait(timeout: .now() + .milliseconds(100))
+            return nil
+        }
+        return result.value
     }
 
     /// Reads only CodexCore's namespaced runtime pin. The remainder of the
@@ -501,7 +861,10 @@ public final class Codex: Sendable {
         return nil
     }
 
-    private static func codexAppBundleCandidates(fileManager: FileManager) -> [URL] {
+    private static func codexAppBundleCandidates(
+        fileManager: FileManager,
+        environment: [String: String]
+    ) -> [URL] {
         var candidates: [URL] = []
         var seenPaths: Set<String> = []
 
@@ -512,7 +875,7 @@ public final class Codex: Sendable {
         }
 
         for key in ["CODEX_APP_BUNDLE", "CODEX_APP_BUNDLE_PATH"] {
-            guard let path = ProcessInfo.processInfo.environment[key], !path.isEmpty else { continue }
+            guard let path = environment[key], !path.isEmpty else { continue }
             append(URL(fileURLWithPath: path, isDirectory: true))
         }
 
