@@ -675,13 +675,16 @@ final class CodexIntegrationCatalogTests: XCTestCase {
     }
 
     @MainActor
-    func testPluginImageRepositoryLoadsPublishedLocalAssetSynchronously() throws {
+    func testPluginImageRepositoryLoadsPublishedLocalAssetAsynchronously() async throws {
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-plugin-icon-\(UUID().uuidString).tiff")
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
         let symbol = try XCTUnwrap(NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil))
         try XCTUnwrap(symbol.tiffRepresentation).write(to: temporaryURL)
 
+        XCTAssertNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
+        let image = await CodexPluginImageRepository.image(for: temporaryURL)
+        XCTAssertNotNil(image)
         XCTAssertNotNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
     }
 
