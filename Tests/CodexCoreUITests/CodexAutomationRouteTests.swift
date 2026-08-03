@@ -178,7 +178,18 @@ final class CodexAutomationRouteTests: XCTestCase {
             contentsOf: directory.appendingPathComponent("daily-brief/automation.toml"),
             encoding: .utf8
         )
-        XCTAssertTrue(toml.contains("kind = \"schedule\""))
+        XCTAssertTrue(toml.contains("kind = \"heartbeat\""))
+        XCTAssertTrue(toml.contains("status = \"ACTIVE\""))
+        let timestampLines = toml.split(whereSeparator: \.isNewline)
+            .filter { $0.hasPrefix("created_at = ") || $0.hasPrefix("updated_at = ") }
+        XCTAssertEqual(timestampLines.count, 2)
+        XCTAssertTrue(timestampLines.allSatisfy { line in
+            guard let value = line.split(separator: "=", maxSplits: 1).last else { return false }
+            return Int(value.trimmingCharacters(in: .whitespaces)) != nil
+        })
+        XCTAssertFalse(toml.contains("last_run_at"))
+        XCTAssertFalse(toml.contains("next_run_at"))
+        XCTAssertFalse(toml.contains("last_error"))
         XCTAssertTrue(toml.contains("rrule = \"FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=8;BYMINUTE=30\""))
         XCTAssertTrue(toml.contains("target_thread_id = \"thread-123\""))
     }
