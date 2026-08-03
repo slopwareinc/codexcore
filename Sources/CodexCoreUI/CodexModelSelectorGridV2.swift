@@ -58,20 +58,24 @@ public struct CodexModelGridV2: Equatable, Sendable {
     ) {
         let options = modelOptions.isEmpty ? CodexModelSelection.defaultOptions : modelOptions
         var seen = Set<String>()
-        let orderedOptions = options.sorted { lhs, rhs in
-            let lhs56 = lhs.displayName.lowercased().contains("5.6") || lhs.id.lowercased().contains("5.6")
-            let rhs56 = rhs.displayName.lowercased().contains("5.6") || rhs.id.lowercased().contains("5.6")
-            if lhs56 != rhs56 { return lhs56 && !rhs56 }
-            return options.firstIndex(where: { $0.id == lhs.id })! < options.firstIndex(where: { $0.id == rhs.id })!
-        }
+        let orderedOptions = options.enumerated().sorted { lhs, rhs in
+            if lhs.element.isDefault != rhs.element.isDefault {
+                return lhs.element.isDefault && !rhs.element.isDefault
+            }
+            let lhsFast = Self.isSpeedModel(lhs.element)
+            let rhsFast = Self.isSpeedModel(rhs.element)
+            if lhsFast != rhsFast { return !lhsFast && rhsFast }
+            if let ordering = Self.compareGeneration(lhs.element, rhs.element), ordering != .orderedSame {
+                return ordering == .orderedDescending
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
         let columns: [Column] = orderedOptions.compactMap { model -> Column? in
             let family = Self.family(for: model)
             guard seen.insert(family.id).inserted else { return nil }
             return Column(id: family.id, title: model.displayName, model: model, appearance: family.appearance)
         }
-        let efforts = Self.orderedEfforts.filter { effort in
-            columns.contains { Self.supportedEfforts(for: $0.model).contains(effort) }
-        }
+        let efforts = Self.efforts(for: columns.map(\.model))
         let cells = columns.flatMap { column in
             let supported = Self.supportedEfforts(for: column.model)
             return efforts.map { effort in
@@ -84,12 +88,7 @@ public struct CodexModelGridV2: Equatable, Sendable {
                 )
             }
         }
-        let appearanceOrder: [Column.Appearance] = [.sol, .terra, .luna, .generic]
-        self.columns = columns.sorted {
-            let left = appearanceOrder.firstIndex(of: $0.appearance) ?? appearanceOrder.count
-            let right = appearanceOrder.firstIndex(of: $1.appearance) ?? appearanceOrder.count
-            return left == right ? $0.title < $1.title : left < right
-        }
+        self.columns = columns
         self.efforts = efforts
         self.cells = cells
         self.selectedModel = selectedModel
@@ -118,18 +117,102 @@ public struct CodexModelGridV2: Equatable, Sendable {
         model.supportedReasoning.isEmpty ? CodexReasoningSelection.defaultOptions : model.supportedReasoning
     }
 
+    private static func efforts(for models: [CodexModelSelection]) -> [CodexReasoningSelection] {
+        var supported = Set<CodexReasoningSelection>()
+        for model in models {
+            supported.formUnion(supportedEfforts(for: model))
+        }
+        let canonical = orderedEfforts.filter(supported.contains)
+        let catalogOnly = CodexReasoningSelection.allCases.filter {
+            supported.contains($0) && !orderedEfforts.contains($0)
+        }
+        return canonical + catalogOnly
+    }
+
     public static func appearance(for model: CodexModelSelection) -> Column.Appearance {
         family(for: model).appearance
     }
 
     private static func family(for model: CodexModelSelection) -> (id: String, appearance: Column.Appearance) {
-        let searchable = "\(model.id) \(model.modelIdentifier ?? "") \(model.displayName)".lowercased()
-        if searchable.contains("sol") { return ("sol", .sol) }
-        if searchable.contains("terra") { return ("terra", .terra) }
-        if searchable.contains("luna") { return ("luna", .luna) }
-        let generic = (model.modelIdentifier ?? model.id).lowercased()
-            .replacingOccurrences(of: "-speed", with: "")
-        return (generic, .generic)
+        let displayName = model.displayName
+            .lowercased()
+            .replacingOccurrences(of: "speed", with: "")
+            .replacingOccurrences(of: "fast", with: "")
+        let meaningfulTokens = displayName
+            .split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" })
+            .filter { token in
+                !token.isEmpty
+                    && token != "gpt"
+                    && token != "codex"
+                    && token.range(of: #"^\d+(?:\.\d+)*$"#, options: .regularExpression) == nil
+            }
+        let identifier = if meaningfulTokens.count > 1, let token = meaningfulTokens.last {
+            String(token)
+        } else {
+            (model.modelIdentifier ?? model.id)
+                .lowercased()
+                .replacingOccurrences(of: "-speed", with: "")
+        }
+        let appearance: Column.Appearance
+        switch identifier {
+        case "sol": appearance = .sol
+        case "terra": appearance = .terra
+        case "luna": appearance = .luna
+        default: appearance = .generic
+        }
+        return (identifier, appearance)
+    }
+
+    public static func isCurrentGeneration(_ model: CodexModelSelection, among options: [CodexModelSelection]) -> Bool {
+        guard let generation = generationKey(for: options.first(where: \.isDefault) ?? options.first) else {
+            return options.contains(where: \.isDefault) ? model.isDefault : true
+        }
+        return generationKey(for: model) == generation
+    }
+
+    public static func currentGenerationOptions(
+        from options: [CodexModelSelection]
+    ) -> [CodexModelSelection] {
+        options.filter { isCurrentGeneration($0, among: options) }
+    }
+
+    private static func isSpeedModel(_ model: CodexModelSelection) -> Bool {
+        model.isFastModel
+            || model.id.localizedCaseInsensitiveContains("speed")
+            || model.modelIdentifier?.localizedCaseInsensitiveContains("speed") == true
+            || model.displayName.localizedCaseInsensitiveContains("speed")
+            || model.serviceTiers.contains(where: {
+                $0.id.localizedCaseInsensitiveContains("fast")
+                    || $0.displayName.localizedCaseInsensitiveContains("fast")
+            })
+    }
+
+    private static func generationKey(for model: CodexModelSelection?) -> [Int]? {
+        guard let model else { return nil }
+        let searchable = "\(model.displayName) \(model.id) \(model.modelIdentifier ?? "")"
+        guard let match = searchable.range(
+            of: #"\d+(?:\.\d+)+"#,
+            options: .regularExpression
+        ) else { return nil }
+        return searchable[match]
+            .split(separator: ".")
+            .compactMap { Int($0) }
+    }
+
+    private static func compareGeneration(
+        _ lhs: CodexModelSelection,
+        _ rhs: CodexModelSelection
+    ) -> ComparisonResult? {
+        guard let left = generationKey(for: lhs), let right = generationKey(for: rhs) else {
+            return nil
+        }
+        for (leftPart, rightPart) in zip(left, right) where leftPart != rightPart {
+            return leftPart < rightPart ? .orderedAscending : .orderedDescending
+        }
+        if left.count != right.count {
+            return left.count < right.count ? .orderedAscending : .orderedDescending
+        }
+        return .orderedSame
     }
 }
 
@@ -147,7 +230,7 @@ public struct CodexModelSelectorGridV2: View {
     public var body: some View {
         Grid(horizontalSpacing: 6, verticalSpacing: 5) {
             GridRow {
-                Text(model.columns.allSatisfy { isCurrentGeneration($0.model) } ? "GPT 5.6" : "Models")
+                Text("Models")
                     .font(theme.fonts.caption.weight(.semibold))
                     .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 46, alignment: .leading)
@@ -202,18 +285,7 @@ public struct CodexModelSelectorGridV2: View {
     }
 
     private func shortTitle(for column: CodexModelGridV2.Column) -> String {
-        guard isCurrentGeneration(column.model) else { return column.title }
-        return switch column.appearance {
-        case .sol: "Sol"
-        case .terra: "Terra"
-        case .luna: "Luna"
-        case .generic: "GPT 5.6"
-        }
-    }
-
-    private func isCurrentGeneration(_ model: CodexModelSelection) -> Bool {
-        let searchable = "\(model.id) \(model.modelIdentifier ?? "") \(model.displayName)"
-        return searchable.range(of: #"\b5\.6\b"#, options: .regularExpression) != nil
+        column.title
     }
 
     private func tint(for appearance: CodexModelGridV2.Column.Appearance) -> Color {
@@ -313,17 +385,12 @@ public struct ComposerModelGridPicker: View {
 
     private var visibleOptions: [CodexModelSelection] {
         guard !showOlderModels else { return availableOptions }
-        let current = availableOptions.filter(isCurrentGeneration)
+        let current = CodexModelGridV2.currentGenerationOptions(from: availableOptions)
         return current.isEmpty ? availableOptions : current
     }
 
     private var gridModel: CodexModelGridV2 {
         CodexModelGridV2(modelOptions: visibleOptions, selectedModel: model, selectedReasoning: reasoning)
-    }
-
-    private func isCurrentGeneration(_ option: CodexModelSelection) -> Bool {
-        let searchable = "\(option.id) \(option.modelIdentifier ?? "") \(option.displayName)"
-        return searchable.range(of: #"\b5\.6\b"#, options: .regularExpression) != nil
     }
 
     private var modelTint: Color {
@@ -336,11 +403,11 @@ public struct ComposerModelGridPicker: View {
     }
 }
 
-#Preview("GPT 5.6 model grid") {
+#Preview("Catalog model grid") {
     let efforts = CodexModelGridV2.orderedEfforts
-    let sol = CodexModelSelection(id: "gpt-5.6-sol", displayName: "GPT 5.6 Sol", isDefault: true, defaultReasoning: .medium, supportedReasoning: efforts)
-    let terra = CodexModelSelection(id: "gpt-5.6-terra", displayName: "GPT 5.6 Terra", defaultReasoning: .medium, supportedReasoning: [.low, .medium, .high, .extraHigh])
-    let luna = CodexModelSelection(id: "gpt-5.6-luna", displayName: "GPT 5.6 Luna", defaultReasoning: .high, supportedReasoning: efforts)
+    let sol = CodexModelSelection(id: "catalog-sol", displayName: "Catalog Sol", isDefault: true, defaultReasoning: .medium, supportedReasoning: efforts)
+    let terra = CodexModelSelection(id: "catalog-terra", displayName: "Catalog Terra", defaultReasoning: .medium, supportedReasoning: [.low, .medium, .high, .extraHigh])
+    let luna = CodexModelSelection(id: "catalog-luna", displayName: "Catalog Luna", defaultReasoning: .high, supportedReasoning: efforts)
     CodexModelSelectorGridV2(model: .init(modelOptions: [sol, terra, luna], selectedModel: sol, selectedReasoning: .medium)) { _, _ in }
         .padding()
         .frame(width: 520)

@@ -12,6 +12,10 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
+    static var availableRoutes: [CodexSettingsRoute] {
+        allCases
+    }
+
     public var title: String {
         switch self {
         case .general: return "General"
@@ -126,6 +130,7 @@ public struct CodexSettingsAboutRouteView: View {
     @Binding private var appearanceSettings: CodexAppearanceSettings
     @Binding private var approvalSelection: CodexApprovalSelection
     private let approvalOptions: [CodexApprovalSelection]
+    private let managedPolicyRequirements: CodexManagedPolicyRequirements?
     @Binding private var modelSelection: CodexModelSelection
     private let modelOptions: [CodexModelSelection]
     @Binding private var reasoningSelection: CodexReasoningSelection
@@ -139,6 +144,7 @@ public struct CodexSettingsAboutRouteView: View {
         appearanceSettings: Binding<CodexAppearanceSettings>,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
+        managedPolicyRequirements: CodexManagedPolicyRequirements? = nil,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
@@ -156,6 +162,7 @@ public struct CodexSettingsAboutRouteView: View {
         self._appearanceSettings = appearanceSettings
         self._approvalSelection = approvalSelection
         self.approvalOptions = approvalOptions
+        self.managedPolicyRequirements = managedPolicyRequirements
         self._modelSelection = modelSelection
         self.modelOptions = modelOptions
         self._reasoningSelection = reasoningSelection
@@ -261,7 +268,8 @@ public struct CodexSettingsAboutRouteView: View {
         case .general:
             CodexSettingsGeneralPage(
                 approvalSelection: $approvalSelection,
-                approvalOptions: approvalOptions,
+                approvalOptions: effectiveApprovalOptions,
+                managedPolicyRequirements: managedPolicyRequirements,
                 modelSelection: $modelSelection,
                 modelOptions: modelOptions,
                 reasoningSelection: $reasoningSelection,
@@ -344,7 +352,12 @@ public struct CodexSettingsAboutRouteView: View {
     }
 
     private var supportedRoutes: [CodexSettingsRoute] {
-        CodexSettingsRoute.allCases.filter { $0 != .git }
+        CodexSettingsRoute.availableRoutes
+    }
+
+    private var effectiveApprovalOptions: [CodexApprovalSelection] {
+        managedPolicyRequirements?.narrowApprovalOptions(approvalOptions)
+            ?? approvalOptions
     }
 }
 
@@ -369,6 +382,7 @@ public struct CodexSettingsGeneralPage: View {
 
     @Binding var approvalSelection: CodexApprovalSelection
     let approvalOptions: [CodexApprovalSelection]
+    let managedPolicyRequirements: CodexManagedPolicyRequirements?
     @Binding var modelSelection: CodexModelSelection
     let modelOptions: [CodexModelSelection]
     @Binding var reasoningSelection: CodexReasoningSelection
@@ -386,6 +400,9 @@ public struct CodexSettingsGeneralPage: View {
                 )
             }
             .settingsPanel(theme: theme)
+            if let managedPolicyRequirements, managedPolicyRequirements.isManaged {
+                CodexManagedPolicyNotice(requirements: managedPolicyRequirements)
+            }
         }
     }
 }
@@ -845,6 +862,43 @@ public struct CodexSettingsApprovalRow: View {
             isPresented: $isFullAccessConfirmationPresented,
             onConfirm: { selection = .fullAccess }
         )
+    }
+}
+
+public struct CodexManagedPolicyNotice: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    public let requirements: CodexManagedPolicyRequirements
+
+    public init(requirements: CodexManagedPolicyRequirements) {
+        self.requirements = requirements
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "building.2.crop.circle")
+                .font(theme.fonts.label)
+                .foregroundStyle(theme.colors.textSecondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(requirements.noticeTitle)
+                    .font(theme.fonts.label.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text(requirements.noticeDetail)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(theme.colors.surfaceElevated.opacity(0.36), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                .stroke(theme.colors.border, lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(requirements.noticeTitle). \(requirements.noticeDetail)")
     }
 }
 
