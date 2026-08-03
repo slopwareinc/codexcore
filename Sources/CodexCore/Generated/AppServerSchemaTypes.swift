@@ -300,7 +300,6 @@ public struct CodexSchemaAppMetadata: Codable, Sendable, Equatable {
     public var categories: [String]?
     public var developer: String?
     public var firstPartyRequiresInstall: Bool?
-    public var firstPartyType: String?
     public var review: CodexSchemaAppReview?
     public var screenshots: [CodexSchemaAppScreenshot]?
     public var seoDescription: String?
@@ -314,7 +313,6 @@ public struct CodexSchemaAppMetadata: Codable, Sendable, Equatable {
         case categories
         case developer
         case firstPartyRequiresInstall
-        case firstPartyType
         case review
         case screenshots
         case seoDescription
@@ -325,11 +323,10 @@ public struct CodexSchemaAppMetadata: Codable, Sendable, Equatable {
         case versionNotes
     }
 
-    public init(categories: [String]? = nil, developer: String? = nil, firstPartyRequiresInstall: Bool? = nil, firstPartyType: String? = nil, review: CodexSchemaAppReview? = nil, screenshots: [CodexSchemaAppScreenshot]? = nil, seoDescription: String? = nil, showInComposerWhenUnlinked: Bool? = nil, subCategories: [String]? = nil, version: String? = nil, versionID: String? = nil, versionNotes: String? = nil) {
+    public init(categories: [String]? = nil, developer: String? = nil, firstPartyRequiresInstall: Bool? = nil, review: CodexSchemaAppReview? = nil, screenshots: [CodexSchemaAppScreenshot]? = nil, seoDescription: String? = nil, showInComposerWhenUnlinked: Bool? = nil, subCategories: [String]? = nil, version: String? = nil, versionID: String? = nil, versionNotes: String? = nil) {
         self.categories = categories
         self.developer = developer
         self.firstPartyRequiresInstall = firstPartyRequiresInstall
-        self.firstPartyType = firstPartyType
         self.review = review
         self.screenshots = screenshots
         self.seoDescription = seoDescription
@@ -510,11 +507,17 @@ public struct CodexSchemaAppToolConfig: Codable, Sendable, Equatable {
 }
 public struct CodexSchemaAppToolSummary: Codable, Sendable, Equatable {
     public var description: String
+    public var disabledReason: String?
+    public var isEnabled: Bool?
+    public var isReadOnly: Bool?
     public var name: String
     public var title: String?
 
-    public init(description: String, name: String, title: String? = nil) {
+    public init(description: String, disabledReason: String? = nil, isEnabled: Bool? = nil, isReadOnly: Bool? = nil, name: String, title: String? = nil) {
         self.description = description
+        self.disabledReason = disabledReason
+        self.isEnabled = isEnabled
+        self.isReadOnly = isReadOnly
         self.name = name
         self.title = title
     }
@@ -795,6 +798,13 @@ public enum CodexSchemaAutoReviewDecisionSource: Codable, Sendable, Equatable, H
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaBrowserUseRequirements: Codable, Sendable, Equatable {
+    public var disableAutoReview: Bool?
+
+    public init(disableAutoReview: Bool? = nil) {
+        self.disableAutoReview = disableAutoReview
     }
 }
 public struct CodexSchemaByteRange: Codable, Sendable, Equatable {
@@ -1547,6 +1557,7 @@ public struct CodexSchemaConfigReadResponse: Codable, Sendable, Equatable {
 }
 public struct CodexSchemaConfigRequirements: Codable, Sendable, Equatable {
     public var allowAppshots: Bool?
+    public var allowLoginShell: Bool?
     public var allowManagedHooksOnly: Bool?
     public var allowRemoteControl: Bool?
     public var allowedApprovalPolicies: [CodexSchemaAskForApproval]?
@@ -1555,16 +1566,24 @@ public struct CodexSchemaConfigRequirements: Codable, Sendable, Equatable {
     public var allowedSandboxModes: [CodexSchemaSandboxMode]?
     public var allowedWebSearchModes: [CodexSchemaWebSearchMode]?
     public var allowedWindowsSandboxImplementations: [CodexSchemaWindowsSandboxSetupMode]?
+    public var browserUse: CodexSchemaBrowserUseRequirements?
+    public var checkForUpdateOnStartup: Bool?
     public var computerUse: CodexSchemaComputerUseRequirements?
     public var defaultPermissions: String?
     public var enforceResidency: CodexSchemaResidencyRequirement?
     public var featureRequirements: [String: Bool]?
+    public var feedback: CodexSchemaFeedbackRequirements?
     public var hooks: CodexSchemaManagedHooksRequirements?
+    public var logDir: String?
+    public var modelCatalogJson: String?
     public var models: CodexSchemaModelsRequirements?
     public var network: CodexSchemaNetworkRequirements?
+    public var sqliteHome: String?
+    public var windowsSandboxPrivateDesktop: Bool?
 
-    public init(allowAppshots: Bool? = nil, allowManagedHooksOnly: Bool? = nil, allowRemoteControl: Bool? = nil, allowedApprovalPolicies: [CodexSchemaAskForApproval]? = nil, allowedApprovalsReviewers: [CodexSchemaApprovalsReviewer]? = nil, allowedPermissionProfiles: [String: Bool]? = nil, allowedSandboxModes: [CodexSchemaSandboxMode]? = nil, allowedWebSearchModes: [CodexSchemaWebSearchMode]? = nil, allowedWindowsSandboxImplementations: [CodexSchemaWindowsSandboxSetupMode]? = nil, computerUse: CodexSchemaComputerUseRequirements? = nil, defaultPermissions: String? = nil, enforceResidency: CodexSchemaResidencyRequirement? = nil, featureRequirements: [String: Bool]? = nil, hooks: CodexSchemaManagedHooksRequirements? = nil, models: CodexSchemaModelsRequirements? = nil, network: CodexSchemaNetworkRequirements? = nil) {
+    public init(allowAppshots: Bool? = nil, allowLoginShell: Bool? = nil, allowManagedHooksOnly: Bool? = nil, allowRemoteControl: Bool? = nil, allowedApprovalPolicies: [CodexSchemaAskForApproval]? = nil, allowedApprovalsReviewers: [CodexSchemaApprovalsReviewer]? = nil, allowedPermissionProfiles: [String: Bool]? = nil, allowedSandboxModes: [CodexSchemaSandboxMode]? = nil, allowedWebSearchModes: [CodexSchemaWebSearchMode]? = nil, allowedWindowsSandboxImplementations: [CodexSchemaWindowsSandboxSetupMode]? = nil, browserUse: CodexSchemaBrowserUseRequirements? = nil, checkForUpdateOnStartup: Bool? = nil, computerUse: CodexSchemaComputerUseRequirements? = nil, defaultPermissions: String? = nil, enforceResidency: CodexSchemaResidencyRequirement? = nil, featureRequirements: [String: Bool]? = nil, feedback: CodexSchemaFeedbackRequirements? = nil, hooks: CodexSchemaManagedHooksRequirements? = nil, logDir: String? = nil, modelCatalogJson: String? = nil, models: CodexSchemaModelsRequirements? = nil, network: CodexSchemaNetworkRequirements? = nil, sqliteHome: String? = nil, windowsSandboxPrivateDesktop: Bool? = nil) {
         self.allowAppshots = allowAppshots
+        self.allowLoginShell = allowLoginShell
         self.allowManagedHooksOnly = allowManagedHooksOnly
         self.allowRemoteControl = allowRemoteControl
         self.allowedApprovalPolicies = allowedApprovalPolicies
@@ -1573,13 +1592,20 @@ public struct CodexSchemaConfigRequirements: Codable, Sendable, Equatable {
         self.allowedSandboxModes = allowedSandboxModes
         self.allowedWebSearchModes = allowedWebSearchModes
         self.allowedWindowsSandboxImplementations = allowedWindowsSandboxImplementations
+        self.browserUse = browserUse
+        self.checkForUpdateOnStartup = checkForUpdateOnStartup
         self.computerUse = computerUse
         self.defaultPermissions = defaultPermissions
         self.enforceResidency = enforceResidency
         self.featureRequirements = featureRequirements
+        self.feedback = feedback
         self.hooks = hooks
+        self.logDir = logDir
+        self.modelCatalogJson = modelCatalogJson
         self.models = models
         self.network = network
+        self.sqliteHome = sqliteHome
+        self.windowsSandboxPrivateDesktop = windowsSandboxPrivateDesktop
     }
 }
 public struct CodexSchemaConfigRequirementsReadResponse: Codable, Sendable, Equatable {
@@ -2066,12 +2092,16 @@ public enum CodexSchemaExperimentalFeatureStage: Codable, Sendable, Equatable, H
 public struct CodexSchemaExternalAgentConfigDetectParams: Codable, Sendable, Equatable {
     public var cwds: [String]?
     public var includeHome: Bool?
+    public var maxSessionAgeDays: Int?
+    public var maxSessions: Int?
     public var migrationSource: String?
     public var source: String?
 
-    public init(cwds: [String]? = nil, includeHome: Bool? = nil, migrationSource: String? = nil, source: String? = nil) {
+    public init(cwds: [String]? = nil, includeHome: Bool? = nil, maxSessionAgeDays: Int? = nil, maxSessions: Int? = nil, migrationSource: String? = nil, source: String? = nil) {
         self.cwds = cwds
         self.includeHome = includeHome
+        self.maxSessionAgeDays = maxSessionAgeDays
+        self.maxSessions = maxSessions
         self.migrationSource = migrationSource
         self.source = source
     }
@@ -2110,20 +2140,48 @@ public struct CodexSchemaExternalAgentConfigImportHistory: Codable, Sendable, Eq
     public var completedAtMs: Int
     public var failures: [CodexSchemaExternalAgentConfigImportItemTypeFailure]
     public var importID: String
+    public var providerID: String?
     public var successes: [CodexSchemaExternalAgentConfigImportItemTypeSuccess]
 
     enum CodingKeys: String, CodingKey {
         case completedAtMs
         case failures
         case importID = "importId"
+        case providerID = "providerId"
         case successes
     }
 
-    public init(completedAtMs: Int, failures: [CodexSchemaExternalAgentConfigImportItemTypeFailure], importID: String, successes: [CodexSchemaExternalAgentConfigImportItemTypeSuccess]) {
+    public init(completedAtMs: Int, failures: [CodexSchemaExternalAgentConfigImportItemTypeFailure], importID: String, providerID: String? = nil, successes: [CodexSchemaExternalAgentConfigImportItemTypeSuccess]) {
         self.completedAtMs = completedAtMs
         self.failures = failures
         self.importID = importID
+        self.providerID = providerID
         self.successes = successes
+    }
+}
+public struct CodexSchemaExternalAgentConfigImportHistoryRecordParams: Codable, Sendable, Equatable {
+    public var itemTypeResults: [CodexSchemaExternalAgentConfigImportTypeResult]
+    public var providerID: String
+
+    enum CodingKeys: String, CodingKey {
+        case itemTypeResults
+        case providerID = "providerId"
+    }
+
+    public init(itemTypeResults: [CodexSchemaExternalAgentConfigImportTypeResult], providerID: String) {
+        self.itemTypeResults = itemTypeResults
+        self.providerID = providerID
+    }
+}
+public struct CodexSchemaExternalAgentConfigImportHistoryRecordResponse: Codable, Sendable, Equatable {
+    public var importID: String
+
+    enum CodingKeys: String, CodingKey {
+        case importID = "importId"
+    }
+
+    public init(importID: String) {
+        self.importID = importID
     }
 }
 public struct CodexSchemaExternalAgentConfigImportItemTypeFailure: Codable, Sendable, Equatable {
@@ -2161,11 +2219,20 @@ public struct CodexSchemaExternalAgentConfigImportItemTypeSuccess: Codable, Send
 public struct CodexSchemaExternalAgentConfigImportParams: Codable, Sendable, Equatable {
     public var migrationItems: [CodexSchemaExternalAgentConfigMigrationItem]
     public var migrationSource: String?
+    public var providerID: String?
     public var source: String?
 
-    public init(migrationItems: [CodexSchemaExternalAgentConfigMigrationItem], migrationSource: String? = nil, source: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case migrationItems
+        case migrationSource
+        case providerID = "providerId"
+        case source
+    }
+
+    public init(migrationItems: [CodexSchemaExternalAgentConfigMigrationItem], migrationSource: String? = nil, providerID: String? = nil, source: String? = nil) {
         self.migrationItems = migrationItems
         self.migrationSource = migrationSource
+        self.providerID = providerID
         self.source = source
     }
 }
@@ -2327,6 +2394,13 @@ public enum CodexSchemaExternalAgentImportedConnectorSource: Codable, Sendable, 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaFeedbackRequirements: Codable, Sendable, Equatable {
+    public var enabled: Bool?
+
+    public init(enabled: Bool? = nil) {
+        self.enabled = enabled
     }
 }
 public struct CodexSchemaFeedbackUploadParams: Codable, Sendable, Equatable {
@@ -5575,6 +5649,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
     case team
     case selfServeBusinessUsageBased
     case business
+    case ent26
     case enterpriseCbpUsageBased
     case enterprise
     case edu
@@ -5590,6 +5665,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
         .team,
         .selfServeBusinessUsageBased,
         .business,
+        .ent26,
         .enterpriseCbpUsageBased,
         .enterprise,
         .edu,
@@ -5606,6 +5682,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
         case "team": self = .team
         case "self_serve_business_usage_based": self = .selfServeBusinessUsageBased
         case "business": self = .business
+        case "ent26": self = .ent26
         case "enterprise_cbp_usage_based": self = .enterpriseCbpUsageBased
         case "enterprise": self = .enterprise
         case "edu": self = .edu
@@ -5624,6 +5701,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
         case .team: "team"
         case .selfServeBusinessUsageBased: "self_serve_business_usage_based"
         case .business: "business"
+        case .ent26: "ent26"
         case .enterpriseCbpUsageBased: "enterprise_cbp_usage_based"
         case .enterprise: "enterprise"
         case .edu: "edu"
@@ -5916,10 +5994,12 @@ public enum CodexSchemaPluginListMarketplaceKind: String, Codable, Sendable, Equ
 }
 public struct CodexSchemaPluginListParams: Codable, Sendable, Equatable {
     public var cwds: [CodexSchemaAbsolutePathBuf]?
+    public var forceRefetch: Bool?
     public var marketplaceKinds: [CodexSchemaPluginListMarketplaceKind]?
 
-    public init(cwds: [CodexSchemaAbsolutePathBuf]? = nil, marketplaceKinds: [CodexSchemaPluginListMarketplaceKind]? = nil) {
+    public init(cwds: [CodexSchemaAbsolutePathBuf]? = nil, forceRefetch: Bool? = nil, marketplaceKinds: [CodexSchemaPluginListMarketplaceKind]? = nil) {
         self.cwds = cwds
+        self.forceRefetch = forceRefetch
         self.marketplaceKinds = marketplaceKinds
     }
 }
@@ -6012,6 +6092,7 @@ public struct CodexSchemaPluginShareCheckoutResponse: Codable, Sendable, Equatab
     }
 }
 public struct CodexSchemaPluginShareContext: Codable, Sendable, Equatable {
+    public var canPublishToWorkspace: Bool?
     public var creatorAccountUserID: String?
     public var creatorName: String?
     public var discoverability: CodexSchemaPluginShareDiscoverability?
@@ -6021,6 +6102,7 @@ public struct CodexSchemaPluginShareContext: Codable, Sendable, Equatable {
     public var shareUrl: String?
 
     enum CodingKeys: String, CodingKey {
+        case canPublishToWorkspace
         case creatorAccountUserID = "creatorAccountUserId"
         case creatorName
         case discoverability
@@ -6030,7 +6112,8 @@ public struct CodexSchemaPluginShareContext: Codable, Sendable, Equatable {
         case shareUrl
     }
 
-    public init(creatorAccountUserID: String? = nil, creatorName: String? = nil, discoverability: CodexSchemaPluginShareDiscoverability? = nil, remotePluginID: String, remoteVersion: String? = nil, sharePrincipals: [CodexSchemaPluginSharePrincipal]? = nil, shareUrl: String? = nil) {
+    public init(canPublishToWorkspace: Bool? = nil, creatorAccountUserID: String? = nil, creatorName: String? = nil, discoverability: CodexSchemaPluginShareDiscoverability? = nil, remotePluginID: String, remoteVersion: String? = nil, sharePrincipals: [CodexSchemaPluginSharePrincipal]? = nil, shareUrl: String? = nil) {
+        self.canPublishToWorkspace = canPublishToWorkspace
         self.creatorAccountUserID = creatorAccountUserID
         self.creatorName = creatorName
         self.discoverability = discoverability
@@ -6230,15 +6313,18 @@ public struct CodexSchemaPluginShareSaveParams: Codable, Sendable, Equatable {
     }
 }
 public struct CodexSchemaPluginShareSaveResponse: Codable, Sendable, Equatable {
+    public var canPublishToWorkspace: Bool?
     public var remotePluginID: String
     public var shareUrl: String
 
     enum CodingKeys: String, CodingKey {
+        case canPublishToWorkspace
         case remotePluginID = "remotePluginId"
         case shareUrl
     }
 
-    public init(remotePluginID: String, shareUrl: String) {
+    public init(canPublishToWorkspace: Bool? = nil, remotePluginID: String, shareUrl: String) {
+        self.canPublishToWorkspace = canPublishToWorkspace
         self.remotePluginID = remotePluginID
         self.shareUrl = shareUrl
     }
@@ -7620,15 +7706,19 @@ public struct CodexSchemaSkillInterface: Codable, Sendable, Equatable {
     public var defaultPrompt: String?
     public var displayName: String?
     public var iconLarge: CodexSchemaAbsolutePathBuf?
+    public var iconLargeUrl: String?
     public var iconSmall: CodexSchemaAbsolutePathBuf?
+    public var iconSmallUrl: String?
     public var shortDescription: String?
 
-    public init(brandColor: String? = nil, defaultPrompt: String? = nil, displayName: String? = nil, iconLarge: CodexSchemaAbsolutePathBuf? = nil, iconSmall: CodexSchemaAbsolutePathBuf? = nil, shortDescription: String? = nil) {
+    public init(brandColor: String? = nil, defaultPrompt: String? = nil, displayName: String? = nil, iconLarge: CodexSchemaAbsolutePathBuf? = nil, iconLargeUrl: String? = nil, iconSmall: CodexSchemaAbsolutePathBuf? = nil, iconSmallUrl: String? = nil, shortDescription: String? = nil) {
         self.brandColor = brandColor
         self.defaultPrompt = defaultPrompt
         self.displayName = displayName
         self.iconLarge = iconLarge
+        self.iconLargeUrl = iconLargeUrl
         self.iconSmall = iconSmall
+        self.iconSmallUrl = iconSmallUrl
         self.shortDescription = shortDescription
     }
 }
@@ -7920,6 +8010,7 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
     public var gitInfo: CodexSchemaGitInfo?
     public var historyMode: CodexSchemaThreadHistoryMode?
     public var id: String
+    public var isPinned: Bool?
     public var modelProvider: String
     public var name: String?
     public var parentThreadID: String?
@@ -7946,6 +8037,7 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         case gitInfo
         case historyMode
         case id
+        case isPinned
         case modelProvider
         case name
         case parentThreadID = "parentThreadId"
@@ -7960,7 +8052,7 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         case updatedAt
     }
 
-    public init(agentNickname: String? = nil, agentRole: String? = nil, canAcceptDirectInput: Bool? = nil, cliVersion: String, createdAt: Int, cwd: CodexSchemaAbsolutePathBuf, ephemeral: Bool, extra: CodexSchemaThreadExtra? = nil, forkedFromID: String? = nil, gitInfo: CodexSchemaGitInfo? = nil, historyMode: CodexSchemaThreadHistoryMode? = nil, id: String, modelProvider: String, name: String? = nil, parentThreadID: String? = nil, path: String? = nil, preview: String, recencyAt: Int? = nil, sessionID: String, source: CodexSchemaSessionSource, status: CodexSchemaThreadStatus, threadSource: CodexSchemaThreadSource? = nil, turns: [CodexSchemaTurn], updatedAt: Int) {
+    public init(agentNickname: String? = nil, agentRole: String? = nil, canAcceptDirectInput: Bool? = nil, cliVersion: String, createdAt: Int, cwd: CodexSchemaAbsolutePathBuf, ephemeral: Bool, extra: CodexSchemaThreadExtra? = nil, forkedFromID: String? = nil, gitInfo: CodexSchemaGitInfo? = nil, historyMode: CodexSchemaThreadHistoryMode? = nil, id: String, isPinned: Bool? = nil, modelProvider: String, name: String? = nil, parentThreadID: String? = nil, path: String? = nil, preview: String, recencyAt: Int? = nil, sessionID: String, source: CodexSchemaSessionSource, status: CodexSchemaThreadStatus, threadSource: CodexSchemaThreadSource? = nil, turns: [CodexSchemaTurn], updatedAt: Int) {
         self.agentNickname = agentNickname
         self.agentRole = agentRole
         self.canAcceptDirectInput = canAcceptDirectInput
@@ -7973,6 +8065,7 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         self.gitInfo = gitInfo
         self.historyMode = historyMode
         self.id = id
+        self.isPinned = isPinned
         self.modelProvider = modelProvider
         self.name = name
         self.parentThreadID = parentThreadID
@@ -8807,7 +8900,9 @@ public struct CodexSchemaCommandExecutionThreadItem: Codable, Sendable, Equatabl
     public let durationMs: Int?
     public let exitCode: Int?
     public let id: String
+    public let pluginID: String?
     public let processID: String?
+    public let scriptPath: String?
     public let source: CodexSchemaCommandExecutionSource?
     public let status: CodexSchemaCommandExecutionStatus
     public let rawValue: CodexJSONValue
@@ -8827,7 +8922,9 @@ public struct CodexSchemaCommandExecutionThreadItem: Codable, Sendable, Equatabl
         "durationMs",
         "exitCode",
         "id",
+        "pluginId",
         "processId",
+        "scriptPath",
         "source",
         "status",
     ]
@@ -8841,7 +8938,9 @@ public struct CodexSchemaCommandExecutionThreadItem: Codable, Sendable, Equatabl
         case durationMs
         case exitCode
         case id
+        case pluginID = "pluginId"
         case processID = "processId"
+        case scriptPath
         case source
         case status
     }
@@ -8863,7 +8962,9 @@ public struct CodexSchemaCommandExecutionThreadItem: Codable, Sendable, Equatabl
         self.durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
         self.exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
         self.id = try container.decode(String.self, forKey: .id)
+        self.pluginID = try container.decodeIfPresent(String.self, forKey: .pluginID)
         self.processID = try container.decodeIfPresent(String.self, forKey: .processID)
+        self.scriptPath = try container.decodeIfPresent(String.self, forKey: .scriptPath)
         self.source = try container.decodeIfPresent(CodexSchemaCommandExecutionSource.self, forKey: .source)
         self.status = try container.decode(CodexSchemaCommandExecutionStatus.self, forKey: .status)
         let rawContainer = try decoder.singleValueContainer()
@@ -9760,6 +9861,7 @@ public struct CodexSchemaThreadListParams: Codable, Sendable, Equatable {
     public var archived: Bool?
     public var cursor: String?
     public var cwd: CodexSchemaThreadListCwdFilter?
+    public var isPinned: Bool?
     public var limit: Int?
     public var modelProviders: [String]?
     public var parentThreadID: String?
@@ -9774,6 +9876,7 @@ public struct CodexSchemaThreadListParams: Codable, Sendable, Equatable {
         case archived
         case cursor
         case cwd
+        case isPinned
         case limit
         case modelProviders
         case parentThreadID = "parentThreadId"
@@ -9784,11 +9887,12 @@ public struct CodexSchemaThreadListParams: Codable, Sendable, Equatable {
         case useStateDBOnly = "useStateDbOnly"
     }
 
-    public init(ancestorThreadID: String? = nil, archived: Bool? = nil, cursor: String? = nil, cwd: CodexSchemaThreadListCwdFilter? = nil, limit: Int? = nil, modelProviders: [String]? = nil, parentThreadID: String? = nil, searchTerm: String? = nil, sortDirection: CodexSchemaSortDirection? = nil, sortKey: CodexSchemaThreadSortKey? = nil, sourceKinds: [CodexSchemaThreadSourceKind]? = nil, useStateDBOnly: Bool? = nil) {
+    public init(ancestorThreadID: String? = nil, archived: Bool? = nil, cursor: String? = nil, cwd: CodexSchemaThreadListCwdFilter? = nil, isPinned: Bool? = nil, limit: Int? = nil, modelProviders: [String]? = nil, parentThreadID: String? = nil, searchTerm: String? = nil, sortDirection: CodexSchemaSortDirection? = nil, sortKey: CodexSchemaThreadSortKey? = nil, sourceKinds: [CodexSchemaThreadSourceKind]? = nil, useStateDBOnly: Bool? = nil) {
         self.ancestorThreadID = ancestorThreadID
         self.archived = archived
         self.cursor = cursor
         self.cwd = cwd
+        self.isPinned = isPinned
         self.limit = limit
         self.modelProviders = modelProviders
         self.parentThreadID = parentThreadID
@@ -9860,15 +9964,18 @@ public struct CodexSchemaThreadMetadataGitInfoUpdateParams: Codable, Sendable, E
 }
 public struct CodexSchemaThreadMetadataUpdateParams: Codable, Sendable, Equatable {
     public var gitInfo: CodexSchemaThreadMetadataGitInfoUpdateParams?
+    public var isPinned: Bool?
     public var threadID: String
 
     enum CodingKeys: String, CodingKey {
         case gitInfo
+        case isPinned
         case threadID = "threadId"
     }
 
-    public init(gitInfo: CodexSchemaThreadMetadataGitInfoUpdateParams? = nil, threadID: String) {
+    public init(gitInfo: CodexSchemaThreadMetadataGitInfoUpdateParams? = nil, isPinned: Bool? = nil, threadID: String) {
         self.gitInfo = gitInfo
+        self.isPinned = isPinned
         self.threadID = threadID
     }
 }
@@ -10074,6 +10181,7 @@ public struct CodexSchemaThreadRealtimeSdpNotification: Codable, Sendable, Equat
 }
 public struct CodexSchemaThreadRealtimeStartParams: Codable, Sendable, Equatable {
     public var clientManagedHandoffs: Bool?
+    public var codexResponseHandoffChannelPrefixes: [String: [String]]?
     public var codexResponseHandoffMode: CodexSchemaCodexResponseHandoffMode?
     public var codexResponseItemPrefix: String?
     public var codexResponsesAsItems: Bool?
@@ -10091,6 +10199,7 @@ public struct CodexSchemaThreadRealtimeStartParams: Codable, Sendable, Equatable
 
     enum CodingKeys: String, CodingKey {
         case clientManagedHandoffs
+        case codexResponseHandoffChannelPrefixes
         case codexResponseHandoffMode
         case codexResponseItemPrefix
         case codexResponsesAsItems
@@ -10107,8 +10216,9 @@ public struct CodexSchemaThreadRealtimeStartParams: Codable, Sendable, Equatable
         case voice
     }
 
-    public init(clientManagedHandoffs: Bool? = nil, codexResponseHandoffMode: CodexSchemaCodexResponseHandoffMode? = nil, codexResponseItemPrefix: String? = nil, codexResponsesAsItems: Bool? = nil, flushTranscriptTailOnSessionEnd: Bool? = nil, includeStartupContext: Bool? = nil, initialItems: [CodexSchemaThreadRealtimeInitialItem]? = nil, model: String? = nil, outputModality: CodexSchemaRealtimeOutputModality, prompt: String? = nil, realtimeSessionID: String? = nil, threadID: String, transport: CodexSchemaThreadRealtimeStartTransport? = nil, version: CodexSchemaRealtimeConversationVersion? = nil, voice: CodexSchemaRealtimeVoice? = nil) {
+    public init(clientManagedHandoffs: Bool? = nil, codexResponseHandoffChannelPrefixes: [String: [String]]? = nil, codexResponseHandoffMode: CodexSchemaCodexResponseHandoffMode? = nil, codexResponseItemPrefix: String? = nil, codexResponsesAsItems: Bool? = nil, flushTranscriptTailOnSessionEnd: Bool? = nil, includeStartupContext: Bool? = nil, initialItems: [CodexSchemaThreadRealtimeInitialItem]? = nil, model: String? = nil, outputModality: CodexSchemaRealtimeOutputModality, prompt: String? = nil, realtimeSessionID: String? = nil, threadID: String, transport: CodexSchemaThreadRealtimeStartTransport? = nil, version: CodexSchemaRealtimeConversationVersion? = nil, voice: CodexSchemaRealtimeVoice? = nil) {
         self.clientManagedHandoffs = clientManagedHandoffs
+        self.codexResponseHandoffChannelPrefixes = codexResponseHandoffChannelPrefixes
         self.codexResponseHandoffMode = codexResponseHandoffMode
         self.codexResponseItemPrefix = codexResponseItemPrefix
         self.codexResponsesAsItems = codexResponsesAsItems
@@ -11887,13 +11997,13 @@ public enum CodexSchemaWriteStatus: Codable, Sendable, Equatable, Hashable, Case
 }
 
 public enum CodexAppServerSchemaInventory {
-    public static let definitionCount = 610
+    public static let definitionCount = 614
     public static let generatedEnumCount = 105
     public static let generatedOpenEnumCount = 88
-    public static let generatedStructCount = 409
+    public static let generatedStructCount = 413
     public static let generatedTaggedUnionCount = 3
     public static let rawAliasCount = 93
-    public static let v2SchemaFileCount = 300
+    public static let v2SchemaFileCount = 302
     public static let v1HandshakeSchemaFileCount = 2
     public static let definitions: [CodexAppServerSchemaDefinition] = [
         CodexAppServerSchemaDefinition(name: "AbsolutePathBuf", typeName: "CodexSchemaAbsolutePathBuf"),
@@ -11941,6 +12051,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "AuthMode", typeName: "CodexSchemaAuthMode"),
         CodexAppServerSchemaDefinition(name: "AutoCompactTokenLimitScope", typeName: "CodexSchemaAutoCompactTokenLimitScope"),
         CodexAppServerSchemaDefinition(name: "AutoReviewDecisionSource", typeName: "CodexSchemaAutoReviewDecisionSource"),
+        CodexAppServerSchemaDefinition(name: "BrowserUseRequirements", typeName: "CodexSchemaBrowserUseRequirements"),
         CodexAppServerSchemaDefinition(name: "ByteRange", typeName: "CodexSchemaByteRange"),
         CodexAppServerSchemaDefinition(name: "CancelLoginAccountParams", typeName: "CodexSchemaCancelLoginAccountParams"),
         CodexAppServerSchemaDefinition(name: "CancelLoginAccountResponse", typeName: "CodexSchemaCancelLoginAccountResponse"),
@@ -12024,6 +12135,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportCompletedNotification", typeName: "CodexSchemaExternalAgentConfigImportCompletedNotification"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportHistoriesReadResponse", typeName: "CodexSchemaExternalAgentConfigImportHistoriesReadResponse"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportHistory", typeName: "CodexSchemaExternalAgentConfigImportHistory"),
+        CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportHistoryRecordParams", typeName: "CodexSchemaExternalAgentConfigImportHistoryRecordParams"),
+        CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportHistoryRecordResponse", typeName: "CodexSchemaExternalAgentConfigImportHistoryRecordResponse"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportItemTypeFailure", typeName: "CodexSchemaExternalAgentConfigImportItemTypeFailure"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportItemTypeSuccess", typeName: "CodexSchemaExternalAgentConfigImportItemTypeSuccess"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigImportParams", typeName: "CodexSchemaExternalAgentConfigImportParams"),
@@ -12034,6 +12147,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ExternalAgentConfigMigrationItemType", typeName: "CodexSchemaExternalAgentConfigMigrationItemType"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentImportedConnectorCandidate", typeName: "CodexSchemaExternalAgentImportedConnectorCandidate"),
         CodexAppServerSchemaDefinition(name: "ExternalAgentImportedConnectorSource", typeName: "CodexSchemaExternalAgentImportedConnectorSource"),
+        CodexAppServerSchemaDefinition(name: "FeedbackRequirements", typeName: "CodexSchemaFeedbackRequirements"),
         CodexAppServerSchemaDefinition(name: "FeedbackUploadParams", typeName: "CodexSchemaFeedbackUploadParams"),
         CodexAppServerSchemaDefinition(name: "FeedbackUploadResponse", typeName: "CodexSchemaFeedbackUploadResponse"),
         CodexAppServerSchemaDefinition(name: "FileChangeOutputDeltaNotification", typeName: "CodexSchemaFileChangeOutputDeltaNotification"),
@@ -12507,7 +12621,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "WorkspaceMessageType", typeName: "CodexSchemaWorkspaceMessageType"),
         CodexAppServerSchemaDefinition(name: "WriteStatus", typeName: "CodexSchemaWriteStatus"),
     ]
-    public static let clientRequestParamCount = 114
+    public static let clientRequestParamCount = 115
     public static let notificationPayloadCount = 70
     public static let serverRequestParamCount = 11
     public static let clientRequestParams: [CodexAppServerMethodSchemaDefinition] = [
@@ -12618,6 +12732,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "config/read", definitionName: "ConfigReadParams", typeName: "CodexSchemaConfigReadParams"),
         CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/detect", definitionName: "ExternalAgentConfigDetectParams", typeName: "CodexSchemaExternalAgentConfigDetectParams"),
         CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/import", definitionName: "ExternalAgentConfigImportParams", typeName: "CodexSchemaExternalAgentConfigImportParams"),
+        CodexAppServerMethodSchemaDefinition(method: "externalAgentConfig/import/recordHistory", definitionName: "ExternalAgentConfigImportHistoryRecordParams", typeName: "CodexSchemaExternalAgentConfigImportHistoryRecordParams"),
         CodexAppServerMethodSchemaDefinition(method: "config/value/write", definitionName: "ConfigValueWriteParams", typeName: "CodexSchemaConfigValueWriteParams"),
         CodexAppServerMethodSchemaDefinition(method: "config/batchWrite", definitionName: "ConfigBatchWriteParams", typeName: "CodexSchemaConfigBatchWriteParams"),
         CodexAppServerMethodSchemaDefinition(method: "account/read", definitionName: "GetAccountParams", typeName: "CodexSchemaGetAccountParams"),
@@ -12767,6 +12882,8 @@ public enum CodexAppServerSchemaInventory {
         "ExternalAgentConfigDetectResponse.json",
         "ExternalAgentConfigImportCompletedNotification.json",
         "ExternalAgentConfigImportHistoriesReadResponse.json",
+        "ExternalAgentConfigImportHistoryRecordParams.json",
+        "ExternalAgentConfigImportHistoryRecordResponse.json",
         "ExternalAgentConfigImportParams.json",
         "ExternalAgentConfigImportProgressNotification.json",
         "ExternalAgentConfigImportResponse.json",

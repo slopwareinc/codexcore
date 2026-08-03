@@ -105,9 +105,9 @@ public struct CodexConfig: Sendable {
     }
 }
 
-/// A runtime patch-level difference that is safe to continue with because the
-/// pinned major and minor versions still match. Hosts can surface this warning
-/// without treating a compatible Homebrew patch upgrade as a launch failure.
+/// A runtime that differs from the version the generated types were dumped from
+/// but still sits inside the supported range. Hosts can surface this warning
+/// without treating a compatible upgrade as a launch failure.
 public struct CodexRuntimeVersionWarning: Sendable, Equatable, CustomStringConvertible {
     public let path: String
     public let expected: String
@@ -124,10 +124,20 @@ public struct CodexRuntimeVersionWarning: Sendable, Equatable, CustomStringConve
     }
 }
 
-private struct CodexSemanticVersion: Sendable, Hashable {
+private struct CodexSemanticVersion: Sendable, Hashable, Comparable {
     let major: Int
     let minor: Int
     let patch: Int
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
+    }
+
+    init(major: Int, minor: Int, patch: Int) {
+        self.major = major
+        self.minor = minor
+        self.patch = patch
+    }
 
     init?(_ value: String) {
         let core = value.split(separator: "-", maxSplits: 1).first.map(String.init) ?? value
@@ -145,6 +155,24 @@ private struct CodexSemanticVersion: Sendable, Hashable {
         self.minor = minor
         self.patch = patch
     }
+
+    var displayText: String { "\(major).\(minor).\(patch)" }
+}
+
+/// `CodexPinnedRuntime` records the runtime the generated protocol types were
+/// dumped from, which is allowed to be a prerelease. This is the oldest runtime
+/// the SDK still accepts. Schema additions landed after it are optional on the
+/// wire, so an older GA runtime keeps working; a request that only the newer
+/// server implements fails per call instead of blocking startup.
+public enum CodexSupportedRuntime {
+    fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 145, patch: 0)
+
+    /// Oldest accepted `codex-cli` version, for diagnostics and documentation.
+    public static var minimum: String { minimumVersion.displayText }
+
+    public static var descriptor: String {
+        "\(CodexPinnedRuntime.package) >= \(minimum) (types generated from \(CodexPinnedRuntime.version))"
+    }
 }
 
 private func runtimeVersionMismatchComponent(expected: String, actual: String) -> String {
@@ -153,16 +181,16 @@ private func runtimeVersionMismatchComponent(expected: String, actual: String) -
     let actualVersion = actual.split(separator: " ").last.map(String.init)
         .flatMap(CodexSemanticVersion.init)
 
-    guard let expectedVersion, let actualVersion else {
+    guard let actualVersion else {
         return "runtime version"
     }
-    if expectedVersion.major != actualVersion.major {
+    if let expectedVersion, expectedVersion.major != actualVersion.major {
         return "major version"
     }
-    if expectedVersion.minor != actualVersion.minor {
-        return "minor version"
+    if actualVersion < CodexSupportedRuntime.minimumVersion {
+        return "minimum supported version"
     }
-    return "patch version"
+    return "runtime version"
 }
 
 private final class CodexRuntimeVersionWarningBox: @unchecked Sendable {
@@ -566,21 +594,21 @@ public final class Codex: Sendable {
                     reason: "`--version` returned an unsupported semantic version: \(components[1])"
                 )
             }
-            guard actualVersion.major == expectedVersion.major else {
+            // Generated types track the newest schema we have dumped, which may
+            // be a prerelease. Requiring an exact match would refuse every GA
+            // runtime in the supported range, so the contract is a floor plus a
+            // major-version gate: fields added after the floor are optional on
+            // the wire, and a request the older server does not know still fails
+            // per-call rather than bricking startup.
+            guard actualVersion.major == expectedVersion.major,
+                  actualVersion >= CodexSupportedRuntime.minimumVersion else {
                 throw CodexSDKError.runtimeVersionMismatch(
                     path: executablePath,
-                    expected: CodexPinnedRuntime.descriptor,
+                    expected: CodexSupportedRuntime.descriptor,
                     actual: "\(components[0]) \(components[1])"
                 )
             }
-            guard actualVersion.minor == expectedVersion.minor else {
-                throw CodexSDKError.runtimeVersionMismatch(
-                    path: executablePath,
-                    expected: CodexPinnedRuntime.descriptor,
-                    actual: "\(components[0]) \(components[1])"
-                )
-            }
-            guard actualVersion.patch == expectedVersion.patch else {
+            guard actualVersion == expectedVersion else {
                 return CodexRuntimeVersionWarning(
                     path: executablePath,
                     expected: CodexPinnedRuntime.descriptor,

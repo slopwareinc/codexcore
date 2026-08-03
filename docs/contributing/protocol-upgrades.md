@@ -23,6 +23,12 @@ Protocol upgrades are exact-runtime migrations, not dependency-range bumps.
    swift test
    ```
 
-7. Release with a composite tag such as `v0.145.0+codexcore.0.9.0`.
+7. Release with a composite tag such as `v0.146.0+codexcore.0.9.0`.
+
+The generated pin (`CodexPinnedRuntime`) records the runtime the schema was
+dumped from and may be a prerelease. The oldest accepted runtime is
+`CodexSupportedRuntime.minimum` in `Sources/CodexCore/Client/Codex.swift`; raise
+it only when the SDK starts depending on a field or method the older runtime
+does not serve.
 
 Generated output must be reproducible. A clean drift check is required before merge.

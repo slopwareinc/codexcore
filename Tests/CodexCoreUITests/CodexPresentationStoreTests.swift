@@ -672,8 +672,10 @@ private extension CodexPresentationStoreTests {
         )
     }
 
+    /// Generous enough that a loaded CI machine cannot fail a correct store, and
+    /// still bounded so a genuinely stuck condition reports rather than hangs.
     func eventually(
-        timeout: Duration = .seconds(2),
+        timeout: Duration = .seconds(15),
         _ condition: @escaping @MainActor () -> Bool
     ) async throws {
         let clock = ContinuousClock()

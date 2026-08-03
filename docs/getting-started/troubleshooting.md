@@ -2,7 +2,7 @@
 
 ## Runtime not found or version mismatch
 
-CodexCore resolves the runtime in this order: `CodexConfig.codexBinaryPath`, the selected home's `[codexcore].codex_binary_path`, `CODEX_BINARY`, `CODEX_BIN`, `codex` on `PATH`, then Codex app bundles. `codex --version` checks only the PATH candidate, so inspect `~/.codexcore/config.toml` for a stale pin when the error names another path. CodexCore requires exactly `codex-cli 0.145.0`; do not suppress the check.
+CodexCore resolves the runtime in this order: `CodexConfig.codexBinaryPath`, the selected home's `[codexcore].codex_binary_path`, `CODEX_BINARY`, `CODEX_BIN`, `codex` on `PATH`, then Codex app bundles. `codex --version` checks only the PATH candidate, so inspect `~/.codexcore/config.toml` for a stale pin when the error names another path. CodexCore requires `codex-cli 0.145.0` or newer within the same major version; a runtime newer than the generated pin is accepted and reported as a warning. Do not suppress the check.
 
 ## The app asks me to sign in again
 

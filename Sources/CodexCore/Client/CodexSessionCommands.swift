@@ -863,6 +863,13 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func externalAgentConfigImportRecordHistory(
+        _ params: CodexSchemaExternalAgentConfigImportHistoryRecordParams
+    ) -> CodexAppServerRequest<CodexSchemaExternalAgentConfigImportHistoryRecordResponse> {
+        .required(method: .externalAgentConfigImportRecordHistory, params: params)
+    }
+}
+extension CodexRequest {
     public static func externalAgentConfigImportReadHistories() -> CodexAppServerRequest<CodexSchemaExternalAgentConfigImportHistoriesReadResponse> {
         .omitted(method: .externalAgentConfigImportReadHistories)
     }
@@ -922,7 +929,7 @@ extension CodexRequest {
     }
 }
 public extension CodexRequest {
-    static let generatedMethodCount = 125
+    static let generatedMethodCount = 126
     static let supportedMethods: Set<CodexAppServerClientMethod> = [
         .threadStart,
         .threadResume,
@@ -1040,6 +1047,7 @@ public extension CodexRequest {
         .configRead,
         .externalAgentConfigDetect,
         .externalAgentConfigImport,
+        .externalAgentConfigImportRecordHistory,
         .externalAgentConfigImportReadHistories,
         .configValueWrite,
         .configBatchWrite,

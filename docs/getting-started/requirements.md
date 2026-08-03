@@ -7,7 +7,7 @@
 - Git
 - Python 3 (generator tests)
 - Bash and `curl`/`tar` (runtime regeneration and drift tooling)
-- `codex-cli 0.145.0` exactly
+- `codex-cli 0.145.0` or newer (types generated from `0.146.0-alpha.9.2`)
 - `just` is optional
 
 The package declares the authoritative platform and language versions in `Package.swift`. Runtime identity is pinned in `Tools/UPSTREAM_VERSION` and validated before the SDK launches app-server.
@@ -19,13 +19,13 @@ swift --version
 codex --version
 ```
 
-The second command checks only the `codex` executable selected by `PATH` and must print:
+The second command checks only the `codex` executable selected by `PATH` and must print `codex-cli 0.145.0` or newer:
 
 ```text
 codex-cli 0.145.0
 ```
 
-CodexCore rejects newer, older, and prerelease runtimes. An explicit SDK or home-config pin can select a different binary than `codex --version`; check the discovery order below when a mismatch reports another path.
+CodexCore rejects anything below the `0.145.0` floor or in a different major version. A runtime above the generated pin is accepted and reported as a warning, because schema additions are optional on the wire. An explicit SDK or home-config pin can select a different binary than `codex --version`; check the discovery order below when a mismatch reports another path.
 
 ## Runtime discovery order
 

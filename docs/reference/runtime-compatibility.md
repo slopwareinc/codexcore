@@ -2,7 +2,7 @@
 
 | CodexCore release | Codex CLI / app-server | Status |
 | --- | --- | --- |
-| `0.9.0` | `0.145.0` | Current GA runtime pin |
+| `0.9.0` | `>= 0.145.0` | Current supported range; types generated from `0.146.0-alpha.9.2` |
 | `0.8.0` | `0.145.0` | Historical GA release |
 | `0.7.0` | `0.145.0` | Historical GA release |
 | `0.6.0` | `0.145.0-alpha.24` | Historical prerelease |

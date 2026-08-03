@@ -198,10 +198,10 @@ final class CodexCoreTests: XCTestCase {
         )
     }
 
-    func testPinnedRuntimeVersionParserRejectsAnotherCodexVersion() {
+    func testPinnedRuntimeVersionParserRejectsRuntimeBelowSupportedFloor() {
         XCTAssertThrowsError(try Codex.validatePinnedRuntimeVersionOutput(
             """
-            codex-cli 0.146.0
+            codex-cli 0.144.9
             \(CodexPinnedRuntime.descriptor)
             """,
             executablePath: "/test/codex"
@@ -214,10 +214,27 @@ final class CodexCoreTests: XCTestCase {
                 return XCTFail("Unexpected error: \(error)")
             }
             XCTAssertEqual(path, "/test/codex")
-            XCTAssertEqual(expected, CodexPinnedRuntime.descriptor)
-            XCTAssertEqual(actual, "codex-cli 0.146.0")
-            XCTAssertTrue(error.localizedDescription.contains("minor version"))
+            XCTAssertEqual(expected, CodexSupportedRuntime.descriptor)
+            XCTAssertEqual(actual, "codex-cli 0.144.9")
         }
+    }
+
+    /// A runtime newer than the schema dump is supported: additions are optional
+    /// on the wire, so it degrades to a warning rather than refusing to launch.
+    func testPinnedRuntimeVersionParserAcceptsRuntimeAboveGeneratedPin() throws {
+        let warning = try Codex.validatePinnedRuntimeVersionOutput(
+            "codex-cli 0.147.0",
+            executablePath: "/test/codex"
+        )
+
+        XCTAssertEqual(
+            warning,
+            CodexRuntimeVersionWarning(
+                path: "/test/codex",
+                expected: CodexPinnedRuntime.descriptor,
+                actual: "codex-cli 0.147.0"
+            )
+        )
     }
 
     func testPinnedRuntimeVersionParserReportsMajorMismatchClearly() {
