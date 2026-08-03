@@ -1,12 +1,19 @@
-# macos-26 is GitHub's hosted macOS 26 (Apple Silicon) image. Its Xcode 26
-# toolchain provides Swift 6.2, which matches Package.swift's macOS 26 and
-# Swift 6 language-mode requirements. Keep the label explicit instead of
-# macos-latest so a future hosted-image migration cannot silently change the
-# platform used for AppKit tests.
+# macos-26 is GitHub's hosted macOS 26 (Apple Silicon) image, whose Xcode 26
+# toolchain satisfies Package.swift's macOS 26 platform and Swift 6 language
+# mode. Keep the label explicit instead of macos-latest so a future hosted-image
+# migration cannot silently change the platform used for AppKit tests.
+#
+# The toolchain check is a floor, not an equality. The package needs Swift 6.2 or
+# newer, and the hosted image moves ahead on its own schedule -- it currently
+# ships 6.3.3 -- so pinning an exact version fails every build on a routine image
+# bump rather than catching a real incompatibility.
 name: CI
 
+# Restricted to main so pushing a PR branch does not run the whole suite twice
+# against the same commit, once for `push` and once for `pull_request`.
 on:
   push:
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -18,7 +25,7 @@ permissions:
 
 jobs:
   build-and-test:
-    name: Build and test (macOS 26 / Swift 6.2)
+    name: Build and test (macOS 26 / Swift 6.2+)
     runs-on: macos-26
     timeout-minutes: 60
 
@@ -26,6 +33,36 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Verify macOS and Swift toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sw_vers
+          swift --version
+
+          product_version="$(sw_vers -productVersion)"
+          if [[ "${product_version}" != 26.* ]]; then
+            echo "error: expected macOS 26.x, found ${product_version}" >&2
+            exit 1
+          fi
+
+          swift_version="$(swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -1)"
+          if [[ -z "${swift_version}" ]]; then
+            echo "error: could not parse a version from 'swift --version'" >&2
+            exit 1
+          fi
+
+          major="${swift_version%%.*}"
+          minor="${swift_version##*.}"
+          if (( major < 6 || (major == 6 && minor < 2) )); then
+            echo "error: Swift ${swift_version} is older than the required 6.2" >&2
+            exit 1
+          fi
+          echo "swift-version=${swift_version}" >> "$GITHUB_OUTPUT"
+
+      # Keyed on the resolved toolchain so an image upgrade cannot restore a
+      # .build directory produced by a different compiler.
       - name: Cache SwiftPM dependencies and build artifacts
         uses: actions/cache@v4
         with:
@@ -33,18 +70,9 @@ jobs:
             .build
             ~/Library/Caches/org.swift.swiftpm
             ~/Library/org.swift.swiftpm
-          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-swift6.2-${{ hashFiles('Package.resolved') }}
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-swift${{ steps.toolchain.outputs.swift-version }}-${{ hashFiles('Package.resolved') }}
           restore-keys: |
-            swiftpm-${{ runner.os }}-${{ runner.arch }}-swift6.2-
-
-      - name: Verify macOS and Swift toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          sw_vers
-          swift --version
-          [[ "$(sw_vers -productVersion)" == 26.* ]]
-          swift --version | grep -Eq 'Swift version 6\.2([.[:digit:]]*)?'
+            swiftpm-${{ runner.os }}-${{ runner.arch }}-swift${{ steps.toolchain.outputs.swift-version }}-
 
       - name: Build Swift package
         run: swift build
