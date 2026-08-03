@@ -412,8 +412,13 @@ extension CodexCoreAppModel {
                     "turnId": .string(turn.key.turnID.rawValue),
                     "status": .string("started"),
                 ])
-                Task {
-                    _ = try? await turn.awaitTerminal()
+                Task { [weak self] in
+                    guard let self else { return }
+                    _ = try? await self.withProcessActivity(
+                        reason: "Running Voice task in \(lease.id.rawValue)"
+                    ) {
+                        try await turn.awaitTerminal()
+                    }
                     await lease.close()
                     await self.refreshRecentChats()
                 }

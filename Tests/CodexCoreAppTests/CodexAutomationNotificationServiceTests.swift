@@ -34,4 +34,23 @@ final class CodexAutomationNotificationServiceTests: XCTestCase {
                 && Bundle.main.bundleIdentifier != nil
         )
     }
+
+    func testUnbundledLaunchExposesDisabledAuthorizationStatus() {
+        let service = CodexAutomationNotificationService(
+            bundle: Bundle(for: Self.self)
+        )
+
+        XCTAssertFalse(service.isAvailable)
+        XCTAssertEqual(service.authorizationStatus, .unavailable)
+        XCTAssertNil(service.authorizationError)
+    }
+
+    @MainActor
+    func testDefaultModelReportsNoTerminationWork() {
+        let model = CodexCoreAppModel()
+
+        XCTAssertFalse(model.hasInFlightWork)
+        XCTAssertEqual(model.terminationConfirmationMessage, "Quit CodexCore?")
+        XCTAssertNil(model.configRequirements)
+    }
 }
