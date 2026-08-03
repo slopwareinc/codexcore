@@ -6,14 +6,39 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         public var name: String
         public var title: String?
         public var detail: String?
+        public var inputSchema: CodexJSONValue?
+        public var parameters: [String]
+        public var readOnlyHint: Bool?
+        public var idempotentHint: Bool?
+        public var destructiveHint: Bool?
+        public var openWorldHint: Bool?
+        public var approvalMode: CodexMCPToolApprovalMode?
 
         public var id: String { name }
         public var displayName: String { title?.nilIfBlank ?? name }
 
-        public init(name: String, title: String? = nil, detail: String? = nil) {
+        public init(
+            name: String,
+            title: String? = nil,
+            detail: String? = nil,
+            inputSchema: CodexJSONValue? = nil,
+            parameters: [String] = [],
+            readOnlyHint: Bool? = nil,
+            idempotentHint: Bool? = nil,
+            destructiveHint: Bool? = nil,
+            openWorldHint: Bool? = nil,
+            approvalMode: CodexMCPToolApprovalMode? = nil
+        ) {
             self.name = name
             self.title = title
             self.detail = detail
+            self.inputSchema = inputSchema
+            self.parameters = parameters
+            self.readOnlyHint = readOnlyHint
+            self.idempotentHint = idempotentHint
+            self.destructiveHint = destructiveHint
+            self.openWorldHint = openWorldHint
+            self.approvalMode = approvalMode
         }
     }
 
@@ -22,8 +47,13 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     public var version: String?
     public var detail: String?
     public var authStatus: String
-    public var startupStatus: String?
+    public var enabled: Bool
+    public var startupState: CodexSchemaMCPServerStartupState?
     public var error: String?
+    public var failureReason: CodexSchemaMCPServerStartupFailureReason?
+    public var enabledTools: [String]?
+    public var disabledTools: [String]
+    public var defaultToolsApprovalMode: CodexMCPToolApprovalMode?
     public var tools: [Entry]
     public var resources: [Entry]
     public var resourceTemplates: [Entry]
@@ -36,8 +66,13 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         version: String? = nil,
         detail: String? = nil,
         authStatus: String = "unknown",
+        enabled: Bool = true,
         startupStatus: String? = nil,
         error: String? = nil,
+        failureReason: CodexSchemaMCPServerStartupFailureReason? = nil,
+        enabledTools: [String]? = nil,
+        disabledTools: [String] = [],
+        defaultToolsApprovalMode: CodexMCPToolApprovalMode? = nil,
         tools: [Entry] = [],
         resources: [Entry] = [],
         resourceTemplates: [Entry] = []
@@ -47,8 +82,13 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         self.version = version
         self.detail = detail
         self.authStatus = authStatus
-        self.startupStatus = startupStatus
+        self.enabled = enabled
+        self.startupState = startupStatus.flatMap(CodexSchemaMCPServerStartupState.init(rawValue:))
         self.error = error
+        self.failureReason = failureReason
+        self.enabledTools = enabledTools
+        self.disabledTools = disabledTools
+        self.defaultToolsApprovalMode = defaultToolsApprovalMode
         self.tools = tools
         self.resources = resources
         self.resourceTemplates = resourceTemplates
@@ -74,8 +114,17 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             version: version,
             detail: detail,
             authStatus: Self.string(in: object, keys: ["authStatus", "auth", "authentication"]) ?? "unknown",
+            enabled: CodexJSONCoercion.bool(in: object, key: "enabled") ?? true,
             startupStatus: Self.string(in: object, keys: ["status", "startupStatus", "state"]),
             error: Self.string(in: object, keys: ["error"]),
+            failureReason: Self.string(in: object, keys: ["failureReason"])
+                .flatMap(CodexSchemaMCPServerStartupFailureReason.init(rawValue:)),
+            enabledTools: Self.strings(from: object["enabled_tools"] ?? object["enabledTools"]),
+            disabledTools: Self.strings(from: object["disabled_tools"] ?? object["disabledTools"]) ?? [],
+            defaultToolsApprovalMode: Self.string(
+                in: object,
+                keys: ["default_tools_approval_mode", "defaultToolsApprovalMode"]
+            ).flatMap(CodexMCPToolApprovalMode.init(rawValue:)),
             tools: Self.entries(from: object["tools"]),
             resources: Self.entries(from: object["resources"]),
             resourceTemplates: Self.entries(from: object["resourceTemplates"])
@@ -109,6 +158,11 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         }
     }
 
+    public var startupStatus: String? {
+        get { startupState?.rawValue }
+        set { startupState = newValue.flatMap(CodexSchemaMCPServerStartupState.init(rawValue:)) }
+    }
+
     public var inventorySummary: String {
         let toolLabel = tools.count == 1 ? "1 tool" : "\(tools.count) tools"
         let resourceCount = resources.count + resourceTemplates.count
@@ -116,11 +170,24 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         return "\(toolLabel) · \(resourceLabel)"
     }
 
-    public func applyingStartupStatus(_ status: String, error: String?) -> CodexMCPServerStatus {
+    public func applyingStartupStatus(
+        _ status: CodexSchemaMCPServerStartupState,
+        error: String?,
+        failureReason: CodexSchemaMCPServerStartupFailureReason? = nil
+    ) -> CodexMCPServerStatus {
         var copy = self
-        copy.startupStatus = status
+        copy.startupState = status
         copy.error = error
+        copy.failureReason = failureReason
         return copy
+    }
+
+
+    public func applyingStartupStatus(_ status: String, error: String?) -> CodexMCPServerStatus {
+        applyingStartupStatus(
+            CodexSchemaMCPServerStartupState(rawValue: status) ?? .unrecognized(status),
+            error: error
+        )
     }
 
     private static func entries(from value: CodexJSONValue?) -> [Entry] {
@@ -148,7 +215,22 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         let name = string(in: object, keys: ["name", "id", "uri", "uriTemplate"])?.nilIfBlank ?? fallbackName
         let title = string(in: object, keys: ["title"])
         let detail = string(in: object, keys: ["description", "uri", "uriTemplate", "mimeType"])
-        return Entry(name: name, title: title, detail: detail)
+        let inputSchema = object["inputSchema"] ?? object["input_schema"]
+        let annotations = dictionary(from: object["annotations"])
+        let toolConfig = dictionary(from: object["config"])
+        return Entry(
+            name: name,
+            title: title,
+            detail: detail,
+            inputSchema: inputSchema,
+            parameters: parameterNames(from: inputSchema),
+            readOnlyHint: bool(in: annotations, keys: ["readOnlyHint", "read_only_hint"]),
+            idempotentHint: bool(in: annotations, keys: ["idempotentHint", "idempotent_hint"]),
+            destructiveHint: bool(in: annotations, keys: ["destructiveHint", "destructive_hint"]),
+            openWorldHint: bool(in: annotations, keys: ["openWorldHint", "open_world_hint"]),
+            approvalMode: string(in: toolConfig, keys: ["approval_mode", "approvalMode"])
+                .flatMap(CodexMCPToolApprovalMode.init(rawValue:))
+        )
     }
 
     private static func dictionary(from value: CodexJSONValue?) -> [String: CodexJSONValue] {
@@ -162,6 +244,282 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             return string
         }
         return nil
+    }
+
+    private static func strings(from value: CodexJSONValue?) -> [String]? {
+        guard case .array(let values)? = value else { return nil }
+        return values.compactMap(CodexJSONCoercion.flatString(from:))
+    }
+
+    private static func bool(in object: [String: CodexJSONValue], keys: [String]) -> Bool? {
+        for key in keys {
+            if let value = CodexJSONCoercion.bool(in: object, key: key) { return value }
+        }
+        return nil
+    }
+
+    private static func parameterNames(from value: CodexJSONValue?) -> [String] {
+        guard case .dictionary(let schema)? = value,
+              case .dictionary(let properties)? = schema["properties"] else { return [] }
+        let required = Set(strings(from: schema["required"]) ?? [])
+        return properties.keys.sorted().map { required.contains($0) ? "\($0) *" : $0 }
+    }
+}
+
+public enum CodexMCPToolApprovalMode: String, CaseIterable, Equatable, Sendable {
+    case auto
+    case prompt
+    case writes
+    case approve
+}
+
+public struct CodexMCPServerConfiguration: Equatable, Sendable {
+    public enum Transport: String, CaseIterable, Equatable, Sendable {
+        case stdio
+        case streamableHTTP
+    }
+
+    public var name: String
+    public var enabled: Bool
+    public var transport: Transport
+    public var command: String
+    public var arguments: [String]
+    public var workingDirectory: String?
+    public var environment: [String: String]
+    public var environmentPassthrough: [String]
+    public var url: String
+    public var bearerTokenEnvironmentVariable: String?
+    public var httpHeaders: [String: String]
+    public var environmentHTTPHeaders: [String: String]
+    public var startupTimeoutSeconds: Double?
+    public var toolTimeoutSeconds: Double?
+    public var enabledTools: [String]?
+    public var disabledTools: [String]
+    public var defaultToolsApprovalMode: CodexMCPToolApprovalMode?
+    public var toolApprovalModes: [String: CodexMCPToolApprovalMode]
+
+    public init(
+        name: String,
+        enabled: Bool = true,
+        transport: Transport = .stdio,
+        command: String = "",
+        arguments: [String] = [],
+        workingDirectory: String? = nil,
+        environment: [String: String] = [:],
+        environmentPassthrough: [String] = [],
+        url: String = "",
+        bearerTokenEnvironmentVariable: String? = nil,
+        httpHeaders: [String: String] = [:],
+        environmentHTTPHeaders: [String: String] = [:],
+        startupTimeoutSeconds: Double? = nil,
+        toolTimeoutSeconds: Double? = nil,
+        enabledTools: [String]? = nil,
+        disabledTools: [String] = [],
+        defaultToolsApprovalMode: CodexMCPToolApprovalMode? = nil,
+        toolApprovalModes: [String: CodexMCPToolApprovalMode] = [:]
+    ) {
+        self.name = name
+        self.enabled = enabled
+        self.transport = transport
+        self.command = command
+        self.arguments = arguments
+        self.workingDirectory = workingDirectory
+        self.environment = environment
+        self.environmentPassthrough = environmentPassthrough
+        self.url = url
+        self.bearerTokenEnvironmentVariable = bearerTokenEnvironmentVariable
+        self.httpHeaders = httpHeaders
+        self.environmentHTTPHeaders = environmentHTTPHeaders
+        self.startupTimeoutSeconds = startupTimeoutSeconds
+        self.toolTimeoutSeconds = toolTimeoutSeconds
+        self.enabledTools = enabledTools
+        self.disabledTools = disabledTools
+        self.defaultToolsApprovalMode = defaultToolsApprovalMode
+        self.toolApprovalModes = toolApprovalModes
+    }
+
+    public var configValue: CodexJSONValue {
+        var object: [String: CodexJSONValue] = ["enabled": .bool(enabled)]
+        switch transport {
+        case .stdio:
+            object["command"] = .string(command)
+            if !arguments.isEmpty { object["args"] = .array(arguments.map(CodexJSONValue.string)) }
+            if let workingDirectory = workingDirectory?.nilIfBlank { object["cwd"] = .string(workingDirectory) }
+            if !environment.isEmpty { object["env"] = .dictionary(environment.mapValues(CodexJSONValue.string)) }
+            if !environmentPassthrough.isEmpty {
+                object["env_vars"] = .array(environmentPassthrough.map(CodexJSONValue.string))
+            }
+        case .streamableHTTP:
+            object["url"] = .string(url)
+            if let bearerTokenEnvironmentVariable = bearerTokenEnvironmentVariable?.nilIfBlank {
+                object["bearer_token_env_var"] = .string(bearerTokenEnvironmentVariable)
+            }
+            if !httpHeaders.isEmpty { object["http_headers"] = .dictionary(httpHeaders.mapValues(CodexJSONValue.string)) }
+            if !environmentHTTPHeaders.isEmpty {
+                object["env_http_headers"] = .dictionary(environmentHTTPHeaders.mapValues(CodexJSONValue.string))
+            }
+        }
+        if let startupTimeoutSeconds { object["startup_timeout_sec"] = .double(startupTimeoutSeconds) }
+        if let toolTimeoutSeconds { object["tool_timeout_sec"] = .double(toolTimeoutSeconds) }
+        if let enabledTools { object["enabled_tools"] = .array(enabledTools.map(CodexJSONValue.string)) }
+        if !disabledTools.isEmpty { object["disabled_tools"] = .array(disabledTools.map(CodexJSONValue.string)) }
+        if let defaultToolsApprovalMode {
+            object["default_tools_approval_mode"] = .string(defaultToolsApprovalMode.rawValue)
+        }
+        if !toolApprovalModes.isEmpty {
+            object["tools"] = .dictionary(toolApprovalModes.mapValues {
+                .dictionary(["approval_mode": .string($0.rawValue)])
+            })
+        }
+        return .dictionary(object)
+    }
+}
+
+public struct CodexHookSummary: Identifiable, Equatable, Sendable {
+    public static let productEvents: [CodexSchemaHookEventName] = [
+        .preToolUse, .permissionRequest, .postToolUse, .preCompact, .postCompact,
+        .sessionStart, .sessionEnd, .userPromptSubmit, .subagentStart, .subagentStop,
+    ]
+
+    public var id: String
+    public var cwd: String
+    public var event: CodexSchemaHookEventName
+    public var matcher: String?
+    public var source: CodexSchemaHookSource
+    public var sourcePath: String
+    public var trustStatus: CodexSchemaHookTrustStatus
+    public var enabled: Bool
+    public var managed: Bool
+    public var handlerType: CodexSchemaHookHandlerType
+    public var command: String?
+    public var statusMessage: String?
+
+    public init(
+        id: String,
+        cwd: String,
+        event: CodexSchemaHookEventName,
+        matcher: String? = nil,
+        source: CodexSchemaHookSource,
+        sourcePath: String,
+        trustStatus: CodexSchemaHookTrustStatus,
+        enabled: Bool,
+        managed: Bool,
+        handlerType: CodexSchemaHookHandlerType,
+        command: String? = nil,
+        statusMessage: String? = nil
+    ) {
+        self.id = id
+        self.cwd = cwd
+        self.event = event
+        self.matcher = matcher
+        self.source = source
+        self.sourcePath = sourcePath
+        self.trustStatus = trustStatus
+        self.enabled = enabled
+        self.managed = managed
+        self.handlerType = handlerType
+        self.command = command
+        self.statusMessage = statusMessage
+    }
+
+    public var sourceLabel: String {
+        if managed || source == .mdm || source == .cloudManagedConfig || source == .legacyManagedConfigMdm {
+            return "Managed"
+        }
+        switch source {
+        case .plugin: return "Plugin"
+        case .project: return "Project"
+        default: return "Config"
+        }
+    }
+
+    public var trustLabel: String { trustStatus.rawValue.capitalized }
+
+    public var eventLabel: String {
+        switch event {
+        case .preToolUse: "PreToolUse"
+        case .permissionRequest: "PermissionRequest"
+        case .postToolUse: "PostToolUse"
+        case .preCompact: "PreCompact"
+        case .postCompact: "PostCompact"
+        case .sessionStart: "SessionStart"
+        case .sessionEnd: "SessionEnd"
+        case .userPromptSubmit: "UserPromptSubmit"
+        case .subagentStart: "SubagentStart"
+        case .subagentStop: "SubagentStop"
+        case .stop: "Stop"
+        case .unrecognized(let value): value
+        }
+    }
+}
+
+public struct CodexHooksCatalog: Equatable, Sendable {
+    public var hooks: [CodexHookSummary]
+    public var warnings: [String]
+    public var errors: [String]
+
+    public init(hooks: [CodexHookSummary] = [], warnings: [String] = [], errors: [String] = []) {
+        self.hooks = hooks
+        self.warnings = warnings
+        self.errors = errors
+    }
+
+    public init(raw response: CodexJSONValue) {
+        guard case .dictionary(let object) = response,
+              case .array(let entries)? = object["data"] else {
+            self.init()
+            return
+        }
+        var hooks: [CodexHookSummary] = []
+        var warnings: [String] = []
+        var errors: [String] = []
+        for entry in entries {
+            guard case .dictionary(let entryObject) = entry else { continue }
+            let cwd = CodexJSONCoercion.flatString(from: entryObject["cwd"]) ?? ""
+            if case .array(let values)? = entryObject["warnings"] {
+                warnings += values.compactMap(CodexJSONCoercion.flatString(from:))
+            }
+            if case .array(let values)? = entryObject["errors"] {
+                errors += values.compactMap { value in
+                    guard case .dictionary(let error) = value else { return nil }
+                    let path = CodexJSONCoercion.flatString(from: error["path"])
+                    let message = CodexJSONCoercion.flatString(from: error["message"])
+                    return [path, message].compactMap { $0?.nilIfBlank }.joined(separator: ": ").nilIfBlank
+                }
+            }
+            guard case .array(let values)? = entryObject["hooks"] else { continue }
+            hooks += values.compactMap { value in
+                guard case .dictionary(let hook) = value,
+                      let key = CodexJSONCoercion.flatString(from: hook["key"]),
+                      let eventRaw = CodexJSONCoercion.flatString(from: hook["eventName"]),
+                      let event = CodexSchemaHookEventName(rawValue: eventRaw),
+                      let sourceRaw = CodexJSONCoercion.flatString(from: hook["source"]),
+                      let source = CodexSchemaHookSource(rawValue: sourceRaw),
+                      let trustRaw = CodexJSONCoercion.flatString(from: hook["trustStatus"]),
+                      let trust = CodexSchemaHookTrustStatus(rawValue: trustRaw),
+                      let handlerRaw = CodexJSONCoercion.flatString(from: hook["handlerType"]),
+                      let handler = CodexSchemaHookHandlerType(rawValue: handlerRaw) else { return nil }
+                return CodexHookSummary(
+                    id: "\(cwd):\(key)",
+                    cwd: cwd,
+                    event: event,
+                    matcher: CodexJSONCoercion.flatString(from: hook["matcher"]),
+                    source: source,
+                    sourcePath: CodexJSONCoercion.flatString(from: hook["sourcePath"]) ?? "",
+                    trustStatus: trust,
+                    enabled: CodexJSONCoercion.bool(in: hook, key: "enabled") ?? false,
+                    managed: CodexJSONCoercion.bool(in: hook, key: "isManaged") ?? false,
+                    handlerType: handler,
+                    command: CodexJSONCoercion.flatString(from: hook["command"]),
+                    statusMessage: CodexJSONCoercion.flatString(from: hook["statusMessage"])
+                )
+            }
+        }
+        self.init(
+            hooks: hooks.sorted { ($0.event.rawValue, $0.id) < ($1.event.rawValue, $1.id) },
+            warnings: warnings,
+            errors: errors
+        )
     }
 }
 
@@ -208,6 +566,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var sourceType: String?
     public var sourceDetail: String?
     public var localVersion: String?
+    public var availableVersion: String?
     public var defaultPrompt: String?
     public var websiteURL: String?
     public var privacyPolicyURL: String?
@@ -237,6 +596,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         sourceType: String? = nil,
         sourceDetail: String? = nil,
         localVersion: String? = nil,
+        availableVersion: String? = nil,
         defaultPrompt: String? = nil,
         websiteURL: String? = nil,
         privacyPolicyURL: String? = nil,
@@ -265,6 +625,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.sourceType = sourceType
         self.sourceDetail = sourceDetail
         self.localVersion = localVersion
+        self.availableVersion = availableVersion
         self.defaultPrompt = defaultPrompt
         self.websiteURL = websiteURL
         self.privacyPolicyURL = privacyPolicyURL
@@ -305,6 +666,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             sourceType: Self.string(in: source, keys: ["type"]),
             sourceDetail: Self.sourceDetail(from: source),
             localVersion: Self.string(in: object, keys: ["localVersion"]),
+            availableVersion: Self.string(in: object, keys: ["version"]),
             defaultPrompt: Self.prompt(from: interface["defaultPrompt"]),
             websiteURL: Self.string(in: interface, keys: ["websiteUrl"]),
             privacyPolicyURL: Self.string(in: interface, keys: ["privacyPolicyUrl"]),
@@ -517,6 +879,11 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     public var enabled: Bool
     public var defaultPrompt: String?
     public var dependencies: [String]
+    public var allowedTools: [String]
+    public var disablesModelInvocation: Bool
+    public var icon: CodexPluginIconReference
+    public var remoteMarketplaceName: String?
+    public var remotePluginID: String?
 
     public var id: String { path }
 
@@ -529,7 +896,12 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         scope: String? = nil,
         enabled: Bool = true,
         defaultPrompt: String? = nil,
-        dependencies: [String] = []
+        dependencies: [String] = [],
+        allowedTools: [String] = [],
+        disablesModelInvocation: Bool = false,
+        icon: CodexPluginIconReference = .init(),
+        remoteMarketplaceName: String? = nil,
+        remotePluginID: String? = nil
     ) {
         self.name = name
         self.displayName = displayName?.nilIfBlank ?? name
@@ -540,6 +912,11 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         self.enabled = enabled
         self.defaultPrompt = defaultPrompt
         self.dependencies = dependencies
+        self.allowedTools = allowedTools
+        self.disablesModelInvocation = disablesModelInvocation
+        self.icon = icon
+        self.remoteMarketplaceName = remoteMarketplaceName
+        self.remotePluginID = remotePluginID
     }
 
     public init?(raw value: CodexJSONValue) {
@@ -549,6 +926,8 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
             return nil
         }
         let interface = Self.dictionary(in: object, key: "interface")
+        let iconSmall = interface.flatMap { Self.string(in: $0, keys: ["iconSmallUrl", "icon_small_url", "iconSmall"]) }
+        let iconLarge = interface.flatMap { Self.string(in: $0, keys: ["iconLargeUrl", "icon_large_url", "iconLarge"]) }
         self.init(
             name: name,
             displayName: interface.flatMap { Self.string(in: $0, keys: ["displayName"]) },
@@ -558,7 +937,14 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
             scope: Self.string(in: object, keys: ["scope"]),
             enabled: CodexJSONCoercion.bool(in: object, key: "enabled") ?? true,
             defaultPrompt: interface.flatMap { Self.prompt(from: $0["defaultPrompt"]) },
-            dependencies: Self.dependencies(from: object["dependencies"])
+            dependencies: Self.dependencies(from: object["dependencies"]),
+            allowedTools: Self.stringList(from: object["allowed-tools"] ?? object["allowed_tools"] ?? object["allowedTools"]),
+            disablesModelInvocation: Self.bool(
+                from: object["disable-model-invocation"] ?? object["disable_model_invocation"] ?? object["disableModelInvocation"]
+            ) ?? false,
+            icon: .init(logo: iconSmall ?? iconLarge, logoDark: iconLarge),
+            remoteMarketplaceName: Self.string(in: object, keys: ["remoteMarketplaceName"]),
+            remotePluginID: Self.string(in: object, keys: ["remotePluginId", "remotePluginID"])
         )
     }
 
@@ -638,6 +1024,17 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         }.sorted()
     }
 
+    private static func stringList(from value: CodexJSONValue?) -> [String] {
+        switch value {
+        case .array(let values):
+            return values.compactMap(CodexJSONCoercion.flatString(from:))
+        case .string(let value):
+            return value.split(whereSeparator: { $0 == "," || $0.isWhitespace }).map(String.init)
+        case .dictionary, .int, .double, .bool, .null, nil:
+            return []
+        }
+    }
+
     private static func bool(from value: CodexJSONValue?) -> Bool? {
         switch value {
         case .bool(let bool): return bool
@@ -646,6 +1043,37 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         case .double(let double): return double != 0
         case .array, .dictionary, .null, nil: return nil
         }
+    }
+}
+
+public struct CodexSkillDocument: Equatable, Sendable {
+    public var body: String
+    public var allowedTools: [String]
+    public var disablesModelInvocation: Bool
+
+    public init(contents: String) {
+        let normalized = contents.replacingOccurrences(of: "\r\n", with: "\n")
+        guard normalized.hasPrefix("---\n"),
+              let end = normalized.dropFirst(4).range(of: "\n---\n") else {
+            self.body = normalized
+            self.allowedTools = []
+            self.disablesModelInvocation = false
+            return
+        }
+        let frontmatter = String(normalized[normalized.index(normalized.startIndex, offsetBy: 4)..<end.lowerBound])
+        self.body = String(normalized[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        var fields: [String: String] = [:]
+        for line in frontmatter.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count == 2 { fields[parts[0].trimmingCharacters(in: .whitespaces)] = parts[1].trimmingCharacters(in: .whitespaces) }
+        }
+        let allowed = fields["allowed-tools"] ?? fields["allowed_tools"] ?? ""
+        self.allowedTools = allowed
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]\"'"))
+            .split(whereSeparator: { $0 == "," || $0.isWhitespace })
+            .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) }
+            .filter { !$0.isEmpty }
+        self.disablesModelInvocation = Bool(fields["disable-model-invocation"] ?? "") ?? false
     }
 }
 

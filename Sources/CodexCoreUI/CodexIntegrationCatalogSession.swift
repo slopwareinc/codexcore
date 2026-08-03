@@ -22,6 +22,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public private(set) var skills: [CodexSkillSummary]
     public private(set) var isLoadingSkills: Bool
     public private(set) var skillErrorMessage: String?
+    public private(set) var hooksCatalog: CodexHooksCatalog
+    public private(set) var isLoadingHooks: Bool
+    public private(set) var hooksErrorMessage: String?
 
     public init(
         mcpServers: [CodexMCPServerStatus] = [],
@@ -33,7 +36,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         pluginLoadErrors: [String] = [],
         skills: [CodexSkillSummary] = [],
         isLoadingSkills: Bool = false,
-        skillErrorMessage: String? = nil
+        skillErrorMessage: String? = nil,
+        hooksCatalog: CodexHooksCatalog = .init(),
+        isLoadingHooks: Bool = false,
+        hooksErrorMessage: String? = nil
     ) {
         self.mcpServers = mcpServers
         self.isLoadingMCPServers = isLoadingMCPServers
@@ -45,6 +51,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         self.skills = skills
         self.isLoadingSkills = isLoadingSkills
         self.skillErrorMessage = skillErrorMessage
+        self.hooksCatalog = hooksCatalog
+        self.isLoadingHooks = isLoadingHooks
+        self.hooksErrorMessage = hooksErrorMessage
     }
 
     public mutating func reset() {
@@ -58,6 +67,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         skills = []
         isLoadingSkills = false
         skillErrorMessage = nil
+        hooksCatalog = .init()
+        isLoadingHooks = false
+        hooksErrorMessage = nil
     }
 
     public mutating func requireMCPConnection(message: String) {
@@ -103,6 +115,42 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingMCPServers = false
         mcpErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "MCP status unavailable", detail: message)
+    }
+
+    @discardableResult
+    public mutating func applyMCPStartupStatus(
+        _ notification: CodexSchemaMCPServerStatusUpdatedNotification
+    ) -> Bool {
+        guard let index = mcpServers.firstIndex(where: { $0.name == notification.name }) else { return false }
+        mcpServers[index] = mcpServers[index].applyingStartupStatus(
+            notification.status,
+            error: notification.error,
+            failureReason: notification.failureReason
+        )
+        return true
+    }
+
+    @discardableResult
+    public mutating func setMCPEnabledOptimistically(name: String, enabled: Bool) -> Bool? {
+        guard let index = mcpServers.firstIndex(where: { $0.name == name }) else { return nil }
+        let previous = mcpServers[index].enabled
+        mcpServers[index].enabled = enabled
+        return previous
+    }
+
+    @discardableResult
+    public mutating func performMCPMutation(
+        _ request: CodexIntegrationControlPlaneRequest,
+        using provider: any CodexIntegrationControlPlaneProvider,
+        errorMessage: (Error) -> String
+    ) async -> CodexIntegrationCatalogActivity {
+        do {
+            _ = try await provider.perform(request)
+            _ = try await provider.perform(.mcpReload)
+            return .init(title: "Updated MCP servers", detail: "Configuration reloaded")
+        } catch {
+            return .init(title: "MCP update failed", detail: errorMessage(error))
+        }
     }
 
     public mutating func requirePluginConnection(message: String) {
@@ -208,5 +256,34 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingSkills = false
         skillErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "Skill list unavailable", detail: message)
+    }
+
+    public mutating func beginHooksRefresh() {
+        isLoadingHooks = true
+        hooksErrorMessage = nil
+    }
+
+    @discardableResult
+    public mutating func applyHooksResponse(_ raw: CodexJSONValue) -> CodexIntegrationCatalogActivity {
+        hooksCatalog = CodexHooksCatalog(raw: raw)
+        isLoadingHooks = false
+        hooksErrorMessage = nil
+        return .init(title: "Loaded hooks", detail: "\(hooksCatalog.hooks.count) configured")
+    }
+
+    @discardableResult
+    public mutating func refreshHooks(
+        using provider: any CodexIntegrationControlPlaneProvider,
+        cwds: [String],
+        errorMessage: (Error) -> String
+    ) async -> CodexIntegrationCatalogActivity {
+        beginHooksRefresh()
+        do {
+            return applyHooksResponse(try await provider.perform(.hooksList(.init(cwds: cwds.isEmpty ? nil : cwds))))
+        } catch {
+            isLoadingHooks = false
+            hooksErrorMessage = errorMessage(error)
+            return .init(title: "Hooks unavailable", detail: errorMessage(error))
+        }
     }
 }

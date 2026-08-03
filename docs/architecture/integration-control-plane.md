@@ -26,6 +26,13 @@ Catalog refresh also hydrates `app/list`, `app/installed`, `plugin/installed`,
 MCP summary projections remain presentation models; they are not protocol
 owners.
 
+`CodexPluginRouteView` and `CodexMCPStatusSheet` accept an optional
+`CodexIntegrationControlPlaneProvider`. Hosts supply the connected
+`CodexAppServerIntegrationControlPlaneProvider` to enable direct marketplace,
+skill-read, MCP mutation, and MCP authentication controls. Omitting it leaves
+mutation controls disabled while previews and disconnected gallery fixtures
+remain usable.
+
 ## Permission and loading boundaries
 
 Every request declares its surface and, where relevant, a
@@ -53,3 +60,49 @@ Generated protocol files are pinned to the runtime in `Tools/UPSTREAM_VERSION`.
 If a future runtime lacks one of these methods, follow
 `docs/contributing/protocol-upgrades.md`; never edit generated requests or
 schema types by hand.
+
+## MCP management contract
+
+`CodexMCPServerConfiguration` is the UI-owned lossless configuration model for
+both stdio and streamable HTTP transports. It includes environment passthrough,
+HTTP authentication/header sources, startup and tool timeouts, allow/deny tool
+lists, server-default approval, and per-tool approval. Mutations target
+`mcp_servers.<name>` through generated `config/value/write` requests. A
+successful write, enable toggle, or removal is immediately followed by
+`config/mcpServer/reload`; a failed write must never trigger reload.
+
+Status and configuration are separate dimensions. `enabled` comes from config;
+`CodexSchemaMCPServerStartupState` comes from the canonical
+`mcpServer/startupStatus/updated` stream. Unknown startup states are rendered as
+unknown, never as success, and notification `failureReason` remains typed.
+OAuth UI registers `observeMCPServerOAuthLogin` before issuing
+`mcpServer/oauth/login`, opens the returned authorization URL, and waits for the
+bounded completion observer rather than polling.
+
+The generated `CodexSchemaConfig` currently omits `mcp_servers`, even though the
+runtime accepts these keys. Therefore the host must retain the
+`CodexMCPServerConfiguration` values it supplies to the sheet (including values
+written during the current session); generated files are not patched locally.
+
+## Marketplace, skill, and hook projections
+
+Marketplace management calls `marketplace/add`, `marketplace/remove`, and
+`marketplace/upgrade` directly. Installed and available versions remain
+separate so the UI can label known updates while still allowing an explicit
+update check when version metadata is absent.
+
+Skill detail registers a `plugin/skill/read` request on presentation and renders
+the returned body. `allowed-tools` and `disable-model-invocation` are security
+metadata, not decoration: they are shown alongside the body, and skill icons use
+the schema-provided small/large URLs. Personal-skill removal stays behind an
+explicit destructive confirmation.
+
+`CodexIntegrationCatalogSession.applyHooksResponse(_:)` projects the resolved
+`hooks/list` response into `CodexHooksCatalog`. `CodexHooksListView` displays the
+event, matcher, source attribution, trust, handler, and blocking status message.
+The host refresh call should assign the existing response instead of discarding
+it:
+
+```swift
+runtimeSession.integrationCatalogSession.applyHooksResponse(response)
+```

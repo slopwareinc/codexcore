@@ -138,6 +138,28 @@ public enum CodexIntegrationControlPlanePhase: Equatable, Sendable {
 
 public protocol CodexIntegrationControlPlaneProvider: Sendable {
     func perform(_ request: CodexIntegrationControlPlaneRequest) async throws -> CodexJSONValue
+    func observeMCPServerOAuthLogin(
+        name: String,
+        threadID: String?
+    ) async throws -> AsyncThrowingStream<CodexSchemaMCPServerOAuthLoginCompletedNotification, Error>
+    func observeMCPServerStartupStatus(
+        threadID: String?
+    ) async throws -> AsyncStream<CodexSchemaMCPServerStatusUpdatedNotification>
+}
+
+public extension CodexIntegrationControlPlaneProvider {
+    func observeMCPServerOAuthLogin(
+        name: String,
+        threadID: String?
+    ) async throws -> AsyncThrowingStream<CodexSchemaMCPServerOAuthLoginCompletedNotification, Error> {
+        throw CodexIntegrationControlPlaneError("MCP OAuth completion observation is unavailable.")
+    }
+
+    func observeMCPServerStartupStatus(
+        threadID: String?
+    ) async throws -> AsyncStream<CodexSchemaMCPServerStatusUpdatedNotification> {
+        throw CodexIntegrationControlPlaneError("MCP startup observation is unavailable.")
+    }
 }
 
 public struct CodexAppServerIntegrationControlPlaneProvider: CodexIntegrationControlPlaneProvider {
@@ -182,6 +204,46 @@ public struct CodexAppServerIntegrationControlPlaneProvider: CodexIntegrationCon
         }
     }
 
+    public func observeMCPServerOAuthLogin(
+        name: String,
+        threadID: String?
+    ) async throws -> AsyncThrowingStream<CodexSchemaMCPServerOAuthLoginCompletedNotification, Error> {
+        try await codex.observeMCPServerOAuthLogin(name: name, threadID: threadID)
+    }
+
+    public func observeMCPServerStartupStatus(
+        threadID: String?
+    ) async throws -> AsyncStream<CodexSchemaMCPServerStatusUpdatedNotification> {
+        let scope = StateObservationScope.global(fields: .mcpServerStartup)
+        let observation = await codex.session.observe(scope: scope)
+        return AsyncStream(bufferingPolicy: .bufferingNewest(32)) { continuation in
+            let task = Task {
+                var revisions: [CanonicalMCPServerStartupKey: StateRevision] = [:]
+                func publish(_ snapshot: CanonicalStateSnapshot) {
+                    for (key, value) in snapshot.mcpServerStartupStatuses
+                    where key.threadID?.rawValue == threadID && revisions[key] != value.lastChangedRevision {
+                        revisions[key] = value.lastChangedRevision
+                        continuation.yield(.init(
+                            error: value.error,
+                            failureReason: value.failureReason,
+                            name: key.serverName,
+                            status: value.status,
+                            threadID: key.threadID?.rawValue
+                        ))
+                    }
+                }
+                publish(observation.seed)
+                for await _ in observation.signals {
+                    guard !Task.isCancelled else { break }
+                    publish(await codex.session.canonicalSnapshot(scope: scope))
+                }
+                await codex.session.cancelObservation(observation.id)
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+
     private func encode<T: Encodable>(_ value: T) throws -> CodexJSONValue {
         try CodexJSONValue(encoding: value)
     }
@@ -205,6 +267,90 @@ public struct CodexIntegrationControlPlaneError: LocalizedError, Equatable, Send
     public var errorDescription: String? { message }
 }
 
+public enum CodexMCPAuthenticationError: LocalizedError, Equatable, Sendable {
+    case insufficientScope(requiredScope: String?, upgradeURL: URL?)
+    case authorizationRequired
+    case tokenExpired
+    case tokenRefreshFailed
+    case authorizationServerMismatch
+    case other(String)
+
+    public init(message: String) {
+        let normalized = message.lowercased()
+        if normalized.contains("insufficient_scope") || normalized.contains("insufficientscope") {
+            self = .insufficientScope(
+                requiredScope: Self.field("required_scope", in: message),
+                upgradeURL: Self.field("upgrade_url", in: message).flatMap(URL.init(string:))
+            )
+        } else if normalized.contains("authorizationrequired") || normalized.contains("authorization_required") {
+            self = .authorizationRequired
+        } else if normalized.contains("tokenexpired") || normalized.contains("token_expired") {
+            self = .tokenExpired
+        } else if normalized.contains("tokenrefreshfailed") || normalized.contains("token_refresh_failed") {
+            self = .tokenRefreshFailed
+        } else if normalized.contains("authorizationservermismatch") || normalized.contains("authorization_server_mismatch") {
+            self = .authorizationServerMismatch
+        } else {
+            self = .other(message)
+        }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .insufficientScope(let requiredScope, _):
+            requiredScope.map { "This server requires the \($0) scope." } ?? "This login lacks a required scope."
+        case .authorizationRequired: "Authorization is required."
+        case .tokenExpired: "The authorization token expired. Log in again."
+        case .tokenRefreshFailed: "The authorization token could not be refreshed. Log in again."
+        case .authorizationServerMismatch: "The server’s authorization endpoint changed. Verify the server and log in again."
+        case .other(let message): message
+        }
+    }
+
+    private static func field(_ name: String, in message: String) -> String? {
+        let separators = CharacterSet(charactersIn: " ,;}\n\t\"")
+        guard let range = message.range(of: name, options: .caseInsensitive) else { return nil }
+        let suffix = message[range.upperBound...].drop(while: { $0 == ":" || $0 == "=" || $0 == " " || $0 == "\"" })
+        return suffix.components(separatedBy: separators).first?.nilIfBlank
+    }
+}
+
+public enum CodexMCPProtocolMutation {
+    public static func save(_ configuration: CodexMCPServerConfiguration) throws -> CodexIntegrationControlPlaneRequest {
+        try validate(configuration.name)
+        return .configValueWrite(.init(
+            keyPath: "mcp_servers.\(configuration.name)",
+            mergeStrategy: .replace,
+            value: configuration.configValue
+        ))
+    }
+
+    public static func setEnabled(name: String, enabled: Bool) throws -> CodexIntegrationControlPlaneRequest {
+        try validate(name)
+        return .configValueWrite(.init(
+            keyPath: "mcp_servers.\(name).enabled",
+            mergeStrategy: .replace,
+            value: .bool(enabled)
+        ))
+    }
+
+    public static func remove(name: String) throws -> CodexIntegrationControlPlaneRequest {
+        try validate(name)
+        return .configValueWrite(.init(
+            keyPath: "mcp_servers.\(name)",
+            mergeStrategy: .replace,
+            value: .null
+        ))
+    }
+
+    private static func validate(_ name: String) throws {
+        guard !name.isEmpty,
+              name.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).contains($0) }) else {
+            throw CodexIntegrationControlPlaneError("Server names may contain only letters, numbers, underscores, and hyphens.")
+        }
+    }
+}
+
 /// Operation state and last successful responses for host/UI coordination.
 public struct CodexIntegrationControlPlaneSession: Equatable, Sendable {
     public private(set) var phases: [CodexIntegrationControlPlaneSurface: CodexIntegrationControlPlanePhase]
@@ -224,6 +370,10 @@ public struct CodexIntegrationControlPlaneSession: Equatable, Sendable {
 
     public func response(for request: CodexIntegrationControlPlaneRequest) -> CodexJSONValue? {
         responses[request.operationID]
+    }
+
+    public var hooksCatalog: CodexHooksCatalog {
+        responses["hooks/list"].map(CodexHooksCatalog.init(raw:)) ?? .init()
     }
 
     public mutating func reset() {

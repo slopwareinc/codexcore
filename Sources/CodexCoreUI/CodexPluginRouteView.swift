@@ -21,6 +21,7 @@ public struct CodexPluginRouteView: View {
     public let launcherTarget: CodexComposerPluginLauncher?
     public let pendingPluginIDs: Set<String>
     public let pendingSkillIDs: Set<String>
+    public let controlPlaneProvider: (any CodexIntegrationControlPlaneProvider)?
     public let onLoad: () -> Void
     public let onRefresh: () -> Void
     public let onAction: (CodexPluginRouteAction) -> Void
@@ -34,6 +35,7 @@ public struct CodexPluginRouteView: View {
     @State private var skillDetailID: String?
     @State private var expandedMarketplaceSections: Set<String> = []
     @State private var expandedSkillSections: Set<String> = []
+    @State private var showsMarketplaceManagement = false
     @FocusState private var isSearchFocused: Bool
 
     public init(
@@ -48,6 +50,7 @@ public struct CodexPluginRouteView: View {
         launcherTarget: CodexComposerPluginLauncher? = nil,
         pendingPluginIDs: Set<String> = [],
         pendingSkillIDs: Set<String> = [],
+        controlPlaneProvider: (any CodexIntegrationControlPlaneProvider)? = nil,
         initialTab: CodexPluginRoutePrimaryTab = .marketplace,
         initialManageTab: CodexPluginManageTab = .plugins,
         onLoad: @escaping () -> Void = {},
@@ -65,6 +68,7 @@ public struct CodexPluginRouteView: View {
         self.launcherTarget = launcherTarget
         self.pendingPluginIDs = pendingPluginIDs
         self.pendingSkillIDs = pendingSkillIDs
+        self.controlPlaneProvider = controlPlaneProvider
         let initialPage: CodexPluginRoutePage = switch initialTab {
         case .marketplace: .plugins
         case .skills: .skills
@@ -147,13 +151,24 @@ public struct CodexPluginRouteView: View {
             if let skill = selectedSkill {
                 OfficialSkillDetailSheet(
                     skill: skill,
-                    icon: pluginIcon(for: skill),
+                    icon: skill.icon,
                     isPending: isPending(skill),
+                    provider: controlPlaneProvider,
+                    readRequest: skillReadRequest(for: skill),
                     onClose: { skillDetailID = nil },
                     onAction: onAction
                 )
                 .codexAgentTheme(theme)
             }
+        }
+        .sheet(isPresented: $showsMarketplaceManagement) {
+            CodexMarketplaceManagementSheet(
+                marketplaces: CodexMarketplaceSummary.summaries(from: plugins),
+                provider: controlPlaneProvider,
+                onClose: { showsMarketplaceManagement = false },
+                onRefresh: onRefresh
+            )
+            .codexAgentTheme(theme)
         }
     }
 
@@ -165,7 +180,7 @@ public struct CodexPluginRouteView: View {
             if page == .manage || isPluginDetail {
                 Menu {
                     Button("Add plugin marketplace") {
-                        onAction(.tryInChat(prompt: "Help me add a Codex plugin marketplace."))
+                        showsMarketplaceManagement = true
                     }
                     Button("Create plugin") {
                         onAction(.tryInChat(prompt: "Help me create a new Codex plugin."))
@@ -264,7 +279,7 @@ public struct CodexPluginRouteView: View {
             Divider()
             Button("Create plugin") { onAction(.tryInChat(prompt: "Help me create a new Codex plugin.")) }
             Button("Create skill") { onAction(.tryInChat(prompt: "Help me create a new Codex skill.")) }
-            Button("Add plugin marketplace") { onAction(.tryInChat(prompt: "Help me add a Codex plugin marketplace.")) }
+            Button("Add plugin marketplace") { showsMarketplaceManagement = true }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "plus")
@@ -605,7 +620,7 @@ public struct CodexPluginRouteView: View {
                     ForEach(skills.prefix(visibleCount)) { skill in
                         OfficialSkillRow(
                             skill: skill,
-                            icon: pluginIcon(for: skill),
+                            icon: skill.icon,
                             showsToggle: false,
                             isPending: isPending(skill),
                             onOpen: { skillDetailID = skill.id },
@@ -642,7 +657,7 @@ public struct CodexPluginRouteView: View {
             ForEach(visible) { skill in
                 OfficialSkillRow(
                     skill: skill,
-                    icon: pluginIcon(for: skill),
+                    icon: skill.icon,
                     showsToggle: true,
                     isPending: isPending(skill),
                     onOpen: { skillDetailID = skill.id },
@@ -791,13 +806,20 @@ public struct CodexPluginRouteView: View {
         return order.map { ($0, groups[$0] ?? []) }
     }
 
-    private func pluginIcon(for skill: CodexSkillSummary) -> CodexPluginIconReference {
-        let skillName = skill.name.lowercased()
-        return plugins.first { plugin in
-            skillName == plugin.name.lowercased()
-                || skillName.hasPrefix(plugin.name.lowercased() + ":")
-                || skill.path.lowercased().contains("/\(plugin.name.lowercased())/")
-        }?.icon ?? .init()
+    private func skillReadRequest(for skill: CodexSkillSummary) -> CodexIntegrationControlPlaneRequest? {
+        let owner = plugins.first { plugin in
+            skill.remotePluginID == plugin.protocolID
+                || skill.name == plugin.name
+                || skill.name.hasPrefix(plugin.name + ":")
+        }
+        guard let marketplace = skill.remoteMarketplaceName ?? owner?.marketplaceName,
+              let pluginID = skill.remotePluginID ?? owner?.protocolID else { return nil }
+        let skillName = skill.name.split(separator: ":", maxSplits: 1).last.map(String.init) ?? skill.name
+        return .pluginSkillRead(.init(
+            remoteMarketplaceName: marketplace,
+            remotePluginID: pluginID,
+            skillName: skillName
+        ))
     }
 
     private func associatedSkills(with plugin: CodexPluginSummary) -> [CodexSkillSummary] {
@@ -954,8 +976,33 @@ struct OfficialSkillDetailSheet: View {
     let skill: CodexSkillSummary
     let icon: CodexPluginIconReference
     let isPending: Bool
+    let provider: (any CodexIntegrationControlPlaneProvider)?
+    let readRequest: CodexIntegrationControlPlaneRequest?
     let onClose: () -> Void
     let onAction: (CodexPluginRouteAction) -> Void
+
+    @State private var document: CodexSkillDocument?
+    @State private var readError: String?
+    @State private var isReading = false
+    @State private var confirmsUninstall = false
+
+    init(
+        skill: CodexSkillSummary,
+        icon: CodexPluginIconReference,
+        isPending: Bool,
+        provider: (any CodexIntegrationControlPlaneProvider)? = nil,
+        readRequest: CodexIntegrationControlPlaneRequest? = nil,
+        onClose: @escaping () -> Void,
+        onAction: @escaping (CodexPluginRouteAction) -> Void
+    ) {
+        self.skill = skill
+        self.icon = icon
+        self.isPending = isPending
+        self.provider = provider
+        self.readRequest = readRequest
+        self.onClose = onClose
+        self.onAction = onAction
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -998,6 +1045,18 @@ struct OfficialSkillDetailSheet: View {
                         .font(theme.fonts.chat)
                         .foregroundStyle(theme.colors.textSecondary)
                         .lineLimit(4)
+
+                    let allowedTools = document?.allowedTools.isEmpty == false ? document?.allowedTools : skill.allowedTools
+                    if let allowedTools, !allowedTools.isEmpty {
+                        Label("Allowed tools: \(allowedTools.joined(separator: ", "))", systemImage: "lock.shield")
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
+                    }
+                    if document?.disablesModelInvocation == true || skill.disablesModelInvocation {
+                        Label("User-invoked only", systemImage: "person.crop.circle.badge.checkmark")
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
+                    }
                 }
 
                 Button(action: onClose) {
@@ -1009,7 +1068,13 @@ struct OfficialSkillDetailSheet: View {
             .padding(28)
 
             ScrollView {
-                Text(skill.description.nilIfBlank ?? skill.detail)
+                if isReading {
+                    HStack { CodexSpinner(size: .small); Text("Loading skill instructions") }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let readError {
+                    Text(readError).foregroundStyle(theme.colors.danger)
+                }
+                Text(document?.body.nilIfBlank ?? skill.description.nilIfBlank ?? skill.detail)
                     .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textPrimary)
                     .lineSpacing(4)
@@ -1023,7 +1088,7 @@ struct OfficialSkillDetailSheet: View {
 
             HStack {
                 if skill.scope?.lowercased() == "user" {
-                    Button("Uninstall", role: .destructive) { onAction(.uninstallSkill(.init(skill: skill))) }
+                    Button("Uninstall", role: .destructive) { confirmsUninstall = true }
                         .buttonStyle(.bordered)
                         .disabled(isPending)
                 }
@@ -1041,6 +1106,33 @@ struct OfficialSkillDetailSheet: View {
         }
         .frame(width: 900, height: 780)
         .background(theme.colors.surface)
+        .task(id: skill.id) { await readSkill() }
+        .confirmationDialog("Uninstall \(skill.displayName)?", isPresented: $confirmsUninstall) {
+            Button("Uninstall", role: .destructive) { onAction(.uninstallSkill(.init(skill: skill))) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes the personal skill directory.")
+        }
+    }
+
+    private func readSkill() async {
+        guard let provider, let readRequest else { return }
+        isReading = true
+        readError = nil
+        do {
+            let response = try await provider.perform(readRequest)
+            guard case .dictionary(let object) = response else {
+                throw CodexIntegrationControlPlaneError("The skill response was not an object.")
+            }
+            if case .string(let contents)? = object["contents"] {
+                document = CodexSkillDocument(contents: contents)
+            } else {
+                readError = "No skill instructions were returned."
+            }
+        } catch {
+            readError = error.localizedDescription
+        }
+        isReading = false
     }
 }
 
