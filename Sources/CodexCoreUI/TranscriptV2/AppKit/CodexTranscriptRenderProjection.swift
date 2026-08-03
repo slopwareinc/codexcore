@@ -7,6 +7,79 @@ struct CodexTranscriptRenderItemID: Hashable, Sendable {
     var rawValue: String
 }
 
+struct CodexTranscriptFileCitationCandidate: Sendable, Equatable {
+    var reference: CodexTranscriptFileReference
+    var range: NSRange
+}
+
+enum CodexTranscriptFileCitationParser {
+    private static let expression = try? NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9@])((?:/|\.\.?/)?(?:[A-Za-z0-9_@+~.-]+/)*[A-Za-z0-9_@+~-]+\.[A-Za-z][A-Za-z0-9]{0,11})(?::([1-9][0-9]*))?(?::([1-9][0-9]*))?"#
+    )
+
+    static func candidates(in text: String) -> [CodexTranscriptFileCitationCandidate] {
+        guard let expression else { return [] }
+        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return expression.matches(in: text, range: fullRange).compactMap { match in
+            guard let pathRange = Range(match.range(at: 1), in: text) else { return nil }
+            let path = String(text[pathRange])
+            guard isPlausible(path: path, hasLine: match.range(at: 2).location != NSNotFound) else {
+                return nil
+            }
+            let line = integer(at: 2, match: match, text: text)
+            let column = integer(at: 3, match: match, text: text)
+            return CodexTranscriptFileCitationCandidate(
+                reference: .init(path: path, line: line, column: column),
+                range: match.range(at: 0)
+            )
+        }
+    }
+
+    private static func integer(at index: Int, match: NSTextCheckingResult, text: String) -> Int? {
+        guard let range = Range(match.range(at: index), in: text) else { return nil }
+        return Int(text[range])
+    }
+
+    private static func isPlausible(path: String, hasLine: Bool) -> Bool {
+        if path.contains("/") || hasLine { return true }
+        let knownWorkspaceNames: Set<String> = [
+            "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "Dockerfile", "Gemfile",
+            "Justfile", "LICENSE", "Makefile", "Package.swift", "Podfile", "README.md",
+        ]
+        return knownWorkspaceNames.contains(path)
+    }
+}
+
+enum CodexTranscriptFileCitationLink {
+    static func url(for reference: CodexTranscriptFileReference) -> URL? {
+        var components = URLComponents()
+        components.scheme = "codex-file"
+        components.host = "workspace"
+        components.queryItems = [URLQueryItem(name: "path", value: reference.path)]
+        if let line = reference.line {
+            components.queryItems?.append(URLQueryItem(name: "line", value: String(line)))
+        }
+        if let column = reference.column {
+            components.queryItems?.append(URLQueryItem(name: "column", value: String(column)))
+        }
+        return components.url
+    }
+
+    static func reference(from value: Any) -> CodexTranscriptFileReference? {
+        let url: URL?
+        if let candidate = value as? URL { url = candidate }
+        else if let candidate = value as? String { url = URL(string: candidate) }
+        else { url = nil }
+        guard let url, url.scheme == "codex-file",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let path = components.queryItems?.first(where: { $0.name == "path" })?.value
+        else { return nil }
+        let line = components.queryItems?.first(where: { $0.name == "line" })?.value.flatMap(Int.init)
+        let column = components.queryItems?.first(where: { $0.name == "column" })?.value.flatMap(Int.init)
+        return .init(path: path, line: line, column: column)
+    }
+}
+
 struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let horizontalMargin: CGFloat = 24
     static let flowLayoutHorizontalAllowance: CGFloat = 32
@@ -210,6 +283,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var action: CodexTranscriptRenderAction?
     var copyPayload: CodexTranscriptCopyPayload?
     var editUserText: String?
+    var retryUserMessage: CodexUserMessageV2?
     var copyTurnText: String
     var allowsTextSelection: Bool
     var allowsResponseAnnotation: Bool = false
@@ -469,6 +543,7 @@ actor CodexTranscriptRenderProjector {
                     action: draft.action,
                     copyPayload: draft.copyPayload,
                     editUserText: draft.editUserText,
+                    retryUserMessage: Self.retryUserMessage(for: draft, turn: turn),
                     copyTurnText: copyTurnText,
                     allowsTextSelection: allowsTextSelection,
                     allowsResponseAnnotation: allowsResponseAnnotation,
@@ -2260,6 +2335,25 @@ private extension CodexTranscriptRenderProjector {
         flushWork()
         if let answer = turn.finalAnswer?.text.codexAppKitNilIfEmpty { parts.append("Assistant\n" + answer) }
         return parts.joined(separator: "\n\n")
+    }
+
+    private static func retryUserMessage(
+        for draft: ItemDraft,
+        turn: CodexTurnV2
+    ) -> CodexUserMessageV2? {
+        guard let userMessage = turn.userMessage else { return nil }
+        switch turn.status {
+        case .working:
+            return nil
+        case .done:
+            if draft.footer?.kind == .finalAnswer { return userMessage }
+            guard turn.finalAnswer?.text.isEmpty != false else { return nil }
+            return draft.workHeader == nil ? nil : userMessage
+        case .failed:
+            if draft.footer?.kind == .finalAnswer { return userMessage }
+            guard turn.finalAnswer?.text.isEmpty != false else { return nil }
+            return draft.workHeader == nil ? nil : userMessage
+        }
     }
 }
 

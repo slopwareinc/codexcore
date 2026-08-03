@@ -135,7 +135,7 @@ private final class CodexShimmerButton: NSButton {
 
 final class CodexSelectableTranscriptTextView: NSTextView {
     var onSelectionStateChange: ((Bool) -> Void)?
-    var contextMenuProvider: (() -> NSMenu?)?
+    var contextMenuProvider: ((NSEvent) -> NSMenu?)?
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -167,7 +167,7 @@ final class CodexSelectableTranscriptTextView: NSTextView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        contextMenuProvider?() ?? super.menu(for: event)
+        contextMenuProvider?(event) ?? super.menu(for: event)
     }
 
     func bind(
@@ -264,7 +264,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var performAction: ((CodexTranscriptRenderAction) -> Void)?
     private var copy: ((String) -> Void)?
     private var editUserMessage: ((String) -> Void)?
+    private var retryTurn: ((CodexUserMessageV2) -> Void)?
     private var forkChat: (() -> Void)?
+    private var fileNavigationService: any CodexTranscriptFileNavigationService =
+        CodexNoopTranscriptFileNavigationService()
+    private var contextFileReference: CodexResolvedTranscriptFileReference?
     private var upsertResponseAnnotation: ((CodexResponseTextAnnotation) -> Void)?
     private var removeResponseAnnotation: ((String) -> Void)?
     private var selectionChanged: ((CodexTranscriptRenderItemID, Bool) -> Void)?
@@ -415,6 +419,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         guard let rowID = item?.turnDiff?.rowID else { return }
         performAction?(.toggleRow(rowID: rowID))
     }
+    func retryTurnForTesting() { invokeRetryTurn() }
 
     override func loadView() {
         let hoverView = CodexTranscriptHoverView()
@@ -434,7 +439,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             guard let self, let id = self.item?.id else { return }
             self.selectionChanged?(id, selecting)
         }
-        selectableTextView.contextMenuProvider = { [weak self] in self?.makeContextMenu() }
+        selectableTextView.contextMenuProvider = { [weak self] event in
+            self?.makeTextContextMenu(for: event)
+        }
         textScrollView.documentView = selectableTextView
         textScrollView.drawsBackground = false
         textScrollView.borderType = .noBorder
@@ -649,7 +656,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         performAction: @escaping (CodexTranscriptRenderAction) -> Void,
         copy: @escaping (String) -> Void,
         editUserMessage: @escaping (String) -> Void,
+        retryTurn: ((CodexUserMessageV2) -> Void)? = nil,
         forkChat: (() -> Void)?,
+        fileNavigationService: any CodexTranscriptFileNavigationService =
+            CodexNoopTranscriptFileNavigationService(),
         responseAnnotations: [CodexResponseTextAnnotation] = [],
         upsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
         removeResponseAnnotation: @escaping (String) -> Void = { _ in },
@@ -669,7 +679,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.performAction = performAction
         self.copy = copy
         self.editUserMessage = editUserMessage
+        self.retryTurn = retryTurn
         self.forkChat = forkChat
+        self.fileNavigationService = fileNavigationService
+        contextFileReference = nil
         self.responseAnnotations = responseAnnotations
         self.upsertResponseAnnotation = upsertResponseAnnotation
         self.removeResponseAnnotation = removeResponseAnnotation
@@ -2145,6 +2158,61 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         forkChat?()
     }
 
+    @objc private func invokeRetryTurn() {
+        guard let message = item?.retryUserMessage else { return }
+        retryTurn?(message)
+    }
+
+    @objc private func openContextFile() {
+        guard let contextFileReference else { return }
+        fileNavigationService.open(contextFileReference)
+    }
+
+    @objc private func revealContextFile() {
+        guard let contextFileReference else { return }
+        fileNavigationService.reveal(contextFileReference)
+    }
+
+    @objc private func copyContextFilePath() {
+        guard let contextFileReference else { return }
+        copy?(contextFileReference.reference.path)
+    }
+
+    func textView(
+        _ textView: NSTextView,
+        clickedOnLink link: Any,
+        at charIndex: Int
+    ) -> Bool {
+        guard let reference = CodexTranscriptFileCitationLink.reference(from: link),
+              let resolved = fileNavigationService.resolve(reference) else { return false }
+        fileNavigationService.open(resolved)
+        return true
+    }
+
+    private func makeTextContextMenu(for event: NSEvent) -> NSMenu? {
+        let point = selectableTextView.convert(event.locationInWindow, from: nil)
+        let index = selectableTextView.characterIndexForInsertion(at: point)
+        if index < (selectableTextView.textStorage?.length ?? 0),
+           let value = selectableTextView.textStorage?.attribute(
+               .link,
+               at: index,
+               effectiveRange: nil
+           ),
+           let reference = CodexTranscriptFileCitationLink.reference(from: value),
+           let resolved = fileNavigationService.resolve(reference) {
+            contextFileReference = resolved
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Open", action: #selector(openContextFile), keyEquivalent: "")
+            menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealContextFile), keyEquivalent: "")
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(withTitle: "Copy path", action: #selector(copyContextFilePath), keyEquivalent: "")
+            for menuItem in menu.items { menuItem.target = self }
+            return menu
+        }
+        contextFileReference = nil
+        return makeContextMenu()
+    }
+
     private func makeContextMenu() -> NSMenu? {
         guard let item else { return nil }
         let menu = NSMenu()
@@ -2175,6 +2243,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if (item.textRole == .finalAnswer || item.footer?.kind == .finalAnswer), forkChat != nil {
             menu.addItem(NSMenuItem.separator())
             menu.addItem(withTitle: "Fork chat", action: #selector(invokeForkChat), keyEquivalent: "")
+        }
+        if item.retryUserMessage != nil, retryTurn != nil {
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(withTitle: "Retry turn", action: #selector(invokeRetryTurn), keyEquivalent: "")
         }
         for menuItem in menu.items { menuItem.target = self }
         return menu

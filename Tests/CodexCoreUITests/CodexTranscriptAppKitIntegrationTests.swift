@@ -1202,6 +1202,203 @@ struct CodexTranscriptAppKitIntegrationTests {
         coordinator.detach()
     }
 
+    @Test func fileCitationsBecomeClickableOnlyWhenTheWorkspaceAdapterResolvesThem() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 500)
+        )
+        coordinator.attach(to: container)
+        let workspace = URL(fileURLWithPath: "/tmp/project")
+        let existing = Set([
+            workspace.appending(path: "Sources/App.swift").standardizedFileURL,
+            workspace.appending(path: "Package.swift").standardizedFileURL,
+        ])
+        let files = CodexWorkspaceTranscriptFileNavigationService(
+            workspaceURL: workspace,
+            fileExists: { existing.contains($0) },
+            openFile: { _ in },
+            revealFile: { _ in }
+        )
+        coordinator.update(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    finalAnswer: .init(
+                        id: "answer",
+                        text: "See Sources/App.swift:42 and `Package.swift:7`. Ignore example.com.",
+                        isStreaming: false
+                    ),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            colorScheme: .dark,
+            clipboardService: CodexNoopClipboardService(),
+            fileNavigationService: files,
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        let answerID = try #require(coordinator.renderedItemIDsForTesting.first {
+            coordinator.renderedItemForTesting($0)?.textRole == .finalAnswer
+        })
+        let attributed = try #require(
+            coordinator.decoratedItemForTesting(answerID)?.preparedText?.attributedString
+        )
+        var references: [CodexTranscriptFileReference] = []
+        attributed.enumerateAttribute(
+            .link,
+            in: NSRange(location: 0, length: attributed.length)
+        ) { value, _, _ in
+            if let value, let reference = CodexTranscriptFileCitationLink.reference(from: value) {
+                references.append(reference)
+            }
+        }
+        #expect(references == [
+            .init(path: "Sources/App.swift", line: 42),
+            .init(path: "Package.swift", line: 7),
+        ])
+        coordinator.detach()
+    }
+
+    @Test func findNavigationWrapsAndRetryInvokesTheOriginatingMessageCallback() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 500)
+        )
+        coordinator.attach(to: container)
+        let user = CodexUserMessageV2(id: "user", text: "needle needle", rawText: "raw needle")
+        coordinator.update(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    userMessage: user,
+                    finalAnswer: .init(id: "answer", text: "needle", isStreaming: false),
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            colorScheme: .dark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        coordinator.updateFindQueryForTesting("needle")
+        #expect(coordinator.findMatchesForTesting.count == 3)
+        #expect(coordinator.activeFindMatchIndexForTesting == 0)
+        coordinator.advanceFindForTesting(backwards: true)
+        #expect(coordinator.activeFindMatchIndexForTesting == 2)
+        coordinator.advanceFindForTesting()
+        #expect(coordinator.activeFindMatchIndexForTesting == 0)
+
+        let footer = try #require(coordinator.renderedItemIDsForTesting.compactMap {
+            coordinator.renderedItemForTesting($0)
+        }.first { $0.retryUserMessage != nil })
+        let cell = CodexTranscriptCollectionItem()
+        var retried: CodexUserMessageV2?
+        cell.configure(
+            item: footer,
+            appKitTheme: .init(.officialDark, colorScheme: .dark),
+            swiftUITheme: .officialDark,
+            contentHorizontalOffset: 0,
+            productToolRenderer: nil,
+            performAction: { _ in },
+            copy: { _ in },
+            editUserMessage: { _ in },
+            retryTurn: { retried = $0 },
+            forkChat: nil,
+            selectionChanged: { _, _ in }
+        )
+        cell.retryTurnForTesting()
+        #expect(retried?.rawText == "raw needle")
+        coordinator.detach()
+    }
+
+    @Test func standardFindKeyEquivalentsOpenNavigateAndDismissTheFindBar() throws {
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 500)
+        )
+        var navigation: [Bool] = []
+        container.onFindNext = { navigation.append($0) }
+
+        #expect(container.performKeyEquivalent(with: try keyEvent("f", modifiers: .command, keyCode: 3)))
+        #expect(!container.findBar.isHidden)
+        #expect(container.performKeyEquivalent(with: try keyEvent("g", modifiers: .command, keyCode: 5)))
+        #expect(container.performKeyEquivalent(with: try keyEvent(
+            "G",
+            modifiers: [.command, .shift],
+            keyCode: 5
+        )))
+        #expect(navigation == [false, true])
+
+        container.updateFindCount(
+            active: 1,
+            matches: CodexTranscriptFindProjection.matchLimit,
+            hitLimit: true,
+            limit: CodexTranscriptFindProjection.matchLimit
+        )
+        #expect(container.findBar.countTextForTesting.contains("1000 match limit"))
+        #expect(container.performKeyEquivalent(with: try keyEvent("\u{1B}", keyCode: 53)))
+        #expect(container.findBar.isHidden)
+    }
+
+    @Test func findingCollapsedCommandOutputExpandsItBeforeHighlighting() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 500)
+        )
+        coordinator.attach(to: container)
+        let command = CodexCommandRowV2(
+            id: "command",
+            command: "printf secret",
+            label: "Ran command",
+            action: .run,
+            status: .completed,
+            output: "only-hidden-output-match"
+        )
+        coordinator.update(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [.init(
+                    id: "turn",
+                    narrative: [.workGroup(.init(id: "group", rows: [.command(command)]))],
+                    status: .done(durationMs: 1)
+                )])
+            ),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            colorScheme: .dark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        #expect(!coordinator.renderedItemIDsForTesting.contains { $0.rawValue.hasSuffix(":row:command:detail") })
+
+        coordinator.updateFindQueryForTesting("hidden-output")
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.renderedItemIDsForTesting.contains { $0.rawValue.hasSuffix(":row:command:detail") })
+        #expect(coordinator.findMatchesForTesting.count == 1)
+        coordinator.detach()
+    }
+
     @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async throws {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))
@@ -1734,6 +1931,25 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(coordinator.diagnostics.threadSwitchDataSourceResetCount == 3)
         #expect(container.collectionView.layoutSubtreeSettlementCount == 3)
         coordinator.detach()
+    }
+
+    private func keyEvent(
+        _ characters: String,
+        modifiers: NSEvent.ModifierFlags = [],
+        keyCode: UInt16
+    ) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters.lowercased(),
+            isARepeat: false,
+            keyCode: keyCode
+        ))
     }
 
     private func longPresentation(answerSuffix: String, date: Date) -> CodexThreadUIPresentation {
