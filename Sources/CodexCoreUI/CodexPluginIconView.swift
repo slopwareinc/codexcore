@@ -11,7 +11,9 @@ enum CodexPluginImageRepository {
         if let cached = cache.object(forKey: url as NSURL) { return cached }
         let image: NSImage?
         if url.isFileURL {
-            image = NSImage(contentsOf: url)
+            // AppKit image decoding is synchronous. Keep it out of the main
+            // actor so a cold local marketplace asset cannot block scrolling.
+            image = await loadLocalImage(from: url)
         } else {
             var request = URLRequest(url: url)
             request.cachePolicy = .returnCacheDataElseLoad
@@ -28,10 +30,13 @@ enum CodexPluginImageRepository {
     }
 
     static func cachedOrLocalImage(for url: URL) -> NSImage? {
-        if let cached = cache.object(forKey: url as NSURL) { return cached }
-        guard url.isFileURL, let image = NSImage(contentsOf: url) else { return nil }
-        cache.setObject(image, forKey: url as NSURL)
-        return image
+        cache.object(forKey: url as NSURL)
+    }
+
+    nonisolated private static func loadLocalImage(from url: URL) async -> NSImage? {
+        await Task.detached(priority: .utility) {
+            NSImage(contentsOf: url)
+        }.value
     }
 }
 
@@ -48,7 +53,7 @@ struct CodexPluginIconView: View {
         reference.url(prefersDark: colorScheme == .dark)
     }
 
-    private var localImage: NSImage? {
+    private var cachedImage: NSImage? {
         guard let url, url.isFileURL else { return nil }
         return CodexPluginImageRepository.cachedOrLocalImage(for: url)
     }
@@ -57,7 +62,7 @@ struct CodexPluginIconView: View {
         ZStack {
             RoundedRectangle(cornerRadius: max(7, size * 0.24), style: .continuous)
                 .fill(theme.colors.accentSoft.opacity(0.55))
-            if let image = image ?? localImage {
+            if let image = image ?? cachedImage {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -73,9 +78,6 @@ struct CodexPluginIconView: View {
         .task(id: url) {
             image = nil
             guard let url else { return }
-            // App-server local assets should render on the first frame. Remote marketplace
-            // artwork continues through the shared asynchronous cache.
-            if url.isFileURL { return }
             image = await CodexPluginImageRepository.image(for: url)
         }
         .accessibilityHidden(true)
