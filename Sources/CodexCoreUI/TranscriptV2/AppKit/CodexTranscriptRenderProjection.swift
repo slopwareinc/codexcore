@@ -103,6 +103,7 @@ struct CodexTranscriptWorkHeaderRender: Sendable, Equatable {
     enum State: Sendable, Equatable {
         case working(startedAt: Date, showsDuration: Bool)
         case done(durationMs: Int?, isExpanded: Bool)
+        case interrupted(durationMs: Int?, message: String)
         case failed(message: String)
     }
 
@@ -124,6 +125,7 @@ struct CodexTranscriptWorkRowRender: Sendable, Equatable {
     var systemImage: String? = nil
     var style: CodexTranscriptWorkRowStyle = .standard
     var durationMs: Int?
+    var exitCode: Int? = nil
     var isExpanded: Bool
     var hasDetail: Bool
     var isSubagentLink: Bool
@@ -638,6 +640,7 @@ actor CodexTranscriptRenderProjector {
                                 status: Self.status(for: row),
                                 systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
+                                exitCode: Self.exitCode(for: row),
                                 isExpanded: isRowExpanded,
                                 hasDetail: hasDetail,
                                 isSubagentLink: subagentThreadID != nil
@@ -690,13 +693,18 @@ actor CodexTranscriptRenderProjector {
                                 ))
                             } else if isRowExpanded, let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
+                                let prepared = Self.prepareExpandedOutput(
+                                    bounded,
+                                    row: row,
+                                    theme: theme
+                                )
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
                                     fingerprint: "detail:\(bounded)",
                                     textRole: .expandedOutput,
-                                    preparedText: Self.preparePlain(bounded, font: theme.codeFont, color: theme.textSecondary, theme: theme),
+                                    preparedText: prepared,
                                     copyText: detail,
-                                    accessibilityLabel: "Expanded output: \(bounded)",
+                                    accessibilityLabel: "Expanded output: \(prepared.attributedString.string)",
                                     indentation: 0,
                                     maxWidthKind: .card,
                                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
@@ -1745,7 +1753,12 @@ private extension CodexTranscriptRenderProjector {
             for item in items {
                 counters.keys.filter { $0 > item.depth }.forEach { counters.removeValue(forKey: $0) }
                 counters[item.depth, default: 0] += 1
-                let marker = ordered ? "\(counters[item.depth]!).\t" : "•\t"
+                let marker: String
+                if item.isTask {
+                    marker = (item.isCompleted ? "☑" : "☐") + "\t"
+                } else {
+                    marker = ordered ? "\(counters[item.depth]!).\t" : "•\t"
+                }
                 let style = NSMutableParagraphStyle()
                 style.lineSpacing = theme.lineSpacing
                 style.paragraphSpacing = 4
@@ -1776,6 +1789,28 @@ private extension CodexTranscriptRenderProjector {
                 result.append(line)
             }
             return CodexPreparedTranscriptText(result)
+        case .blockquote(_, let text, _):
+            let prepared = NSMutableAttributedString(attributedString: prepareMarkdown(
+                text,
+                font: theme.bodyFont,
+                color: color(for: role, theme: theme),
+                theme: theme
+            ).attributedString)
+            if prepared.length > 0 {
+                let style = NSMutableParagraphStyle()
+                style.lineSpacing = theme.lineSpacing
+                style.headIndent = 16
+                style.firstLineHeadIndent = 16
+                prepared.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: prepared.length))
+            }
+            return CodexPreparedTranscriptText(prepared)
+        case .horizontalRule:
+            return preparePlain(
+                "────────────────────────",
+                font: theme.captionFont,
+                color: theme.textTertiary,
+                theme: theme
+            )
         case .table(_, let model):
             return prepareTable(model, role: role, theme: theme)
         case .code:
@@ -1872,6 +1907,24 @@ private extension CodexTranscriptRenderProjector {
             .foregroundColor: color,
             .paragraphStyle: style
         ]))
+    }
+
+    static func prepareExpandedOutput(
+        _ text: String,
+        row: CodexWorkRowV2,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        guard case .command = row else {
+            return preparePlain(text, font: theme.codeFont, color: theme.textSecondary, theme: theme)
+        }
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = theme.lineSpacing
+        return CodexPreparedTranscriptText(ANSITerminalStyle.makeAppKitAttributedString(
+            from: ANSIParser().parse(text),
+            font: theme.codeFont,
+            defaultForeground: theme.textSecondary,
+            paragraphStyle: style
+        ))
     }
 
     static func prepareUserMessage(
@@ -2024,6 +2077,12 @@ private extension CodexTranscriptRenderProjector {
         case .done(let durationMs):
             return .init(state: .done(durationMs: durationMs, isExpanded: expanded))
         case .failed(let message):
+            if let interruption = turn.status.interruption {
+                return .init(state: .interrupted(
+                    durationMs: interruption.durationMs,
+                    message: interruption.message
+                ))
+            }
             return .init(state: .failed(message: message))
         }
     }
@@ -2038,6 +2097,9 @@ private extension CodexTranscriptRenderProjector {
         case .working(_, let showsDuration): return showsDuration ? "Working" : "Thinking"
         case .done(let duration, let expanded):
             return "\(CodexWorkBlockViewV2.completedLabel(duration)), \(expanded ? "expanded" : "collapsed")"
+        case .interrupted(let duration, let message):
+            let elapsed = duration.map { " after \(CodexWorkBlockViewV2.duration($0))" } ?? ""
+            return "Interrupted\(elapsed)" + (message.isEmpty ? "" : ": \(message)")
         case .failed(let message): return message.isEmpty ? "Work failed" : message
         }
     }
@@ -2089,6 +2151,11 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
+    static func exitCode(for row: CodexWorkRowV2) -> Int? {
+        guard case .command(let value) = row else { return nil }
+        return value.exitCode
+    }
+
     static func detail(for row: CodexWorkRowV2) -> String? {
         switch row {
         case .command(let value): return value.output?.codexAppKitNilIfEmpty
@@ -2125,7 +2192,11 @@ private extension CodexTranscriptRenderProjector {
         case .declined: "declined"
         case .unknown: "unknown status"
         }
-        return "\(render.label), \(state)"
+        let outcome: String? = {
+            guard case .command(let value) = row else { return nil }
+            return value.executionStateLabel
+        }()
+        return [render.label, outcome ?? state].joined(separator: ", ")
     }
 
     static func inlineActivityAccessibilityLabel(

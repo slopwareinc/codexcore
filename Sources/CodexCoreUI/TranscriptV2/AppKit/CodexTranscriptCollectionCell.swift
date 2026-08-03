@@ -860,7 +860,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipDurationLabel.textColor = appKitTheme.textTertiary
             chipStatusLabel.stringValue = row.style.isSemanticActivity
                 ? ""
-                : Self.workStatusTitle(row.status)
+                : Self.workStatusTitle(row)
             chipStatusLabel.font = appKitTheme.captionFont
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row, isActionable: isActionable)
@@ -2233,6 +2233,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .done(let durationMs, let isExpanded):
             _ = isExpanded
             return CodexWorkBlockViewV2.completedLabel(durationMs)
+        case .interrupted(let durationMs, let message):
+            let elapsed = durationMs.map { " after \(CodexWorkBlockViewV2.duration($0))" } ?? ""
+            return "Interrupted\(elapsed)" + (message.isEmpty ? "" : ": \(message)")
         case .failed(let message):
             return message.isEmpty ? "Work failed" : message
         }
@@ -2322,6 +2325,24 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .failed: theme.danger
         case .declined, .unknown: theme.warning
         }
+    }
+
+    private static func workStatusTitle(_ row: CodexTranscriptWorkRowRender) -> String {
+        if row.kind == .command {
+            switch row.status {
+            case .inProgress: return "running"
+            case .completed:
+                if let exitCode = row.exitCode {
+                    return exitCode == 0 ? "succeeded · exit 0" : "failed · exit \(exitCode)"
+                }
+                return "finished"
+            case .failed:
+                return row.exitCode.map { "failed · exit \($0)" } ?? "failed"
+            case .declined: return "stopped"
+            case .unknown: return "status unknown"
+            }
+        }
+        return workStatusTitle(row.status)
     }
 
     private static func workStatusTitle(_ status: CodexWorkItemStatusV2) -> String {

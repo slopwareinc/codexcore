@@ -55,6 +55,65 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func commandCardsExposeExitOutcomeAndStyledANSIOutput() async throws {
+        let command = CodexCommandRowV2(
+            id: "command",
+            command: "printf output",
+            label: "Ran command",
+            action: .run,
+            status: .failed,
+            exitCode: 7,
+            durationMs: 1_200,
+            output: "\u{001B}[31mfailed\u{001B}[0m"
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "group", rows: [.command(command)]))],
+            status: .done(durationMs: 1_200)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id],
+                expandedRowIDs: ["group", "command"]
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .command })
+        #expect(row.workRow?.exitCode == 7)
+        #expect(row.accessibilityLabel.contains("failed (exit 7)"))
+
+        let output = try #require(snapshot.itemsByID.values.first { $0.textRole == .expandedOutput })
+        #expect(output.preparedText?.attributedString.string == "failed")
+        #expect(output.preparedText?.attributedString.attribute(.foregroundColor, at: 0, effectiveRange: nil) != nil)
+    }
+
+    @Test func interruptedTurnsRenderDistinctlyAndKeepElapsedDuration() async throws {
+        let status = CodexTurnStatusV2.interrupted(durationMs: 12_000)
+        #expect(status.interruption?.durationMs == 12_000)
+
+        let turn = CodexTurnV2(
+            id: "interrupted",
+            narrative: [.notice(.init(id: "notice", message: "Stopped by user"))],
+            status: status
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+        let workHeader = try #require(header.workHeader)
+        guard case .interrupted(let durationMs, _) = workHeader.state else {
+            Issue.record("Expected an interrupted work header")
+            return
+        }
+        #expect(durationMs == 12_000)
+        #expect(header.accessibilityLabel.contains("Interrupted after 12s"))
+    }
+
     @Test func onlyCompletedAssistantResponseTextAllowsAnnotations() async throws {
         let projector = CodexTranscriptRenderProjector()
         let completed = try await projector.project(

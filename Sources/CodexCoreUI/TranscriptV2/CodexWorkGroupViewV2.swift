@@ -1,3 +1,4 @@
+import CodexCore
 import SwiftUI
 
 struct CodexWorkGroupViewV2: View {
@@ -61,6 +62,11 @@ private struct CodexWorkRowViewV2: View {
                     Text(codexStatusGlyphV2(status)).foregroundStyle(statusColor)
                     label
                     if let durationMs { Text(CodexWorkBlockViewV2.duration(durationMs)).font(theme.fonts.micro) }
+                    if case .command(let value) = row {
+                        Text(value.executionStateLabel)
+                            .font(theme.fonts.micro)
+                            .foregroundStyle(statusColor)
+                    }
                     if hasDetail {
                         Image(systemName: "chevron.right")
                             .font(theme.fonts.micro)
@@ -108,7 +114,7 @@ private struct CodexWorkRowViewV2: View {
             }
             .padding(.leading, 18)
         } else if let detail = expandedDetail {
-            Text(detail)
+            Text(ANSITerminalStyle.makeAttributedString(from: ANSIParser().parse(detail)))
                 .font(theme.fonts.code)
                 .foregroundStyle(theme.colors.textSecondary)
                 .textSelection(.enabled)

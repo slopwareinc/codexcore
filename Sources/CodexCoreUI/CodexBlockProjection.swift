@@ -17,6 +17,8 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
     case table(id: String, model: CodexTableModel)
     case heading(id: String, level: Int, text: String, attributed: AttributedString)
     case list(id: String, ordered: Bool, items: [CodexListItem])
+    case blockquote(id: String, text: String, attributed: AttributedString)
+    case horizontalRule(id: String)
     case htmlFallback(id: String, text: String)
 
     public var id: String {
@@ -26,6 +28,8 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
              .table(let id, _),
              .heading(let id, _, _, _),
              .list(let id, _, _),
+             .blockquote(let id, _, _),
+             .horizontalRule(let id),
              .htmlFallback(let id, _):
             return id
         }
@@ -33,7 +37,9 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
 
     /// A short content hash used as the cache key for `AttributedString`
     /// and `CodexTableModel`. We avoid `String.hashValue` because it is
-    /// randomized per process; SHA-256 truncation gives a stable digest.
+    /// randomized per process; a 64-bit FNV-1a digest gives a stable,
+    /// process-independent cache key without implying cryptographic collision
+    /// resistance.
     var contentDigest: String {
         switch self {
         case .prose(_, let text, _),
@@ -46,7 +52,15 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
         case .heading(_, let level, let text, _):
             return CodexBlockDigest.digest("\(level)\u{0}\(text)")
         case .list(_, let ordered, let items):
-            return CodexBlockDigest.digest("\(ordered)\u{0}\(items.map(\.text).joined(separator: "\u{0}"))")
+            return CodexBlockDigest.digest(
+                "\(ordered)\u{0}"
+                    + items.map { "\($0.depth):\($0.isTask):\($0.isCompleted):\($0.text)" }
+                        .joined(separator: "\u{0}")
+            )
+        case .blockquote(_, let text, _):
+            return CodexBlockDigest.digest(text)
+        case .horizontalRule:
+            return CodexBlockDigest.digest("horizontal-rule")
         }
     }
 }
@@ -54,19 +68,38 @@ public struct CodexListItem: Equatable, Sendable, Identifiable {
     public let id: String
     public let text: String
     public let depth: Int
+    public let isTask: Bool
+    public let isCompleted: Bool
     public let attributed: AttributedString
 
-    public init(id: String, text: String, depth: Int = 0) {
+    public init(
+        id: String,
+        text: String,
+        depth: Int = 0,
+        isTask: Bool = false,
+        isCompleted: Bool = false
+    ) {
         self.id = id
         self.text = text
         self.depth = depth
+        self.isTask = isTask
+        self.isCompleted = isCompleted
         self.attributed = (try? AttributedString(markdown: text)) ?? AttributedString(text)
     }
 
-    public init(id: String, text: String, depth: Int, attributed: AttributedString) {
+    public init(
+        id: String,
+        text: String,
+        depth: Int,
+        isTask: Bool = false,
+        isCompleted: Bool = false,
+        attributed: AttributedString
+    ) {
         self.id = id
         self.text = text
         self.depth = depth
+        self.isTask = isTask
+        self.isCompleted = isCompleted
         self.attributed = attributed
     }
 }
@@ -175,6 +208,9 @@ public enum CodexBlockProjector {
         case table(text: String)
         case heading(level: Int, text: String)
         case list(ordered: Bool, items: [CodexListItem])
+        case blockquote(text: String)
+        case horizontalRule
+        case htmlFallback(text: String)
     }
 
     /// Split raw markdown into top-level regions. This is a deliberately
@@ -217,6 +253,33 @@ public enum CodexBlockProjector {
             if let heading = matchHeading(trimmed) {
                 regions.append(.heading(level: heading.level, text: heading.text))
                 index += 1
+                continue
+            }
+
+            // Blockquotes are kept as a distinct region so the renderer can
+            // apply quote chrome without treating the leading `>` as prose.
+            if isBlockquoteLine(trimmed) {
+                let (text, consumed) = consumeBlockquote(lines: lines, startIndex: index)
+                regions.append(.blockquote(text: text))
+                index += consumed
+                continue
+            }
+
+            // A thematic break is not an unordered list item. Check it before
+            // list classification because `* * *` and `- - -` are valid rules.
+            if isHorizontalRule(trimmed) {
+                regions.append(.horizontalRule)
+                index += 1
+                continue
+            }
+
+            // Raw HTML is intentionally not passed through Foundation's
+            // Markdown parser. Keep it in a plain fallback block so tags are
+            // visible instead of being silently dropped or interpreted.
+            if isRawHTMLLine(trimmed) {
+                let (text, consumed) = consumeHTML(lines: lines, startIndex: index)
+                regions.append(.htmlFallback(text: text))
+                index += consumed
                 continue
             }
 
@@ -283,6 +346,13 @@ public enum CodexBlockProjector {
             return .heading(id: baseID, level: level, text: text, attributed: attributed)
         case .list(let ordered, let items):
             return .list(id: baseID, ordered: ordered, items: items)
+        case .blockquote(let text):
+            let attributed = (try? AttributedString(markdown: text)) ?? AttributedString(text)
+            return .blockquote(id: baseID, text: text, attributed: attributed)
+        case .horizontalRule:
+            return .horizontalRule(id: baseID)
+        case .htmlFallback(let text):
+            return .htmlFallback(id: baseID, text: text)
         }
     }
 
@@ -354,8 +424,13 @@ public enum CodexBlockProjector {
             case .list(_, let ordered, let items):
                 parts.append(items.enumerated().map { offset, item in
                     let marker = ordered ? "\(offset + 1). " : "- "
-                    return String(repeating: "  ", count: item.depth) + marker + item.text
+                    let task = item.isTask ? (item.isCompleted ? "[x] " : "[ ] ") : ""
+                    return String(repeating: "  ", count: item.depth) + marker + task + item.text
                 }.joined(separator: "\n"))
+            case .blockquote(_, let text, _):
+                parts.append(text.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n"))
+            case .horizontalRule:
+                parts.append("---")
             case .htmlFallback(_, let text):
                 parts.append(text)
             }
@@ -369,13 +444,17 @@ public enum CodexBlockProjector {
         case .prose(_, let text, _),
              .htmlFallback(_, let text):
             return text
-        case .heading(_, _, let text, _):
-            return String(repeating: "#", count: 1) + " " + text
+        case .heading(_, let level, let text, _):
+            return String(repeating: "#", count: level) + " " + text
         case .code:
             return ""
         case .table:
             return ""
         case .list:
+            return ""
+        case .blockquote:
+            return ""
+        case .horizontalRule:
             return ""
         }
     }
@@ -453,51 +532,239 @@ public enum CodexBlockProjector {
         return (lines[startIndex..<startIndex + consumed].joined(separator: "\n"), consumed)
     }
 
-    struct ListMarker { let ordered: Bool }
+    struct ListMarker {
+        let ordered: Bool
+        let contentStart: Int
+        let isTask: Bool
+        let isCompleted: Bool
+    }
 
     static func matchListMarker(_ trimmed: String) -> ListMarker? {
-        if trimmed.hasPrefix("- ") || trimmed.hasPrefix("+ ") || trimmed.hasPrefix("* ") {
-            return ListMarker(ordered: false)
+        let unorderedPrefix = trimmed.first.map { $0 == "-" || $0 == "+" || $0 == "*" } == true
+        if unorderedPrefix, trimmed.count >= 2, trimmed.dropFirst().first == " " {
+            return listMarker(
+                ordered: false,
+                markerLength: 2,
+                remainder: String(trimmed.dropFirst(2))
+            )
         }
-        // Ordered: "1. " or "1) " — digit run then a single . or )
+
+        // Ordered: "1. " or "1) " — digit run then a single . or ).
         if let firstChar = trimmed.first, firstChar.isNumber {
             let digits = trimmed.prefix(while: { $0.isNumber })
             let after = trimmed.dropFirst(digits.count)
             if after.hasPrefix(". ") || after.hasPrefix(") ") {
-                return ListMarker(ordered: true)
+                return listMarker(
+                    ordered: true,
+                    markerLength: digits.count + 2,
+                    remainder: String(after.dropFirst(2))
+                )
             }
         }
         return nil
     }
 
+    private static func listMarker(
+        ordered: Bool,
+        markerLength: Int,
+        remainder: String
+    ) -> ListMarker {
+        let task: (isTask: Bool, isCompleted: Bool, contentStart: Int)
+        if remainder.hasPrefix("[ ] ") {
+            task = (true, false, markerLength + 4)
+        } else if remainder.count >= 4,
+                  remainder.first == "[",
+                  remainder.dropFirst(1).first.map({ $0.lowercased() == "x" }) == true,
+                  remainder.dropFirst(2).first == "]",
+                  remainder.dropFirst(3).first == " " {
+            task = (true, true, markerLength + 4)
+        } else {
+            task = (false, false, markerLength)
+        }
+        return ListMarker(
+            ordered: ordered,
+            contentStart: task.contentStart,
+            isTask: task.isTask,
+            isCompleted: task.isCompleted
+        )
+    }
+
     static func consumeList(lines: [String], startIndex: Int, ordered: Bool) -> (items: [CodexListItem], consumed: Int) {
+        struct PendingItem {
+            let lineIndex: Int
+            let depth: Int
+            let marker: ListMarker
+            var lines: [String]
+        }
+
+        let rootIndent = indentationColumns(lines[startIndex])
+        let indentUnit = listIndentUnit(lines: lines, startIndex: startIndex, rootIndent: rootIndent)
+        var pending: PendingItem?
         var items: [CodexListItem] = []
+        var index = startIndex
+        var hasBlankLine = false
+
+        func finish(_ item: PendingItem?, into items: inout [CodexListItem]) {
+            guard let item else { return }
+            var textLines = item.lines
+            while textLines.last?.isEmpty == true { textLines.removeLast() }
+            let text = textLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            items.append(CodexListItem(
+                id: "list-\(startIndex)-\(item.lineIndex)",
+                text: text,
+                depth: item.depth,
+                isTask: item.marker.isTask,
+                isCompleted: item.marker.isCompleted
+            ))
+        }
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let indent = indentationColumns(line)
+
+            if let marker = matchListMarker(trimmed), indent >= rootIndent {
+                finish(pending, into: &items)
+                pending = PendingItem(
+                    lineIndex: index,
+                    depth: max(0, (indent - rootIndent) / indentUnit),
+                    marker: marker,
+                    lines: [String(trimmed.dropFirst(marker.contentStart))]
+                )
+                hasBlankLine = false
+                index += 1
+                continue
+            }
+
+            if trimmed.isEmpty {
+                guard pending != nil else { break }
+                pending?.lines.append("")
+                hasBlankLine = true
+                index += 1
+                continue
+            }
+
+            let isStructural = matchFence(trimmed) != nil
+                || matchHeading(trimmed) != nil
+                || isTableStart(lines: lines, startIndex: index)
+                || isBlockquoteLine(trimmed)
+                || isHorizontalRule(trimmed)
+                || isRawHTMLLine(trimmed)
+            let isIndentedContinuation = indent > rootIndent
+            let isLazyContinuation = !hasBlankLine && pending != nil && !isStructural
+            guard pending != nil, isIndentedContinuation || isLazyContinuation else { break }
+
+            let leadingCharacterCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+            let strippedCount = min(leadingCharacterCount, max(1, indentUnit))
+            pending?.lines.append(String(line.dropFirst(strippedCount)))
+            hasBlankLine = false
+            index += 1
+        }
+
+        finish(pending, into: &items)
+        _ = ordered
+        return (items, max(1, index - startIndex))
+    }
+
+    static func indentationColumns(_ line: String) -> Int {
+        var columns = 0
+        for character in line {
+            switch character {
+            case " ": columns += 1
+            case "\t": columns = ((columns / 4) + 1) * 4
+            default: return columns
+            }
+        }
+        return columns
+    }
+
+    static func listIndentUnit(lines: [String], startIndex: Int, rootIndent: Int) -> Int {
+        var indents: [Int] = []
+        var index = startIndex
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                index += 1
+                continue
+            }
+            let indent = indentationColumns(lines[index])
+            if matchListMarker(trimmed) != nil, indent >= rootIndent {
+                indents.append(indent)
+                index += 1
+                continue
+            }
+            if indent > rootIndent {
+                index += 1
+                continue
+            }
+            break
+        }
+        let positiveDeltas = indents.map { $0 - rootIndent }.filter { $0 > 0 }
+        return max(1, positiveDeltas.min() ?? 4)
+    }
+
+    static func isBlockquoteLine(_ trimmed: String) -> Bool {
+        trimmed == ">" || trimmed.hasPrefix("> ") || trimmed.hasPrefix(">\t")
+    }
+
+    static func consumeBlockquote(lines: [String], startIndex: Int) -> (text: String, consumed: Int) {
+        var collected: [String] = []
         var index = startIndex
         while index < lines.count {
             let line = lines[index]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { index += 1; continue }
-            // Indentation: nested list items get a depth.
-            let leading = line.prefix(while: { $0 == " " || $0 == "\t" }).count
-            let depth = leading / 2
-            if let marker = matchListMarker(trimmed) {
-                let text = trimmed
-                    .drop(while: { $0 != " " })
-                    .drop(while: { $0 == " " })
-                    .trimmingCharacters(in: .whitespaces)
-                items.append(CodexListItem(
-                    id: "list-\(startIndex)-\(index)",
-                    text: text,
-                    depth: depth
-                ))
+            if isBlockquoteLine(trimmed) {
+                let content = trimmed == ">"
+                    ? ""
+                    : String(trimmed.dropFirst(1)).trimmingCharacters(in: .whitespaces)
+                collected.append(content)
                 index += 1
-                _ = marker
                 continue
             }
-            // Non-list line ends the region.
+            if trimmed.isEmpty, index + 1 < lines.count,
+               isBlockquoteLine(lines[index + 1].trimmingCharacters(in: .whitespaces)) {
+                collected.append("")
+                index += 1
+                continue
+            }
             break
         }
-        return (items, max(1, index - startIndex))
+        return (collected.joined(separator: "\n"), max(1, index - startIndex))
+    }
+
+    static func isHorizontalRule(_ trimmed: String) -> Bool {
+        let compact = trimmed.filter { !$0.isWhitespace }
+        guard compact.count >= 3, let first = compact.first,
+              first == "-" || first == "_" || first == "*" else { return false }
+        return compact.allSatisfy { $0 == first }
+    }
+
+    static func isRawHTMLLine(_ trimmed: String) -> Bool {
+        guard trimmed.first == "<", let close = trimmed.firstIndex(of: ">") else { return false }
+        let inside = trimmed[trimmed.index(after: trimmed.startIndex)..<close]
+            .trimmingCharacters(in: .whitespaces)
+        guard let first = inside.first else { return false }
+        if first == "!" || first == "?" { return true }
+        let nameStart = first == "/" ? inside.index(after: inside.startIndex) : inside.startIndex
+        guard nameStart < inside.endIndex else { return false }
+        return inside[nameStart].isLetter
+    }
+
+    static func consumeHTML(lines: [String], startIndex: Int) -> (text: String, consumed: Int) {
+        var index = startIndex
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { break }
+            if index > startIndex,
+               matchFence(trimmed) != nil
+                || matchHeading(trimmed) != nil
+                || isHorizontalRule(trimmed)
+                || matchListMarker(trimmed) != nil {
+                break
+            }
+            index += 1
+        }
+        return (lines[startIndex..<index].joined(separator: "\n"), max(1, index - startIndex))
     }
 
     static func consumeProse(lines: [String], startIndex: Int) -> (text: String, consumed: Int) {
@@ -511,6 +778,7 @@ public enum CodexBlockProjector {
             if matchHeading(trimmed) != nil { break }
             if isTableStart(lines: lines, startIndex: index) { break }
             if matchListMarker(trimmed) != nil { break }
+            if isBlockquoteLine(trimmed) || isHorizontalRule(trimmed) || isRawHTMLLine(trimmed) { break }
             collected.append(line)
             index += 1
         }
@@ -552,6 +820,10 @@ extension CodexBlock {
             return lid == rid && llevel == rlevel && ltext == rtext
         case (.list(let lid, let lordered, let litems), .list(let rid, let rordered, let ritems)):
             return lid == rid && lordered == rordered && litems == ritems
+        case (.blockquote(let lid, let ltext, _), .blockquote(let rid, let rtext, _)):
+            return lid == rid && ltext == rtext
+        case (.horizontalRule(let lid), .horizontalRule(let rid)):
+            return lid == rid
         case (.htmlFallback(let lid, let ltext), .htmlFallback(let rid, let rtext)):
             return lid == rid && ltext == rtext
         default:
@@ -562,7 +834,11 @@ extension CodexBlock {
 
 extension CodexListItem {
     public static func == (lhs: CodexListItem, rhs: CodexListItem) -> Bool {
-        lhs.id == rhs.id && lhs.text == rhs.text && lhs.depth == rhs.depth
+        lhs.id == rhs.id
+            && lhs.text == rhs.text
+            && lhs.depth == rhs.depth
+            && lhs.isTask == rhs.isTask
+            && lhs.isCompleted == rhs.isCompleted
     }
 }
 

@@ -100,9 +100,10 @@ public struct CodexWorkBlockViewV2: View {
                     conversationBody(showsNarrative: isExpanded)
 
                 case .failed(let message):
-                    Text(message.isEmpty ? "Work failed" : message)
+                    let interruption = status.interruption
+                    Text(interruption.map(Self.interruptedLabel) ?? (message.isEmpty ? "Work failed" : message))
                         .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
+                        .foregroundStyle(interruption == nil ? theme.colors.danger : theme.colors.warning)
                         .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
                     conversationBody(showsNarrative: false)
                 }
@@ -209,6 +210,11 @@ public struct CodexWorkBlockViewV2: View {
     nonisolated static func completedLabel(_ milliseconds: Int?) -> String {
         guard let milliseconds else { return "Worked" }
         return "Worked for " + duration(milliseconds)
+    }
+
+    nonisolated private static func interruptedLabel(_ interruption: CodexTurnStatusV2.Interruption) -> String {
+        let elapsed = interruption.durationMs.map { " after " + Self.duration($0) } ?? ""
+        return "Interrupted\(elapsed)" + (interruption.message.isEmpty ? "" : ": \(interruption.message)")
     }
 }
 
