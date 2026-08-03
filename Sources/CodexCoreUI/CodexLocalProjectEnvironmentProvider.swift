@@ -91,6 +91,14 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
     }
 
     public func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
+        try await handOffToWorktree(request, progress: { _ in })
+    }
+
+    public func handOffToWorktree(
+        _ request: CodexWorktreeHandoffRequest,
+        progress: @escaping @MainActor @Sendable (CodexWorktreeHandoffProgressStage) -> Void
+    ) async throws -> CodexWorktreeHandoffResult {
+        await progress(.preparing)
         let source = URL(fileURLWithPath: request.sourcePath).standardizedFileURL
         let root = try await repositoryRoot(at: source)
         let target = URL(fileURLWithPath: request.targetPath).standardizedFileURL
@@ -135,15 +143,18 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
         var worktreeAttempted = false
         var branchCreated = false
         do {
+            await progress(.creatingWorktree)
             worktreeAttempted = true
             _ = try await git(
                 ["worktree", "add", "--detach", target.path, startingRef],
                 at: root
             )
 
+            await progress(.creatingBranch)
             _ = try await git(["switch", "-c", branch], at: target)
             branchCreated = true
 
+            await progress(.applyingTrackedChanges)
             if !patch.isEmpty {
                 do {
                     _ = try await git(
@@ -166,6 +177,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
                 Self.mark(&outcomes, paths: trackedPaths, as: .applied)
             }
 
+            await progress(.copyingUntrackedFiles)
             for path in untrackedPaths {
                 do {
                     try copyUntrackedPath(path, from: root, to: target)
@@ -188,6 +200,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
                 repositoryPrefix,
                 isDirectory: true
             ).standardizedFileURL
+            await progress(.finalizing)
             return CodexWorktreeHandoffResult(
                 title: request.title,
                 branchName: branch,

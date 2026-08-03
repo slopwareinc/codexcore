@@ -66,13 +66,6 @@ public struct CodexFloatingSummaryPanel: View {
                         }
                     }
 
-                    SummaryWorkspaceRow(
-                        summary: workspaceSummary,
-                        onOpenReview: gitReviewSession.map { session in
-                            { onSelectTab(CodexAgentPanelTab.review(session).id) }
-                        }
-                    )
-
                     // The workspace summary can lag a project switch, so fall
                     // back to the branch the review snapshot already resolved.
                     // "HEAD" is the snapshot's placeholder for "no branch
@@ -80,15 +73,22 @@ public struct CodexFloatingSummaryPanel: View {
                     let branchName = workspaceSummary.gitBranch?.nilIfBlank
                         ?? gitReviewSession?.snapshot.branchName.nilIfBlank
                             .flatMap { $0 == "HEAD" ? nil : $0 }
-                    SummaryBranchRow(
-                        branchName: branchName,
-                        workspacePath: workspaceSummary.workspacePath,
-                        onCompareBranch: gitReviewSession.map { session in
-                            { onSelectTab(CodexAgentPanelTab.review(session).id) }
-                        }
+                    CodexProjectEnvironmentPanel(
+                        environment: CodexProjectEnvironmentState(
+                            selection: workspaceSummary.environmentModeTitle == "Worktree"
+                                ? .worktree : .local,
+                            workspacePath: workspaceSummary.workspacePath,
+                            branchName: branchName,
+                            worktreePath: workspaceSummary.environmentModeTitle == "Worktree"
+                                ? workspaceSummary.workspacePath : nil,
+                            runtimeInfo: workspaceSummary.environmentInfo
+                        ),
+                        threadTitle: chatTitle,
+                        provider: CodexLocalProjectEnvironmentProvider(
+                            workspaceURL: URL(fileURLWithPath: workspaceSummary.workspacePath)
+                        ),
+                        onCompletion: onEnvironmentHandoffCompletion
                     )
-                    // A different checkout needs its own session, not the
-                    // previous project's branches.
                     .id(workspaceSummary.workspacePath)
 
                     if branchName != nil {

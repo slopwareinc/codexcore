@@ -24,6 +24,11 @@ struct CodexWorkspaceSummaryContextTests {
         )
 
         #expect(context.environmentModeTitle == "Worktree")
+        #expect(
+            CodexProjectSidebarEnvironmentLabel.title(
+                workspacePath: "/Users/person/Project-worktrees/ab12/feature/packages/web"
+            ) == "Worktree"
+        )
     }
 
     @Test func planSummaryReportsProgressWithoutOwningDiffState() {

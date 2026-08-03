@@ -5,8 +5,7 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
     func testEnvironmentSelectorExposesCapturedModesAndAppliesWorktreeResult() {
         XCTAssertEqual(CodexProjectEnvironmentSelection.allCases.map(\.title), [
             "Local",
-            "Worktree",
-            "Cloud"
+            "Worktree"
         ])
 
         var environment = CodexProjectEnvironmentState(
@@ -130,6 +129,10 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(completion.environment.selection, .worktree)
         XCTAssertEqual(completion.environment.branchName, "codex/implement-stats")
         XCTAssertEqual(completion.environment.workspacePath, "/repo-worktrees/stats")
+        guard case .success(let result) = completion.outcome else {
+            return XCTFail("Expected a typed handoff success")
+        }
+        XCTAssertEqual(result.branchName, "codex/implement-stats")
         XCTAssertEqual(completion.activity.title, "Handed-off to worktree")
         XCTAssertEqual(completion.activity.detail, "codex/implement-stats at /repo-worktrees/stats")
         XCTAssertEqual(completion.resultCard, CodexWorktreeHandoffResultCard(
@@ -155,8 +158,15 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         )
 
         XCTAssertEqual(completion.environment, environment)
-        XCTAssertEqual(completion.activity.title, "Worktree handoff unavailable")
-        XCTAssertEqual(completion.activity.detail, "Worktree handoff is not available in this build")
+        guard case .failure(let failure) = completion.outcome else {
+            return XCTFail("Expected a typed handoff failure")
+        }
+        XCTAssertEqual(failure.message, "Worktree handoff is not available in this build")
+        XCTAssertEqual(completion.activity.title, "Worktree handoff failed")
+        XCTAssertEqual(
+            completion.activity.detail,
+            "Worktree handoff is not available in this build The source tree was left untouched."
+        )
         XCTAssertNil(completion.resultCard)
     }
 
@@ -236,8 +246,46 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(session.environment.selection, .worktree)
         XCTAssertEqual(session.lastActivity?.title, "Handed-off to worktree")
         XCTAssertEqual(session.resultCard?.detail, "codex/implement-stats at /repo-worktrees/stats")
+        XCTAssertNil(session.handoffFailure)
     }
 
+    func testWorktreeHandoffFailurePreservesPerPathOutcomes() async {
+        let modal = CodexWorktreeHandoffModalState(
+            threadTitle: "Implement stats",
+            sourcePath: "/repo",
+            targetPath: "/repo-worktrees/stats"
+        )
+        let outcomes = [
+            CodexWorktreeHandoffPathOutcome(path: "Applied.swift", status: .applied),
+            CodexWorktreeHandoffPathOutcome(path: "Conflict.swift", status: .conflicted),
+            CodexWorktreeHandoffPathOutcome(path: "Skipped.swift", status: .skipped),
+        ]
+
+        let completion = await CodexWorktreeHandoffSession.perform(
+            modal: modal,
+            environment: CodexProjectEnvironmentState(workspacePath: "/repo"),
+            provider: FailingWorktreeHandoffProvider(outcomes: outcomes)
+        )
+
+        guard case .failure(let failure) = completion.outcome else {
+            return XCTFail("Expected a typed handoff failure")
+        }
+        XCTAssertEqual(failure.pathOutcomes, outcomes)
+        XCTAssertEqual(completion.environment.workspacePath, "/repo")
+        XCTAssertTrue(completion.activity.detail.hasSuffix("The source tree was left untouched."))
+    }
+
+}
+
+private struct FailingWorktreeHandoffProvider: CodexWorktreeHandoffProviding {
+    var outcomes: [CodexWorktreeHandoffPathOutcome]
+
+    func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
+        throw CodexLocalProjectEnvironmentError.handoffFailed(
+            message: "Git reported conflicts.",
+            pathOutcomes: outcomes
+        )
+    }
 }
 
 private struct MockWorktreeHandoffProvider: CodexWorktreeHandoffProviding {
