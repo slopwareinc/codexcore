@@ -199,9 +199,13 @@ final class SessionOperationPrimitivesTests: XCTestCase {
             1
         )
         var fileIterator = fileObservation.changes.makeAsyncIterator()
-        XCTAssertEqual(try await fileIterator.next(), fileChange)
+        let fileIteratorValue1 = try await fileIterator.next()
+        XCTAssertEqual(fileIteratorValue1, fileChange)
         XCTAssertTrue(fileHub.cancel(fileObservation.id))
-        XCTAssertNil(try await fileIterator.next())
+        do {
+            _ = try await fileIterator.next()
+            XCTFail("Cancelled observer should fail rather than finish cleanly")
+        } catch is CancellationError {}
 
         var processHub = CodexProcessObserverHub()
         let processObservation = try processHub.observe(
@@ -231,9 +235,12 @@ final class SessionOperationPrimitivesTests: XCTestCase {
             1
         )
         var processIterator = processObservation.events.makeAsyncIterator()
-        XCTAssertEqual(try await processIterator.next(), .output(output))
-        XCTAssertEqual(try await processIterator.next(), .exited(exited))
-        XCTAssertNil(try await processIterator.next())
+        let processIteratorValue1 = try await processIterator.next()
+        XCTAssertEqual(processIteratorValue1, .output(output))
+        let processIteratorValue2 = try await processIterator.next()
+        XCTAssertEqual(processIteratorValue2, .exited(exited))
+        let processIteratorValue3 = try await processIterator.next()
+        XCTAssertNil(processIteratorValue3)
 
         var fuzzyHub = CodexFuzzyFileSearchObserverHub()
         let fuzzyObservation = fuzzyHub.observe(connectionEpoch: 8, sessionID: "search")
@@ -252,9 +259,12 @@ final class SessionOperationPrimitivesTests: XCTestCase {
             1
         )
         var fuzzyIterator = fuzzyObservation.events.makeAsyncIterator()
-        XCTAssertEqual(try await fuzzyIterator.next(), .updated(update))
-        XCTAssertEqual(try await fuzzyIterator.next(), .completed(completion))
-        XCTAssertNil(try await fuzzyIterator.next())
+        let fuzzyIteratorValue1 = try await fuzzyIterator.next()
+        XCTAssertEqual(fuzzyIteratorValue1, .updated(update))
+        let fuzzyIteratorValue2 = try await fuzzyIterator.next()
+        XCTAssertEqual(fuzzyIteratorValue2, .completed(completion))
+        let fuzzyIteratorValue3 = try await fuzzyIterator.next()
+        XCTAssertNil(fuzzyIteratorValue3)
 
         var epochHub = CodexFSChangeObserverHub()
         let oldEpoch = epochHub.observe(connectionEpoch: 1, watchID: "same")
@@ -267,9 +277,11 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         } catch let error as CodexFSChangeObserverError {
             XCTAssertEqual(error, .disconnected(connectionEpoch: 1))
         }
-        XCTAssertEqual(epochHub.publish(connectionEpoch: 2, notification: fileChange), 1)
+        let sharedChange = CodexSchemaFSChangedNotification(changedPaths: [], watchID: "same")
+        XCTAssertEqual(epochHub.publish(connectionEpoch: 2, notification: sharedChange), 1)
         var newIterator = newEpoch.changes.makeAsyncIterator()
-        XCTAssertEqual(try await newIterator.next(), fileChange)
+        let newIteratorValue1 = try await newIterator.next()
+        XCTAssertEqual(newIteratorValue1, sharedChange)
         XCTAssertTrue(epochHub.cancel(newEpoch.id))
     }
 
@@ -279,9 +291,13 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         let app = CodexSchemaAppListUpdatedNotification(data: [])
         XCTAssertEqual(appHub.publish(connectionEpoch: 5, event: app), 1)
         var appIterator = appObservation.events.makeAsyncIterator()
-        XCTAssertEqual(try await appIterator.next(), app)
+        let appIteratorValue1 = try await appIterator.next()
+        XCTAssertEqual(appIteratorValue1, app)
         XCTAssertTrue(appHub.cancel(appObservation.id))
-        XCTAssertNil(try await appIterator.next())
+        do {
+            _ = try await appIterator.next()
+            XCTFail("Cancelled observer should fail rather than finish cleanly")
+        } catch is CancellationError {}
 
         var importHub = CodexExternalAgentConfigImportObserverHub()
         let importObservation = importHub.observe(connectionEpoch: 6, importID: "import")
@@ -307,9 +323,12 @@ final class SessionOperationPrimitivesTests: XCTestCase {
             1
         )
         var importIterator = importObservation.events.makeAsyncIterator()
-        XCTAssertEqual(try await importIterator.next(), .progress(progress))
-        XCTAssertEqual(try await importIterator.next(), .completed(completed))
-        XCTAssertNil(try await importIterator.next())
+        let importIteratorValue1 = try await importIterator.next()
+        XCTAssertEqual(importIteratorValue1, .progress(progress))
+        let importIteratorValue2 = try await importIterator.next()
+        XCTAssertEqual(importIteratorValue2, .completed(completed))
+        let importIteratorValue3 = try await importIterator.next()
+        XCTAssertNil(importIteratorValue3)
 
         var oauthHub = CodexMCPServerOAuthLoginObserverHub()
         let oauthObservation = oauthHub.observe(
@@ -323,8 +342,10 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         )
         XCTAssertEqual(oauthHub.publish(connectionEpoch: 7, notification: oauth), 1)
         var oauthIterator = oauthObservation.completions.makeAsyncIterator()
-        XCTAssertEqual(try await oauthIterator.next(), oauth)
-        XCTAssertNil(try await oauthIterator.next())
+        let oauthIteratorValue1 = try await oauthIterator.next()
+        XCTAssertEqual(oauthIteratorValue1, oauth)
+        let oauthIteratorValue2 = try await oauthIterator.next()
+        XCTAssertNil(oauthIteratorValue2)
 
         var sandboxHub = CodexWindowsSandboxSetupObserverHub()
         let sandboxObservation = sandboxHub.observe(connectionEpoch: 11)

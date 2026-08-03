@@ -2393,7 +2393,8 @@ final class CodexSessionOrderingTests: XCTestCase {
             return XCTFail("Expected terminal failed lifecycle")
         }
         XCTAssertTrue(message.contains("configuredOpenFailure"))
-        XCTAssertEqual(await transport.openAttemptCount, 2)
+        let openAttemptCount = await transport.openAttemptCount
+        XCTAssertEqual(openAttemptCount, 2)
         await session.stop()
     }
 

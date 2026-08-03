@@ -138,15 +138,18 @@ public struct CodexModelGridV2: Equatable, Sendable {
             .lowercased()
             .replacingOccurrences(of: "speed", with: "")
             .replacingOccurrences(of: "fast", with: "")
-        let meaningfulTokens = displayName
+        let namedTokens = displayName
             .split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" })
             .filter { token in
                 !token.isEmpty
-                    && token != "gpt"
-                    && token != "codex"
                     && token.range(of: #"^\d+(?:\.\d+)*$"#, options: .regularExpression) == nil
             }
-        let identifier = if meaningfulTokens.count > 1, let token = meaningfulTokens.last {
+        let meaningfulTokens = namedTokens.filter { $0 != "gpt" && $0 != "codex" }
+        // A trailing token names a variant ("GPT 5.6 Sol" -> "sol") only when the
+        // display name carries more than the family name itself. A lone family
+        // token ("Nova 2.0") says nothing about variant, so the model identifier
+        // keeps generations apart instead of collapsing them into one column.
+        let identifier = if namedTokens.count > 1, let token = meaningfulTokens.last {
             String(token)
         } else {
             (model.modelIdentifier ?? model.id)

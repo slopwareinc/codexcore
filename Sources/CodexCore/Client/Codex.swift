@@ -691,18 +691,22 @@ public final class Codex: Sendable {
             }
         }
 
-        for directory in ["/opt/homebrew/bin", "/usr/local/bin"] {
-            let candidate = directory + "/codex"
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return cacheResolvedRuntimePath(candidate, for: cacheKey)
-            }
-        }
-
+        // The interactive shell reflects the PATH the user actually configured
+        // (asdf, nvm, a custom Homebrew prefix), so it outranks the fixed
+        // candidates below, which exist only as a last resort when the probe
+        // fails or the shell startup files are broken.
         if let candidate = loginShellCodexPath(
             environment: environment,
             fileManager: fileManager
         ) {
             return cacheResolvedRuntimePath(candidate, for: cacheKey)
+        }
+
+        for directory in ["/opt/homebrew/bin", "/usr/local/bin"] {
+            let candidate = directory + "/codex"
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return cacheResolvedRuntimePath(candidate, for: cacheKey)
+            }
         }
 
         for appBundleURL in codexAppBundleCandidates(
@@ -756,6 +760,12 @@ public final class Codex: Sendable {
         return nil
     }
 
+    /// A login shell sources the user's full startup files, so the budget has to
+    /// cover a realistic `nvm`/`oh-my-zsh` profile on a cold spawn. It stays
+    /// short enough that a wedged shell cannot hold up launch, and the resolved
+    /// path is cached so the cost is paid once.
+    private static let loginShellLookupTimeout = DispatchTimeInterval.milliseconds(2000)
+
     private static func runLoginShellLookup(
         shell: String,
         environment: [String: String]
@@ -793,7 +803,7 @@ public final class Codex: Sendable {
             finished.signal()
         }
 
-        guard finished.wait(timeout: .now() + .milliseconds(350)) == .success else {
+        guard finished.wait(timeout: .now() + loginShellLookupTimeout) == .success else {
             if process.isRunning {
                 process.terminate()
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)

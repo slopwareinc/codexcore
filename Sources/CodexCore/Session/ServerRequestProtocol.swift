@@ -259,7 +259,7 @@ public enum CodexMCPElicitationMode: Sendable, Equatable {
     /// interpret an unrecognized schema. The original mode remains available
     /// through `unknownMode` for diagnostics.
     public static func unknown(_ mode: String) -> Self {
-        .url(elicitationID: "unknown:(mode)", url: "")
+        .url(elicitationID: "unknown:\(mode)", url: "")
     }
 
     public var unknownMode: String? {

@@ -109,7 +109,7 @@ final class V2TypeTests: XCTestCase {
 
     func testInputWireMappingIncludesAudioImageDetailAndTextElements() throws {
         let element = CodexSchemaTextElement(
-            byteRange: .init(start: 0, end: 4),
+            byteRange: .init(end: 4, start: 0),
             placeholder: "file"
         )
         XCTAssertEqual(
