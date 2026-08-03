@@ -33,7 +33,7 @@ Open **Browser** for manually navigated documentation and local previews. It is 
 
 ## Review workbench
 
-The task summary's Environment section is interactive, following bundle `26.727.40816`, where the same rows are a workspace menu and a live branch control rather than labels. The workspace row opens Reveal in Finder, Copy path, and Open Review. The branch row opens a branch switcher: searchable local branches with the current one marked and its dirty-file count, inline create-and-checkout, Copy branch name, and Compare branch in Review. Switching is refused with a stated reason while the tree is dirty, and a name that already exists is rejected before Git runs. Branch reads start when the control opens, never during rendering, and every mutation goes through the same serialized repository actor and expected-revision check Review uses; closing the control cancels the listing but never an in-flight checkout. Remote-branch listing is not offered — the snapshot enumerates `refs/heads` only. A section header shows a `+` only when it has actions behind it.
+The task summary's Environment section hosts the local project environment panel. It shows the current local or worktree mode and branch, lists local branches, and refuses branch switching while the checkout is dirty. The section menu retains Reveal in Finder, Copy path, and Open Review when Review is available. Remote-branch listing is not offered — the environment snapshot enumerates `refs/heads` only.
 
 Open **Changes** from the shared task summary or select the Review side-panel tab. Review is available in any Git checkout, not only after the current turn has produced edits: with no turn diff it opens on its Last Turn empty state and offers the repository sources from there, so Changes, Commit or push, and Create pull request stay live in a normal repository. Completed plans appear as a separate Plan section in that same summary and open a Plan tab; diffs never appear inside Plan. Review offers Last Turn, Uncommitted, Unstaged, Staged, Committed, and Branch sources. Last Turn uses the immutable diff already projected for the current conversation; repository sources are refreshed explicitly from Git. Committed accepts a recent commit or explicit ref. Branch requires an explicit or safely discovered base and uses merge-base comparison; it never silently substitutes the previous commit.
 
@@ -43,15 +43,19 @@ The unified diff carries a single line-number gutter, matching bundle `26.727.40
 
 Per-file and bulk stage, unstage, and tracked-file revert actions are explicit. Branch create/checkout, commit, commit-and-push, push, and draft-PR actions share the same mutation boundary. Rendering never mutates Git. Each mutation validates paths and rejects a stale repository revision. Mutations refuse index locks and active merge, rebase, cherry-pick, revert, bisect, or sequencer operations. Tracked revert requires confirmation, clears staged and unstaged content together, and refuses untracked deletion. Commit-and-push reports partial success if the commit succeeds but the network step fails, so recovery never suggests duplicating the commit.
 
-The reusable `CodexProjectEnvironmentPanel` and
-`CodexLocalProjectEnvironmentProvider` implement local worktree handoff: the
+Choose **Create environment** to hand the current chat off to a local Git
+worktree. The confirmation sheet shows the editable branch name and destination
+path, then reports capture, worktree creation, branch creation, tracked-change
+application, untracked-file copying, and finalization as distinct stages. The
 source checkout is left untouched, tracked diffs are applied with Git's
-three-way machinery, untracked files are transferred individually, and the
-result (or a failure detail) reports each path as applied, skipped, or
-conflicted. The destination
-uses a short machine-identifiable bucket and preserves the chat's
-repository-relative working directory. These types are not wired into the
-reference app yet, so the shipped app still requires external Git tooling for
-worktrees. Projectless chats show an honest review empty state because Review
-requires a Git-backed workspace. Use the workspace side panel for the real
+three-way machinery, and untracked files are transferred individually. Success
+and failure results report each captured path as applied, skipped, or
+conflicted; failures explicitly confirm that the source tree was not changed.
+The destination uses a short machine-identifiable bucket and preserves the
+chat's repository-relative working directory. Worktree-backed chats are marked
+in the project sidebar using Git metadata, with a path fallback for unavailable
+checkouts. Cloud environments are not offered.
+
+Worktree handoff and Review require a Git-backed workspace. Projectless chats
+show the Review empty state instead. Use the workspace side panel for the real
 interactive Ghostty terminal.

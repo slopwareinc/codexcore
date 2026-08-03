@@ -3,6 +3,20 @@ import SwiftUI
 import AppKit
 #endif
 
+enum CodexProjectSidebarEnvironmentLabel {
+    static func title(workspacePath: String?) -> String? {
+        guard let workspacePath = workspacePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspacePath.isEmpty else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: workspacePath)
+        if let isWorktree = CodexWorkspaceGitProbe.isLinkedWorktree(at: url) {
+            return isWorktree ? "Worktree" : nil
+        }
+        return CodexWorkspaceGitProbe.heuristicWorktreePath(url) ? "Worktree" : nil
+    }
+}
+
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var showsOlderProjects = false
@@ -891,6 +905,17 @@ private struct SidebarChatRowContent: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(1)
+            if let environmentLabel {
+                Text(environmentLabel)
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(
+                        theme.colors.surfaceElevated,
+                        in: Capsule()
+                    )
+            }
             if hasTrailingStatus {
                 Spacer(minLength: 0)
                 trailingStatus
@@ -903,7 +928,11 @@ private struct SidebarChatRowContent: View {
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(row.summary.title)
+        .accessibilityLabel(
+            [row.summary.title, environmentLabel]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
         .accessibilityValue(
             CodexSidebarAccessibility.chatStatusValue(
                 status: row.liveStatus,
@@ -977,6 +1006,10 @@ private struct SidebarChatRowContent: View {
         case ..<604_800: return "\(Int(elapsed / 86_400))d"
         default: return "\(Int(elapsed / 604_800))w"
         }
+    }
+
+    private var environmentLabel: String? {
+        CodexProjectSidebarEnvironmentLabel.title(workspacePath: row.summary.workspacePath)
     }
 }
 

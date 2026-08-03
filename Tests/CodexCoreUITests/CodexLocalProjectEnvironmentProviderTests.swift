@@ -3,6 +3,7 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
+    @MainActor
     func testHandoffLeavesSourceUntouchedCopiesChangesAndPreservesRepositoryPrefix() async throws {
         let fixture = try makeRepository()
         defer { fixture.remove() }
@@ -15,14 +16,18 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
 
         let target = fixture.root.deletingLastPathComponent()
             .appendingPathComponent("Project-worktrees/ab12/implement")
+        var progressStages: [CodexWorktreeHandoffProgressStage] = []
         let result = try await CodexLocalProjectEnvironmentProvider(
             workspaceURL: sourceSubdirectory
-        ).handOffToWorktree(CodexWorktreeHandoffRequest(
-            title: "Implement",
-            sourcePath: sourceSubdirectory.path,
-            targetPath: target.path,
-            branchName: "codex/implement"
-        ))
+        ).handOffToWorktree(
+            CodexWorktreeHandoffRequest(
+                title: "Implement",
+                sourcePath: sourceSubdirectory.path,
+                targetPath: target.path,
+                branchName: "codex/implement"
+            ),
+            progress: { progressStages.append($0) }
+        )
 
         XCTAssertEqual(result.worktreePath, target.standardizedFileURL.path)
         XCTAssertEqual(
@@ -63,6 +68,7 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
             result.pathOutcomes.map(\.status),
             [.applied, .applied]
         )
+        XCTAssertEqual(progressStages, CodexWorktreeHandoffProgressStage.allCases)
         XCTAssertEqual(
             try runGit(["status", "--porcelain", "-z", "--untracked-files=all"], at: fixture.root),
             " M packages/web/App.swift\0?? packages/web/Local.swift\0"
@@ -107,6 +113,10 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
         )
         XCTAssertEqual(
             CodexWorkspaceSummaryContext(workspacePath: linked.path).environmentModeTitle,
+            "Worktree"
+        )
+        XCTAssertEqual(
+            CodexProjectSidebarEnvironmentLabel.title(workspacePath: linked.path),
             "Worktree"
         )
 

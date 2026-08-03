@@ -6,6 +6,7 @@ public struct CodexProjectEnvironmentPanel: View {
     @State private var session: CodexProjectEnvironmentPanelSession
     @State private var repositorySnapshot: CodexProjectEnvironmentRepositorySnapshot?
     @State private var isBusy = false
+    @State private var handoffProgressStage: CodexWorktreeHandoffProgressStage?
     private let threadTitle: String
     private let provider: any CodexProjectEnvironmentProviding
     private let onCompletion: @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void
@@ -45,7 +46,7 @@ public struct CodexProjectEnvironmentPanel: View {
                     .padding(.horizontal, 8)
             }
 
-            if isBusy {
+            if isBusy, handoffProgressStage == nil {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel("Updating environment")
@@ -53,6 +54,8 @@ public struct CodexProjectEnvironmentPanel: View {
 
             if let resultCard = session.resultCard {
                 resultCardView(resultCard)
+            } else if let failure = session.handoffFailure {
+                failureView(failure)
             } else if let activity = session.lastActivity {
                 activityView(activity)
             }
@@ -77,9 +80,7 @@ public struct CodexProjectEnvironmentPanel: View {
                 Button { select(.worktree) } label: {
                     Label("Worktree", systemImage: "square.stack.3d.up")
                 }
-                Button { select(.cloud) } label: {
-                    Label("Cloud", systemImage: "cloud")
-                }
+                .disabled(repositorySnapshot == nil)
             }
             if let usage = session.environment.usageRemainingLabel?.nilIfBlank {
                 Section("Usage remaining") { Text(usage) }
@@ -154,6 +155,22 @@ public struct CodexProjectEnvironmentPanel: View {
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Worktree path")
 
+            if let handoffProgressStage {
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(value: handoffProgressStage.completedFraction)
+                    Text(handoffProgressStage.title)
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Worktree handoff progress")
+                .accessibilityValue(handoffProgressStage.title)
+            }
+
+            if let failure = session.handoffFailure {
+                failureView(failure)
+            }
+
             if let error = session.modal?.validationErrors.first {
                 Label(error.message, systemImage: "exclamationmark.triangle")
                     .font(theme.fonts.caption)
@@ -189,13 +206,6 @@ public struct CodexProjectEnvironmentPanel: View {
             session.resultCard = nil
         case .worktree:
             prepareHandoff()
-        case .cloud:
-            session.lastActivity = CodexActivity(
-                kind: .notice,
-                title: "Cloud environment unavailable",
-                detail: "This local host has no cloud environment provider configured."
-            )
-            session.resultCard = nil
         }
     }
 
@@ -231,14 +241,19 @@ public struct CodexProjectEnvironmentPanel: View {
     private func performHandoff() async {
         guard let modal = session.modal else { return }
         isBusy = true
+        handoffProgressStage = .preparing
         let completion = await CodexWorktreeHandoffSession.perform(
             modal: modal,
             environment: session.environment,
-            provider: provider
+            provider: provider,
+            progress: { stage in
+                handoffProgressStage = stage
+            }
         )
         isBusy = false
+        handoffProgressStage = nil
         session.apply(completion)
-        if completion.resultCard != nil {
+        if case .success = completion.outcome {
             session.modal = nil
         }
         onCompletion(completion)
@@ -280,6 +295,39 @@ public struct CodexProjectEnvironmentPanel: View {
         }
         .padding(.horizontal, 8)
         .accessibilityElement(children: .combine)
+    }
+
+    private func failureView(_ failure: CodexWorktreeHandoffFailure) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Worktree handoff failed", systemImage: "exclamationmark.triangle.fill")
+                .font(theme.fonts.caption.weight(.semibold))
+                .foregroundStyle(theme.colors.danger)
+            Text(failure.message)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+            Text("The source tree was left untouched.")
+                .font(theme.fonts.caption.weight(.semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+            if !failure.pathOutcomes.isEmpty {
+                pathOutcomeRows(failure.pathOutcomes)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.colors.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: theme.radii.small))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func pathOutcomeRows(_ outcomes: [CodexWorktreeHandoffPathOutcome]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(outcomes, id: \.path) { outcome in
+                Text("\(outcome.status.title) · \(outcome.path)")
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
     }
 }
 
