@@ -228,7 +228,7 @@ public struct CodexTranscriptTurnDiffGalleryFixture: View {
                     summary("Sources/CodexCoreUI/CodexAgentPanelModels.swift", added: 5, removed: 0),
                     summary("Sources/CodexCoreUI/CodexChatWorkspace.swift", added: 12, removed: 3),
                     summary("Tests/CodexCoreUITests/CodexTranscriptRenderProjectionTests.swift", added: 76, removed: 2),
-                    summary("docs/review-workbench-evidence/README.md", added: 18, removed: 0),
+                    summary("docs/reference/support-status.md", added: 18, removed: 0),
                 ],
                 reviewSession: CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(
                     branchName: "codex/review-workbench-170"
