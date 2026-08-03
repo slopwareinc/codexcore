@@ -71,6 +71,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
@@ -110,6 +111,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
@@ -139,6 +141,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let hosting = NSHostingView(rootView: route)
         hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         settle(hosting)
 
@@ -178,6 +181,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
@@ -205,6 +209,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let skillHosting = NSHostingView(rootView: skillRow)
         skillHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 62)
         let skillWindow = NSWindow(contentRect: skillHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        skillWindow.isReleasedWhenClosed = false
         skillWindow.contentView = skillHosting
         settle(skillHosting)
         try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: skillHosting)).performClick(nil)
@@ -219,6 +224,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let detailHosting = NSHostingView(rootView: detail)
         detailHosting.frame = NSRect(x: 0, y: 0, width: 720, height: 620)
         let detailWindow = NSWindow(contentRect: detailHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        detailWindow.isReleasedWhenClosed = false
         detailWindow.contentView = detailHosting
         settle(detailHosting)
         try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: detailHosting)).performClick(nil)
@@ -265,6 +271,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let hosting = NSHostingView(rootView: route)
         hosting.frame = NSRect(x: 0, y: 0, width: 736, height: 160)
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         settle(hosting)
 
@@ -300,6 +307,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let activeHosting = NSHostingView(rootView: active)
         activeHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 100)
         let activeWindow = NSWindow(contentRect: activeHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        activeWindow.isReleasedWhenClosed = false
         activeWindow.contentView = activeHosting
         settle(activeHosting)
 
@@ -320,6 +328,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let pendingHosting = NSHostingView(rootView: pending)
         pendingHosting.frame = activeHosting.frame
         let pendingWindow = NSWindow(contentRect: pendingHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        pendingWindow.isReleasedWhenClosed = false
         pendingWindow.contentView = pendingHosting
         settle(pendingHosting)
 

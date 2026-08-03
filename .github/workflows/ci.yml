@@ -1,0 +1,56 @@
+# macos-26 is GitHub's hosted macOS 26 (Apple Silicon) image. Its Xcode 26
+# toolchain provides Swift 6.2, which matches Package.swift's macOS 26 and
+# Swift 6 language-mode requirements. Keep the label explicit instead of
+# macos-latest so a future hosted-image migration cannot silently change the
+# platform used for AppKit tests.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test (macOS 26 / Swift 6.2)
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Cache SwiftPM dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-swift6.2-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ runner.arch }}-swift6.2-
+
+      - name: Verify macOS and Swift toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sw_vers
+          swift --version
+          [[ "$(sw_vers -productVersion)" == 26.* ]]
+          swift --version | grep -Eq 'Swift version 6\.2([.[:digit:]]*)?'
+
+      - name: Build Swift package
+        run: swift build
+
+      - name: Run Swift tests
+        run: swift test
+
+      - name: Run Python tests
+        run: python3 -m unittest discover Tools/tests

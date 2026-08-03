@@ -49,6 +49,7 @@ struct CodexSidebarHoverPerformanceTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
 
         let view = SidebarChatRowContainerView(frame: NSRect(x: 0, y: 0, width: 260, height: 34))
@@ -129,6 +130,7 @@ struct CodexSidebarHoverPerformanceTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let view = SidebarChatRowContainerView(frame: NSRect(x: 24, y: 24, width: 260, height: 34))
         window.contentView?.addSubview(view)
         view.configure(

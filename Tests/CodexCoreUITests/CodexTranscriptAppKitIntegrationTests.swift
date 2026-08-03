@@ -58,6 +58,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = cell.view
         defer { window.close() }
         var captured: [CodexResponseTextAnnotation] = []
@@ -108,6 +109,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let hosting = NSHostingView(rootView: TranscriptHostIdentityHarness(model: model))
         hosting.frame = NSRect(x: 0, y: 0, width: 860, height: 700)
         let window = NSWindow(contentRect: hosting.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
@@ -1072,6 +1074,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             frame: NSRect(x: 0, y: 0, width: 420, height: 360)
         )
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = container
         coordinator.attach(to: container)
         let presentation = CodexThreadUIPresentation(
@@ -1127,6 +1130,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             frame: NSRect(x: 0, y: 0, width: 860, height: 700)
         )
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = container
         coordinator.attach(to: container)
         coordinator.update(
@@ -1165,6 +1169,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             frame: NSRect(x: 0, y: 0, width: 860, height: 700)
         )
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = container
         coordinator.attach(to: container)
         let presentation = CodexThreadUIPresentation(
@@ -1201,6 +1206,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = container
         coordinator.attach(to: container)
         let clipboard = RecordingClipboard()
@@ -1262,6 +1268,9 @@ struct CodexTranscriptAppKitIntegrationTests {
     }
 
     @Test func completedNativeTextSelectionSurvivesReconfigureAndCopyActionsWork() async throws {
+        guard !NSScreen.screens.isEmpty else {
+            try Test.cancel("AppKit pasteboard integration requires a live desktop display")
+        }
         let projector = CodexTranscriptRenderProjector()
         let presentation = CodexThreadUIPresentation(
             threadID: "thread",
@@ -1281,8 +1290,10 @@ struct CodexTranscriptAppKitIntegrationTests {
         let cell = CodexTranscriptCollectionItem()
         _ = cell.view
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 300), styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         cell.view.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 860, height: 300)
         window.contentView = cell.view
+        window.makeKeyAndOrderFront(nil)
         cell.configure(
             item: item,
             appKitTheme: theme,
@@ -1438,6 +1449,9 @@ struct CodexTranscriptAppKitIntegrationTests {
     }
 
     @Test func completedFinalAnswerUsesOneNativeSurfaceForContiguousSelection() async throws {
+        guard !NSScreen.screens.isEmpty else {
+            try Test.cancel("AppKit pasteboard integration requires a live desktop display")
+        }
         let markdown = """
         Intro paragraph with context.
 
@@ -1480,7 +1494,9 @@ struct CodexTranscriptAppKitIntegrationTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = cell.view
+        window.makeKeyAndOrderFront(nil)
         cell.configure(
             item: answerItem,
             appKitTheme: theme,
@@ -1505,6 +1521,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 500))
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = container
         coordinator.attach(to: container)
         let clipboard = RecordingClipboard()
@@ -1684,6 +1701,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = container
         coordinator.attach(to: container)
         let clipboard = RecordingClipboard()

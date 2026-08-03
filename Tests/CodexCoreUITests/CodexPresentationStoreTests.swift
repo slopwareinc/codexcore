@@ -4,6 +4,7 @@ import Foundation
 import Testing
 
 @MainActor
+@Suite(.serialized)
 struct CodexPresentationStoreTests {
     @Test func incompleteResumeShellDoesNotReplaceWarmCachedTranscript() async throws {
         let source = PresentationStateFixture(
