@@ -253,6 +253,17 @@ public struct CodexProjectEnvironmentPanel: View {
                 .font(theme.fonts.caption)
                 .foregroundStyle(theme.colors.textSecondary)
                 .lineLimit(3)
+            if !resultCard.pathOutcomes.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(resultCard.pathOutcomes, id: \.path) { outcome in
+                        Text("\(outcome.status.title) · \(outcome.path)")
+                            .font(theme.fonts.micro)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -27,6 +27,36 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(environment.usageRemainingLabel, "80% remaining")
     }
 
+    func testWorktreeResultCarriesWorkingDirectoryAndPathOutcomes() {
+        let result = CodexWorktreeHandoffResult(
+            title: "Implement stats",
+            branchName: "codex/implement-stats",
+            worktreePath: "/repo-worktrees/abcd/implement-stats",
+            workingDirectoryPath: "/repo-worktrees/abcd/implement-stats/packages/web",
+            pathOutcomes: [
+                CodexWorktreeHandoffPathOutcome(path: "Sources/App.swift", status: .applied),
+                CodexWorktreeHandoffPathOutcome(
+                    path: "Sources/Conflict.swift",
+                    status: .conflicted,
+                    detail: "Git reported a merge conflict."
+                ),
+            ]
+        )
+        var environment = CodexProjectEnvironmentState(
+            workspacePath: "/repo/packages/web",
+            branchName: "main"
+        )
+
+        environment.apply(result)
+
+        XCTAssertEqual(environment.worktreePath, "/repo-worktrees/abcd/implement-stats")
+        XCTAssertEqual(
+            environment.workspacePath,
+            "/repo-worktrees/abcd/implement-stats/packages/web"
+        )
+        XCTAssertEqual(result.resultCard.pathOutcomes.map(\.status), [.applied, .conflicted])
+    }
+
     func testWorktreeModalDefaultsBranchNameFromThreadTitle() {
         XCTAssertEqual(
             CodexWorktreeHandoffModalState.defaultBranchName(for: "Fix parser: tables & code!"),
@@ -130,7 +160,7 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertNil(completion.resultCard)
     }
 
-    func testEnvironmentPanelSessionPreparesRowsAndModalDefaults() {
+    func testEnvironmentPanelSessionPreparesRowsAndModalDefaults() throws {
         var session = CodexProjectEnvironmentPanelSession(environment: CodexProjectEnvironmentState(
             workspacePath: "/Users/me/repo",
             branchName: "main",
@@ -147,11 +177,21 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
 
         session.prepareModal(threadTitle: "Review PR #42")
 
-        XCTAssertEqual(session.modal, CodexWorktreeHandoffModalState(
-            threadTitle: "Review PR #42",
-            sourcePath: "/Users/me/repo",
-            targetPath: "/Users/me/repo-worktrees/review-pr-42"
-        ))
+        let modal = try XCTUnwrap(session.modal)
+        XCTAssertEqual(modal.title, "Review PR #42")
+        XCTAssertEqual(modal.sourcePath, "/Users/me/repo")
+        XCTAssertEqual(URL(fileURLWithPath: modal.targetPath).lastPathComponent, "review-pr-42")
+        XCTAssertEqual(
+            URL(fileURLWithPath: modal.targetPath).deletingLastPathComponent().lastPathComponent.count,
+            4
+        )
+        XCTAssertEqual(
+            URL(fileURLWithPath: modal.targetPath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .lastPathComponent,
+            "repo-worktrees"
+        )
     }
 
     func testEnvironmentPanelRowsRepresentRuntimeLoadingAvailableAndFailure() {
