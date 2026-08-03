@@ -65,6 +65,9 @@ final class CodexCoreAppModel {
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
     private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
     private(set) var environmentInfoState: CodexEnvironmentInfoState = .unavailable
+    private(set) var configRequirements: CodexSchemaConfigRequirements?
+    private(set) var notificationAuthorizationStatus: CodexNotificationAuthorizationStatus = .unavailable
+    private(set) var notificationAuthorizationError: String?
 
     var codex: Codex?
     var authSession = CodexAuthSession()
@@ -94,6 +97,8 @@ final class CodexCoreAppModel {
     private var sideChatTurnCompletionTask: Task<Void, Never>?
     private var pendingSteerSubmissions: [CodexComposerSubmission] = []
     private var isProcessingSteerSubmissions = false
+    private var processActivityTokens: [String: NSObjectProtocol] = [:]
+    private var announcedNotificationPromptIDs: Set<CodexServerRequestKey> = []
     private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
     private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
     private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
@@ -146,6 +151,9 @@ final class CodexCoreAppModel {
     private let pluginCatalogActionProviderOverride: (any CodexPluginCatalogActionProvider)?
     let preferenceStore: any CodexStringListPreferenceStore
     let codexHome: CodexHome
+
+    var onDockStateChanged: (@MainActor () -> Void)?
+    var onNotificationOpen: (@MainActor (String?) -> Void)?
 
     init(
         codexHome: CodexHome = .default,
@@ -201,9 +209,58 @@ final class CodexCoreAppModel {
         )
     }
 
+    var unreadThreadCount: Int {
+        unreadState.unreadThreadIDs.count
+    }
+
+    var dockAttentionCount: Int {
+        unreadThreadCount + promptRuntime.approvalPrompts.count + promptRuntime.interactivePrompts.count
+    }
+
+    var enabledAutomationCount: Int {
+        automations.filter(\.isEnabled).count
+    }
+
+    var hasInFlightWork: Bool {
+        activeTurnLease != nil
+            || activeSideChatTurnLease != nil
+            || runtimeSession.isSending
+            || runtimeSession.isSideChatSending
+            || voiceSession.isActive
+            || !automationRunTasks.isEmpty
+            || enabledAutomationCount > 0
+    }
+
+    var terminationConfirmationMessage: String {
+        var interrupted: [String] = []
+        let activeChatCount = [activeTurnLease, activeSideChatTurnLease]
+            .compactMap { $0 }
+            .count
+            + (runtimeSession.isSending || runtimeSession.isSideChatSending ? 1 : 0)
+            + (voiceSession.isActive ? 1 : 0)
+        if activeChatCount > 0 {
+            interrupted.append(
+                activeChatCount == 1 ? "one active chat" : "\(activeChatCount) active chats"
+            )
+        }
+        if enabledAutomationCount > 0 {
+            interrupted.append(
+                enabledAutomationCount == 1
+                    ? "one scheduled task"
+                    : "\(enabledAutomationCount) scheduled tasks"
+            )
+        }
+        guard !interrupted.isEmpty else {
+            return "Quit CodexCore?"
+        }
+        let noun = interrupted.joined(separator: " and ")
+        return "Quitting will interrupt \(noun). Active chats will stop, and scheduled tasks will not run while CodexCore is closed."
+    }
+
     func connect() async {
         guard authSession.beginConnecting() else { return }
 
+        startAutomationScheduler()
         await resetSessionState()
         do {
             await CodexAppAttestation.shared.prepare()
@@ -228,7 +285,9 @@ final class CodexCoreAppModel {
             self.codex = codex
             await runtimeSession.connect(to: codex)
             promptRuntime.connect(to: codex.session) { [weak self] activity in
-                self?.appendActivity(.notice, title: activity.title, detail: activity.detail)
+                guard let self else { return }
+                self.appendActivity(.notice, title: activity.title, detail: activity.detail)
+                self.postPromptNotifications(for: activity)
             }
             startThreadIndexObservation(session: codex.session)
             await startSkillsChangedObservation(session: codex.session)
@@ -238,6 +297,17 @@ final class CodexCoreAppModel {
             authSession.connectedAfterHandshake(server: server)
             accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
             accountPreferredDisplayName = CodexAuthTokenProfileReader.displayName(codexHome: codex.codexHome)
+
+            do {
+                configRequirements = try await codex.perform(CodexRequest.configRequirementsRead()).requirements
+            } catch {
+                configRequirements = nil
+                appendActivity(
+                    .notice,
+                    title: "Managed policy unavailable",
+                    detail: friendlyError(error)
+                )
+            }
 
             var shouldContinue = true
             do {
@@ -265,6 +335,7 @@ final class CodexCoreAppModel {
     }
 
     func disconnect() async {
+        stopAutomationScheduler()
         dictationSession.abort()
         await voiceSession.stop()
         await stopBottomTerminalSession()
@@ -287,6 +358,7 @@ final class CodexCoreAppModel {
         sideChatTurnCompletionTask?.cancel()
         activeTurnCompletionTask = nil
         sideChatTurnCompletionTask = nil
+        endAllProcessActivities()
         activeTurnLease = nil
         activeSideChatTurnLease = nil
         if let lease = activeSideChatThreadLease {
@@ -307,10 +379,27 @@ final class CodexCoreAppModel {
         accountPreferredDisplayName = nil
         gitBranch = nil
         environmentInfoState = .unavailable
+        configRequirements = nil
+        announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         let codex = self.codex
         self.codex = nil
         await codex?.close()
         appendActivity(authSession.disconnected())
+    }
+
+    func signOut() async {
+        guard let codex else {
+            await disconnect()
+            return
+        }
+
+        do {
+            _ = try await codex.perform(CodexRequest.accountLogout())
+            appendActivity(.notice, title: "Signed out", detail: "The Codex account was disconnected")
+            await disconnect()
+        } catch {
+            appendActivity(.notice, title: "Sign out failed", detail: friendlyError(error))
+        }
     }
 
     func loginWithAPIKey() async {
@@ -678,10 +767,17 @@ final class CodexCoreAppModel {
 
     private func monitorMainTurn(_ lease: CodexTurnLease) {
         activeTurnCompletionTask?.cancel()
+        let activityKey = "turn.\(lease.key.threadID.rawValue).\(lease.key.turnID.rawValue)"
+        beginProcessActivity(
+            key: activityKey,
+            reason: "Running Codex turn in \(lease.key.threadID.rawValue)"
+        )
         activeTurnCompletionTask = Task { [weak self] in
+            guard let self else { return }
+            defer { endProcessActivity(key: activityKey) }
             do {
                 let terminal = try await lease.awaitTerminal()
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeTurnLease?.key == lease.key {
                     activeTurnLease = nil
                 }
@@ -692,17 +788,30 @@ final class CodexCoreAppModel {
                     title: failed ? "Turn failed" : "Turn finished",
                     detail: terminal.turn.error?.message ?? lease.key.turnID.rawValue
                 )
+                automationNotifications.postTurnCompletion(
+                    threadID: lease.key.threadID.rawValue,
+                    title: currentChatTitle,
+                    failure: failed ? terminal.turn.error?.message ?? "The turn failed" : nil
+                )
+                notifyDockStateChanged()
                 Task { await refreshRecentChats() }
                 flushQueuedFollowUps(afterTurnEnded: true)
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeTurnLease?.key == lease.key {
                     activeTurnLease = nil
                 }
                 _ = runtimeSession.finishMainTurn(id: lease.key.turnID.rawValue)
-                appendActivity(.turn, title: "Turn stream ended", detail: friendlyError(error))
+                let message = friendlyError(error)
+                appendActivity(.turn, title: "Turn stream ended", detail: message)
+                automationNotifications.postTurnCompletion(
+                    threadID: lease.key.threadID.rawValue,
+                    title: currentChatTitle,
+                    failure: message
+                )
+                notifyDockStateChanged()
             }
         }
     }
@@ -1067,6 +1176,7 @@ final class CodexCoreAppModel {
             persistUnreadState()
         }
         rebuildCanonicalThreadStatusEntries(from: snapshot)
+        notifyDockStateChanged()
     }
 
     private func rebuildCanonicalThreadStatusEntries(
@@ -1122,6 +1232,7 @@ final class CodexCoreAppModel {
             hasUnreadWhileInactive: unreadState.isUnread(id),
             lastEventAt: Date()
         )
+        notifyDockStateChanged()
     }
 
     func setApplicationActive(_ isActive: Bool) {
@@ -1130,11 +1241,13 @@ final class CodexCoreAppModel {
             reloadPersistedUnreadState()
         }
         clearSelectedThreadUnreadIfFocused()
+        notifyDockStateChanged()
     }
 
     func setMainWindowKey(_ isKey: Bool) {
         isMainWindowKey = isKey
         clearSelectedThreadUnreadIfFocused()
+        notifyDockStateChanged()
     }
 
     func setConversationViewVisible(_ isVisible: Bool) {
@@ -1171,6 +1284,7 @@ final class CodexCoreAppModel {
         else { return }
         persistUnreadState()
         rebuildCanonicalThreadStatusEntries()
+        notifyDockStateChanged()
     }
 
     private func persistUnreadState() {
@@ -1313,13 +1427,124 @@ final class CodexCoreAppModel {
 
     func startAutomationScheduler() {
         guard automationSchedulerTask == nil else { return }
+        notificationAuthorizationStatus = automationNotifications.authorizationStatus
+        notificationAuthorizationError = automationNotifications.authorizationError
+        automationNotifications.onAuthorizationStatusChange = { [weak self] status, error in
+            self?.notificationAuthorizationStatus = status
+            self?.notificationAuthorizationError = error
+        }
+        automationNotifications.onAction = { [weak self] action in
+            self?.handleNotificationAction(action)
+        }
         automationNotifications.requestAuthorization()
         automationSchedulerTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.reconcileDueAutomations()
-                try? await Task.sleep(for: .seconds(30))
+            guard let self else { return }
+            await self.runAutomationScheduler()
+        }
+    }
+
+    private func stopAutomationScheduler() {
+        automationSchedulerTask?.cancel()
+        automationSchedulerTask = nil
+    }
+
+    private func runAutomationScheduler() async {
+        while !Task.isCancelled {
+            await withProcessActivity(
+                reason: "Checking scheduled Codex automations"
+            ) {
+                await reconcileDueAutomations()
+            }
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
             }
         }
+    }
+
+    private func beginProcessActivity(key: String, reason: String) {
+        guard processActivityTokens[key] == nil else { return }
+        processActivityTokens[key] = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: reason
+        )
+    }
+
+    private func endProcessActivity(key: String) {
+        guard let activity = processActivityTokens.removeValue(forKey: key) else { return }
+        ProcessInfo.processInfo.endActivity(activity)
+    }
+
+    private func endAllProcessActivities() {
+        let activities = Array(processActivityTokens.values)
+        processActivityTokens.removeAll(keepingCapacity: false)
+        for activity in activities {
+            ProcessInfo.processInfo.endActivity(activity)
+        }
+    }
+
+    func withProcessActivity<T>(
+        reason: String,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: reason
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
+        return try await operation()
+    }
+
+    private func postPromptNotifications(for activity: CodexPromptStateActivity) {
+        let currentPromptIDs = Set(
+            promptRuntime.approvalPrompts.map(\.id)
+                + promptRuntime.interactivePrompts.map(\.id)
+        )
+        announcedNotificationPromptIDs.formIntersection(currentPromptIDs)
+        switch activity.title {
+        case "Approval requested":
+            for prompt in promptRuntime.approvalPrompts where announcedNotificationPromptIDs.insert(prompt.id).inserted {
+                automationNotifications.postApprovalRequired(
+                    promptID: prompt.id.presentationID,
+                    title: prompt.title,
+                    detail: prompt.detail,
+                    threadID: prompt.threadId
+                )
+            }
+        case "Input requested":
+            for prompt in promptRuntime.interactivePrompts where announcedNotificationPromptIDs.insert(prompt.id).inserted {
+                automationNotifications.postInputRequired(
+                    promptID: prompt.id.presentationID,
+                    title: prompt.title,
+                    detail: prompt.detail,
+                    threadID: prompt.threadId
+                )
+            }
+        default:
+            break
+        }
+        notifyDockStateChanged()
+    }
+
+    private func handleNotificationAction(_ action: CodexNotificationAction) {
+        switch action {
+        case .open(let threadID):
+            onNotificationOpen?(threadID)
+        case .approve(let promptID), .deny(let promptID):
+            guard let prompt = promptRuntime.approvalPrompts.first(where: {
+                $0.id.presentationID == promptID
+            }) else { return }
+            onNotificationOpen?(prompt.threadId)
+            let approved = if case .approve = action { true } else { false }
+            resolveApprovalPrompt(id: prompt.id, approved: approved)
+        }
+    }
+
+    private func notifyDockStateChanged() {
+        onDockStateChanged?()
     }
 
     private func reconcileDueAutomations(now: Date = Date()) async {
@@ -1355,19 +1580,23 @@ final class CodexCoreAppModel {
         }
 
         do {
-            let thread = try await codex.startThread(threadStartParameters())
-            automationThreadLeases[automation.id] = thread
-            threadID = thread.id.rawValue
-            let permissionConfiguration = approvalSelection.permissionProfileWireConfiguration
-            let turn = try await thread.startTurn(turnStartParameters(
-                threadID: thread.id,
-                input: [.text(automation.prompt)],
-                clientUserMessageID: UUID().uuidString,
-                permissionConfiguration: permissionConfiguration
-            ))
-            let terminal = try await turn.awaitTerminal()
-            if terminal.turn.status == .failed {
-                failure = terminal.turn.error?.message ?? "The scheduled turn failed"
+            try await withProcessActivity(
+                reason: "Running automation \(automation.name)"
+            ) {
+                let thread = try await codex.startThread(threadStartParameters())
+                automationThreadLeases[automation.id] = thread
+                threadID = thread.id.rawValue
+                let permissionConfiguration = approvalSelection.permissionProfileWireConfiguration
+                let turn = try await thread.startTurn(turnStartParameters(
+                    threadID: thread.id,
+                    input: [.text(automation.prompt)],
+                    clientUserMessageID: UUID().uuidString,
+                    permissionConfiguration: permissionConfiguration
+                ))
+                let terminal = try await turn.awaitTerminal()
+                if terminal.turn.status == .failed {
+                    failure = terminal.turn.error?.message ?? "The scheduled turn failed"
+                }
             }
         } catch is CancellationError {
             failure = "Run cancelled"
@@ -2295,6 +2524,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, approved: approved) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
@@ -2311,6 +2541,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, decision: decision) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
@@ -2330,6 +2561,7 @@ final class CodexCoreAppModel {
                 ) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
@@ -2343,6 +2575,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.acceptInteractivePrompt(id: id) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
@@ -2356,6 +2589,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.declineInteractivePrompt(id: id) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
@@ -2805,10 +3039,17 @@ final class CodexCoreAppModel {
 
     private func monitorSideChatTurn(_ lease: CodexTurnLease) {
         sideChatTurnCompletionTask?.cancel()
+        let activityKey = "side-chat.\(lease.key.threadID.rawValue).\(lease.key.turnID.rawValue)"
+        beginProcessActivity(
+            key: activityKey,
+            reason: "Running Codex side chat in \(lease.key.threadID.rawValue)"
+        )
         sideChatTurnCompletionTask = Task { [weak self] in
+            guard let self else { return }
+            defer { endProcessActivity(key: activityKey) }
             do {
                 _ = try await lease.awaitTerminal()
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeSideChatTurnLease?.key == lease.key {
                     activeSideChatTurnLease = nil
                 }
@@ -2818,7 +3059,7 @@ final class CodexCoreAppModel {
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeSideChatTurnLease?.key == lease.key {
                     activeSideChatTurnLease = nil
                 }
@@ -2838,6 +3079,20 @@ final class CodexCoreAppModel {
 
     func copyText(_ text: String) {
         clipboardService.copy(text)
+    }
+
+    func copyWorkingDirectory() {
+        copyText(workspacePath)
+        appendActivity(.notice, title: "Copied working directory", detail: workspacePath)
+    }
+
+    func copySessionID() {
+        guard let currentThreadID else {
+            appendActivity(.notice, title: "Session ID unavailable", detail: "Open a chat first")
+            return
+        }
+        copyText(currentThreadID)
+        appendActivity(.notice, title: "Copied session ID", detail: currentThreadID)
     }
 
     func handleSlashCommand(
@@ -3029,6 +3284,7 @@ final class CodexCoreAppModel {
             cancelCurrentThreadObservation()
             activeTurnCompletionTask?.cancel()
             sideChatTurnCompletionTask?.cancel()
+            endAllProcessActivities()
             activeTurnCompletionTask = nil
             sideChatTurnCompletionTask = nil
             activeTurnLease = nil
@@ -3056,6 +3312,7 @@ final class CodexCoreAppModel {
 
     private func resetSessionState() async {
         await stopBottomTerminalSession()
+        endAllProcessActivities()
         await runtimeSession.disconnect()
         promptRuntime.disconnect()
         cancelCurrentThreadObservation()
@@ -3064,6 +3321,8 @@ final class CodexCoreAppModel {
         cancelSkillsChangedObservation()
         mentionSearchSession.reset()
         structuredPanelDismissalState = CodexStructuredPanelDismissalState()
+        configRequirements = nil
+        announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         loginTask?.cancel()
         loginTask = nil
         let previousCodex = codex

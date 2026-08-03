@@ -64,6 +64,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var voiceOverlayController: CodexVoiceOverlayWindowController?
+    private var terminationReplyInFlight = false
 
     static func main() {
         let application = NSApplication.shared
@@ -76,8 +77,18 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        model.onDockStateChanged = { [weak self] in
+            self?.updateDockBadge()
+        }
+        model.onNotificationOpen = { [weak self] threadID in
+            guard let self else { return }
+            showMainWindow()
+            guard let threadID else { return }
+            Task { await model.resumeChat(id: threadID) }
+        }
         model.startAutomationScheduler()
         configureMainMenu()
+        updateDockBadge()
         voiceOverlayController = CodexVoiceOverlayWindowController(
             model: model,
             mainThreadVisibilityProvider: { [weak self] in
@@ -120,18 +131,74 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        model.voiceSession.phase == .inactive
+        !model.hasInFlightWork
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         voiceOverlayController?.dispose()
     }
 
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let newChatItem = NSMenuItem(
+            title: "New Chat",
+            action: #selector(newWindow(_:)),
+            keyEquivalent: ""
+        )
+        newChatItem.target = self
+        menu.addItem(newChatItem)
+
+        let chats = model.allSidebarChats.sorted { lhs, rhs in
+            let lhsRunning = model.canonicalThreadStatusEntries[lhs.id]?.status == .running
+            let rhsRunning = model.canonicalThreadStatusEntries[rhs.id]?.status == .running
+            if lhsRunning != rhsRunning { return lhsRunning }
+            return (lhs.recencyAt ?? lhs.updatedAt ?? lhs.createdAt ?? 0)
+                > (rhs.recencyAt ?? rhs.updatedAt ?? rhs.createdAt ?? 0)
+        }
+        guard !chats.isEmpty else { return menu }
+
+        menu.addItem(.separator())
+        for chat in chats.prefix(9) {
+            let isRunning = model.canonicalThreadStatusEntries[chat.id]?.status == .running
+            let isUnread = model.canonicalThreadStatusEntries[chat.id]?.hasUnreadWhileInactive == true
+            let prefix = isRunning ? "⟳ " : isUnread ? "• " : ""
+            let item = NSMenuItem(
+                title: "\(prefix)\(chat.title)",
+                action: #selector(openDockChat(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = chat.id
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func updateDockBadge() {
+        let count = model.dockAttentionCount
+        NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard model.voiceSession.phase != .inactive else { return .terminateNow }
+        guard !terminationReplyInFlight else { return .terminateLater }
+        if model.hasInFlightWork {
+            let alert = NSAlert()
+            alert.messageText = "Quit CodexCore?"
+            alert.informativeText = model.terminationConfirmationMessage
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                return .terminateCancel
+            }
+        }
+        terminationReplyInFlight = true
         Task { @MainActor [weak self, weak sender] in
-            guard let self else { return }
-            await model.disconnect()
+            guard let self else {
+                sender?.reply(toApplicationShouldTerminate: true)
+                return
+            }
+            await self.model.disconnect()
             sender?.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -228,26 +295,86 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func configureMainMenu() {
         let mainMenu = NSMenu()
+        mainMenu.autoenablesItems = true
 
-        let appItem = NSMenuItem()
+        let appItem = NSMenuItem(title: "CodexCore", action: nil, keyEquivalent: "")
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
+        let aboutItem = NSMenuItem(
+            title: "About CodexCore",
+            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+            keyEquivalent: ""
+        )
+        aboutItem.target = NSApplication.shared
+        appMenu.addItem(aboutItem)
+        appMenu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(settingsItem)
+        let signOutItem = NSMenuItem(title: "Sign Out", action: #selector(signOut(_:)), keyEquivalent: "")
+        signOutItem.target = self
+        appMenu.addItem(signOutItem)
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit CodexCore", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let servicesMenu = NSMenu(title: "Services")
+        NSApp.servicesMenu = servicesMenu
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        servicesItem.submenu = servicesMenu
+        appMenu.addItem(servicesItem)
+        appMenu.addItem(.separator())
+        let hideItem = NSMenuItem(title: "Hide CodexCore", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        hideItem.target = NSApplication.shared
+        appMenu.addItem(hideItem)
+        let hideOthersItem = NSMenuItem(
+            title: "Hide Others",
+            action: #selector(NSApplication.hideOtherApplications(_:)),
+            keyEquivalent: "h"
+        )
+        hideOthersItem.target = NSApplication.shared
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthersItem)
+        let showAllItem = NSMenuItem(
+            title: "Show All",
+            action: #selector(NSApplication.unhideAllApplications(_:)),
+            keyEquivalent: ""
+        )
+        showAllItem.target = NSApplication.shared
+        appMenu.addItem(showAllItem)
+        appMenu.addItem(.separator())
+        let quitItem = NSMenuItem(
+            title: "Quit CodexCore",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        quitItem.target = NSApplication.shared
+        appMenu.addItem(quitItem)
         appItem.submenu = appMenu
 
-        let fileItem = NSMenuItem()
+        let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         mainMenu.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
         let newWindowItem = NSMenuItem(title: "New Chat", action: #selector(newWindow(_:)), keyEquivalent: "n")
         newWindowItem.target = self
         fileMenu.addItem(newWindowItem)
+        fileMenu.addItem(.separator())
+        let copyWorkingDirectoryItem = NSMenuItem(
+            title: "Copy Working Directory",
+            action: #selector(copyWorkingDirectory(_:)),
+            keyEquivalent: ""
+        )
+        copyWorkingDirectoryItem.target = self
+        fileMenu.addItem(copyWorkingDirectoryItem)
+        let copySessionIDItem = NSMenuItem(
+            title: "Copy Session ID",
+            action: #selector(copySessionID(_:)),
+            keyEquivalent: ""
+        )
+        copySessionIDItem.target = self
+        fileMenu.addItem(copySessionIDItem)
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(responderMenuItem(title: "Close Window", action: "performClose:", key: "w"))
         fileItem.submenu = fileMenu
 
-        let editItem = NSMenuItem()
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(responderMenuItem(title: "Undo", action: "undo:", key: "z"))
@@ -258,6 +385,14 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(responderMenuItem(title: "Cut", action: "cut:", key: "x"))
         editMenu.addItem(responderMenuItem(title: "Copy", action: "copy:", key: "c"))
         editMenu.addItem(responderMenuItem(title: "Paste", action: "paste:", key: "v"))
+        let pasteAndMatchStyleItem = responderMenuItem(
+            title: "Paste and Match Style",
+            action: "pasteAsPlainText:",
+            key: "v"
+        )
+        pasteAndMatchStyleItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        editMenu.addItem(pasteAndMatchStyleItem)
+        editMenu.addItem(responderMenuItem(title: "Delete", action: "delete:", key: "\u{8}"))
         editMenu.addItem(responderMenuItem(title: "Select All", action: "selectAll:", key: "a"))
         editMenu.addItem(.separator())
         let searchItem = NSMenuItem(title: "Command Menu", action: #selector(openCommandPalette(_:)), keyEquivalent: "g")
@@ -265,7 +400,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(searchItem)
         editItem.submenu = editMenu
 
-        let viewItem = NSMenuItem()
+        let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
         mainMenu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         let toggleSidebarItem = NSMenuItem(
@@ -276,7 +411,61 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         toggleSidebarItem.target = self
         toggleSidebarItem.keyEquivalentModifierMask = [.command, .control]
         viewMenu.addItem(toggleSidebarItem)
+        viewMenu.addItem(.separator())
+        let previousChatItem = NSMenuItem(
+            title: "Previous Chat",
+            action: #selector(previousChat(_:)),
+            keyEquivalent: "["
+        )
+        previousChatItem.target = self
+        viewMenu.addItem(previousChatItem)
+        let nextChatItem = NSMenuItem(
+            title: "Next Chat",
+            action: #selector(nextChat(_:)),
+            keyEquivalent: "]"
+        )
+        nextChatItem.target = self
+        viewMenu.addItem(nextChatItem)
+        viewMenu.addItem(.separator())
+        for index in 0..<9 {
+            let item = NSMenuItem(
+                title: "Switch to Chat \(index + 1)",
+                action: #selector(selectChatShortcut(_:)),
+                keyEquivalent: "\(index + 1)"
+            )
+            item.target = self
+            item.representedObject = index
+            viewMenu.addItem(item)
+        }
+        viewMenu.addItem(.separator())
+        let fullScreenItem = NSMenuItem(
+            title: "Enter Full Screen",
+            action: #selector(NSWindow.toggleFullScreen(_:)),
+            keyEquivalent: "f"
+        )
+        fullScreenItem.target = nil
+        fullScreenItem.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(fullScreenItem)
         viewItem.submenu = viewMenu
+
+        let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+        mainMenu.addItem(windowItem)
+        let windowMenu = NSMenu(title: "Window")
+        let minimizeItem = responderMenuItem(title: "Minimize", action: "performMiniaturize:", key: "m")
+        windowMenu.addItem(minimizeItem)
+        windowMenu.addItem(responderMenuItem(title: "Zoom", action: "performZoom:", key: ""))
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(responderMenuItem(title: "Bring All to Front", action: "arrangeInFront:", key: ""))
+        windowItem.submenu = windowMenu
+        NSApp.windowsMenu = windowMenu
+
+        let helpItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        mainMenu.addItem(helpItem)
+        let helpMenu = NSMenu(title: "Help")
+        let helpCommandItem = NSMenuItem(title: "CodexCore Help", action: #selector(showHelp(_:)), keyEquivalent: "")
+        helpCommandItem.target = self
+        helpMenu.addItem(helpCommandItem)
+        helpItem.submenu = helpMenu
 
         NSApplication.shared.mainMenu = mainMenu
     }
@@ -285,6 +474,84 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let item = NSMenuItem(title: title, action: Selector((action)), keyEquivalent: key)
         item.target = nil
         return item
+    }
+
+    @objc private func signOut(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Sign Out of Codex?"
+        alert.informativeText = "This disconnects the current account from CodexCore."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Sign Out")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task { await model.signOut() }
+    }
+
+    @objc private func copyWorkingDirectory(_ sender: Any?) {
+        model.copyWorkingDirectory()
+    }
+
+    @objc private func copySessionID(_ sender: Any?) {
+        model.copySessionID()
+    }
+
+    @objc private func previousChat(_ sender: Any?) {
+        selectAdjacentChat(offset: -1)
+    }
+
+    @objc private func nextChat(_ sender: Any?) {
+        selectAdjacentChat(offset: 1)
+    }
+
+    @objc private func selectChatShortcut(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int,
+              model.allSidebarChats.indices.contains(index)
+        else { return }
+        let chat = model.allSidebarChats[index]
+        showMainWindow()
+        Task { await model.selectSidebarChat(chat) }
+    }
+
+    private func selectAdjacentChat(offset: Int) {
+        let chats = model.allSidebarChats
+        guard !chats.isEmpty else { return }
+        let currentIndex = model.currentThreadID.flatMap { currentID in
+            chats.firstIndex { $0.id == currentID }
+        }
+        let base = currentIndex ?? (offset > 0 ? -1 : chats.count)
+        let index = (base + offset + chats.count) % chats.count
+        let chat = chats[index]
+        showMainWindow()
+        Task { await model.selectSidebarChat(chat) }
+    }
+
+    @objc private func openDockChat(_ sender: NSMenuItem) {
+        guard let threadID = sender.representedObject as? String else { return }
+        showMainWindow()
+        Task { await model.resumeChat(id: threadID) }
+    }
+
+    @objc private func showHelp(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "CodexCore Help"
+        alert.informativeText = "Use New Chat to start a conversation, or Command Menu to search chats and commands."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(signOut(_:)):
+            return model.isAuthenticated
+        case #selector(copySessionID(_:)):
+            return model.currentThreadID != nil
+        case #selector(selectChatShortcut(_:)):
+            return (menuItem.representedObject as? Int).map(model.allSidebarChats.indices.contains) ?? false
+        case #selector(previousChat(_:)), #selector(nextChat(_:)):
+            return model.allSidebarChats.count > 1
+        default:
+            return true
+        }
     }
 }
 
