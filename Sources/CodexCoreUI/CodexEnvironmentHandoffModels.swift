@@ -17,6 +17,39 @@ public enum CodexProjectEnvironmentSelection: String, CaseIterable, Equatable, S
     }
 }
 
+public enum CodexWorktreeHandoffPathStatus: String, Equatable, Sendable {
+    case applied
+    case skipped
+    case conflicted
+
+    public var title: String {
+        switch self {
+        case .applied:
+            return "Applied"
+        case .skipped:
+            return "Skipped"
+        case .conflicted:
+            return "Conflicted"
+        }
+    }
+}
+
+public struct CodexWorktreeHandoffPathOutcome: Equatable, Sendable {
+    public var path: String
+    public var status: CodexWorktreeHandoffPathStatus
+    public var detail: String?
+
+    public init(
+        path: String,
+        status: CodexWorktreeHandoffPathStatus,
+        detail: String? = nil
+    ) {
+        self.path = path
+        self.status = status
+        self.detail = detail
+    }
+}
+
 public struct CodexProjectEnvironmentRepositorySnapshot: Equatable, Sendable {
     public var branchName: String?
     public var branches: [String]
@@ -69,7 +102,7 @@ public struct CodexProjectEnvironmentState: Equatable, Sendable {
         selection = .worktree
         branchName = result.branchName
         worktreePath = result.worktreePath
-        workspacePath = result.worktreePath
+        workspacePath = result.workingDirectoryPath
     }
 }
 
@@ -188,11 +221,21 @@ public struct CodexWorktreeHandoffResult: Equatable, Sendable {
     public var title: String
     public var branchName: String
     public var worktreePath: String
+    public var workingDirectoryPath: String
+    public var pathOutcomes: [CodexWorktreeHandoffPathOutcome]
 
-    public init(title: String, branchName: String, worktreePath: String) {
+    public init(
+        title: String,
+        branchName: String,
+        worktreePath: String,
+        workingDirectoryPath: String? = nil,
+        pathOutcomes: [CodexWorktreeHandoffPathOutcome] = []
+    ) {
         self.title = title
         self.branchName = branchName
         self.worktreePath = worktreePath
+        self.workingDirectoryPath = workingDirectoryPath?.nilIfBlank ?? worktreePath
+        self.pathOutcomes = pathOutcomes
     }
 
     public var resultCard: CodexWorktreeHandoffResultCard {
@@ -200,7 +243,8 @@ public struct CodexWorktreeHandoffResult: Equatable, Sendable {
             title: "Handed-off to worktree",
             detail: "\(branchName) at \(worktreePath)",
             branchName: branchName,
-            worktreePath: worktreePath
+            worktreePath: worktreePath,
+            pathOutcomes: pathOutcomes
         )
     }
 }
@@ -210,12 +254,20 @@ public struct CodexWorktreeHandoffResultCard: Equatable, Sendable {
     public var detail: String
     public var branchName: String
     public var worktreePath: String
+    public var pathOutcomes: [CodexWorktreeHandoffPathOutcome]
 
-    public init(title: String, detail: String, branchName: String, worktreePath: String) {
+    public init(
+        title: String,
+        detail: String,
+        branchName: String,
+        worktreePath: String,
+        pathOutcomes: [CodexWorktreeHandoffPathOutcome] = []
+    ) {
         self.title = title
         self.detail = detail
         self.branchName = branchName
         self.worktreePath = worktreePath
+        self.pathOutcomes = pathOutcomes
     }
 }
 
@@ -307,14 +359,17 @@ public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
     public static func defaultTargetPath(sourcePath: String, threadTitle: String) -> String {
         let source = sourcePath.trimmedForHandoff
         guard !source.isEmpty else { return "" }
-        let sourceURL = URL(fileURLWithPath: source)
+        let sourceURL = URL(fileURLWithPath: source).standardizedFileURL
+        let repositoryURL = CodexWorkspaceGitProbe.repositoryRoot(at: sourceURL) ?? sourceURL
         let branchName = CodexWorktreeHandoffModalState.defaultBranchName(for: threadTitle)
         let slug = branchName
             .replacingOccurrences(of: "codex/", with: "")
             .replacingOccurrences(of: "/", with: "-")
-        return sourceURL
+        let bucket = String(UUID().uuidString.prefix(4)).lowercased()
+        return repositoryURL
             .deletingLastPathComponent()
-            .appendingPathComponent("\(sourceURL.lastPathComponent)-worktrees")
+            .appendingPathComponent("\(repositoryURL.lastPathComponent)-worktrees")
+            .appendingPathComponent(bucket)
             .appendingPathComponent(slug)
             .path
     }

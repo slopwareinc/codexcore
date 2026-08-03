@@ -43,4 +43,15 @@ The unified diff carries a single line-number gutter, matching bundle `26.727.40
 
 Per-file and bulk stage, unstage, and tracked-file revert actions are explicit. Branch create/checkout, commit, commit-and-push, push, and draft-PR actions share the same mutation boundary. Rendering never mutates Git. Each mutation validates paths and rejects a stale repository revision. Mutations refuse index locks and active merge, rebase, cherry-pick, revert, bisect, or sequencer operations. Tracked revert requires confirmation, clears staged and unstaged content together, and refuses untracked deletion. Commit-and-push reports partial success if the commit succeeds but the network step fails, so recovery never suggests duplicating the commit.
 
-The reference app still omits worktree handoff and the old demo bottom terminal. Use external Git tooling for worktrees and the workspace side panel for the real interactive Ghostty terminal.
+The reusable `CodexProjectEnvironmentPanel` and
+`CodexLocalProjectEnvironmentProvider` implement local worktree handoff: the
+source checkout is left untouched, tracked diffs are applied with Git's
+three-way machinery, untracked files are transferred individually, and the
+result (or a failure detail) reports each path as applied, skipped, or
+conflicted. The destination
+uses a short machine-identifiable bucket and preserves the chat's
+repository-relative working directory. These types are not wired into the
+reference app yet, so the shipped app still requires external Git tooling for
+worktrees. Projectless chats show an honest review empty state because Review
+requires a Git-backed workspace. Use the workspace side panel for the real
+interactive Ghostty terminal.
