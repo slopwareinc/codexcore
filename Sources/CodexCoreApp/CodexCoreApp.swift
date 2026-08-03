@@ -57,6 +57,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private let clipboardService: any CodexClipboardService = CodexAppKitClipboardService()
     private let preferenceStore: any CodexStringListPreferenceStore = CodexUserDefaultsStringListPreferenceStore()
+    private let appUpdater = CodexAppUpdater()
     private lazy var model = CodexCoreAppModel(
         clipboardService: clipboardService,
         preferenceStore: preferenceStore

@@ -55,10 +55,11 @@ For a normal Finder/Dock application with bundle metadata and the CodexCore icon
 open build/CodexCore.app
 ```
 
-The packager uses an installed Developer ID or Apple Development identity when
-available, preserving macOS privacy grants across local rebuilds. It falls back
-to ad-hoc signing when no identity exists. Distribution outside your Mac still
-requires Developer ID signing and notarization.
+The packager uses hardened-runtime signing and an installed Developer ID or
+Apple Development identity when available, preserving macOS privacy grants
+across local rebuilds. It falls back to ad-hoc signing when no identity exists.
+Developer ID notarization and signed Sparkle appcast generation are opt-in;
+see the [packaging and release guide](docs/getting-started/run-the-app.md#updates-notarization-and-appcasts).
 
 On first launch, sign in with ChatGPT or an API key, choose a workspace, and start a task. CodexCore stores credentials and configuration in `~/.codexcore`; it does not reuse `~/.codex` implicitly.
 
