@@ -1,6 +1,113 @@
 import Foundation
 import CodexCore
 
+public enum CodexPromptLibrarySource: Equatable, Sendable {
+    case user
+    case mcp(serverName: String)
+}
+
+public struct CodexPromptLibraryEntry: Identifiable, Equatable, Sendable {
+    public var name: String
+    public var description: String
+    public var argumentHint: String?
+    public var body: String
+    public var path: String?
+    public var source: CodexPromptLibrarySource
+
+    public var id: String {
+        switch source {
+        case .user: "user:\(path ?? name)"
+        case .mcp(let serverName): "mcp:\(serverName):\(name)"
+        }
+    }
+
+    public init(
+        name: String,
+        description: String,
+        argumentHint: String? = nil,
+        body: String,
+        path: String? = nil,
+        source: CodexPromptLibrarySource = .user
+    ) {
+        self.name = name
+        self.description = description
+        self.argumentHint = argumentHint
+        self.body = body
+        self.path = path
+        self.source = source
+    }
+}
+
+public actor CodexPromptLibrary {
+    public static let maximumPromptCount = 256
+    public static let maximumPromptBytes = 256 * 1_024
+
+    private let fileSystem: any CodexRemoteFileSystem
+
+    public init(fileSystem: any CodexRemoteFileSystem) {
+        self.fileSystem = fileSystem
+    }
+
+    public func load(codexHome: String) async throws -> [CodexPromptLibraryEntry] {
+        let directory = NSString(string: codexHome).appendingPathComponent("prompts")
+        let homeEntries = try await fileSystem.directoryEntries(at: codexHome)
+        guard homeEntries.contains(where: { $0.fileName == "prompts" && $0.isDirectory }) else {
+            return []
+        }
+        let entries = try await fileSystem.directoryEntries(at: directory)
+            .filter { $0.isFile && $0.fileName.lowercased().hasSuffix(".md") }
+            .sorted { $0.fileName.localizedCaseInsensitiveCompare($1.fileName) == .orderedAscending }
+            .prefix(Self.maximumPromptCount)
+
+        var prompts: [CodexPromptLibraryEntry] = []
+        prompts.reserveCapacity(entries.count)
+        for entry in entries {
+            let path = NSString(string: directory).appendingPathComponent(entry.fileName)
+            let data = try await fileSystem.readFile(at: path)
+            let boundedData = data.prefix(Self.maximumPromptBytes)
+            let content = String(decoding: boundedData, as: UTF8.self)
+            let name = NSString(string: entry.fileName).deletingPathExtension
+            prompts.append(Self.parse(content: content, name: name, path: path))
+        }
+        return prompts
+    }
+
+    static func parse(content: String, name: String, path: String) -> CodexPromptLibraryEntry {
+        let parsed = frontMatter(in: content)
+        let description = parsed.values["description"]?.nilIfBlank ?? "Personal prompt"
+        return CodexPromptLibraryEntry(
+            name: name,
+            description: description,
+            argumentHint: parsed.values["argument-hint"]?.nilIfBlank,
+            body: parsed.body.trimmingCharacters(in: .whitespacesAndNewlines),
+            path: path
+        )
+    }
+
+    private static func frontMatter(in content: String) -> (values: [String: String], body: String) {
+        let lines = content.components(separatedBy: .newlines)
+        guard lines.first == "---",
+              let closing = lines.dropFirst().firstIndex(of: "---") else {
+            return ([:], content)
+        }
+
+        var values: [String: String] = [:]
+        for line in lines[1..<closing] {
+            guard let separator = line.firstIndex(of: ":") else { continue }
+            let key = line[..<separator].trimmingCharacters(in: .whitespaces).lowercased()
+            var value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            if value.count >= 2,
+               (value.hasPrefix("\"") && value.hasSuffix("\"") || value.hasPrefix("'") && value.hasSuffix("'")) {
+                value.removeFirst()
+                value.removeLast()
+            }
+            values[key] = value
+        }
+        let bodyStart = lines.index(after: closing)
+        return (values, lines[bodyStart...].joined(separator: "\n"))
+    }
+}
+
 public enum CodexApprovalPromptKind: String, Equatable, Sendable {
     case command
     case fileChange

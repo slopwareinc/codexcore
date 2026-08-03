@@ -65,3 +65,36 @@ for approval and catalog reconciliation never promotes them to Full access.
 Permission profile selection is resolved from in-memory composer state with a
 fixed constant-time mapping. Submitting a prompt does not refresh or decode the
 profile catalog and does not add an app-server request.
+
+## Trusted agent instructions
+
+The `CodexCoreUI` settings routes include an Agent instructions inspector for
+the `AGENTS.md` files trusted by the current workspace. Resolution starts with
+`$CODEX_HOME/AGENTS.md`, then applies project documents from the repository root
+toward the working directory; later rows have higher precedence. Each row shows
+the server-side path, original byte size, and whether the shared project byte
+budget truncated its content.
+
+Hosts inject `CodexAgentsDocumentStore`, the selected Codex home, and the active
+working directory into `CodexSettingsAboutRouteView`. The store uses app-server
+filesystem requests, so paths remain in the connected host's namespace. The
+global editor also saves through `fs/writeFile` rather than local
+`FileManager` access.
+
+`CodexAgentsDocumentPolicy` models the upstream `project_doc_max_bytes`,
+`project_doc_fallback_filenames`, and `project_root_markers` settings. Until a
+host projects those config values into the UI, defaults are a 32 KiB shared
+project-document budget, no fallback filenames, and `.git` as the root marker.
+
+## Prompt library and slash commands
+
+`CodexPromptLibrary` reads Markdown files from `$CODEX_HOME/prompts` through the
+app-server filesystem. It recognizes `description` and `argument-hint` YAML
+front matter and bounds discovery to 256 files and 256 KiB per file. User and
+MCP prompt entries can be converted to palette items with
+`CodexSlashCommand.promptCommands(from:)`, or merged with built-ins and skills
+using `mergedCommands(prompts:skillsResponse:)`.
+
+The built-in palette includes `/init`, `/review`, `/new`, and `/feedback` in
+addition to the previously observed commands. Skills marked
+`disable-model-invocation` are excluded from generated slash commands.
