@@ -3,6 +3,47 @@ import XCTest
 @testable import CodexCore
 
 final class CodexStdioTransportLifecycleTests: XCTestCase {
+    func testUnexpectedEOFIncludesBoundedStderrTail() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexTransportStderr-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let executable = directory.appendingPathComponent("codex-stderr")
+        try "#!/bin/sh\nprintf 'discarded-tail!' >&2\n".write(
+            to: executable,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let transport = CodexStdioTransport(
+            executableURL: executable,
+            limits: .init(maximumCapturedStderrBytes: 5)
+        )
+        let stream = try await transport.open()
+        var iterator = stream.makeAsyncIterator()
+
+        do {
+            _ = try await iterator.next()
+            XCTFail("The child should terminate without a frame")
+        } catch let error as CodexTransportError {
+            guard case .connectionClosed(let stderr) = error else {
+                return XCTFail("Unexpected transport error: \(error)")
+            }
+            XCTAssertEqual(stderr, "tail!")
+            XCTAssertTrue(error.localizedDescription.contains("tail!"))
+        }
+
+        await transport.close()
+    }
+
     func testCloseForceTerminatesAndReapsChildBeforeAllowingReopen() async throws {
         let transport = CodexStdioTransport(
             executableURL: URL(fileURLWithPath: "/bin/sh"),

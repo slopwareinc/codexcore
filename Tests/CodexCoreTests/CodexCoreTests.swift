@@ -32,6 +32,49 @@ final class CodexCoreTests: XCTestCase {
         ))
     }
 
+    func testResolveCodexBinaryUsesBoundedLoginShellLookup() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexShellLookup-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let binary = directory.appendingPathComponent("codex")
+        try "#!/bin/sh\n".write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: binary.path
+        )
+
+        let shell = directory.appendingPathComponent("login-shell")
+        try "#!/bin/sh\nprintf '%s\\n' \"$CODEX_TEST_RUNTIME\"\n".write(
+            to: shell,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: shell.path
+        )
+
+        let resolved = try Codex.resolveCodexBinary(
+            config: CodexConfig(
+                codexHome: CodexHome(
+                    path: directory.appendingPathComponent("home").path
+                )
+            ),
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "SHELL": shell.path,
+                "CODEX_TEST_RUNTIME": binary.path,
+            ]
+        )
+
+        XCTAssertEqual(resolved.path, binary.path)
+    }
+
     func testResolveCodexBinaryUsesIsolatedHomeRuntimePin() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("CodexCoreTests-\(UUID().uuidString)")
@@ -129,12 +172,29 @@ final class CodexCoreTests: XCTestCase {
     }
 
     func testPinnedRuntimeVersionParserAcceptsExactDescriptorAmidDiagnostics() throws {
-        try Codex.validatePinnedRuntimeVersionOutput(
+        let warning = try Codex.validatePinnedRuntimeVersionOutput(
             """
             harmless wrapper diagnostic
               \(CodexPinnedRuntime.package)   \(CodexPinnedRuntime.version)
             """,
             executablePath: "/test/codex"
+        )
+        XCTAssertNil(warning)
+    }
+
+    func testPinnedRuntimeVersionParserAcceptsPatchDifferenceWithWarning() throws {
+        let warning = try Codex.validatePinnedRuntimeVersionOutput(
+            "codex-cli 0.145.1",
+            executablePath: "/test/codex"
+        )
+
+        XCTAssertEqual(
+            warning,
+            CodexRuntimeVersionWarning(
+                path: "/test/codex",
+                expected: CodexPinnedRuntime.descriptor,
+                actual: "codex-cli 0.145.1"
+            )
         )
     }
 
@@ -156,6 +216,19 @@ final class CodexCoreTests: XCTestCase {
             XCTAssertEqual(path, "/test/codex")
             XCTAssertEqual(expected, CodexPinnedRuntime.descriptor)
             XCTAssertEqual(actual, "codex-cli 0.146.0")
+            XCTAssertTrue(error.localizedDescription.contains("minor version"))
+        }
+    }
+
+    func testPinnedRuntimeVersionParserReportsMajorMismatchClearly() {
+        XCTAssertThrowsError(try Codex.validatePinnedRuntimeVersionOutput(
+            "codex-cli 1.145.0",
+            executablePath: "/test/codex"
+        )) { error in
+            guard case CodexSDKError.runtimeVersionMismatch = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(error.localizedDescription.contains("major version"))
         }
     }
 
