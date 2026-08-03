@@ -2194,6 +2194,20 @@ final class CodexCoreAppModel {
         await refreshIntegrationControlPlaneInventory(using: provider)
     }
 
+    /// AGENTS.md layers are read through the app-server filesystem rather than
+    /// FileManager so remote and sandboxed hosts resolve the same documents the
+    /// agent itself sees. Nil until the session connects.
+    var agentsDocumentStore: CodexAgentsDocumentStore? {
+        codex.map { CodexAgentsDocumentStore(fileSystem: CodexAppServerFileSystem(codex: $0)) }
+    }
+
+    /// Views that drive their own control-plane requests (MCP configuration,
+    /// marketplace mutations, skill body reads) need the live provider rather
+    /// than a pre-fetched response. It is nil until the session connects.
+    var integrationControlPlaneProvider: (any CodexIntegrationControlPlaneProvider)? {
+        codex.map(CodexAppServerIntegrationControlPlaneProvider.init(codex:))
+    }
+
     /// Host seam for detail panes and mutation confirmations owned by the
     /// plugin UI. Responses remain in `integrationControlPlaneSession`, keyed
     /// by the request's app-server method name.
@@ -2244,7 +2258,18 @@ final class CodexCoreAppModel {
             .configRead(.init(cwd: workspacePath, includeLayers: true)),
         ]
         for request in requests {
-            _ = await performIntegrationControlPlaneRequest(request, using: provider, announces: false)
+            let response = await performIntegrationControlPlaneRequest(
+                request,
+                using: provider,
+                announces: false
+            )
+            // `hooks/list` is the only inventory response with a presentation
+            // projection; the rest are read back from the control-plane session.
+            guard case .hooksList = request, let response else { continue }
+            var session = runtimeSession.integrationCatalogSession
+            let activity = session.applyHooksResponse(response)
+            runtimeSession.integrationCatalogSession = session
+            appendIntegrationActivity(activity)
         }
     }
 

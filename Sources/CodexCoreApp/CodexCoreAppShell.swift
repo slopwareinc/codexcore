@@ -182,6 +182,8 @@ struct CodexCoreAppShell: View {
                 servers: model.mcpServers,
                 isLoading: model.isLoadingMCPServers,
                 errorMessage: model.mcpErrorMessage,
+                threadID: model.currentThreadID,
+                provider: model.integrationControlPlaneProvider,
                 onClose: { isMCPStatusSheetPresented = false },
                 onRefresh: { Task { await model.refreshMCPServers() } }
             )
@@ -305,6 +307,7 @@ struct CodexCoreAppShell: View {
                 launcherTarget: model.pluginLauncherTarget,
                 pendingPluginIDs: model.pendingPluginActionIDs,
                 pendingSkillIDs: model.pendingSkillActionIDs,
+                controlPlaneProvider: model.integrationControlPlaneProvider,
                 onLoad: { model.requestPluginRefresh() },
                 onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) }
@@ -330,6 +333,9 @@ struct CodexCoreAppShell: View {
                 appearanceSettings: $model.appearanceSettings,
                 approvalSelection: $model.approvalSelection,
                 approvalOptions: model.approvalOptions,
+                agentsDocumentStore: model.agentsDocumentStore,
+                codexHomePath: model.codexHome.path,
+                workingDirectory: model.workspacePath,
                 modelSelection: $model.modelSelection,
                 modelOptions: model.modelOptions,
                 reasoningSelection: $model.reasoningSelection,

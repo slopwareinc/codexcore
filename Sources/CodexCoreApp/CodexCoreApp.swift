@@ -309,6 +309,8 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         aboutItem.target = NSApplication.shared
         appMenu.addItem(aboutItem)
         appMenu.addItem(.separator())
+        appMenu.addItem(appUpdater.checkForUpdatesMenuItem)
+        appMenu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(settingsItem)
@@ -612,6 +614,9 @@ private struct CodexSettingsWindowView: View {
             appearanceSettings: $model.appearanceSettings,
             approvalSelection: $model.approvalSelection,
             approvalOptions: model.approvalOptions,
+            agentsDocumentStore: model.agentsDocumentStore,
+            codexHomePath: model.codexHome.path,
+            workingDirectory: model.workspacePath,
             modelSelection: $model.modelSelection,
             modelOptions: model.modelOptions,
             reasoningSelection: $model.reasoningSelection,

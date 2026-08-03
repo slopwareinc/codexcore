@@ -377,6 +377,31 @@ public struct CodexChatWorkspaceView: View {
         .frame(minWidth: 540)
     }
 
+    /// Rebuilds composer state from a previously sent message. Editing leaves it
+    /// staged for the user; retry sends it straight back out.
+    private func restoreComposer(from rawText: String) {
+        guard let decoded = CodexComposerPromptCodec.decode(rawText) else {
+            draft = rawText
+            referencedFiles = []
+            responseAnnotations = []
+            return
+        }
+        draft = decoded.request
+        referencedFiles = decoded.files
+        responseAnnotations = decoded.responseAnnotations.enumerated().map { index, content in
+            CodexResponseTextAnnotation(
+                id: "restored-\(index)-\(UUID().uuidString)",
+                text: content.text,
+                annotation: content.annotation,
+                anchor: CodexResponseTextAnchor(
+                    renderItemID: "",
+                    startOffset: 0,
+                    endOffset: 0
+                )
+            )
+        }
+    }
+
     private func chatColumn(
         panelState: CodexWorkspaceResponsivePanelState,
         isOverviewControlActive: Bool,
@@ -397,27 +422,10 @@ public struct CodexChatWorkspaceView: View {
                 onOpenSubagent: openPanelTab,
                 onOpenThread: onOpenThread,
                 onOpenReviewRequest: reviewPanelAction,
-                onEditUserMessage: { rawText in
-                    if let decoded = CodexComposerPromptCodec.decode(rawText) {
-                        draft = decoded.request
-                        referencedFiles = decoded.files
-                        responseAnnotations = decoded.responseAnnotations.enumerated().map { index, content in
-                            CodexResponseTextAnnotation(
-                                id: "restored-\(index)-\(UUID().uuidString)",
-                                text: content.text,
-                                annotation: content.annotation,
-                                anchor: CodexResponseTextAnchor(
-                                    renderItemID: "",
-                                    startOffset: 0,
-                                    endOffset: 0
-                                )
-                            )
-                        }
-                    } else {
-                        draft = rawText
-                        referencedFiles = []
-                        responseAnnotations = []
-                    }
+                onEditUserMessage: restoreComposer(from:),
+                onRetryTurn: { message in
+                    restoreComposer(from: message.rawText)
+                    onSend()
                 },
                 onForkChat: chatActions.forkChat,
                 agentDisplayNameByThreadID: Dictionary(

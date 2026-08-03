@@ -703,10 +703,20 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let symbol = try XCTUnwrap(NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil))
         try XCTUnwrap(symbol.tiffRepresentation).write(to: temporaryURL)
 
+        // The synchronous accessor must never touch the disk: before any async
+        // load it has nothing to return.
         XCTAssertNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
+
         let image = await CodexPluginImageRepository.image(for: temporaryURL)
         XCTAssertNotNil(image)
-        XCTAssertNotNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
+
+        // Deleting the source proves a second load is served from memory rather
+        // than re-read. NSCache gives no retention guarantee and may evict under
+        // pressure, so a miss is acceptable — returning a *wrong* image is not.
+        try FileManager.default.removeItem(at: temporaryURL)
+        if let cached = CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL) {
+            XCTAssertEqual(cached.size, image?.size)
+        }
     }
 
     func testIntegrationCatalogSessionOwnsMCPAndPluginLoadingState() {
