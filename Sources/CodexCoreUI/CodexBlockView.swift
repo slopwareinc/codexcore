@@ -156,6 +156,17 @@ struct CodexBlockView: View, Equatable {
             headingView(level: level, text: text, attributed: attributed)
         case .list(_, let ordered, let items):
             listView(ordered: ordered, items: items)
+        case .blockquote(_, let text, let attributed):
+            HStack(alignment: .top, spacing: 10) {
+                Rectangle()
+                    .fill(theme.colors.accent.opacity(0.65))
+                    .frame(width: 3)
+                CodexProseBlock(text: text, attributed: attributed, digest: block.contentDigest)
+            }
+        case .horizontalRule:
+            Divider()
+                .overlay(theme.colors.border)
+                .padding(.vertical, 4)
         }
     }
 
@@ -203,10 +214,10 @@ struct CodexBlockView: View, Equatable {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
                 HStack(alignment: .top, spacing: 8) {
-                    Text(verbatim: ordered ? "\(offset + 1)." : "•")
+                    Text(verbatim: marker(for: item, offset: offset, ordered: ordered))
                         .font(theme.fonts.chat)
                         .foregroundStyle(theme.colors.textSecondary)
-                        .frame(minWidth: 16, alignment: .trailing)
+                        .frame(minWidth: item.isTask ? 18 : 16, alignment: .trailing)
                     Text(CodexProseCache.styledAttributedString(
                         for: item.attributed,
                         digest: "\(item.id):\(item.text)",
@@ -220,6 +231,11 @@ struct CodexBlockView: View, Equatable {
                 .padding(.leading, CGFloat(item.depth) * 16)
             }
         }
+    }
+
+    private func marker(for item: CodexListItem, offset: Int, ordered: Bool) -> String {
+        if item.isTask { return item.isCompleted ? "☑" : "☐" }
+        return ordered ? "\(offset + 1)." : "•"
     }
 }
 

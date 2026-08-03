@@ -68,7 +68,10 @@ enum CodexTranscriptTurnMinimapProjection {
         case .done:
             "Completed"
         case .failed(let message):
-            message
+            status.interruption.map { interruption in
+                let elapsed = interruption.durationMs.map { " after " + CodexWorkBlockViewV2.duration($0) } ?? ""
+                return "Interrupted\(elapsed)"
+            } ?? message
         }
     }
 
