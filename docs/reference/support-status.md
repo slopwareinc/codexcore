@@ -1,6 +1,6 @@
 # Support status
 
-This is the authoritative user-facing capability matrix for CodexCore `0.9.0` with `codex-cli 0.145.0`. “Visible in the app” does not necessarily mean “wired to production behavior.”
+This is the authoritative user-facing capability matrix for CodexCore `0.9.0` with `codex-cli 0.145.0` or newer. “Visible in the app” does not necessarily mean “wired to production behavior.”
 
 | Status | Meaning |
 | --- | --- |
@@ -30,7 +30,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.9.0` wi
 | Capability | Status | Notes |
 | --- | --- | --- |
 | ChatGPT/API-key authentication and isolated home | Supported | Uses `~/.codexcore` by default. |
-| Projectless chats; multi-folder projects; new/resume/search chat | Supported | Projectless tasks live in a separate Chats section and generated Documents/Codex workspaces. For projects, Primary is `cwd` and all ordered source folders are runtime workspace roots. |
+| Projectless chats; multi-folder projects; new/resume/search chat | Supported | Projectless tasks live in a separate Chats section and generated Documents/Codex workspaces, but have no Git-backed Review workbench. For projects, Primary is `cwd` and all ordered source folders are runtime workspace roots. |
 | Chat pin, archive, rename, fork, copy | Supported | Chat reorder/hide/reveal is not supported. |
 | Project group, pin, reorder, alias, remove, reveal | Supported | Projects can also archive their chats. |
 | Model, reasoning, approval, Plan and Goal controls | Supported | Availability still depends on server/model capabilities. |
@@ -41,14 +41,14 @@ This is the authoritative user-facing capability matrix for CodexCore `0.9.0` wi
 | Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. |
 | Workspace terminal | Supported | Interactive Ghostty terminal in the workspace side panel. |
 | Embedded browser | Supported (manual) | WKWebView navigation only; not agent browser-tool integration. |
-| Plugin, skill, and MCP inventory | Supported (read-only) | Inspect and refresh work; install/uninstall/enable/disable actions are presentation only. |
-| Current-turn diff preview | Conditional | Appears only for a parseable unified diff; shows summary/counts, not repository review. |
-| Branch/review/jump/commit/push/pull request | Unsupported | Controls are disabled or no-op. Use Git tooling outside the app. |
-| Automations | Unsupported | Not shown in the reference app because scheduling, persistence, runs, and history are not implemented. |
+| Plugin, skill, app, and MCP management | Supported | Browse and detail views use app-server inventory; install/uninstall, enable/disable, marketplace add/upgrade, and MCP OAuth actions route through the integration control plane. |
+| Review workbench | Conditional | Available for Git-backed project chats; projectless chats show an empty state. Includes Last Turn, Uncommitted, Unstaged, Staged, and Branch sources; filtered navigation, viewed state, lazy bounded unified patches, and adaptive layout. |
+| Repository stage/unstage/revert/branch/commit/push/draft PR | Supported | Cancellable operations validate paths and reject stale revisions; tracked revert requires confirmation and untracked deletion is refused. Draft PR creation requires `gh` authentication. |
+| Structured AI code review | Supported | Starts app-server review for uncommitted, base-branch, commit, or custom targets. |
+| Automations | Supported | Local TOML-backed schedules run as independent chats while the app is open; native completion notifications require the packaged app and macOS permission. No first-class app-server automation API exists in the pinned protocol. |
 | Mobile remote control | Deferred | Product UI and pairing flow are removed pending [#190](https://github.com/slopwareinc/CodexCore/issues/190); generated remote-control protocol wrappers remain available for a future reintroduction. |
-| Plugin mutation | Unsupported | Install/uninstall/enable/disable controls are omitted; inventory, refresh, and “Try in Chat” remain. |
-| Environment/worktree handoff | Unsupported | Creation and handoff controls are omitted. Use external Git tooling. |
-| Git settings and mutations | Unsupported | Settings and commit/push/PR controls are omitted. |
+| Environment/worktree handoff | Supported | Git-backed chats can create a local branch in a new worktree, transfer tracked and untracked changes without modifying the source checkout, and continue from the corresponding repository-relative directory. Cloud environments are not offered. |
+| Git settings | Preview | Stored settings remain host-facing preferences; Review mutations use repository state directly. |
 | Demo bottom terminal | Unsupported | Removed from the reference app; use the real workspace terminal. |
 
 When source and this page disagree, treat production source and tests as authoritative and update this matrix in the same change.

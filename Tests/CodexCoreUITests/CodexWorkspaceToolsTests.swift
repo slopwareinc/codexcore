@@ -1,5 +1,6 @@
 import Foundation
 import GhosttyTerminal
+import CodexCore
 import XCTest
 @testable import CodexCoreUI
 
@@ -117,6 +118,26 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
         panel.openSubagent(id: "agent-b")
         XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-b"])
+    }
+
+    @MainActor
+    func testPlanAndReviewUseDistinctWorkspaceTabs() {
+        let panel = CodexWorkspacePanelState()
+        let plan = CodexPlanSummary(
+            steps: [TurnPlanStep(step: "Inspect", status: .completed)]
+        )
+        let review = CodexGitReviewSession(
+            snapshot: CodexGitReviewSnapshot(branchName: "main")
+        )
+
+        let tabs = panel.agentTabs(
+            subagents: [],
+            gitReviewSession: review,
+            plan: plan
+        )
+
+        XCTAssertEqual(tabs.map(\.id), ["review", "plan"])
+        XCTAssertEqual(tabs.map(\.title), ["Review", "Plan"])
     }
 
     @MainActor

@@ -19,6 +19,7 @@ final class CodexSessionOrderingTests: XCTestCase {
             initializeParams["capabilities"]?.objectValue
         )
         XCTAssertEqual(capabilities["experimentalApi"], .bool(true))
+        XCTAssertEqual(capabilities["mcpServerOpenaiFormElicitation"], .bool(true))
 
         await session.stop()
     }
@@ -1770,6 +1771,69 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
+    func testHandledDynamicToolCallIsMaterializedInCanonicalTranscript() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let resultText = #"{"threadId":"created-thread","hostId":"local"}"#
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled),
+            serverRequestHandler: { request in
+                guard case .dynamicToolCall = request.body else { return .pending }
+                return .result(.dictionary([
+                    "success": .bool(true),
+                    "contentItems": .array([.dictionary([
+                        "type": .string("inputText"),
+                        "text": .string(resultText),
+                    ])]),
+                ]))
+            }
+        )
+        _ = try await session.start()
+
+        try await transport.sendServerRequest(
+            id: .string("create-thread-request"),
+            method: CodexServerRequestKind.dynamicToolCall.method,
+            params: [
+                "threadId": .string(Self.threadID.rawValue),
+                "turnId": .string("turn-create-thread"),
+                "callId": .string("call-create-thread"),
+                "namespace": .string("codex_app"),
+                "tool": .string("create_thread"),
+                "arguments": .dictionary([
+                    "prompt": .string("Review pending pull requests"),
+                ]),
+            ]
+        )
+        try await waitUntil {
+            await transport.responseWriteCount(id: .string("create-thread-request")) == 1
+        }
+
+        let snapshot = await session.canonicalSnapshot()
+        let item = try XCTUnwrap(snapshot.items[.init(
+            threadID: Self.threadID,
+            turnID: .init("turn-create-thread"),
+            itemID: .init("call-create-thread")
+        )])
+        XCTAssertEqual(item.kind, .dynamicToolCall)
+        XCTAssertEqual(item.authority, .completed)
+        XCTAssertEqual(item.payload["namespace"], .string("codex_app"))
+        XCTAssertEqual(item.payload["tool"], .string("create_thread"))
+        XCTAssertEqual(item.payload["success"], .bool(true))
+        XCTAssertEqual(item.payload["contentItems"], .array([.dictionary([
+            "type": .string("inputText"),
+            "text": .string(resultText),
+        ])]))
+        XCTAssertEqual(
+            snapshot.turns[.init(
+                threadID: Self.threadID,
+                turnID: .init("turn-create-thread")
+            )]?.itemOrder,
+            [.init("call-create-thread")]
+        )
+
+        await session.stop()
+    }
+
     func testTypedServerRequestInboxProjectsOnlyPresentationSafeRequestData() async throws {
         let transport = ControllableCodexFrameTransport()
         let session = CodexSession(
@@ -2299,6 +2363,39 @@ final class CodexSessionOrderingTests: XCTestCase {
         await drainScheduler()
         let attemptsAfterOpeningGate = await transport.openAttemptCount
         XCTAssertEqual(attemptsAfterOpeningGate, 1)
+    }
+
+    func testReconnectAttemptsEnterTerminalFailureAtConfiguredLimit() async throws {
+        let transport = ControllableCodexFrameTransport(failedOpenAttempts: 10)
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .init(
+                isEnabled: true,
+                initialDelayMilliseconds: 0,
+                maximumDelayMilliseconds: 0,
+                multiplier: 1,
+                maximumAttempts: 2
+            )),
+            reconnectSleep: { _ in }
+        )
+        let start = Task { try await session.start() }
+
+        do {
+            _ = try await start.value
+            XCTFail("The start waiter should fail after retry exhaustion")
+        } catch {
+            guard case OrderingTestError.configuredOpenFailure = error else {
+                return XCTFail("Unexpected start error: \(error)")
+            }
+        }
+
+        guard case .failed(let message) = await session.lifecycle else {
+            return XCTFail("Expected terminal failed lifecycle")
+        }
+        XCTAssertTrue(message.contains("configuredOpenFailure"))
+        let openAttemptCount = await transport.openAttemptCount
+        XCTAssertEqual(openAttemptCount, 2)
+        await session.stop()
     }
 
     func testCleanReaderEOFBecomesConnectionLossWithoutDisabledReconnect() async throws {

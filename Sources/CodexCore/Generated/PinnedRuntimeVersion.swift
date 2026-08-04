@@ -3,6 +3,6 @@
 /// Runtime identity compiled into the SDK from `Tools/UPSTREAM_VERSION`.
 public enum CodexPinnedRuntime {
     public static let package = "codex-cli"
-    public static let version = "0.145.0"
-    public static let descriptor = "codex-cli 0.145.0"
+    public static let version = "0.146.0-alpha.9.2"
+    public static let descriptor = "codex-cli 0.146.0-alpha.9.2"
 }

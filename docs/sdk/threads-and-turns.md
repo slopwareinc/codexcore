@@ -30,6 +30,10 @@ let terminal = try await turn.awaitTerminal(timeout: .seconds(600))
 
 `runTurn` combines these steps. The returned `CodexTerminalTurn` is one atomic canonical projection containing the terminal turn and its items.
 
+For convenience builders, `CodexInput` covers text (including
+`text_elements`), URL/local images with optional `CodexSchemaImageDetail`,
+URL/local audio, skills, mentions, and a lossless `raw` escape hatch.
+
 ## Control an active turn
 
 - `interrupt()` requests termination.
@@ -84,6 +88,33 @@ also initialize with `requestAttestation` and answer
 Interactive clients should serialize steer submissions. Send one `turn/steer` with the cached active turn ID and no read or polling call. If `classifyCodexTurnSteerRace(_:)` returns `.expectedTurnMismatch`, retry `steerTurn(...)` once with the server-reported ID. If it returns `.noActiveTurn`, immediately send the same input with `turn/start`. Other failures remain ordinary failures. Keep local queue draining blocked until that sequence resolves.
 
 CodexCore registers the submission intent before writing either request. The echoed user item can therefore reconcile by `clientUserMessageId` even if its notification arrives before the RPC response. A successful steer stays inside the existing turn and does not produce another `turn/started` event.
+
+## Operation notifications
+
+Register an operation stream before starting its request so early frames cannot
+race the subscription. Streams are scoped to the current connection epoch and
+terminate when their keyed operation completes or the connection is lost:
+
+```swift
+let events = try await codex.observeProcessEvents(processHandle: "shell-1")
+_ = try await codex.processSpawn(.init(
+    command: ["swift", "--version"],
+    cwd: .string(workspacePath),
+    processHandle: "shell-1"
+))
+
+for try await event in events {
+    switch event {
+    case .output(let delta): print(delta.stream.rawValue, delta.deltaBase64)
+    case .exited(let result): print("exit", result.exitCode)
+    }
+}
+```
+
+The same session exposes filesystem watch changes, fuzzy-search updates,
+external-agent import progress, MCP OAuth completion, app-list invalidation,
+remote-control status changes, and Windows sandbox setup completion through
+their corresponding `observe…` methods.
 
 ## History modes
 

@@ -40,13 +40,14 @@ public enum CodexSessionLifecycle: Sendable, Equatable {
     case initializing(connectionEpoch: UInt64)
     case ready(connectionEpoch: UInt64)
     case reconnecting(afterConnectionEpoch: UInt64?, attempt: Int)
+    case failed(error: String)
     case closing
 
     public var connectionEpoch: UInt64? {
         switch self {
         case .initializing(let epoch), .ready(let epoch): epoch
         case .reconnecting(let epoch, _): epoch
-        case .stopped, .connecting, .closing: nil
+        case .stopped, .connecting, .failed, .closing: nil
         }
     }
 }
@@ -56,25 +57,32 @@ public struct CodexReconnectPolicy: Sendable, Equatable {
     public var initialDelayMilliseconds: UInt64
     public var maximumDelayMilliseconds: UInt64
     public var multiplier: Double
+    /// Maximum consecutive connection attempts before the session enters its
+    /// terminal failed lifecycle. A successful handshake resets the count.
+    public var maximumAttempts: Int
 
     public init(
         isEnabled: Bool = true,
         initialDelayMilliseconds: UInt64 = 250,
         maximumDelayMilliseconds: UInt64 = 5_000,
-        multiplier: Double = 2
+        multiplier: Double = 2,
+        maximumAttempts: Int = 5
     ) {
         precondition(initialDelayMilliseconds <= maximumDelayMilliseconds)
         precondition(multiplier >= 1)
+        precondition(maximumAttempts > 0)
         self.isEnabled = isEnabled
         self.initialDelayMilliseconds = initialDelayMilliseconds
         self.maximumDelayMilliseconds = maximumDelayMilliseconds
         self.multiplier = multiplier
+        self.maximumAttempts = maximumAttempts
     }
 
     public static let disabled = Self(
         isEnabled: false,
         initialDelayMilliseconds: 0,
-        maximumDelayMilliseconds: 0
+        maximumDelayMilliseconds: 0,
+        maximumAttempts: 1
     )
 
     fileprivate func delayMilliseconds(forAttempt attempt: Int) -> UInt64 {
@@ -125,6 +133,7 @@ public struct CodexSessionConfiguration: Sendable, Equatable {
         self.clientVersion = clientVersion
         var resolvedCapabilities = capabilities
         resolvedCapabilities.experimentalAPI = true
+        resolvedCapabilities.mcpServerOpenAIFormElicitation = true
         resolvedCapabilities.optOutNotificationMethods =
             CodexNotificationOptOutPolicy.filtered(
                 capabilities.optOutNotificationMethods
@@ -573,6 +582,14 @@ public actor CodexSession:
     private var commandOutputs = CodexCommandOutputRouter()
     private var skillsChanges = CodexSkillsChangeObserverHub()
     private var realtimeEvents = CodexRealtimeObserverHub()
+    private var fsChanges = CodexFSChangeObserverHub()
+    private var processEvents = CodexProcessObserverHub()
+    private var fuzzyFileSearchEvents = CodexFuzzyFileSearchObserverHub()
+    private var mcpServerOAuthLogins = CodexMCPServerOAuthLoginObserverHub()
+    private var externalAgentConfigImports = CodexExternalAgentConfigImportObserverHub()
+    private var appListChanges = CodexAppListObserverHub()
+    private var remoteControlStatusChanges = CodexRemoteControlStatusObserverHub()
+    private var windowsSandboxSetups = CodexWindowsSandboxSetupObserverHub()
 
     public private(set) var lifecycle: CodexSessionLifecycle = .stopped {
         didSet {
@@ -931,6 +948,198 @@ public actor CodexSession:
 
     func cancelCommandOutput(_ token: CodexCommandOutputSubscriptionToken) {
         _ = commandOutputs.cancel(token)
+    }
+
+    /// Observes `fs/changed` for one watch identity. Register before calling
+    /// `fs/watch` so the first change cannot race the observer.
+    public func observeFSChanges(
+        watchID: String,
+        maximumChangeCount: Int = 512
+    ) throws -> AsyncThrowingStream<CodexSchemaFSChangedNotification, Error> {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let observation = fsChanges.observe(
+            connectionEpoch: epoch,
+            watchID: watchID,
+            maximumChangeCount: maximumChangeCount,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelFSChangeObservation(id) }
+            }
+        )
+        return observation.changes
+    }
+
+    func cancelFSChangeObservation(_ id: CodexFSChangeObservationID) {
+        _ = fsChanges.cancel(id)
+    }
+
+    /// Observes process output and the terminal exit event for one process
+    /// handle. Register before `process/spawn` to avoid losing early output.
+    public func observeProcessEvents(
+        processHandle: String,
+        maximumEventCount: Int = 512
+    ) throws -> AsyncThrowingStream<CodexProcessEvent, Error> {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let observation = try processEvents.observe(
+            connectionEpoch: epoch,
+            processHandle: processHandle,
+            maximumEventCount: maximumEventCount,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelProcessObservation(id) }
+            }
+        )
+        return observation.events
+    }
+
+    func cancelProcessObservation(_ id: UInt64) {
+        _ = processEvents.cancel(id)
+    }
+
+    /// Observes incremental and terminal events for one fuzzy-file-search
+    /// session. Register before `fuzzyFileSearch/sessionStart`.
+    public func observeFuzzyFileSearch(
+        sessionID: String,
+        maximumEventCount: Int = 128
+    ) throws -> AsyncThrowingStream<CodexFuzzyFileSearchEvent, Error> {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let observation = fuzzyFileSearchEvents.observe(
+            connectionEpoch: epoch,
+            sessionID: sessionID,
+            maximumEventCount: maximumEventCount,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelFuzzyFileSearchObservation(id) }
+            }
+        )
+        return observation.events
+    }
+
+    func cancelFuzzyFileSearchObservation(_ id: UInt64) {
+        _ = fuzzyFileSearchEvents.cancel(id)
+    }
+
+    /// Observes completion of one MCP OAuth login. The server name and optional
+    /// thread id form the operation identity within a connection epoch.
+    public func observeMCPServerOAuthLogin(
+        name: String,
+        threadID: String? = nil
+    ) throws -> AsyncThrowingStream<
+        CodexSchemaMCPServerOAuthLoginCompletedNotification,
+        Error
+    > {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let observation = mcpServerOAuthLogins.observe(
+            connectionEpoch: epoch,
+            name: name,
+            threadID: threadID,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelMCPServerOAuthLoginObservation(id) }
+            }
+        )
+        return observation.completions
+    }
+
+    func cancelMCPServerOAuthLoginObservation(_ id: UInt64) {
+        _ = mcpServerOAuthLogins.cancel(id)
+    }
+
+    /// Observes progress and completion for one external-agent configuration
+    /// import. Register before `externalAgentConfig/import`.
+    public func observeExternalAgentConfigImport(
+        importID: String
+    ) throws -> AsyncThrowingStream<CodexExternalAgentConfigImportEvent, Error> {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let observation = externalAgentConfigImports.observe(
+            connectionEpoch: epoch,
+            importID: importID,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelExternalAgentConfigImportObservation(id) }
+            }
+        )
+        return observation.events
+    }
+
+    func cancelExternalAgentConfigImportObservation(_ id: UInt64) {
+        _ = externalAgentConfigImports.cancel(id)
+    }
+
+    /// Observes app catalog invalidations. The notification carries the
+    /// replacement app list, so consumers need not poll after each signal.
+    public func observeAppListChanges() throws -> AsyncThrowingStream<
+        CodexSchemaAppListUpdatedNotification,
+        Error
+    > {
+        try observeGlobalOperation(
+            hub: &appListChanges,
+            cancellation: { [weak self] id in
+                Task { await self?.cancelAppListObservation(id) }
+            }
+        )
+    }
+
+    func cancelAppListObservation(_ id: UInt64) {
+        _ = appListChanges.cancel(id)
+    }
+
+    /// Observes remote-control connection status transitions.
+    public func observeRemoteControlStatusChanges() throws -> AsyncThrowingStream<
+        CodexSchemaRemoteControlStatusChangedNotification,
+        Error
+    > {
+        try observeGlobalOperation(
+            hub: &remoteControlStatusChanges,
+            cancellation: { [weak self] id in
+                Task { await self?.cancelRemoteControlStatusObservation(id) }
+            }
+        )
+    }
+
+    func cancelRemoteControlStatusObservation(_ id: UInt64) {
+        _ = remoteControlStatusChanges.cancel(id)
+    }
+
+    /// Observes the one-shot Windows sandbox setup completion notification.
+    public func observeWindowsSandboxSetup() throws -> AsyncThrowingStream<
+        CodexSchemaWindowsSandboxSetupCompletedNotification,
+        Error
+    > {
+        try observeGlobalOperation(
+            hub: &windowsSandboxSetups,
+            cancellation: { [weak self] id in
+                Task { await self?.cancelWindowsSandboxSetupObservation(id) }
+            }
+        )
+    }
+
+    func cancelWindowsSandboxSetupObservation(_ id: UInt64) {
+        _ = windowsSandboxSetups.cancel(id)
+    }
+
+    private func observeGlobalOperation<Event: Sendable>(
+        hub: inout CodexGlobalOperationObserverHub<Event>,
+        cancellation: @escaping @Sendable (UInt64) -> Void
+    ) throws -> AsyncThrowingStream<Event, Error> {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        return hub.observe(
+            connectionEpoch: epoch,
+            onTermination: cancellation
+        ).events
     }
 
     public func protocolDiagnostics() -> CodexProtocolDiagnosticsSnapshot {
@@ -1527,6 +1736,10 @@ private extension CodexSession {
                         failOperationWaiters(with: error)
                         break
                     }
+                    guard attempt < configuration.reconnectPolicy.maximumAttempts else {
+                        exhaustReconnectAttempts(with: error)
+                        break
+                    }
                 }
             } catch {
                 guard shouldReconnect(after: error) else {
@@ -1535,15 +1748,31 @@ private extension CodexSession {
                     failOperationWaiters(with: error)
                     break
                 }
+                guard attempt < configuration.reconnectPolicy.maximumAttempts else {
+                    exhaustReconnectAttempts(with: error)
+                    break
+                }
             }
         }
 
         if coordinatorGeneration == generation {
             coordinatorTask = nil
             if !shouldRun, lifecycle != .closing {
-                lifecycle = .stopped
+                if case .failed = lifecycle {
+                    // A retry budget exhaustion is a terminal, inspectable
+                    // lifecycle rather than an indistinguishable stop.
+                } else {
+                    lifecycle = .stopped
+                }
             }
         }
+    }
+
+    func exhaustReconnectAttempts(with error: Error) {
+        shouldRun = false
+        failStartWaiters(with: error)
+        failOperationWaiters(with: error)
+        lifecycle = .failed(error: String(describing: error))
     }
 
     func beginConnection() -> UInt64 {
@@ -1715,6 +1944,14 @@ private extension CodexSession {
         _ = commandOutputs.disconnect(connectionEpoch: epoch)
         _ = skillsChanges.disconnect(connectionEpoch: epoch)
         _ = realtimeEvents.disconnect(connectionEpoch: epoch)
+        _ = fsChanges.disconnect(connectionEpoch: epoch)
+        _ = processEvents.disconnect(connectionEpoch: epoch)
+        _ = fuzzyFileSearchEvents.disconnect(connectionEpoch: epoch)
+        _ = mcpServerOAuthLogins.disconnect(connectionEpoch: epoch)
+        _ = externalAgentConfigImports.disconnect(connectionEpoch: epoch)
+        _ = appListChanges.disconnect(connectionEpoch: epoch)
+        _ = remoteControlStatusChanges.disconnect(connectionEpoch: epoch)
+        _ = windowsSandboxSetups.disconnect(connectionEpoch: epoch)
         sealLoginAttempts(connectionEpoch: epoch, error: error)
         for threadID in Array(historyWaiters.keys) {
             failHistoryWaiters(
@@ -1945,6 +2182,7 @@ private extension CodexSession {
             pendingClientRequests.removeValue(forKey: key)
             outboundFrames.removeAll { $0.token == pending.outboundToken }
             finishCommandOutput(for: pending)
+            finishOperationObservation(for: pending)
             if handshakeRequestKey == key {
                 handshakeRequestKey = nil
             }
@@ -1967,6 +2205,29 @@ private extension CodexSession {
             connectionEpoch: pending.key.connectionEpoch,
             processID: processID
         )
+    }
+
+    private func finishOperationObservation(for pending: PendingClientRequest) {
+        switch pending.context.method {
+        case .fsUnwatch:
+            guard case .string(let watchID)? = pending.context.requestParams["watchId"] else {
+                return
+            }
+            _ = fsChanges.finish(
+                connectionEpoch: pending.key.connectionEpoch,
+                watchID: watchID
+            )
+        case .fuzzyFileSearchSessionStop:
+            guard case .string(let sessionID)? = pending.context.requestParams["sessionId"] else {
+                return
+            }
+            _ = fuzzyFileSearchEvents.finish(
+                connectionEpoch: pending.key.connectionEpoch,
+                sessionID: sessionID
+            )
+        default:
+            break
+        }
     }
 
     func allocateClientRequestID() throws -> CodexJSONRPCID {
@@ -2097,6 +2358,7 @@ private extension CodexSession {
             handshakeRequestKey = nil
         }
         finishCommandOutput(for: pending)
+        finishOperationObservation(for: pending)
 
         switch response.outcome {
         case .result(let result):
@@ -2208,6 +2470,33 @@ private extension CodexSession {
                         try commitSessionInvalidation(fields: .diagnostics)
                     }
 
+                case .processOutputDelta:
+                    let output = try notification.params.decode(
+                        CodexSchemaProcessOutputDeltaNotification.self
+                    )
+                    _ = processEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .output(output)
+                    )
+
+                case .processExited:
+                    let exited = try notification.params.decode(
+                        CodexSchemaProcessExitedNotification.self
+                    )
+                    _ = processEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .exited(exited)
+                    )
+
+                case .fsChanged:
+                    let change = try notification.params.decode(
+                        CodexSchemaFSChangedNotification.self
+                    )
+                    _ = fsChanges.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        notification: change
+                    )
+
                 case .skillsChanged:
                     let change = try notification.params.decode(
                         CodexSchemaSkillsChangedNotification.self
@@ -2215,6 +2504,73 @@ private extension CodexSession {
                     _ = skillsChanges.publish(
                         connectionEpoch: cursor.connectionEpoch,
                         notification: change
+                    )
+
+                case .fuzzyFileSearchSessionUpdated:
+                    let update = try notification.params.decode(
+                        CodexSchemaFuzzyFileSearchSessionUpdatedNotification.self
+                    )
+                    _ = fuzzyFileSearchEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .updated(update)
+                    )
+
+                case .fuzzyFileSearchSessionCompleted:
+                    let completion = try notification.params.decode(
+                        CodexSchemaFuzzyFileSearchSessionCompletedNotification.self
+                    )
+                    _ = fuzzyFileSearchEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .completed(completion)
+                    )
+
+                case .mcpServerOAuthLoginCompleted:
+                    let completion = try notification.params.decode(
+                        CodexSchemaMCPServerOAuthLoginCompletedNotification.self
+                    )
+                    _ = mcpServerOAuthLogins.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        notification: completion
+                    )
+
+                case .appListUpdated:
+                    _ = appListChanges.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: try notification.params.decode(
+                            CodexSchemaAppListUpdatedNotification.self
+                        )
+                    )
+
+                case .remoteControlStatusChanged:
+                    _ = remoteControlStatusChanges.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: try notification.params.decode(
+                            CodexSchemaRemoteControlStatusChangedNotification.self
+                        )
+                    )
+
+                case .externalAgentConfigImportProgress:
+                    _ = externalAgentConfigImports.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .progress(try notification.params.decode(
+                            CodexSchemaExternalAgentConfigImportProgressNotification.self
+                        ))
+                    )
+
+                case .externalAgentConfigImportCompleted:
+                    _ = externalAgentConfigImports.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .completed(try notification.params.decode(
+                            CodexSchemaExternalAgentConfigImportCompletedNotification.self
+                        ))
+                    )
+
+                case .windowsSandboxSetupCompleted:
+                    _ = windowsSandboxSetups.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: try notification.params.decode(
+                            CodexSchemaWindowsSandboxSetupCompletedNotification.self
+                        )
                     )
 
                 case .threadRealtimeStarted:
@@ -2379,6 +2735,7 @@ private extension CodexSession {
                     )
                 )
             case .registered(let snapshot):
+                try materializeDynamicToolStartIfNeeded(parsed)
                 try commitRequestInvalidation(scope: snapshot.scope)
                 guard retainThreadForServerRequest(parsed) else { return }
                 startServerRequestHandler(parsed)
@@ -2734,6 +3091,13 @@ private extension CodexSession {
             try? commitSessionInvalidation(fields: .diagnostics)
         }
         guard let removed = interactions.takeOnServerResolved(key) else { return }
+        try materializeDynamicToolCompletionIfNeeded(
+            removed,
+            reply: .error(.init(
+                code: -32_000,
+                message: "Dynamic tool call was resolved by app-server"
+            ))
+        )
         try commitRequestInvalidation(scope: removed.registration.scope)
         serverRequestTasks.removeValue(forKey: key)?.cancel()
         releaseThreadForServerRequest(key)
@@ -2749,9 +3113,108 @@ private extension CodexSession {
             throw CodexSessionError.unknownServerRequest(key)
         }
         defer { releaseThreadForServerRequest(key) }
+        try materializeDynamicToolCompletionIfNeeded(request, reply: reply)
         try commitRequestInvalidation(scope: request.registration.scope)
         serverRequestTasks.removeValue(forKey: key)?.cancel()
         try enqueueServerResponse(key: key, reply: reply)
+    }
+
+    func materializeDynamicToolStartIfNeeded(
+        _ request: CodexParsedServerRequest
+    ) throws {
+        guard case .dynamicToolCall(let toolCall) = request.body,
+              let threadID = toolCall.scope.threadID,
+              let turnID = toolCall.scope.turnID
+        else { return }
+
+        try commit(.itemStarted(CanonicalItem(
+            key: .init(
+                threadID: .init(threadID),
+                turnID: .init(turnID),
+                itemID: .init(toolCall.callID)
+            ),
+            kind: .dynamicToolCall,
+            payload: dynamicToolPayload(
+                toolCall,
+                status: "inProgress"
+            ),
+            authority: .started,
+            consistency: .partial
+        )))
+    }
+
+    func materializeDynamicToolCompletionIfNeeded(
+        _ request: CodexParsedServerRequest,
+        reply: ServerRequestReply
+    ) throws {
+        guard case .dynamicToolCall(let toolCall) = request.body,
+              let threadID = toolCall.scope.threadID,
+              let turnID = toolCall.scope.turnID
+        else { return }
+
+        let success: Bool
+        let contentItems: [CodexJSONValue]
+        switch reply {
+        case .result(.dictionary(let result)):
+            if case .bool(let value)? = result["success"] {
+                success = value
+            } else {
+                success = false
+            }
+            if case .array(let value)? = result["contentItems"] {
+                contentItems = value
+            } else {
+                contentItems = []
+            }
+        case .result:
+            success = false
+            contentItems = []
+        case .error:
+            success = false
+            contentItems = []
+        }
+
+        try commit(.itemCompleted(CanonicalItem(
+            key: .init(
+                threadID: .init(threadID),
+                turnID: .init(turnID),
+                itemID: .init(toolCall.callID)
+            ),
+            kind: .dynamicToolCall,
+            payload: dynamicToolPayload(
+                toolCall,
+                status: success ? "completed" : "failed",
+                success: success,
+                contentItems: contentItems
+            ),
+            authority: .completed,
+            consistency: .partial
+        )))
+    }
+
+    func dynamicToolPayload(
+        _ toolCall: CodexDynamicToolServerRequest,
+        status: String,
+        success: Bool? = nil,
+        contentItems: [CodexJSONValue]? = nil
+    ) -> [String: CodexJSONValue] {
+        var payload: [String: CodexJSONValue] = [
+            "type": .string("dynamicToolCall"),
+            "id": .string(toolCall.callID),
+            "tool": .string(toolCall.tool),
+            "arguments": toolCall.arguments,
+            "status": .string(status),
+        ]
+        if let namespace = toolCall.namespace {
+            payload["namespace"] = .string(namespace)
+        }
+        if let success {
+            payload["success"] = .bool(success)
+        }
+        if let contentItems {
+            payload["contentItems"] = .array(contentItems)
+        }
+        return payload
     }
 
     func enqueueServerResponse(

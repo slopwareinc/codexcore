@@ -5,7 +5,7 @@ final class CodexSessionCommandsTests: XCTestCase {
     func testGeneratedSurfaceExhaustivelyCoversPostHandshakeMethods() {
         let expected = Set(CodexAppServerClientMethod.allCases).subtracting([.initialize])
 
-        XCTAssertEqual(CodexRequest.generatedMethodCount, 125)
+        XCTAssertEqual(CodexRequest.generatedMethodCount, 126)
         XCTAssertEqual(CodexRequest.supportedMethods, expected)
         XCTAssertEqual(CodexRequest.omittedParameterMethods.count, 10)
         XCTAssertEqual(

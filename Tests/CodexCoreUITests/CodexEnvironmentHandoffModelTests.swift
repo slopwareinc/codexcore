@@ -5,8 +5,7 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
     func testEnvironmentSelectorExposesCapturedModesAndAppliesWorktreeResult() {
         XCTAssertEqual(CodexProjectEnvironmentSelection.allCases.map(\.title), [
             "Local",
-            "Worktree",
-            "Cloud"
+            "Worktree"
         ])
 
         var environment = CodexProjectEnvironmentState(
@@ -25,6 +24,36 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(environment.worktreePath, "/repo-worktrees/implement-stats")
         XCTAssertEqual(environment.branchName, "codex/implement-stats")
         XCTAssertEqual(environment.usageRemainingLabel, "80% remaining")
+    }
+
+    func testWorktreeResultCarriesWorkingDirectoryAndPathOutcomes() {
+        let result = CodexWorktreeHandoffResult(
+            title: "Implement stats",
+            branchName: "codex/implement-stats",
+            worktreePath: "/repo-worktrees/abcd/implement-stats",
+            workingDirectoryPath: "/repo-worktrees/abcd/implement-stats/packages/web",
+            pathOutcomes: [
+                CodexWorktreeHandoffPathOutcome(path: "Sources/App.swift", status: .applied),
+                CodexWorktreeHandoffPathOutcome(
+                    path: "Sources/Conflict.swift",
+                    status: .conflicted,
+                    detail: "Git reported a merge conflict."
+                ),
+            ]
+        )
+        var environment = CodexProjectEnvironmentState(
+            workspacePath: "/repo/packages/web",
+            branchName: "main"
+        )
+
+        environment.apply(result)
+
+        XCTAssertEqual(environment.worktreePath, "/repo-worktrees/abcd/implement-stats")
+        XCTAssertEqual(
+            environment.workspacePath,
+            "/repo-worktrees/abcd/implement-stats/packages/web"
+        )
+        XCTAssertEqual(result.resultCard.pathOutcomes.map(\.status), [.applied, .conflicted])
     }
 
     func testWorktreeModalDefaultsBranchNameFromThreadTitle() {
@@ -100,6 +129,10 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(completion.environment.selection, .worktree)
         XCTAssertEqual(completion.environment.branchName, "codex/implement-stats")
         XCTAssertEqual(completion.environment.workspacePath, "/repo-worktrees/stats")
+        guard case .success(let result) = completion.outcome else {
+            return XCTFail("Expected a typed handoff success")
+        }
+        XCTAssertEqual(result.branchName, "codex/implement-stats")
         XCTAssertEqual(completion.activity.title, "Handed-off to worktree")
         XCTAssertEqual(completion.activity.detail, "codex/implement-stats at /repo-worktrees/stats")
         XCTAssertEqual(completion.resultCard, CodexWorktreeHandoffResultCard(
@@ -125,12 +158,19 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         )
 
         XCTAssertEqual(completion.environment, environment)
-        XCTAssertEqual(completion.activity.title, "Worktree handoff unavailable")
-        XCTAssertEqual(completion.activity.detail, "Worktree handoff is not available in this build")
+        guard case .failure(let failure) = completion.outcome else {
+            return XCTFail("Expected a typed handoff failure")
+        }
+        XCTAssertEqual(failure.message, "Worktree handoff is not available in this build")
+        XCTAssertEqual(completion.activity.title, "Worktree handoff failed")
+        XCTAssertEqual(
+            completion.activity.detail,
+            "Worktree handoff is not available in this build The source tree was left untouched."
+        )
         XCTAssertNil(completion.resultCard)
     }
 
-    func testEnvironmentPanelSessionPreparesRowsAndModalDefaults() {
+    func testEnvironmentPanelSessionPreparesRowsAndModalDefaults() throws {
         var session = CodexProjectEnvironmentPanelSession(environment: CodexProjectEnvironmentState(
             workspacePath: "/Users/me/repo",
             branchName: "main",
@@ -147,11 +187,21 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
 
         session.prepareModal(threadTitle: "Review PR #42")
 
-        XCTAssertEqual(session.modal, CodexWorktreeHandoffModalState(
-            threadTitle: "Review PR #42",
-            sourcePath: "/Users/me/repo",
-            targetPath: "/Users/me/repo-worktrees/review-pr-42"
-        ))
+        let modal = try XCTUnwrap(session.modal)
+        XCTAssertEqual(modal.title, "Review PR #42")
+        XCTAssertEqual(modal.sourcePath, "/Users/me/repo")
+        XCTAssertEqual(URL(fileURLWithPath: modal.targetPath).lastPathComponent, "review-pr-42")
+        XCTAssertEqual(
+            URL(fileURLWithPath: modal.targetPath).deletingLastPathComponent().lastPathComponent.count,
+            4
+        )
+        XCTAssertEqual(
+            URL(fileURLWithPath: modal.targetPath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .lastPathComponent,
+            "repo-worktrees"
+        )
     }
 
     func testEnvironmentPanelRowsRepresentRuntimeLoadingAvailableAndFailure() {
@@ -196,8 +246,46 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         XCTAssertEqual(session.environment.selection, .worktree)
         XCTAssertEqual(session.lastActivity?.title, "Handed-off to worktree")
         XCTAssertEqual(session.resultCard?.detail, "codex/implement-stats at /repo-worktrees/stats")
+        XCTAssertNil(session.handoffFailure)
     }
 
+    func testWorktreeHandoffFailurePreservesPerPathOutcomes() async {
+        let modal = CodexWorktreeHandoffModalState(
+            threadTitle: "Implement stats",
+            sourcePath: "/repo",
+            targetPath: "/repo-worktrees/stats"
+        )
+        let outcomes = [
+            CodexWorktreeHandoffPathOutcome(path: "Applied.swift", status: .applied),
+            CodexWorktreeHandoffPathOutcome(path: "Conflict.swift", status: .conflicted),
+            CodexWorktreeHandoffPathOutcome(path: "Skipped.swift", status: .skipped),
+        ]
+
+        let completion = await CodexWorktreeHandoffSession.perform(
+            modal: modal,
+            environment: CodexProjectEnvironmentState(workspacePath: "/repo"),
+            provider: FailingWorktreeHandoffProvider(outcomes: outcomes)
+        )
+
+        guard case .failure(let failure) = completion.outcome else {
+            return XCTFail("Expected a typed handoff failure")
+        }
+        XCTAssertEqual(failure.pathOutcomes, outcomes)
+        XCTAssertEqual(completion.environment.workspacePath, "/repo")
+        XCTAssertTrue(completion.activity.detail.hasSuffix("The source tree was left untouched."))
+    }
+
+}
+
+private struct FailingWorktreeHandoffProvider: CodexWorktreeHandoffProviding {
+    var outcomes: [CodexWorktreeHandoffPathOutcome]
+
+    func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
+        throw CodexLocalProjectEnvironmentError.handoffFailed(
+            message: "Git reported conflicts.",
+            pathOutcomes: outcomes
+        )
+    }
 }
 
 private struct MockWorktreeHandoffProvider: CodexWorktreeHandoffProviding {

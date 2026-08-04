@@ -1,4 +1,5 @@
 import SwiftUI
+import CodexCore
 
 public struct CodexFloatingSummaryPanel: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -31,8 +32,25 @@ public struct CodexFloatingSummaryPanel: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if let plan = workspaceSummary?.plan {
+                SummarySection(title: "Plan") {
+                    SummaryRow(
+                        title: plan.explanation?.nilIfBlank ?? "View plan",
+                        systemImage: "list.bullet.rectangle",
+                        trailing: AnyView(SummaryPlanProgress(label: plan.progressLabel))
+                    ) {
+                        onSelectTab(CodexAgentPanelTab.plan(plan).id)
+                    }
+                }
+
+                SummaryDivider()
+            }
+
             if let workspaceSummary {
-                SummarySection(title: "Environment", showsAddButton: true) {
+                SummarySection(
+                    title: "Environment",
+                    actions: AnyView(environmentSectionActions(workspaceSummary))
+                ) {
                     if let gitReviewSession {
                         SummaryRow(
                             title: "Changes",
@@ -48,21 +66,32 @@ public struct CodexFloatingSummaryPanel: View {
                         }
                     }
 
-                    SummaryRow(
-                        title: workspaceSummary.environmentModeTitle,
-                        systemImage: workspaceSummary.environmentModeTitle == "Worktree"
-                            ? "square.stack.3d.up"
-                            : "laptopcomputer",
-                        trailingSystemImage: "chevron.down"
+                    // The workspace summary can lag a project switch, so fall
+                    // back to the branch the review snapshot already resolved.
+                    // "HEAD" is the snapshot's placeholder for "no branch
+                    // resolved", not a branch to advertise.
+                    let branchName = workspaceSummary.gitBranch?.nilIfBlank
+                        ?? gitReviewSession?.snapshot.branchName.nilIfBlank
+                            .flatMap { $0 == "HEAD" ? nil : $0 }
+                    CodexProjectEnvironmentPanel(
+                        environment: CodexProjectEnvironmentState(
+                            selection: workspaceSummary.environmentModeTitle == "Worktree"
+                                ? .worktree : .local,
+                            workspacePath: workspaceSummary.workspacePath,
+                            branchName: branchName,
+                            worktreePath: workspaceSummary.environmentModeTitle == "Worktree"
+                                ? workspaceSummary.workspacePath : nil,
+                            runtimeInfo: workspaceSummary.environmentInfo
+                        ),
+                        threadTitle: chatTitle,
+                        provider: CodexLocalProjectEnvironmentProvider(
+                            workspaceURL: URL(fileURLWithPath: workspaceSummary.workspacePath)
+                        ),
+                        onCompletion: onEnvironmentHandoffCompletion
                     )
+                    .id(workspaceSummary.workspacePath)
 
-                    SummaryRow(
-                        title: workspaceSummary.gitBranch?.nilIfBlank ?? "No branch",
-                        systemImage: "arrow.triangle.branch",
-                        trailingSystemImage: "chevron.down"
-                    )
-
-                    if workspaceSummary.gitBranch?.nilIfBlank != nil {
+                    if branchName != nil {
                         if let gitReviewSession {
                             SummaryRow(title: "Commit or push", systemImage: "icloud.and.arrow.up") {
                                 onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
@@ -71,8 +100,18 @@ public struct CodexFloatingSummaryPanel: View {
                                 onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
                             }
                         } else {
-                            SummaryRow(title: "Commit or push", systemImage: "icloud.and.arrow.up")
-                            SummaryRow(title: "Create pull request", systemImage: "arrow.triangle.pull")
+                            // Disabled controls say why, the way the official
+                            // panel's tooltips do, instead of going quiet.
+                            SummaryRow(
+                                title: "Commit or push",
+                                systemImage: "icloud.and.arrow.up",
+                                disabledReason: "Review is unavailable for this chat"
+                            )
+                            SummaryRow(
+                                title: "Create pull request",
+                                systemImage: "arrow.triangle.pull",
+                                disabledReason: "Review is unavailable for this chat"
+                            )
                         }
                     }
 
@@ -111,12 +150,12 @@ public struct CodexFloatingSummaryPanel: View {
             }
 
             SummaryDivider()
-            SummarySection(title: "Outputs", showsAddButton: true) {
+            SummarySection(title: "Outputs") {
                 SummaryEmptyRow(title: "No artifacts yet")
             }
 
             SummaryDivider()
-            SummarySection(title: "Sources", showsAddButton: true) {
+            SummarySection(title: "Sources") {
                 if let sourceFiles = workspaceSummary?.sourceFiles, !sourceFiles.isEmpty {
                     ForEach(sourceFiles.suffix(3)) { source in
                         SummarySourceRow(source: source)
@@ -138,6 +177,30 @@ public struct CodexFloatingSummaryPanel: View {
         .fixedSize(horizontal: true, vertical: false)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
     }
+
+    /// Section-header actions for Environment. Only what this app can actually
+    /// perform on the checkout appears here.
+    @ViewBuilder
+    private func environmentSectionActions(
+        _ summary: CodexWorkspaceSummaryContext
+    ) -> some View {
+        if let gitReviewSession {
+            Button("Open Review") {
+                onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+            }
+            Divider()
+        }
+        Button("Reveal in Finder") {
+            NSWorkspace.shared.selectFile(
+                nil,
+                inFileViewerRootedAtPath: summary.workspacePath
+            )
+        }
+        Button("Copy path") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(summary.workspacePath, forType: .string)
+        }
+    }
 }
 
 private struct SummarySection<Content: View>: View {
@@ -146,16 +209,18 @@ private struct SummarySection<Content: View>: View {
     @State private var isHovered = false
 
     let title: String
-    let showsAddButton: Bool
+    /// Section header menu. A section with nothing to offer shows no button at
+    /// all rather than a decorative one.
+    let actions: AnyView?
     let content: Content
 
     init(
         title: String,
-        showsAddButton: Bool = false,
+        actions: AnyView? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
-        self.showsAddButton = showsAddButton
+        self.actions = actions
         self.content = content()
     }
 
@@ -181,13 +246,23 @@ private struct SummarySection<Content: View>: View {
 
                 Spacer(minLength: 0)
 
-                if showsAddButton {
-                    Image(systemName: "plus")
-                        .font(theme.fonts.actionIcon)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .frame(width: 24, height: 24)
-                        .opacity(isHovered ? 1 : 0.72)
-                        .help("\(title) actions are not available yet")
+                if let actions {
+                    Menu {
+                        actions
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(theme.fonts.actionIcon)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .frame(width: 24, height: 24)
+                            .opacity(isHovered ? 1 : 0.72)
+                            .contentShape(Rectangle())
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("\(title) actions")
+                    .accessibilityLabel("\(title) actions")
                 }
             }
             .frame(height: 24)
@@ -203,63 +278,18 @@ private struct SummarySection<Content: View>: View {
     }
 }
 
-private struct SummaryRow: View {
+/// The shared chrome for every summary row, so buttons, menus, and popover
+/// triggers all read as one control family.
+private struct SummaryRowLabel: View {
     @Environment(\.codexAgentTheme) private var theme
-    @State private var isHovered = false
 
     let title: String
     let systemImage: String
-    let trailing: AnyView?
-    let trailingSystemImage: String?
-    let action: (() -> Void)?
-
-    init(
-        title: String,
-        systemImage: String,
-        trailing: AnyView? = nil,
-        trailingSystemImage: String? = nil,
-        action: (() -> Void)? = nil
-    ) {
-        self.title = title
-        self.systemImage = systemImage
-        self.trailing = trailing
-        self.trailingSystemImage = trailingSystemImage
-        self.action = action
-    }
-
-    init(
-        title: String,
-        systemImage: String,
-        trailing: AnyView? = nil,
-        trailingSystemImage: String? = nil,
-        action: @escaping () -> Void
-    ) {
-        self.init(
-            title: title,
-            systemImage: systemImage,
-            trailing: trailing,
-            trailingSystemImage: trailingSystemImage,
-            action: Optional(action)
-        )
-    }
+    var trailing: AnyView?
+    var trailingSystemImage: String?
+    var isDimmed = false
 
     var body: some View {
-        Group {
-            if let action {
-                Button(action: action) { rowContent }
-                    .buttonStyle(.plain)
-            } else {
-                rowContent
-            }
-        }
-        .background(
-            isHovered ? theme.colors.surfaceElevated.opacity(0.42) : .clear,
-            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-        )
-        .onHover { isHovered = $0 }
-    }
-
-    private var rowContent: some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(theme.fonts.actionIcon)
@@ -279,9 +309,407 @@ private struct SummaryRow: View {
                     .foregroundStyle(theme.colors.textTertiary)
             }
         }
+        .opacity(isDimmed ? 0.5 : 1)
         .frame(height: 36)
         .padding(.horizontal, 4)
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+/// Hover emphasis and the pointing-hand cursor, applied only where something
+/// actually opens.
+private struct SummaryRowInteraction: ViewModifier {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
+    let isInteractive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                isHovered && isInteractive
+                    ? theme.colors.surfaceElevated.opacity(0.42)
+                    : .clear,
+                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+            .onHover { hovering in
+                isHovered = hovering
+                guard isInteractive else { return }
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+    }
+}
+
+private extension View {
+    func summaryRowInteraction(isInteractive: Bool) -> some View {
+        modifier(SummaryRowInteraction(isInteractive: isInteractive))
+    }
+}
+
+private struct SummaryRow: View {
+    let title: String
+    let systemImage: String
+    let trailing: AnyView?
+    let trailingSystemImage: String?
+    /// When present the row renders dimmed and explains itself on hover rather
+    /// than looking available.
+    let disabledReason: String?
+    let action: (() -> Void)?
+
+    init(
+        title: String,
+        systemImage: String,
+        trailing: AnyView? = nil,
+        trailingSystemImage: String? = nil,
+        disabledReason: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.trailing = trailing
+        self.trailingSystemImage = trailingSystemImage
+        self.disabledReason = disabledReason
+        self.action = action
+    }
+
+    init(
+        title: String,
+        systemImage: String,
+        trailing: AnyView? = nil,
+        trailingSystemImage: String? = nil,
+        disabledReason: String? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.init(
+            title: title,
+            systemImage: systemImage,
+            trailing: trailing,
+            trailingSystemImage: trailingSystemImage,
+            disabledReason: disabledReason,
+            action: Optional(action)
+        )
+    }
+
+    var body: some View {
+        let isInteractive = action != nil && disabledReason == nil
+        let row = Group {
+            if let action, disabledReason == nil {
+                Button(action: action) { rowContent }
+                    .buttonStyle(.plain)
+            } else {
+                rowContent
+            }
+        }
+        .summaryRowInteraction(isInteractive: isInteractive)
+        if let disabledReason {
+            row.help(disabledReason)
+        } else {
+            row
+        }
+    }
+
+    private var rowContent: some View {
+        SummaryRowLabel(
+            title: title,
+            systemImage: systemImage,
+            trailing: trailing,
+            trailingSystemImage: trailingSystemImage,
+            isDimmed: disabledReason != nil
+        )
+    }
+}
+
+/// Workspace row: names the environment this chat runs in and opens the
+/// actions that apply to the checkout itself.
+private struct SummaryWorkspaceRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let summary: CodexWorkspaceSummaryContext
+    let onOpenReview: (() -> Void)?
+
+    private var isWorktree: Bool {
+        summary.environmentModeTitle == "Worktree"
+    }
+
+    var body: some View {
+        Menu {
+            Section(summary.workspacePath) {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.selectFile(
+                        nil,
+                        inFileViewerRootedAtPath: summary.workspacePath
+                    )
+                }
+                Button("Copy path") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(summary.workspacePath, forType: .string)
+                }
+            }
+            if let onOpenReview {
+                Divider()
+                Button("Open Review", action: onOpenReview)
+            }
+        } label: {
+            SummaryRowLabel(
+                title: summary.environmentModeTitle,
+                systemImage: isWorktree ? "square.stack.3d.up" : "laptopcomputer",
+                trailingSystemImage: "chevron.down"
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .summaryRowInteraction(isInteractive: true)
+        .help(summary.workspacePath)
+        .accessibilityLabel("Environment: \(summary.environmentModeTitle)")
+    }
+}
+
+/// Branch row: a live switcher, not a label. Mirrors the official panel's
+/// branch control — searchable branches, the current one marked, an inline
+/// create-and-checkout, and an explicit reason when switching is unavailable.
+private struct SummaryBranchRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var session: CodexSummaryBranchSession
+    @State private var isPresented = false
+    @FocusState private var searchFocused: Bool
+
+    private let branchName: String?
+    private let onCompareBranch: (() -> Void)?
+
+    init(
+        branchName: String?,
+        workspacePath: String,
+        onCompareBranch: (() -> Void)?
+    ) {
+        self.branchName = branchName
+        self.onCompareBranch = onCompareBranch
+        _session = State(initialValue: CodexSummaryBranchSession(
+            workspaceURL: URL(fileURLWithPath: workspacePath)
+        ))
+    }
+
+    private var title: String {
+        session.currentBranchName ?? branchName ?? "Create branch"
+    }
+
+    private var hasBranch: Bool {
+        session.currentBranchName != nil || branchName != nil
+    }
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            SummaryRowLabel(
+                title: title,
+                systemImage: hasBranch ? "arrow.triangle.branch" : "plus",
+                trailing: session.isBusy
+                    ? AnyView(ProgressView().controlSize(.mini))
+                    : nil,
+                trailingSystemImage: "chevron.down"
+            )
+        }
+        .buttonStyle(.plain)
+        .summaryRowInteraction(isInteractive: true)
+        .accessibilityLabel(hasBranch ? "Branch: \(title)" : "Create branch")
+        .accessibilityHint("Switch or create a branch")
+        .popover(isPresented: $isPresented, arrowEdge: .leading) {
+            branchPicker
+        }
+        // Git work starts when the control opens, never while rendering.
+        .onChange(of: isPresented) { _, presented in
+            if presented {
+                session.refresh()
+                searchFocused = true
+            } else {
+                session.cancelLoad()
+            }
+        }
+    }
+
+    private var branchPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Switch branch")
+                    .font(theme.fonts.body.weight(.semibold))
+                Spacer(minLength: 8)
+                if session.loadState == .loading {
+                    ProgressView().controlSize(.mini)
+                }
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.textTertiary)
+                TextField("Search branches", text: $session.filter)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+            }
+            .font(theme.fonts.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                theme.colors.surfaceSunken,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+
+            if let reason = session.switchDisabledReason {
+                noticeRow(reason, systemImage: "exclamationmark.triangle", tint: theme.colors.warning)
+            }
+            if let error = session.operationError {
+                noticeRow(error, systemImage: "xmark.octagon", tint: theme.colors.danger)
+            }
+
+            switch session.loadState {
+            case .failed(let message):
+                noticeRow(message, systemImage: "xmark.octagon", tint: theme.colors.danger)
+                Button("Retry") { session.refresh() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            case .idle, .loading:
+                if session.picker == nil {
+                    Text("Loading branches…")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textTertiary)
+                } else {
+                    branchList
+                }
+            case .ready:
+                branchList
+            }
+
+            Divider()
+            createBranchField
+
+            if let onCompareBranch {
+                Divider()
+                Button("Compare branch in Review") {
+                    isPresented = false
+                    onCompareBranch()
+                }
+                .buttonStyle(.plain)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.accentText)
+            }
+            if let current = session.currentBranchName {
+                Button("Copy branch name") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(current, forType: .string)
+                }
+                .buttonStyle(.plain)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.accentText)
+            }
+        }
+        .padding(14)
+        .frame(width: 300)
+        .accessibilityIdentifier("codex.summary.branch-picker")
+    }
+
+    @ViewBuilder
+    private var branchList: some View {
+        let options = session.matchingOptions
+        if options.isEmpty {
+            Text(session.filter.isEmpty ? "No branches found" : "No branches match")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+        } else {
+            Text("Local branches")
+                .font(theme.fonts.micro)
+                .foregroundStyle(theme.colors.textTertiary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(options, id: \.branchName) { option in
+                        branchButton(option)
+                    }
+                }
+            }
+            .frame(maxHeight: 210)
+        }
+    }
+
+    private func branchButton(_ option: CodexGitBranchPickerOption) -> some View {
+        // Switching away from a dirty tree is refused by the repository, so the
+        // control says why up front instead of failing on click.
+        let isDisabled = option.isCurrent || !session.canSwitchBranches || session.isBusy
+        return Button {
+            isPresented = false
+            session.checkout(option.branchName)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .font(theme.fonts.micro)
+                    .opacity(option.isCurrent ? 1 : 0)
+                Text(option.branchName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 6)
+                if option.isCurrent {
+                    Text("current")
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(theme.colors.textTertiary)
+                } else if option.dirtyFileCount > 0 {
+                    Text("\(option.dirtyFileCount)")
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+            }
+            .font(theme.fonts.caption)
+            .padding(.horizontal, 6)
+            .frame(height: 26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled && !option.isCurrent ? 0.5 : 1)
+        .help(
+            option.isCurrent
+                ? "Current branch"
+                : (session.switchDisabledReason ?? "Switch to \(option.branchName)")
+        )
+    }
+
+    private var createBranchField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("new-branch", text: $session.newBranchName)
+                .textFieldStyle(.roundedBorder)
+                .font(theme.fonts.caption)
+                .onSubmit(create)
+            if let problem = session.newBranchNameProblem {
+                Text(problem)
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.warning)
+            }
+            Button("Create and checkout") { create() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!session.canCreateBranch)
+                .help(session.switchDisabledReason ?? "Create a branch from the current HEAD")
+        }
+    }
+
+    private func create() {
+        guard session.canCreateBranch else { return }
+        isPresented = false
+        session.createAndCheckout()
+    }
+
+    private func noticeRow(
+        _ message: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        Label(message, systemImage: systemImage)
+            .font(theme.fonts.micro)
+            .foregroundStyle(tint)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -299,6 +727,18 @@ private struct SummaryDiffStats: View {
                 .foregroundStyle(theme.colors.danger)
         }
         .font(theme.fonts.code)
+    }
+}
+
+private struct SummaryPlanProgress: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(theme.fonts.code)
+            .foregroundStyle(theme.colors.textTertiary)
     }
 }
 
@@ -375,10 +815,13 @@ public struct CodexAgentSidePanel: View {
     private let mountedFilesSessions: [CodexFilesSession]
     private let mountedFilePreviewSessions: [CodexFilePreviewSession]
     private let modelOptions: [CodexModelSelection]
+    private let workspaceURL: URL?
+    private let selectedReviewFilePath: String?
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
+    private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenTerminal: () -> Void
     private let onOpenBrowser: () -> Void
     private let onOpenFiles: () -> Void
@@ -406,11 +849,14 @@ public struct CodexAgentSidePanel: View {
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        workspaceURL: URL? = nil,
+        selectedReviewFilePath: String? = nil,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
+        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
@@ -437,10 +883,13 @@ public struct CodexAgentSidePanel: View {
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
         self.modelOptions = modelOptions
+        self.workspaceURL = workspaceURL
+        self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onStartReview = onStartReview
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
@@ -468,11 +917,14 @@ public struct CodexAgentSidePanel: View {
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
+        workspaceURL: URL? = nil,
+        selectedReviewFilePath: String? = nil,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
+        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
@@ -499,10 +951,13 @@ public struct CodexAgentSidePanel: View {
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
         self.modelOptions = modelOptions
+        self.workspaceURL = workspaceURL
+        self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
+        self.onStartReview = onStartReview
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
@@ -598,7 +1053,10 @@ public struct CodexAgentSidePanel: View {
                         canSendSideChatMessage: canSendSideChatMessage,
                         onSendSideChatMessage: onSendSideChatMessage,
                         onInterruptSideChatMessage: onInterruptSideChatMessage,
-                        modelOptions: modelOptions
+                        onStartReview: onStartReview,
+                        modelOptions: modelOptions,
+                        workspaceURL: workspaceURL,
+                        selectedReviewFilePath: selectedReviewFilePath
                     )
                 } else {
                     toolLauncher
@@ -1082,7 +1540,10 @@ private struct CodexAgentPanelContent: View {
     let canSendSideChatMessage: Bool
     let onSendSideChatMessage: () -> Void
     let onInterruptSideChatMessage: () -> Void
+    let onStartReview: (CodexReviewTarget) -> Void
     let modelOptions: [CodexModelSelection]
+    let workspaceURL: URL?
+    let selectedReviewFilePath: String?
     @State private var agentDraft = ""
     @State private var agentApproval = CodexApprovalSelection.askForApproval
     @State private var agentModel = CodexModelSelection.appServerDefault
@@ -1091,6 +1552,8 @@ private struct CodexAgentPanelContent: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             switch tab {
+            case .plan(let plan):
+                CodexPlanSummaryPage(plan: plan)
             case .sideChat(let sideChat):
                 transcriptPanel(
                     transcript: sideChat.transcript,
@@ -1108,7 +1571,17 @@ private struct CodexAgentPanelContent: View {
                     subagentHeader(subagent)
                 }
             case .review(let session):
-                reviewPanel(session)
+                if let workspaceURL {
+                    CodexGitReviewWorkbenchHost(
+                        workspaceURL: workspaceURL,
+                        lastTurnSession: session,
+                        selectedFilePath: selectedReviewFilePath,
+                        onStartReview: onStartReview
+                    )
+                    .id("\(session.snapshot.revision.sourceID):\(session.snapshot.revision.value)")
+                } else {
+                    reviewPanel(session)
+                }
             }
 
             compactComposer(for: tab)
@@ -1213,6 +1686,8 @@ private struct CodexAgentPanelContent: View {
     @ViewBuilder
     private func compactComposer(for tab: CodexAgentPanelTab) -> some View {
         switch tab {
+        case .plan:
+            EmptyView()
         case .sideChat:
             AgentPanelComposer(
                 placeholder: "Ask side chat...",

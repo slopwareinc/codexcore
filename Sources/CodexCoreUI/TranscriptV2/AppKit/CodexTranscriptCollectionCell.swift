@@ -135,7 +135,7 @@ private final class CodexShimmerButton: NSButton {
 
 final class CodexSelectableTranscriptTextView: NSTextView {
     var onSelectionStateChange: ((Bool) -> Void)?
-    var contextMenuProvider: (() -> NSMenu?)?
+    var contextMenuProvider: ((NSEvent) -> NSMenu?)?
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -167,7 +167,7 @@ final class CodexSelectableTranscriptTextView: NSTextView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        contextMenuProvider?() ?? super.menu(for: event)
+        contextMenuProvider?(event) ?? super.menu(for: event)
     }
 
     func bind(
@@ -260,10 +260,15 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var appKitTheme: CodexTranscriptAppKitTheme?
     private var swiftUITheme = CodexAgentTheme.officialDark
     private var contentHorizontalOffset: CGFloat = 0
+    private var canOpenReview = false
     private var performAction: ((CodexTranscriptRenderAction) -> Void)?
     private var copy: ((String) -> Void)?
     private var editUserMessage: ((String) -> Void)?
+    private var retryTurn: ((CodexUserMessageV2) -> Void)?
     private var forkChat: (() -> Void)?
+    private var fileNavigationService: any CodexTranscriptFileNavigationService =
+        CodexNoopTranscriptFileNavigationService()
+    private var contextFileReference: CodexResolvedTranscriptFileReference?
     private var upsertResponseAnnotation: ((CodexResponseTextAnnotation) -> Void)?
     private var removeResponseAnnotation: ((String) -> Void)?
     private var selectionChanged: ((CodexTranscriptRenderItemID, Bool) -> Void)?
@@ -402,6 +407,19 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         guard diffTabButtons.indices.contains(index) else { return }
         selectDiffTab(diffTabButtons[index])
     }
+    func openTurnDiffReviewForTesting() {
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest()))
+    }
+    func openTurnDiffReviewForTesting(filePath: String) {
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest(selectedFilePath: filePath)))
+    }
+    func toggleTurnDiffForTesting() {
+        guard let rowID = item?.turnDiff?.rowID else { return }
+        performAction?(.toggleRow(rowID: rowID))
+    }
+    func retryTurnForTesting() { invokeRetryTurn() }
 
     override func loadView() {
         let hoverView = CodexTranscriptHoverView()
@@ -421,7 +439,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             guard let self, let id = self.item?.id else { return }
             self.selectionChanged?(id, selecting)
         }
-        selectableTextView.contextMenuProvider = { [weak self] in self?.makeContextMenu() }
+        selectableTextView.contextMenuProvider = { [weak self] event in
+            self?.makeTextContextMenu(for: event)
+        }
         textScrollView.documentView = selectableTextView
         textScrollView.drawsBackground = false
         textScrollView.borderType = .noBorder
@@ -632,10 +652,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         swiftUITheme: CodexAgentTheme,
         contentHorizontalOffset: CGFloat,
         productToolRenderer: CodexProductToolRendererV2?,
+        canOpenReview: Bool = false,
         performAction: @escaping (CodexTranscriptRenderAction) -> Void,
         copy: @escaping (String) -> Void,
         editUserMessage: @escaping (String) -> Void,
+        retryTurn: ((CodexUserMessageV2) -> Void)? = nil,
         forkChat: (() -> Void)?,
+        fileNavigationService: any CodexTranscriptFileNavigationService =
+            CodexNoopTranscriptFileNavigationService(),
         responseAnnotations: [CodexResponseTextAnnotation] = [],
         upsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
         removeResponseAnnotation: @escaping (String) -> Void = { _ in },
@@ -651,10 +675,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.appKitTheme = appKitTheme
         self.swiftUITheme = swiftUITheme
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.canOpenReview = canOpenReview
         self.performAction = performAction
         self.copy = copy
         self.editUserMessage = editUserMessage
+        self.retryTurn = retryTurn
         self.forkChat = forkChat
+        self.fileNavigationService = fileNavigationService
+        contextFileReference = nil
         self.responseAnnotations = responseAnnotations
         self.upsertResponseAnnotation = upsertResponseAnnotation
         self.removeResponseAnnotation = removeResponseAnnotation
@@ -723,6 +751,23 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             if item.action != nil { ensureActionControl() }
             if case .codeComment = directive.kind, item.preparedText != nil { ensureTextControls() }
             configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
+        } else if let turnDiff = item.turnDiff {
+            let hosting = NSHostingView(rootView: AnyView(
+                CodexTranscriptTurnDiffCard(
+                    render: turnDiff,
+                    onReview: canOpenReview
+                        ? { [weak self] request in self?.performAction?(.openReview(request)) }
+                        : nil,
+                    onToggleExpanded: { [weak self] in
+                        self?.performAction?(.toggleRow(rowID: turnDiff.rowID))
+                    }
+                )
+                .padding(.top, CodexTranscriptTurnDiffCard.topSpacing)
+                .codexAgentTheme(swiftUITheme)
+            ))
+            hosting.setAccessibilityLabel(item.accessibilityLabel)
+            hostedView = hosting
+            view.addSubview(hosting)
         } else if let diffPanel = item.diffPanel {
             ensureTextControls()
             ensureCopyControl()
@@ -828,7 +873,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipDurationLabel.textColor = appKitTheme.textTertiary
             chipStatusLabel.stringValue = row.style.isSemanticActivity
                 ? ""
-                : Self.workStatusTitle(row.status)
+                : Self.workStatusTitle(row)
             chipStatusLabel.font = appKitTheme.captionFont
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
             chipDisclosureView.image = Self.chipDisclosureImage(row, isActionable: isActionable)
@@ -856,7 +901,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             } else {
                 ensureActionControl()
                 actionButton.isHidden = false
-                actionButton.isEnabled = false
+                actionButton.isEnabled = item.action != nil
                 actionButton.font = appKitTheme.captionFont
                 actionButton.contentTintColor = appKitTheme.textTertiary
                 actionButton.title = CodexProductToolPresentationV2.label(productTool)
@@ -869,6 +914,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 actionButton.imageHugsTitle = true
                 if productTool.status == .inProgress { actionButton.startShimmer() }
                 actionButton.setAccessibilityLabel(item.accessibilityLabel)
+                (view as? CodexTranscriptHoverView)?.usesPointingHand = item.action != nil
             }
         }
 
@@ -1204,7 +1250,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private static func directiveLabel(_ kind: CodexTranscriptDirectiveRender.Kind) -> String {
         switch kind {
         case .createdThread(let threadID, let pendingID):
-            return "Created thread · " + shortIdentifier(threadID ?? pendingID ?? "pending")
+            let prefix = pendingID == nil ? "Chat created" : "Worktree chat queued"
+            return prefix + " · " + shortIdentifier(threadID ?? pendingID ?? "pending")
         case .gitAction(let verb, let branch, _):
             return switch verb {
             case "stage": "Staged changes"
@@ -2111,6 +2158,61 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         forkChat?()
     }
 
+    @objc private func invokeRetryTurn() {
+        guard let message = item?.retryUserMessage else { return }
+        retryTurn?(message)
+    }
+
+    @objc private func openContextFile() {
+        guard let contextFileReference else { return }
+        fileNavigationService.open(contextFileReference)
+    }
+
+    @objc private func revealContextFile() {
+        guard let contextFileReference else { return }
+        fileNavigationService.reveal(contextFileReference)
+    }
+
+    @objc private func copyContextFilePath() {
+        guard let contextFileReference else { return }
+        copy?(contextFileReference.reference.path)
+    }
+
+    func textView(
+        _ textView: NSTextView,
+        clickedOnLink link: Any,
+        at charIndex: Int
+    ) -> Bool {
+        guard let reference = CodexTranscriptFileCitationLink.reference(from: link),
+              let resolved = fileNavigationService.resolve(reference) else { return false }
+        fileNavigationService.open(resolved)
+        return true
+    }
+
+    private func makeTextContextMenu(for event: NSEvent) -> NSMenu? {
+        let point = selectableTextView.convert(event.locationInWindow, from: nil)
+        let index = selectableTextView.characterIndexForInsertion(at: point)
+        if index < (selectableTextView.textStorage?.length ?? 0),
+           let value = selectableTextView.textStorage?.attribute(
+               .link,
+               at: index,
+               effectiveRange: nil
+           ),
+           let reference = CodexTranscriptFileCitationLink.reference(from: value),
+           let resolved = fileNavigationService.resolve(reference) {
+            contextFileReference = resolved
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Open", action: #selector(openContextFile), keyEquivalent: "")
+            menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealContextFile), keyEquivalent: "")
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(withTitle: "Copy path", action: #selector(copyContextFilePath), keyEquivalent: "")
+            for menuItem in menu.items { menuItem.target = self }
+            return menu
+        }
+        contextFileReference = nil
+        return makeContextMenu()
+    }
+
     private func makeContextMenu() -> NSMenu? {
         guard let item else { return nil }
         let menu = NSMenu()
@@ -2141,6 +2243,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if (item.textRole == .finalAnswer || item.footer?.kind == .finalAnswer), forkChat != nil {
             menu.addItem(NSMenuItem.separator())
             menu.addItem(withTitle: "Fork chat", action: #selector(invokeForkChat), keyEquivalent: "")
+        }
+        if item.retryUserMessage != nil, retryTurn != nil {
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(withTitle: "Retry turn", action: #selector(invokeRetryTurn), keyEquivalent: "")
         }
         for menuItem in menu.items { menuItem.target = self }
         return menu
@@ -2199,6 +2305,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .done(let durationMs, let isExpanded):
             _ = isExpanded
             return CodexWorkBlockViewV2.completedLabel(durationMs)
+        case .interrupted(let durationMs, let message):
+            let elapsed = durationMs.map { " after \(CodexWorkBlockViewV2.duration($0))" } ?? ""
+            return "Interrupted\(elapsed)" + (message.isEmpty ? "" : ": \(message)")
         case .failed(let message):
             return message.isEmpty ? "Work failed" : message
         }
@@ -2288,6 +2397,24 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .failed: theme.danger
         case .declined, .unknown: theme.warning
         }
+    }
+
+    private static func workStatusTitle(_ row: CodexTranscriptWorkRowRender) -> String {
+        if row.kind == .command {
+            switch row.status {
+            case .inProgress: return "running"
+            case .completed:
+                if let exitCode = row.exitCode {
+                    return exitCode == 0 ? "succeeded · exit 0" : "failed · exit \(exitCode)"
+                }
+                return "finished"
+            case .failed:
+                return row.exitCode.map { "failed · exit \($0)" } ?? "failed"
+            case .declined: return "stopped"
+            case .unknown: return "status unknown"
+            }
+        }
+        return workStatusTitle(row.status)
     }
 
     private static func workStatusTitle(_ status: CodexWorkItemStatusV2) -> String {

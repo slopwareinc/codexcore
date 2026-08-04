@@ -2,7 +2,7 @@
 
 Native Swift infrastructure for the Codex app-server: a Swift SDK, a reusable SwiftUI workspace, and a native macOS reference app.
 
-> **Status:** CodexCore `0.9.0` targets macOS 26+, Swift 6.2, and exactly `codex-cli 0.145.0`. The CLI release is GA; CodexCore still opts into experimental app-server capabilities.
+> **Status:** CodexCore `0.9.0` targets macOS 26+, Swift 6.2, and `codex-cli 0.145.0` or newer. Protocol types are generated from `codex-cli 0.146.0-alpha.9.2`; fields added after the `0.145.0` floor are optional on the wire, so a GA runtime in that range keeps working. CodexCore opts into experimental app-server capabilities.
 
 ![CodexCore native macOS workspace](docs/assets/screenshots/hero-workspace.png)
 
@@ -44,7 +44,7 @@ The result is also self-demonstrating: CodexCore hosts Codex workflows, while Co
 ```bash
 git clone https://github.com/slopwareinc/codexcore.git
 cd codexcore
-codex --version       # checks only the PATH candidate; it must print codex-cli 0.145.0
+codex --version       # checks only the PATH candidate; it must print codex-cli 0.145.0 or newer
 swift run codex-core-app
 ```
 
@@ -55,10 +55,11 @@ For a normal Finder/Dock application with bundle metadata and the CodexCore icon
 open build/CodexCore.app
 ```
 
-The packager uses an installed Developer ID or Apple Development identity when
-available, preserving macOS privacy grants across local rebuilds. It falls back
-to ad-hoc signing when no identity exists. Distribution outside your Mac still
-requires Developer ID signing and notarization.
+The packager uses hardened-runtime signing and an installed Developer ID or
+Apple Development identity when available, preserving macOS privacy grants
+across local rebuilds. It falls back to ad-hoc signing when no identity exists.
+Developer ID notarization and signed Sparkle appcast generation are opt-in;
+see the [packaging and release guide](docs/getting-started/run-the-app.md#updates-notarization-and-appcasts).
 
 On first launch, sign in with ChatGPT or an API key, choose a workspace, and start a task. CodexCore stores credentials and configuration in `~/.codexcore`; it does not reuse `~/.codex` implicitly.
 

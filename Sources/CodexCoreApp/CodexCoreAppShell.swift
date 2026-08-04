@@ -94,7 +94,7 @@ struct CodexCoreAppShell: View {
             sidebarOverlaySession.dismissImmediately()
         }
         .overlay(alignment: .topTrailing) {
-            if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
+            if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty {
                 VStack(alignment: .trailing, spacing: 10) {
                     if !model.approvalPrompts.isEmpty {
                         CodexApprovalRequestsPanel(
@@ -114,14 +114,6 @@ struct CodexCoreAppShell: View {
                         )
                     }
 
-                    if !model.currentPlan.isEmpty || model.currentDiff != nil {
-                        CodexTurnPlanPanel(
-                            steps: model.currentPlan,
-                            explanation: model.currentPlanExplanation,
-                            diff: model.currentDiff,
-                            onCopyDiff: { diff in model.copyText(diff) }
-                        )
-                    }
                 }
                 .codexAgentTheme(model.theme)
                 .padding(.top, 54)
@@ -190,6 +182,8 @@ struct CodexCoreAppShell: View {
                 servers: model.mcpServers,
                 isLoading: model.isLoadingMCPServers,
                 errorMessage: model.mcpErrorMessage,
+                threadID: model.currentThreadID,
+                provider: model.integrationControlPlaneProvider,
                 onClose: { isMCPStatusSheetPresented = false },
                 onRefresh: { Task { await model.refreshMCPServers() } }
             )
@@ -288,9 +282,9 @@ struct CodexCoreAppShell: View {
 
     private func routeDisplaysConversation(_ route: CodexAppRoute) -> Bool {
         switch route {
-        case .chat, .search, .automations:
+        case .chat, .search:
             true
-        case .plugins, .settingsAbout:
+        case .plugins, .automations, .settingsAbout:
             false
         }
     }
@@ -311,13 +305,18 @@ struct CodexCoreAppShell: View {
                 skillErrorMessage: model.skillErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
                 launcherTarget: model.pluginLauncherTarget,
-                onRefresh: { Task { await model.refreshPlugins() } },
+                pendingPluginIDs: model.pendingPluginActionIDs,
+                pendingSkillIDs: model.pendingSkillActionIDs,
+                controlPlaneProvider: model.integrationControlPlaneProvider,
+                onLoad: { model.requestPluginRefresh() },
+                onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.theme)
         case .automations:
             CodexAutomationRouteView(
+                automations: model.automations,
                 onAction: { model.performAutomationRouteAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -334,6 +333,9 @@ struct CodexCoreAppShell: View {
                 appearanceSettings: $model.appearanceSettings,
                 approvalSelection: $model.approvalSelection,
                 approvalOptions: model.approvalOptions,
+                agentsDocumentStore: model.agentsDocumentStore,
+                codexHomePath: model.codexHome.path,
+                workingDirectory: model.workspacePath,
                 modelSelection: $model.modelSelection,
                 modelOptions: model.modelOptions,
                 reasoningSelection: $model.reasoningSelection,
@@ -458,6 +460,12 @@ struct CodexCoreAppShell: View {
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onSelectSubagentTranscript: {
                     model.runtimeSession.selectSubagentTranscript($0)
+                },
+                onOpenThread: { reference in
+                    Task { await model.openThreadReference(reference) }
+                },
+                onStartReview: { target in
+                    Task { await model.startCodeReview(target) }
                 },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
                 onRefreshMCPServers: { Task { await model.refreshMCPServers() } },

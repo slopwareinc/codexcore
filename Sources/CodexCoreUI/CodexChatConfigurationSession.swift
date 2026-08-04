@@ -17,6 +17,8 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     private var hasActiveThreadPermissionConfiguration: Bool
     public private(set) var approvalOptions: [CodexApprovalSelection]
     private var catalogApprovalOptions: [CodexApprovalSelection]
+    private var permissionProfiles: [CodexPermissionProfileSummary]
+    public private(set) var managedPolicyRequirements: CodexManagedPolicyRequirements?
     private var activeThreadHasExplicitPermissionProfile: Bool
     public private(set) var collaborationModes: [CodexCollaborationModeOption]
     public private(set) var isPlanModeEnabled: Bool
@@ -31,6 +33,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     public init(
         approvalSelection: CodexApprovalSelection = .askForApproval,
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
+        managedPolicyRequirements: CodexManagedPolicyRequirements? = nil,
         collaborationModes: [CodexCollaborationModeOption] = CodexCollaborationModeOption.defaultOptions,
         isPlanModeEnabled: Bool = false,
         modelSelection: CodexModelSelection = .appServerDefault,
@@ -39,11 +42,18 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         reasoningSelection: CodexReasoningSelection = .medium,
         slashCommands: [CodexSlashCommand] = CodexSlashCommand.observedCommands
     ) {
-        self.selectedApprovalSelection = approvalSelection
-        self.ambientApprovalSelection = approvalSelection
+        let narrowedApprovalOptions = managedPolicyRequirements?.narrowApprovalOptions(approvalOptions)
+            ?? approvalOptions
+        let initialApprovalSelection = narrowedApprovalOptions.contains(approvalSelection)
+            ? approvalSelection
+            : Self.safeFallbackApprovalSelection(in: narrowedApprovalOptions)
+        self.selectedApprovalSelection = initialApprovalSelection
+        self.ambientApprovalSelection = initialApprovalSelection
         self.hasActiveThreadPermissionConfiguration = false
-        self.approvalOptions = approvalOptions
-        self.catalogApprovalOptions = approvalOptions
+        self.approvalOptions = narrowedApprovalOptions
+        self.catalogApprovalOptions = narrowedApprovalOptions
+        self.permissionProfiles = []
+        self.managedPolicyRequirements = managedPolicyRequirements
         self.activeThreadHasExplicitPermissionProfile = false
         self.collaborationModes = collaborationModes
         self.isPlanModeEnabled = isPlanModeEnabled
@@ -125,11 +135,18 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     }
 
     public mutating func reset() {
-        selectedApprovalSelection = .askForApproval
-        ambientApprovalSelection = .askForApproval
         hasActiveThreadPermissionConfiguration = false
-        approvalOptions = CodexApprovalSelection.defaultOptions
-        catalogApprovalOptions = CodexApprovalSelection.defaultOptions
+        let defaults = managedPolicyRequirements?.narrowApprovalOptions(
+            CodexApprovalSelection.defaultOptions
+        ) ?? CodexApprovalSelection.defaultOptions
+        let resetSelection = defaults.contains(.askForApproval)
+            ? .askForApproval
+            : Self.safeFallbackApprovalSelection(in: defaults)
+        selectedApprovalSelection = resetSelection
+        ambientApprovalSelection = resetSelection
+        approvalOptions = defaults
+        catalogApprovalOptions = defaults
+        permissionProfiles = []
         activeThreadHasExplicitPermissionProfile = false
         collaborationModes = CodexCollaborationModeOption.defaultOptions
         isPlanModeEnabled = false
@@ -208,7 +225,11 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     @discardableResult
     public mutating func applyPermissionProfileResponse(_ raw: CodexJSONValue) -> CodexChatConfigurationActivity {
         let profiles = CodexPermissionProfileSummary.profiles(from: raw)
-        let options = CodexApprovalSelection.options(from: profiles)
+        permissionProfiles = profiles
+        let options = CodexApprovalSelection.options(
+            from: profiles,
+            requirements: managedPolicyRequirements
+        )
         catalogApprovalOptions = options
         reconcileApprovalOptions()
         if !options.contains(ambientApprovalSelection) {
@@ -221,6 +242,44 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
             selectedApprovalSelection = ambientApprovalSelection
         }
         return CodexChatConfigurationActivity(title: "Loaded access profiles", detail: "\(profiles.count) app-server profiles")
+    }
+
+    /// Applies the installation policy fetched by `configRequirements/read`.
+    /// Call this after a requirements response arrives; no-op requirements
+    /// preserve the normal permission-profile catalog behavior.
+    public mutating func applyConfigurationRequirements(
+        _ requirements: CodexManagedPolicyRequirements?
+    ) {
+        managedPolicyRequirements = requirements
+        let options: [CodexApprovalSelection]
+        if permissionProfiles.isEmpty {
+            options = requirements?.narrowApprovalOptions(
+                CodexApprovalSelection.defaultOptions
+            ) ?? CodexApprovalSelection.defaultOptions
+        } else {
+            options = CodexApprovalSelection.options(
+                from: permissionProfiles,
+                requirements: requirements
+            )
+        }
+        catalogApprovalOptions = options
+        reconcileApprovalOptions()
+
+        if !options.contains(ambientApprovalSelection) {
+            ambientApprovalSelection = Self.safeFallbackApprovalSelection(in: options)
+        }
+        if !hasActiveThreadPermissionConfiguration,
+           !approvalOptions.contains(approvalSelection) {
+            selectedApprovalSelection = ambientApprovalSelection
+        }
+    }
+
+    public mutating func applyConfigurationRequirements(
+        _ requirements: CodexSchemaConfigRequirements?
+    ) {
+        applyConfigurationRequirements(
+            requirements.map(CodexManagedPolicyRequirements.init(requirements:))
+        )
     }
 
     @discardableResult
@@ -313,7 +372,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     private static func safeFallbackApprovalSelection(
         in options: [CodexApprovalSelection]
     ) -> CodexApprovalSelection {
-        [.askForApproval, .readOnly, .approveForMe, .custom]
+        [.askForApproval, .readOnly, .approveForMe, .guardianSubagent, .custom]
             .first(where: { options.contains($0) })
             ?? .custom
     }

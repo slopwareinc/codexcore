@@ -8,6 +8,18 @@ public extension Codex {
     func processSpawn(_ params: CodexSchemaProcessSpawnParams) async throws -> CodexSchemaProcessSpawnResponse {
         try await perform(CodexRequest.processSpawn(params))
     }
+
+    /// Register before `processSpawn(_:)` to receive stdout/stderr deltas and
+    /// the terminal exit event for the process handle.
+    func observeProcessEvents(
+        processHandle: String,
+        maximumEventCount: Int = 512
+    ) async throws -> AsyncThrowingStream<CodexProcessEvent, Error> {
+        try await session.observeProcessEvents(
+            processHandle: processHandle,
+            maximumEventCount: maximumEventCount
+        )
+    }
     
     @discardableResult
     func processWriteStdin(_ params: CodexSchemaProcessWriteStdinParams) async throws -> CodexSchemaProcessWriteStdinResponse {

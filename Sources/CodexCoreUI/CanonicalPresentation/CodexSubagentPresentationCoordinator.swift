@@ -16,10 +16,11 @@ public struct CodexSubagentPresentationDiagnostics: Sendable, Equatable {
     public init() {}
 }
 
-/// Canonical coordinator for direct child-agent presentation.
+/// Canonical coordinator for recursive descendant-agent presentation.
 ///
-/// The selected parent is observed only for collaboration items. Direct child
-/// relationships and names also arrive through the lightweight thread index.
+/// The canonical session is observed across threads because child lifecycle is
+/// multiplexed into parent items at every depth. Direct child relationships and
+/// names also arrive through the lightweight thread index.
 /// Only the child transcript visible in the side panel receives an exact
 /// retention lease and scoped projection. Unselected children remain lightweight
 /// metadata derived from the parent and thread index.
@@ -215,16 +216,18 @@ private extension CodexSubagentPresentationCoordinator {
     func startParentObservation(threadID: ThreadID, generation: UInt64) {
         let codex = self.codex
         parentObservationTask = Task { [weak self] in
-            let fields: StateFieldMask = [
-                .threadMetadata,
-                .turnStructure,
-                .turnStatus,
-                .itemStructure,
-                .itemLifecycle,
-                .itemContent,
-            ]
+            let scope = StateObservationScope(
+                entities: .all,
+                fields: [
+                    .threadMetadata,
+                    .turnStructure,
+                    .turnStatus,
+                    .itemStructure,
+                    .itemLifecycle,
+                ]
+            )
             let observation = await codex.session.observeSessionState(
-                scope: .thread(threadID, fields: fields)
+                scope: scope
             )
             defer {
                 Task { await codex.session.cancelObservation(observation.id) }
@@ -237,7 +240,7 @@ private extension CodexSubagentPresentationCoordinator {
                       self?.isCurrent(generation, parentThreadID: threadID) == true
                 else { return }
                 let snapshot = await codex.session.canonicalSnapshot(
-                    scope: .thread(threadID, fields: fields)
+                    scope: scope
                 )
                 self?.applyParentSnapshot(snapshot, parentThreadID: threadID)
             }
@@ -274,7 +277,10 @@ private extension CodexSubagentPresentationCoordinator {
         guard isCurrent(generation, parentThreadID: parentThreadID) else { return }
         let previousStatus = selectedStatus
         latestParentSnapshot = snapshot
-        let discoveries = store.applyParentSnapshot(snapshot, parentThreadID: parentThreadID)
+        _ = store.applyParentSnapshot(snapshot, parentThreadID: parentThreadID)
+        let graph = CodexThreadGraphProjector.project(snapshot, hostID: "local")
+        let root = CodexThreadGraphKey(hostID: "local", threadID: parentThreadID)
+        let discoveries = store.applyGraphSnapshot(graph, root: root)
         parentDiscoveredIDs = Set(discoveries.map { ThreadID($0.threadID) })
         diagnostics.parentSnapshotCount += 1
         reconcileChildren()

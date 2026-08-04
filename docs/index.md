@@ -13,6 +13,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 ## Build with CodexCore
 
 - [Threads and turns](sdk/threads-and-turns.md)
+- [Recursive thread graphs](sdk/thread-graphs.md)
 - [Observe canonical state](sdk/observing-state.md)
 - [Approvals and user input](sdk/approvals-and-input.md)
 - [Dynamic tools](sdk/dynamic-tools.md)
@@ -33,6 +34,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 ## Understand and contribute
 
 - [Architecture overview](architecture/overview.md)
+- [Integration control-plane seams](architecture/integration-control-plane.md)
 - [Configuration reference](reference/configuration.md)
 - [Runtime compatibility](reference/runtime-compatibility.md)
 - [Products and module boundaries](reference/products.md)

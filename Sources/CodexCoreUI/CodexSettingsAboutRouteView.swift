@@ -6,11 +6,16 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
     case appearance
     case profile
     case configuration
+    case agents
     case git
     case integrations
     case about
 
     public var id: String { rawValue }
+
+    static var availableRoutes: [CodexSettingsRoute] {
+        allCases
+    }
 
     public var title: String {
         switch self {
@@ -18,6 +23,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .appearance: return "Appearance"
         case .profile: return "Profile"
         case .configuration: return "Configuration"
+        case .agents: return "Agent instructions"
         case .git: return "Git"
         case .integrations: return "Integrations"
         case .about: return "About"
@@ -30,6 +36,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .appearance: return "sun.max"
         case .profile: return "person.crop.circle"
         case .configuration: return "slider.horizontal.3"
+        case .agents: return "doc.text.magnifyingglass"
         case .git: return "point.3.connected.trianglepath.dotted"
         case .integrations: return "puzzlepiece.extension"
         case .about: return "info.circle"
@@ -40,7 +47,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general, .appearance, .profile, .configuration:
             return "Personal"
-        case .git:
+        case .agents, .git:
             return "Coding"
         case .integrations:
             return "Integrations"
@@ -59,6 +66,8 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
             return ["account", "profile", "plan", "server", "signed in"]
         case .configuration:
             return ["config", "sandbox", "workspace", "dependencies", "app server"]
+        case .agents:
+            return ["AGENTS.md", "instructions", "trusted", "authorization", "precedence", "project"]
         case .git:
             return ["branch", "pull request", "merge", "commit", "draft"]
         case .integrations:
@@ -126,6 +135,10 @@ public struct CodexSettingsAboutRouteView: View {
     @Binding private var appearanceSettings: CodexAppearanceSettings
     @Binding private var approvalSelection: CodexApprovalSelection
     private let approvalOptions: [CodexApprovalSelection]
+    private let managedPolicyRequirements: CodexManagedPolicyRequirements?
+    private let agentsDocumentStore: CodexAgentsDocumentStore?
+    private let codexHomePath: String?
+    private let workingDirectory: String?
     @Binding private var modelSelection: CodexModelSelection
     private let modelOptions: [CodexModelSelection]
     @Binding private var reasoningSelection: CodexReasoningSelection
@@ -139,6 +152,10 @@ public struct CodexSettingsAboutRouteView: View {
         appearanceSettings: Binding<CodexAppearanceSettings>,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         approvalOptions: [CodexApprovalSelection] = CodexApprovalSelection.defaultOptions,
+        managedPolicyRequirements: CodexManagedPolicyRequirements? = nil,
+        agentsDocumentStore: CodexAgentsDocumentStore? = nil,
+        codexHomePath: String? = nil,
+        workingDirectory: String? = nil,
         modelSelection: Binding<CodexModelSelection> = .constant(.appServerDefault),
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
@@ -156,6 +173,10 @@ public struct CodexSettingsAboutRouteView: View {
         self._appearanceSettings = appearanceSettings
         self._approvalSelection = approvalSelection
         self.approvalOptions = approvalOptions
+        self.managedPolicyRequirements = managedPolicyRequirements
+        self.agentsDocumentStore = agentsDocumentStore
+        self.codexHomePath = codexHomePath
+        self.workingDirectory = workingDirectory
         self._modelSelection = modelSelection
         self.modelOptions = modelOptions
         self._reasoningSelection = reasoningSelection
@@ -261,7 +282,8 @@ public struct CodexSettingsAboutRouteView: View {
         case .general:
             CodexSettingsGeneralPage(
                 approvalSelection: $approvalSelection,
-                approvalOptions: approvalOptions,
+                approvalOptions: effectiveApprovalOptions,
+                managedPolicyRequirements: managedPolicyRequirements,
                 modelSelection: $modelSelection,
                 modelOptions: modelOptions,
                 reasoningSelection: $reasoningSelection,
@@ -276,6 +298,12 @@ public struct CodexSettingsAboutRouteView: View {
                 metadata: metadata,
                 approvalSelection: approvalSelection,
                 newThreadHistoryMode: $newThreadHistoryMode
+            )
+        case .agents:
+            CodexAgentsSettingsPage(
+                store: agentsDocumentStore,
+                codexHome: codexHomePath,
+                workingDirectory: workingDirectory
             )
         case .git:
             CodexSettingsGitPage(settings: $gitSettings)
@@ -344,7 +372,12 @@ public struct CodexSettingsAboutRouteView: View {
     }
 
     private var supportedRoutes: [CodexSettingsRoute] {
-        CodexSettingsRoute.allCases.filter { $0 != .git }
+        CodexSettingsRoute.availableRoutes
+    }
+
+    private var effectiveApprovalOptions: [CodexApprovalSelection] {
+        managedPolicyRequirements?.narrowApprovalOptions(approvalOptions)
+            ?? approvalOptions
     }
 }
 
@@ -369,6 +402,7 @@ public struct CodexSettingsGeneralPage: View {
 
     @Binding var approvalSelection: CodexApprovalSelection
     let approvalOptions: [CodexApprovalSelection]
+    let managedPolicyRequirements: CodexManagedPolicyRequirements?
     @Binding var modelSelection: CodexModelSelection
     let modelOptions: [CodexModelSelection]
     @Binding var reasoningSelection: CodexReasoningSelection
@@ -386,6 +420,9 @@ public struct CodexSettingsGeneralPage: View {
                 )
             }
             .settingsPanel(theme: theme)
+            if let managedPolicyRequirements, managedPolicyRequirements.isManaged {
+                CodexManagedPolicyNotice(requirements: managedPolicyRequirements)
+            }
         }
     }
 }
@@ -845,6 +882,43 @@ public struct CodexSettingsApprovalRow: View {
             isPresented: $isFullAccessConfirmationPresented,
             onConfirm: { selection = .fullAccess }
         )
+    }
+}
+
+public struct CodexManagedPolicyNotice: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    public let requirements: CodexManagedPolicyRequirements
+
+    public init(requirements: CodexManagedPolicyRequirements) {
+        self.requirements = requirements
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "building.2.crop.circle")
+                .font(theme.fonts.label)
+                .foregroundStyle(theme.colors.textSecondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(requirements.noticeTitle)
+                    .font(theme.fonts.label.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text(requirements.noticeDetail)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(theme.colors.surfaceElevated.opacity(0.36), in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                .stroke(theme.colors.border, lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(requirements.noticeTitle). \(requirements.noticeDetail)")
     }
 }
 

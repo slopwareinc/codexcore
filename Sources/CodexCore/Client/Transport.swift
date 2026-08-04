@@ -20,7 +20,7 @@ public enum CodexTransportError: Error, Sendable, Equatable, LocalizedError {
     case connectionAlreadyOpen
     case processNotRunning
     case writeFailed
-    case connectionClosed
+    case connectionClosed(stderr: String?)
     case receiveBufferOverflow
     case frameTooLarge(maximumBytes: Int, observedBytes: Int)
 
@@ -32,8 +32,11 @@ public enum CodexTransportError: Error, Sendable, Equatable, LocalizedError {
             return "Codex transport process is not running."
         case .writeFailed:
             return "Failed to encode transport payload as UTF-8."
-        case .connectionClosed:
-            return "Codex transport connection is closed."
+        case .connectionClosed(let stderr):
+            guard let stderr, !stderr.isEmpty else {
+                return "Codex transport connection is closed."
+            }
+            return "Codex transport connection is closed. Stderr tail: \(stderr)"
         case .receiveBufferOverflow:
             return "Codex transport receive buffer overflowed. The connection was closed without silently dropping JSON-RPC frames."
         case .frameTooLarge(let maximumBytes, let observedBytes):
@@ -45,18 +48,25 @@ public enum CodexTransportError: Error, Sendable, Equatable, LocalizedError {
 public struct CodexTransportLimits: Sendable, Hashable {
     public let maximumInboundFrameBytes: Int
     public let maximumBufferedInboundFrames: Int
+    public let maximumCapturedStderrBytes: Int
 
     public init(
         maximumInboundFrameBytes: Int = 64 * 1_024 * 1_024,
-        maximumBufferedInboundFrames: Int = 4_096
+        maximumBufferedInboundFrames: Int = 4_096,
+        maximumCapturedStderrBytes: Int = 16 * 1_024
     ) {
         precondition(maximumInboundFrameBytes > 0, "Inbound frame limit must be positive")
         precondition(
             maximumBufferedInboundFrames > 0,
             "Inbound frame buffer limit must be positive"
         )
+        precondition(
+            maximumCapturedStderrBytes > 0,
+            "Captured stderr limit must be positive"
+        )
         self.maximumInboundFrameBytes = maximumInboundFrameBytes
         self.maximumBufferedInboundFrames = maximumBufferedInboundFrames
+        self.maximumCapturedStderrBytes = maximumCapturedStderrBytes
     }
 }
 
@@ -154,6 +164,46 @@ final class CodexLineBuffer: @unchecked Sendable {
     }
 }
 
+/// Thread-safe bounded tail capture for a subprocess's stderr pipe.
+///
+/// File-handle readability callbacks run outside the transport actor, while a
+/// terminal-error callback may snapshot the same bytes from an actor task. The
+/// lock keeps those two paths race-free without retaining unbounded diagnostics.
+private final class CodexStderrRing: @unchecked Sendable {
+    private let maximumByteCount: Int
+    private let lock = NSLock()
+    private var data = Data()
+
+    init(maximumByteCount: Int) {
+        precondition(maximumByteCount > 0, "Captured stderr limit must be positive")
+        self.maximumByteCount = maximumByteCount
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+
+        lock.withLock {
+            if chunk.count >= maximumByteCount {
+                data = Data(chunk.suffix(maximumByteCount))
+                return
+            }
+
+            data.append(chunk)
+            guard data.count > maximumByteCount else { return }
+            data = Data(data.suffix(maximumByteCount))
+        }
+    }
+
+    func snapshot() -> String? {
+        lock.withLock {
+            guard !data.isEmpty else { return nil }
+            let value = String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+    }
+}
+
 // MARK: - Subprocess Stdio Transport
 
 public actor CodexStdioTransport: CodexFrameTransport {
@@ -168,6 +218,7 @@ public actor CodexStdioTransport: CodexFrameTransport {
     private var stdinHandle: FileHandle?
     private var stdoutHandle: FileHandle?
     private var stderrHandle: FileHandle?
+    private var stderrCapture: CodexStderrRing?
 
     private var isConnected = false
     private var terminationTask: Task<Void, Never>?
@@ -197,7 +248,7 @@ public actor CodexStdioTransport: CodexFrameTransport {
         )
 
         do {
-            try startReading(
+            try await startReading(
                 onFrame: { frame in
                     if case .dropped = pair.continuation.yield(frame) {
                         throw CodexTransportError.receiveBufferOverflow
@@ -217,7 +268,7 @@ public actor CodexStdioTransport: CodexFrameTransport {
     private func startReading(
         onFrame: @escaping @Sendable (Data) throws -> Void,
         onError: @escaping @Sendable (Error) -> Void
-    ) throws {
+    ) async throws {
         guard !isConnected, process == nil, terminationTask == nil else {
             throw CodexTransportError.connectionAlreadyOpen
         }
@@ -244,7 +295,7 @@ public actor CodexStdioTransport: CodexFrameTransport {
         // Repeat home validation synchronously at the narrowest local launch
         // seam. CodexSession also prepares once per connection attempt so
         // custom transports receive the same invariant.
-        try prepareForLaunch()
+        try await Self.runOffActorExecutor(prepareForLaunch)
         try process.run()
 
         let stdinHandle = stdin.fileHandleForWriting
@@ -255,6 +306,10 @@ public actor CodexStdioTransport: CodexFrameTransport {
         self.stdinHandle = stdinHandle
         self.stdoutHandle = stdoutHandle
         self.stderrHandle = stderrHandle
+        let stderrCapture = CodexStderrRing(
+            maximumByteCount: limits.maximumCapturedStderrBytes
+        )
+        self.stderrCapture = stderrCapture
         self.isConnected = true
 
         // --- stdout: FileHandle.readabilityHandler runs on a GCD serial queue,
@@ -269,7 +324,9 @@ public actor CodexStdioTransport: CodexFrameTransport {
                 Task { [weak self] in
                     guard let self else { return }
                     if await self.stopAfterUnexpectedClose() {
-                        onError(CodexTransportError.connectionClosed)
+                        onError(CodexTransportError.connectionClosed(
+                            stderr: stderrCapture.snapshot()
+                        ))
                     }
                 }
                 return
@@ -285,10 +342,14 @@ public actor CodexStdioTransport: CodexFrameTransport {
             }
         }
 
-        // --- stderr: similarly dispatched by GCD
+        // --- stderr: similarly dispatched by GCD, retaining only a bounded tail
         stderrHandle.readabilityHandler = { handle in
             let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            stderrCapture.append(chunk)
         }
     }
 
@@ -298,7 +359,7 @@ public actor CodexStdioTransport: CodexFrameTransport {
         }
         var data = frame
         data.append(0x0A)
-        try handle.write(contentsOf: data)
+        try await Self.write(data, to: handle)
     }
 
     public func close() async {
@@ -308,13 +369,13 @@ public actor CodexStdioTransport: CodexFrameTransport {
     private func stop() async {
         if let terminationTask, let process {
             await terminationTask.value
+            await drainStderr()
             finishStopping(process)
             return
         }
         guard isConnected, let process else { return }
 
         stdoutHandle?.readabilityHandler = nil
-        stderrHandle?.readabilityHandler = nil
         try? stdinHandle?.close()
         stdinHandle = nil
         isConnected = false
@@ -330,6 +391,7 @@ public actor CodexStdioTransport: CodexFrameTransport {
         }
         self.terminationTask = terminationTask
         await terminationTask.value
+        await drainStderr()
         finishStopping(process)
     }
 
@@ -339,12 +401,73 @@ public actor CodexStdioTransport: CodexFrameTransport {
         return true
     }
 
+    private func drainStderr() async {
+        guard let handle = stderrHandle, let stderrCapture else { return }
+        self.stderrHandle = nil
+        handle.readabilityHandler = nil
+        await Self.drain(handle, into: stderrCapture)
+    }
+
     private func finishStopping(_ process: Process) {
         guard self.process === process else { return }
         terminationTask = nil
         self.process = nil
         stdoutHandle = nil
         stderrHandle = nil
+        stderrCapture = nil
+    }
+
+    /// `prepareForLaunch` may perform filesystem work and a version probe. Run
+    /// that synchronous closure on a dispatch worker before returning to the
+    /// actor, so launch preparation cannot occupy Swift's cooperative pool.
+    nonisolated private static func runOffActorExecutor(
+        _ operation: @escaping @Sendable () throws -> Void
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    try operation()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// FileHandle writes can block when the subprocess stops draining stdin.
+    /// Dispatch the syscall so a full pipe never monopolizes the actor's
+    /// executor and a concurrent `close()` can continue to make progress.
+    nonisolated private static func write(_ data: Data, to handle: FileHandle) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    try handle.write(contentsOf: data)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// The process has been reaped before this is called, so the pipe reaches
+    /// EOF and the loop cannot block indefinitely. It still runs off the actor
+    /// because `availableData` is a blocking FileHandle API.
+    nonisolated private static func drain(
+        _ handle: FileHandle,
+        into stderrCapture: CodexStderrRing
+    ) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                while true {
+                    let chunk = handle.availableData
+                    guard !chunk.isEmpty else { break }
+                    stderrCapture.append(chunk)
+                }
+                continuation.resume()
+            }
+        }
     }
 
     /// `Process.waitUntilExit()` blocks its caller. Run it on a dispatch worker
@@ -490,7 +613,7 @@ public actor CodexWebSocketTransport: CodexFrameTransport {
 
     public func write(_ frame: Data) async throws {
         guard isConnected, let task = webSocketTask else {
-            throw CodexTransportError.connectionClosed
+            throw CodexTransportError.connectionClosed(stderr: nil)
         }
         guard let text = String(data: frame, encoding: .utf8) else {
             throw CodexTransportError.writeFailed

@@ -162,4 +162,32 @@ final class CanonicalStateModelTests: XCTestCase {
         XCTAssertEqual(globalSnapshot.mcpServerStartupStatuses[scoped]?.status, .failed)
         XCTAssertNotEqual(global, scoped)
     }
+
+    func testCanonicalTurnErrorExposesTypedCodexInfoWithoutDroppingRawValue() {
+        let raw = CodexJSONValue.dictionary([
+            "type": .string("responseStreamConnectionFailed"),
+            "httpStatusCode": .int(503),
+            "future": .string("retained"),
+        ])
+        let error = CanonicalTurnError(
+            message: "stream failed",
+            codexErrorInfo: raw
+        )
+
+        guard case .responseStreamConnectionFailed(let statusCode) = error.typedCodexErrorInfo else {
+            return XCTFail("Expected typed response-stream error")
+        }
+        XCTAssertEqual(statusCode, 503)
+        XCTAssertEqual(error.httpStatusCode, 503)
+        XCTAssertEqual(error.codexErrorInfo, raw)
+
+        let unknown = CanonicalTurnError(
+            message: "future",
+            codexErrorInfo: .dictionary(["type": .string("futureError")])
+        )
+        guard case .unknown(let type, _) = unknown.typedCodexErrorInfo else {
+            return XCTFail("Unknown error variants must remain representable")
+        }
+        XCTAssertEqual(type, "futureError")
+    }
 }

@@ -6,6 +6,7 @@ public struct CodexChatRuntimeState: Sendable {
     public var mainChatSession: CodexMainChatSession
     public var sideChatSession: CodexSideChatSession
     public var integrationCatalogSession: CodexIntegrationCatalogSession
+    public var integrationControlPlaneSession: CodexIntegrationControlPlaneSession
     private var hasCanonicalSnapshot = false
     private var canonicalIsSending = false
     private var canonicalPlan: [TurnPlanStep] = []
@@ -17,12 +18,14 @@ public struct CodexChatRuntimeState: Sendable {
         goalSession: CodexGoalStateSession = CodexGoalStateSession(),
         mainChatSession: CodexMainChatSession = CodexMainChatSession(),
         sideChatSession: CodexSideChatSession = CodexSideChatSession(),
-        integrationCatalogSession: CodexIntegrationCatalogSession = CodexIntegrationCatalogSession()
+        integrationCatalogSession: CodexIntegrationCatalogSession = CodexIntegrationCatalogSession(),
+        integrationControlPlaneSession: CodexIntegrationControlPlaneSession = CodexIntegrationControlPlaneSession()
     ) {
         self.goalSession = goalSession
         self.mainChatSession = mainChatSession
         self.sideChatSession = sideChatSession
         self.integrationCatalogSession = integrationCatalogSession
+        self.integrationControlPlaneSession = integrationControlPlaneSession
     }
 
     public var sideChat: CodexSideChatState? {

@@ -566,7 +566,6 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
                 "ephemeral": .bool(false),
                 "historyMode": .string("legacy"),
                 "id": .string(id),
-                "historyMode": .string("legacy"),
                 "modelProvider": .string("openai"),
                 "preview": .string(""),
                 "sessionId": .string("session-\(id)"),

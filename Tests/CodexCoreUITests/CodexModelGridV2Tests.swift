@@ -27,6 +27,35 @@ final class CodexModelGridV2Tests: XCTestCase {
         XCTAssertNil(grid.selection(for: disabled))
     }
 
+    func testCatalogGenerationAndReasoningEffortsAreDerivedFromModelData() {
+        var current = model(
+            "nova-2.1-alpha",
+            "Nova 2.1 Alpha",
+            [.minimal, .none, .high]
+        )
+        current.isDefault = true
+        let currentVariant = model(
+            "nova-2.1-beta",
+            "Nova 2.1 Beta",
+            [.minimal, .none]
+        )
+        let older = model("nova-2.0", "Nova 2.0", [.medium])
+
+        let options = [current, currentVariant, older]
+        XCTAssertEqual(
+            CodexModelGridV2.currentGenerationOptions(from: options).map(\.id),
+            [current.id, currentVariant.id]
+        )
+
+        let grid = CodexModelGridV2(
+            modelOptions: options,
+            selectedModel: current,
+            selectedReasoning: .minimal
+        )
+        XCTAssertEqual(grid.columns.map(\.id), ["alpha", "beta", "nova-2.0"])
+        XCTAssertEqual(grid.efforts, [.medium, .high, .none, .minimal])
+    }
+
     private func model(_ id: String, _ name: String, _ efforts: [CodexReasoningSelection]) -> CodexModelSelection {
         CodexModelSelection(id: id, displayName: name, modelIdentifier: id, supportedReasoning: efforts)
     }

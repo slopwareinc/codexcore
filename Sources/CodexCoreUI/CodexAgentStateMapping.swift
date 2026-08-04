@@ -57,16 +57,21 @@ private extension CodexAgentStateMapper {
         var events: [CodexAgentLifecycleEvent] = []
         var liveKeys: Set<ItemKey> = []
 
-        for turn in snapshot.turns(in: parentThreadID) {
-            for item in snapshot.items(in: turn.key) {
-                guard item.kind == .collabAgentToolCall || item.kind == .subAgentActivity else {
-                    continue
-                }
-                liveKeys.insert(item.key)
-                let id = lifecycleEventIDs[item.key] ?? UUID()
-                lifecycleEventIDs[item.key] = id
-                if let event = Self.lifecycleEvent(id: id, item: item) {
-                    events.append(event)
+        let graph = CodexThreadGraphProjector.project(snapshot, hostID: "local")
+        let root = CodexThreadGraphKey(hostID: "local", threadID: parentThreadID)
+        let threadIDs = [parentThreadID] + graph.descendants(of: root).map(\.threadID)
+        for threadID in threadIDs {
+            for turn in snapshot.turns(in: threadID) {
+                for item in snapshot.items(in: turn.key) {
+                    guard item.kind == .collabAgentToolCall || item.kind == .subAgentActivity else {
+                        continue
+                    }
+                    liveKeys.insert(item.key)
+                    let id = lifecycleEventIDs[item.key] ?? UUID()
+                    lifecycleEventIDs[item.key] = id
+                    if let event = Self.lifecycleEvent(id: id, item: item) {
+                        events.append(event)
+                    }
                 }
             }
         }
@@ -86,6 +91,9 @@ private extension CodexAgentStateMapper {
             let threadIDs = item.payload.stringArray("receiverThreadIds")
             let names = threadIDs.map(shortAgentName)
             let status = lifecycleStatus(tool: tool, completed: completed, payload: item.payload)
+            let messages = item.payload.object("agentsStates")?.values.compactMap {
+                CodexJSONCoercion.dictionary(from: $0)?.string("message")
+            } ?? []
             return CodexAgentLifecycleEvent(
                 id: id,
                 status: status,
@@ -94,7 +102,9 @@ private extension CodexAgentStateMapper {
                     completed: completed,
                     names: names
                 ),
-                detail: item.key.itemID.rawValue,
+                detail: messages.isEmpty
+                    ? item.key.itemID.rawValue
+                    : messages.joined(separator: " · "),
                 agentNames: names,
                 createdAt: itemDate(item)
             )
@@ -150,7 +160,10 @@ private extension CodexAgentStateMapper {
         let statuses = payload.object("agentsStates")?.values.compactMap {
             CodexJSONCoercion.dictionary(from: $0)?.string("status")?.lowercased()
         } ?? []
-        if statuses.contains(where: { $0 == "failed" || $0 == "error" }) { return .failed }
+        if statuses.contains(where: {
+            $0 == "interrupted" || $0 == "errored" || $0 == "notfound"
+        }) { return .failed }
+        if statuses.contains("shutdown") { return .closed }
         if completed, tool == "wait" { return .completed }
         if completed, tool == "spawnAgent" { return .running }
         return completed ? .completed : (tool == "spawnAgent" ? .spawning : .running)
@@ -166,8 +179,8 @@ private extension CodexAgentStateMapper {
         else if names.count == 1 { label = names[0] }
         else { label = "\(names.count) agents" }
         switch tool {
-        case "spawnAgent": return completed ? "Spawned \(label)" : "Spawning \(label)"
-        case "sendInput": return completed ? "Sent input to \(label)" : "Sending input to \(label)"
+        case "spawnAgent": return completed ? "Created \(label)" : "Creating \(label)"
+        case "sendInput": return completed ? "Messaged \(label)" : "Messaging \(label)"
         case "resumeAgent": return completed ? "Resumed \(label)" : "Resuming \(label)"
         case "wait": return completed ? "Finished waiting" : "Waiting for \(label)"
         case "closeAgent": return completed ? "Closed \(label)" : "Closing \(label)"

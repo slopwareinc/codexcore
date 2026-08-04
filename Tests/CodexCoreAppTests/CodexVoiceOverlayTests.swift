@@ -109,7 +109,7 @@ struct CodexVoiceOverlayTests {
     @MainActor
     func appKitPanelPolicy() throws {
         guard !NSScreen.screens.isEmpty else {
-            throw XCTSkip("Skipped: AppKit integration requires a live desktop display")
+            try Test.cancel("AppKit integration requires a live desktop display")
         }
         let panel = NSPanel(
             contentRect: CGRect(x: 0, y: 0, width: 360, height: 176),

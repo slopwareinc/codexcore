@@ -52,6 +52,7 @@ struct CodexTranscriptTurnMinimapTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = container
         coordinator.attach(to: container)
         let turns = (0..<12).map { index in

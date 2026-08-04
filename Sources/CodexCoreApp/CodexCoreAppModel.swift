@@ -1,8 +1,19 @@
 import SwiftUI
 import AppKit
 import Observation
+import OSLog
 import CodexCore
 import CodexCoreUI
+
+private enum PluginCatalogToggleRollback {
+    case plugin(id: String, enabled: Bool)
+    case skill(path: String, enabled: Bool)
+}
+
+private enum PluginCatalogMutationKey: Hashable {
+    case plugin(String)
+    case skill(String)
+}
 
 func defaultWorkspacePath() -> String {
     let current = FileManager.default.currentDirectoryPath
@@ -15,6 +26,17 @@ func defaultWorkspacePath() -> String {
 final class CodexCoreAppModel {
     typealias ConnectionState = CodexConnectionState
     typealias Activity = CodexActivity
+
+    private static let pluginCatalogLogger = Logger(
+        subsystem: "com.slopware.codexcore",
+        category: "plugin-catalog"
+    )
+
+    // CodexChatRuntimeSession is intentionally not observable. Every catalog
+    // write must flow through publishIntegrationCatalogSession so SwiftUI sees it.
+    private(set) var integrationCatalogRevision = 0
+    private(set) var pendingPluginActionIDs: Set<String> = []
+    private(set) var pendingSkillActionIDs: Set<String> = []
 
     var workspacePath = defaultWorkspacePath()
     var apiKey = ""
@@ -43,6 +65,9 @@ final class CodexCoreAppModel {
     private(set) var accountRateLimitsSnapshot: CodexSchemaRateLimitSnapshot?
     private(set) var accountMenuSummary = CodexAccountMenuSummary(displayName: "Codex", detail: "Available")
     private(set) var environmentInfoState: CodexEnvironmentInfoState = .unavailable
+    private(set) var configRequirements: CodexSchemaConfigRequirements?
+    private(set) var notificationAuthorizationStatus: CodexNotificationAuthorizationStatus = .unavailable
+    private(set) var notificationAuthorizationError: String?
 
     var codex: Codex?
     var authSession = CodexAuthSession()
@@ -66,10 +91,14 @@ final class CodexCoreAppModel {
     private var accountPreferredDisplayName: String?
     private var skillsChangedObservationTask: Task<Void, Never>?
     private var skillsChangedObservationGeneration: UInt64 = 0
+    private var integrationCatalogRefreshGeneration: UInt64 = 0
+    private var didBootstrapPluginMarketplaces = false
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
     private var pendingSteerSubmissions: [CodexComposerSubmission] = []
     private var isProcessingSteerSubmissions = false
+    private var processActivityTokens: [String: NSObjectProtocol] = [:]
+    private var announcedNotificationPromptIDs: Set<CodexServerRequestKey> = []
     private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
     private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
     private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
@@ -101,6 +130,13 @@ final class CodexCoreAppModel {
     var projectlessDraftPaths: CodexProjectlessThreadPaths?
     private var chatSelectionGeneration = 0
     var pluginLauncherTarget: CodexComposerPluginLauncher?
+    var automationLifecycle: CodexAutomationLifecycle
+    var automations: [CodexAutomation] { automationLifecycle.automations }
+    private let automationStore: CodexAutomationFileStore
+    private let automationNotifications: CodexAutomationNotificationService
+    private var automationSchedulerTask: Task<Void, Never>?
+    private var automationRunTasks: [String: Task<Void, Never>] = [:]
+    private var automationThreadLeases: [String: CodexThreadLease] = [:]
     private var terminalSession: CodexCommandExecSession?
     private var terminalOutputTask: Task<Void, Never>?
     private var terminalCompletionTask: Task<Void, Never>?
@@ -112,17 +148,28 @@ final class CodexCoreAppModel {
     var isBottomTerminalRunning = false
 
     private let clipboardService: any CodexClipboardService
+    private let pluginCatalogActionProviderOverride: (any CodexPluginCatalogActionProvider)?
     let preferenceStore: any CodexStringListPreferenceStore
     let codexHome: CodexHome
+
+    var onDockStateChanged: (@MainActor () -> Void)?
+    var onNotificationOpen: (@MainActor (String?) -> Void)?
 
     init(
         codexHome: CodexHome = .default,
         clipboardService: any CodexClipboardService,
-        preferenceStore: any CodexStringListPreferenceStore
+        preferenceStore: any CodexStringListPreferenceStore,
+        pluginCatalogActionProvider: (any CodexPluginCatalogActionProvider)? = nil
     ) {
         self.codexHome = codexHome
+        self.automationStore = CodexAutomationFileStore(
+            directoryURL: codexHome.directoryURL.appendingPathComponent("automations", isDirectory: true)
+        )
+        self.automationNotifications = CodexAutomationNotificationService()
+        self.automationLifecycle = CodexAutomationLifecycle(automations: automationStore.load())
         self.dictationSession = CodexComposerDictationSession()
         self.clipboardService = clipboardService
+        self.pluginCatalogActionProviderOverride = pluginCatalogActionProvider
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
@@ -162,9 +209,58 @@ final class CodexCoreAppModel {
         )
     }
 
+    var unreadThreadCount: Int {
+        unreadState.unreadThreadIDs.count
+    }
+
+    var dockAttentionCount: Int {
+        unreadThreadCount + promptRuntime.approvalPrompts.count + promptRuntime.interactivePrompts.count
+    }
+
+    var enabledAutomationCount: Int {
+        automations.filter(\.isEnabled).count
+    }
+
+    var hasInFlightWork: Bool {
+        activeTurnLease != nil
+            || activeSideChatTurnLease != nil
+            || runtimeSession.isSending
+            || runtimeSession.isSideChatSending
+            || voiceSession.isActive
+            || !automationRunTasks.isEmpty
+            || enabledAutomationCount > 0
+    }
+
+    var terminationConfirmationMessage: String {
+        var interrupted: [String] = []
+        let activeChatCount = [activeTurnLease, activeSideChatTurnLease]
+            .compactMap { $0 }
+            .count
+            + (runtimeSession.isSending || runtimeSession.isSideChatSending ? 1 : 0)
+            + (voiceSession.isActive ? 1 : 0)
+        if activeChatCount > 0 {
+            interrupted.append(
+                activeChatCount == 1 ? "one active chat" : "\(activeChatCount) active chats"
+            )
+        }
+        if enabledAutomationCount > 0 {
+            interrupted.append(
+                enabledAutomationCount == 1
+                    ? "one scheduled task"
+                    : "\(enabledAutomationCount) scheduled tasks"
+            )
+        }
+        guard !interrupted.isEmpty else {
+            return "Quit CodexCore?"
+        }
+        let noun = interrupted.joined(separator: " and ")
+        return "Quitting will interrupt \(noun). Active chats will stop, and scheduled tasks will not run while CodexCore is closed."
+    }
+
     func connect() async {
         guard authSession.beginConnecting() else { return }
 
+        startAutomationScheduler()
         await resetSessionState()
         do {
             await CodexAppAttestation.shared.prepare()
@@ -189,7 +285,9 @@ final class CodexCoreAppModel {
             self.codex = codex
             await runtimeSession.connect(to: codex)
             promptRuntime.connect(to: codex.session) { [weak self] activity in
-                self?.appendActivity(.notice, title: activity.title, detail: activity.detail)
+                guard let self else { return }
+                self.appendActivity(.notice, title: activity.title, detail: activity.detail)
+                self.postPromptNotifications(for: activity)
             }
             startThreadIndexObservation(session: codex.session)
             await startSkillsChangedObservation(session: codex.session)
@@ -199,6 +297,17 @@ final class CodexCoreAppModel {
             authSession.connectedAfterHandshake(server: server)
             accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
             accountPreferredDisplayName = CodexAuthTokenProfileReader.displayName(codexHome: codex.codexHome)
+
+            do {
+                configRequirements = try await codex.perform(CodexRequest.configRequirementsRead()).requirements
+            } catch {
+                configRequirements = nil
+                appendActivity(
+                    .notice,
+                    title: "Managed policy unavailable",
+                    detail: friendlyError(error)
+                )
+            }
 
             var shouldContinue = true
             do {
@@ -226,9 +335,14 @@ final class CodexCoreAppModel {
     }
 
     func disconnect() async {
+        stopAutomationScheduler()
         dictationSession.abort()
         await voiceSession.stop()
         await stopBottomTerminalSession()
+        for task in automationRunTasks.values { task.cancel() }
+        automationRunTasks.removeAll()
+        for lease in automationThreadLeases.values { await lease.close() }
+        automationThreadLeases.removeAll()
         await runtimeSession.disconnect()
         runtimeSession.reset()
         promptRuntime.disconnect()
@@ -244,6 +358,7 @@ final class CodexCoreAppModel {
         sideChatTurnCompletionTask?.cancel()
         activeTurnCompletionTask = nil
         sideChatTurnCompletionTask = nil
+        endAllProcessActivities()
         activeTurnLease = nil
         activeSideChatTurnLease = nil
         if let lease = activeSideChatThreadLease {
@@ -264,10 +379,27 @@ final class CodexCoreAppModel {
         accountPreferredDisplayName = nil
         gitBranch = nil
         environmentInfoState = .unavailable
+        configRequirements = nil
+        announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         let codex = self.codex
         self.codex = nil
         await codex?.close()
         appendActivity(authSession.disconnected())
+    }
+
+    func signOut() async {
+        guard let codex else {
+            await disconnect()
+            return
+        }
+
+        do {
+            _ = try await codex.perform(CodexRequest.accountLogout())
+            appendActivity(.notice, title: "Signed out", detail: "The Codex account was disconnected")
+            await disconnect()
+        } catch {
+            appendActivity(.notice, title: "Sign out failed", detail: friendlyError(error))
+        }
     }
 
     func loginWithAPIKey() async {
@@ -635,10 +767,17 @@ final class CodexCoreAppModel {
 
     private func monitorMainTurn(_ lease: CodexTurnLease) {
         activeTurnCompletionTask?.cancel()
+        let activityKey = "turn.\(lease.key.threadID.rawValue).\(lease.key.turnID.rawValue)"
+        beginProcessActivity(
+            key: activityKey,
+            reason: "Running Codex turn in \(lease.key.threadID.rawValue)"
+        )
         activeTurnCompletionTask = Task { [weak self] in
+            guard let self else { return }
+            defer { endProcessActivity(key: activityKey) }
             do {
                 let terminal = try await lease.awaitTerminal()
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeTurnLease?.key == lease.key {
                     activeTurnLease = nil
                 }
@@ -649,17 +788,30 @@ final class CodexCoreAppModel {
                     title: failed ? "Turn failed" : "Turn finished",
                     detail: terminal.turn.error?.message ?? lease.key.turnID.rawValue
                 )
+                automationNotifications.postTurnCompletion(
+                    threadID: lease.key.threadID.rawValue,
+                    title: currentChatTitle,
+                    failure: failed ? terminal.turn.error?.message ?? "The turn failed" : nil
+                )
+                notifyDockStateChanged()
                 Task { await refreshRecentChats() }
                 flushQueuedFollowUps(afterTurnEnded: true)
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeTurnLease?.key == lease.key {
                     activeTurnLease = nil
                 }
                 _ = runtimeSession.finishMainTurn(id: lease.key.turnID.rawValue)
-                appendActivity(.turn, title: "Turn stream ended", detail: friendlyError(error))
+                let message = friendlyError(error)
+                appendActivity(.turn, title: "Turn stream ended", detail: message)
+                automationNotifications.postTurnCompletion(
+                    threadID: lease.key.threadID.rawValue,
+                    title: currentChatTitle,
+                    failure: message
+                )
+                notifyDockStateChanged()
             }
         }
     }
@@ -717,6 +869,8 @@ final class CodexCoreAppModel {
 
     func handleWorktreeHandoffCompletion(_ completion: CodexWorktreeHandoffCompletion) {
         appendActivity(completion.activity)
+        guard completion.resultCard != nil else { return }
+        Task { await switchWorkspace(to: completion.environment.workspacePath) }
     }
 
     func clearComposerChip(_ kind: CodexComposerChipKind) {
@@ -742,7 +896,6 @@ final class CodexCoreAppModel {
             pluginLauncherTarget = target
             selectAppRoute(.plugins)
             appendActivity(.notice, title: "Plugin detail", detail: "Opened \(target.title)")
-            Task { await refreshPlugins() }
         case .openFilesAndChats:
             selectAppRoute(.search)
         }
@@ -800,6 +953,10 @@ final class CodexCoreAppModel {
 
     private func refreshConnectedSession(using codex: Codex) async throws {
         await refreshStartupCatalogs(using: codex)
+        // Preload the catalog after authentication. A Plugins route selected
+        // while startup was still connecting otherwise kept the empty result
+        // from its earlier, connection-less refresh indefinitely.
+        await refreshPlugins()
         await refreshRecentChats(using: codex)
         await refreshRemoteEnvironment(using: codex)
         try await refreshRateLimits(using: codex)
@@ -818,6 +975,14 @@ final class CodexCoreAppModel {
         let response = try await codex.perform(CodexRequest.accountRateLimitsRead())
         accountRateLimitsSnapshot = response.rateLimits
     }
+
+    #if DEBUG
+    /// Git branch resolution shells out, so tests set the resolved value
+    /// directly instead of standing up a repository.
+    func setGitBranchForTesting(_ branch: String?) {
+        gitBranch = branch
+    }
+    #endif
 
     private func refreshGitBranch() {
         let path = workspacePath
@@ -1011,6 +1176,7 @@ final class CodexCoreAppModel {
             persistUnreadState()
         }
         rebuildCanonicalThreadStatusEntries(from: snapshot)
+        notifyDockStateChanged()
     }
 
     private func rebuildCanonicalThreadStatusEntries(
@@ -1066,6 +1232,7 @@ final class CodexCoreAppModel {
             hasUnreadWhileInactive: unreadState.isUnread(id),
             lastEventAt: Date()
         )
+        notifyDockStateChanged()
     }
 
     func setApplicationActive(_ isActive: Bool) {
@@ -1074,11 +1241,13 @@ final class CodexCoreAppModel {
             reloadPersistedUnreadState()
         }
         clearSelectedThreadUnreadIfFocused()
+        notifyDockStateChanged()
     }
 
     func setMainWindowKey(_ isKey: Bool) {
         isMainWindowKey = isKey
         clearSelectedThreadUnreadIfFocused()
+        notifyDockStateChanged()
     }
 
     func setConversationViewVisible(_ isVisible: Bool) {
@@ -1115,6 +1284,7 @@ final class CodexCoreAppModel {
         else { return }
         persistUnreadState()
         rebuildCanonicalThreadStatusEntries()
+        notifyDockStateChanged()
     }
 
     private func persistUnreadState() {
@@ -1204,8 +1374,20 @@ final class CodexCoreAppModel {
     func selectAppRoute(_ route: CodexAppRoute) {
         sidebarNavigationSession.selectRoute(route)
         if route == .plugins {
-            Task { await refreshPlugins() }
+            requestPluginRefresh()
+        } else if route == .automations {
+            Task { await reconcileDueAutomations() }
         }
+    }
+
+    func requestPluginRefresh() {
+        let state = runtimeSession.integrationCatalogSession
+        guard !state.isLoadingPlugins, !state.isLoadingSkills else { return }
+        var loadingState = state
+        loadingState.beginPluginRefresh()
+        loadingState.beginSkillRefresh()
+        publishIntegrationCatalogSession(loadingState)
+        Task { await refreshPlugins() }
     }
 
     func performAutomationRouteAction(_ action: CodexAutomationRouteAction) {
@@ -1214,11 +1396,246 @@ final class CodexCoreAppModel {
             return
         }
         switch action {
+        case .save(let automation):
+            automationLifecycle.save(automation)
+            persistAutomation(id: automation.id, successTitle: "Automation saved")
+        case .toggle(let id):
+            guard let automation = automationLifecycle.toggle(id: id) else { return }
+            persistAutomation(
+                id: id,
+                successTitle: automation.status == .disabled ? "Automation paused" : "Automation enabled"
+            )
+        case .delete(let id):
+            automationRunTasks[id]?.cancel()
+            automationRunTasks[id] = nil
+            automationLifecycle.delete(id: id)
+            do {
+                try automationStore.delete(id: id)
+                automationNotifications.removePendingRequests(forAutomationID: id)
+                appendActivity(.notice, title: "Automation deleted", detail: "Existing chats were kept")
+            } catch {
+                appendActivity(.notice, title: "Automation delete failed", detail: friendlyError(error))
+            }
+        case .runNow(let id):
+            startAutomationRun(id: id)
         case .learnMore:
-            appendActivity(.notice, title: "Automations", detail: "Automations are created by chatting with Codex; no settings are changed until you send and confirm the flow.")
+            appendActivity(.notice, title: "Automations", detail: "Scheduled automations run as independent Codex chats while the app is open. Their definitions and run state are stored locally in your Codex home.")
         case .createViaChat, .template, .addForChat:
             break
         }
+    }
+
+    func startAutomationScheduler() {
+        guard automationSchedulerTask == nil else { return }
+        notificationAuthorizationStatus = automationNotifications.authorizationStatus
+        notificationAuthorizationError = automationNotifications.authorizationError
+        automationNotifications.onAuthorizationStatusChange = { [weak self] status, error in
+            self?.notificationAuthorizationStatus = status
+            self?.notificationAuthorizationError = error
+        }
+        automationNotifications.onAction = { [weak self] action in
+            self?.handleNotificationAction(action)
+        }
+        automationNotifications.requestAuthorization()
+        automationSchedulerTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runAutomationScheduler()
+        }
+    }
+
+    private func stopAutomationScheduler() {
+        automationSchedulerTask?.cancel()
+        automationSchedulerTask = nil
+    }
+
+    private func runAutomationScheduler() async {
+        while !Task.isCancelled {
+            await withProcessActivity(
+                reason: "Checking scheduled Codex automations"
+            ) {
+                await reconcileDueAutomations()
+            }
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func beginProcessActivity(key: String, reason: String) {
+        guard processActivityTokens[key] == nil else { return }
+        processActivityTokens[key] = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: reason
+        )
+    }
+
+    private func endProcessActivity(key: String) {
+        guard let activity = processActivityTokens.removeValue(forKey: key) else { return }
+        ProcessInfo.processInfo.endActivity(activity)
+    }
+
+    private func endAllProcessActivities() {
+        let activities = Array(processActivityTokens.values)
+        processActivityTokens.removeAll(keepingCapacity: false)
+        for activity in activities {
+            ProcessInfo.processInfo.endActivity(activity)
+        }
+    }
+
+    func withProcessActivity<T>(
+        reason: String,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: reason
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
+        return try await operation()
+    }
+
+    private func postPromptNotifications(for activity: CodexPromptStateActivity) {
+        let currentPromptIDs = Set(
+            promptRuntime.approvalPrompts.map(\.id)
+                + promptRuntime.interactivePrompts.map(\.id)
+        )
+        announcedNotificationPromptIDs.formIntersection(currentPromptIDs)
+        switch activity.title {
+        case "Approval requested":
+            for prompt in promptRuntime.approvalPrompts where announcedNotificationPromptIDs.insert(prompt.id).inserted {
+                automationNotifications.postApprovalRequired(
+                    promptID: prompt.id.presentationID,
+                    title: prompt.title,
+                    detail: prompt.detail,
+                    threadID: prompt.threadId
+                )
+            }
+        case "Input requested":
+            for prompt in promptRuntime.interactivePrompts where announcedNotificationPromptIDs.insert(prompt.id).inserted {
+                automationNotifications.postInputRequired(
+                    promptID: prompt.id.presentationID,
+                    title: prompt.title,
+                    detail: prompt.detail,
+                    threadID: prompt.threadId
+                )
+            }
+        default:
+            break
+        }
+        notifyDockStateChanged()
+    }
+
+    private func handleNotificationAction(_ action: CodexNotificationAction) {
+        switch action {
+        case .open(let threadID):
+            onNotificationOpen?(threadID)
+        case .approve(let promptID), .deny(let promptID):
+            guard let prompt = promptRuntime.approvalPrompts.first(where: {
+                $0.id.presentationID == promptID
+            }) else { return }
+            onNotificationOpen?(prompt.threadId)
+            let approved = if case .approve = action { true } else { false }
+            resolveApprovalPrompt(id: prompt.id, approved: approved)
+        }
+    }
+
+    private func notifyDockStateChanged() {
+        onDockStateChanged?()
+    }
+
+    private func reconcileDueAutomations(now: Date = Date()) async {
+        for automation in automationLifecycle.due(at: now) {
+            startAutomationRun(id: automation.id, now: now)
+        }
+    }
+
+    private func startAutomationRun(id: String, now: Date = Date()) {
+        guard automationRunTasks[id] == nil,
+              let automation = automationLifecycle.beginRun(id: id, now: now)
+        else { return }
+        persistAutomation(id: id, announces: false)
+
+        automationRunTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            await runAutomation(automation)
+        }
+    }
+
+    private func runAutomation(_ automation: CodexAutomation) async {
+        var threadID: String?
+        var failure: String?
+        defer { automationRunTasks[automation.id] = nil }
+
+        guard let codex else {
+            let message = "Connect Codex to run this automation"
+            automationLifecycle.finishRun(id: automation.id, threadID: nil, error: message)
+            persistAutomation(id: automation.id, announces: false)
+            postAutomationNotification(name: automation.name, failure: message)
+            appendActivity(.notice, title: "Automation failed", detail: message)
+            return
+        }
+
+        do {
+            try await withProcessActivity(
+                reason: "Running automation \(automation.name)"
+            ) {
+                let thread = try await codex.startThread(threadStartParameters())
+                automationThreadLeases[automation.id] = thread
+                threadID = thread.id.rawValue
+                let permissionConfiguration = approvalSelection.permissionProfileWireConfiguration
+                let turn = try await thread.startTurn(turnStartParameters(
+                    threadID: thread.id,
+                    input: [.text(automation.prompt)],
+                    clientUserMessageID: UUID().uuidString,
+                    permissionConfiguration: permissionConfiguration
+                ))
+                let terminal = try await turn.awaitTerminal()
+                if terminal.turn.status == .failed {
+                    failure = terminal.turn.error?.message ?? "The scheduled turn failed"
+                }
+            }
+        } catch is CancellationError {
+            failure = "Run cancelled"
+        } catch {
+            failure = friendlyError(error)
+        }
+
+        if let thread = automationThreadLeases.removeValue(forKey: automation.id) {
+            await thread.close()
+        }
+        automationLifecycle.finishRun(id: automation.id, threadID: threadID, error: failure)
+        persistAutomation(id: automation.id, announces: false)
+        await refreshRecentChats()
+        postAutomationNotification(name: automation.name, failure: failure)
+        appendActivity(
+            failure == nil ? .turn : .notice,
+            title: failure == nil ? "Automation finished" : "Automation failed",
+            detail: failure ?? automation.name
+        )
+    }
+
+    private func persistAutomation(
+        id: String,
+        successTitle: String? = nil,
+        announces: Bool = true
+    ) {
+        guard let automation = automations.first(where: { $0.id == id }) else { return }
+        do {
+            try automationStore.save(automation)
+            if announces, let successTitle {
+                appendActivity(.notice, title: successTitle, detail: automation.schedule.summary)
+            }
+        } catch {
+            appendActivity(.notice, title: "Automation save failed", detail: friendlyError(error))
+        }
+    }
+
+    private func postAutomationNotification(name: String, failure: String?) {
+        automationNotifications.postCompletion(name: name, failure: failure)
     }
 
     private func refreshEnvironmentInfo(environmentID: String?) async {
@@ -1335,6 +1752,7 @@ final class CodexCoreAppModel {
 
         if project.contains(workspacePath: workspacePath) {
             workspacePath = newPrimary
+            refreshGitBranch()
             sidebarNavigationSession.syncCurrentWorkspace(
                 newPrimary,
                 currentThreadID: currentThreadID
@@ -1421,6 +1839,7 @@ final class CodexCoreAppModel {
         }
 
         workspacePath = normalized
+        refreshGitBranch()
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         saveExpandedSidebarProjects()
         invalidatePendingChatSelection()
@@ -1626,6 +2045,16 @@ final class CodexCoreAppModel {
         }
     }
 
+    /// Opens an independent task referenced by transcript provenance.
+    /// Subagent links intentionally use the workspace side panel instead.
+    func openThreadReference(_ reference: CodexThreadReferenceV2) async {
+        if let chat = allSidebarChats.first(where: { $0.id == reference.threadID }) {
+            await selectSidebarChat(chat)
+        } else {
+            await resumeChat(id: reference.threadID)
+        }
+    }
+
     func resumeChat(id threadID: String) async {
         guard let codex else { return }
         runtimeSession.selectThread(threadID)
@@ -1700,48 +2129,223 @@ final class CodexCoreAppModel {
 
     func refreshMCPServers() async {
         guard let codex else {
-            runtimeSession.integrationCatalogSession.requireMCPConnection(message: "Connect to Codex before inspecting MCP servers.")
+            var session = runtimeSession.integrationCatalogSession
+            session.requireMCPConnection(message: "Connect to Codex before inspecting MCP servers.")
+            publishIntegrationCatalogSession(session)
             return
         }
 
         var session = runtimeSession.integrationCatalogSession
+        let provider = CodexAppServerIntegrationControlPlaneProvider(codex: codex)
         let activity = await session.refreshMCPServers(
-            using: codex,
+            using: provider,
             threadID: currentThreadID,
             errorMessage: CodexErrorFormat.localizedDescription
         )
-        runtimeSession.integrationCatalogSession = session
+        publishIntegrationCatalogSession(session)
         appendIntegrationActivity(activity)
     }
 
     func refreshPlugins() async {
         guard let codex else {
-            runtimeSession.integrationCatalogSession.requirePluginConnection(message: "Connect to Codex before inspecting plugins.")
+            var session = runtimeSession.integrationCatalogSession
+            session.requirePluginConnection(message: "Connect to Codex before inspecting plugins.")
+            publishIntegrationCatalogSession(session)
             return
+        }
+        integrationCatalogRefreshGeneration &+= 1
+        let refreshGeneration = integrationCatalogRefreshGeneration
+
+        if !didBootstrapPluginMarketplaces {
+            let sources = CodexPluginMarketplaceDiscovery.sources(codexHome: codexHome)
+            let bootstrap = await CodexPluginMarketplaceBootstrap.register(
+                sources,
+                using: codex,
+                errorMessage: CodexErrorFormat.localizedDescription
+            )
+            didBootstrapPluginMarketplaces = true
+            if !bootstrap.failures.isEmpty {
+                appendIntegrationActivity(.init(
+                    title: "Some plugin marketplaces couldn’t load",
+                    detail: bootstrap.failures.joined(separator: "\n")
+                ))
+            }
         }
 
         var session = runtimeSession.integrationCatalogSession
+        let provider = CodexAppServerIntegrationControlPlaneProvider(codex: codex)
         let pluginActivity = await session.refreshPlugins(
-            using: codex,
+            using: provider,
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         let skillActivity = await session.refreshSkills(
-            using: codex,
+            using: provider,
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
-        runtimeSession.integrationCatalogSession = session
+        guard refreshGeneration == integrationCatalogRefreshGeneration else {
+            Self.pluginCatalogLogger.info("discarded stale catalog refresh generation=\(refreshGeneration)")
+            return
+        }
+        publishIntegrationCatalogSession(session)
         appendIntegrationActivity(pluginActivity)
         appendIntegrationActivity(skillActivity)
+        await refreshIntegrationControlPlaneInventory(using: provider)
+    }
+
+    /// AGENTS.md layers are read through the app-server filesystem rather than
+    /// FileManager so remote and sandboxed hosts resolve the same documents the
+    /// agent itself sees. Nil until the session connects.
+    var agentsDocumentStore: CodexAgentsDocumentStore? {
+        codex.map { CodexAgentsDocumentStore(fileSystem: CodexAppServerFileSystem(codex: $0)) }
+    }
+
+    /// Views that drive their own control-plane requests (MCP configuration,
+    /// marketplace mutations, skill body reads) need the live provider rather
+    /// than a pre-fetched response. It is nil until the session connects.
+    var integrationControlPlaneProvider: (any CodexIntegrationControlPlaneProvider)? {
+        codex.map(CodexAppServerIntegrationControlPlaneProvider.init(codex:))
+    }
+
+    /// Host seam for detail panes and mutation confirmations owned by the
+    /// plugin UI. Responses remain in `integrationControlPlaneSession`, keyed
+    /// by the request's app-server method name.
+    @discardableResult
+    func performIntegrationControlPlaneRequest(
+        _ request: CodexIntegrationControlPlaneRequest
+    ) async -> CodexJSONValue? {
+        guard let codex else {
+            runtimeSession.integrationControlPlaneSession.requireConnection(
+                for: request.surface,
+                message: "Connect to Codex before using \(request.surface.rawValue)."
+            )
+            return nil
+        }
+
+        let provider = CodexAppServerIntegrationControlPlaneProvider(codex: codex)
+        return await performIntegrationControlPlaneRequest(request, using: provider)
+    }
+
+    @discardableResult
+    private func performIntegrationControlPlaneRequest(
+        _ request: CodexIntegrationControlPlaneRequest,
+        using provider: any CodexIntegrationControlPlaneProvider,
+        announces: Bool = true
+    ) async -> CodexJSONValue? {
+        var session = runtimeSession.integrationControlPlaneSession
+        let activity = await session.perform(
+            request,
+            provider: provider,
+            errorMessage: CodexErrorFormat.localizedDescription
+        )
+        runtimeSession.integrationControlPlaneSession = session
+        if announces || session.phase(for: request.surface) != .loaded {
+            appendIntegrationActivity(activity)
+        }
+        return session.response(for: request)
+    }
+
+    private func refreshIntegrationControlPlaneInventory(
+        using provider: any CodexIntegrationControlPlaneProvider
+    ) async {
+        let threadID = currentThreadID
+        let requests: [CodexIntegrationControlPlaneRequest] = [
+            .appList(.init(forceRefetch: false, limit: 100, threadID: threadID)),
+            .appInstalled(.init(forceRefresh: false, threadID: threadID)),
+            .pluginInstalled(.init(cwds: protocolWorkspaceRoots)),
+            .hooksList(.init(cwds: workspaceRoots)),
+            .configRead(.init(cwd: workspacePath, includeLayers: true)),
+        ]
+        for request in requests {
+            let response = await performIntegrationControlPlaneRequest(
+                request,
+                using: provider,
+                announces: false
+            )
+            // `hooks/list` is the only inventory response with a presentation
+            // projection; the rest are read back from the control-plane session.
+            guard case .hooksList = request, let response else { continue }
+            var session = runtimeSession.integrationCatalogSession
+            let activity = session.applyHooksResponse(response)
+            runtimeSession.integrationCatalogSession = session
+            appendIntegrationActivity(activity)
+        }
     }
 
     func performPluginCatalogAction(_ action: CodexPluginRouteAction) {
+        let mutationKey = pluginCatalogMutationKey(for: action)
+        if let mutationKey, isPluginCatalogMutationPending(mutationKey) {
+            Self.pluginCatalogLogger.info("ignored duplicate catalog action while mutation is pending")
+            return
+        }
+        if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: true) }
+
+        let toggleRollback: PluginCatalogToggleRollback?
+        switch action {
+        case .setPluginEnabled(let target, let enabled):
+            var session = runtimeSession.integrationCatalogSession
+            let previous = session.setPluginEnabledOptimistically(id: target.id, enabled: enabled)
+            toggleRollback = previous.map { .plugin(id: target.id, enabled: $0) }
+            publishIntegrationCatalogSession(session)
+            Self.pluginCatalogLogger.info(
+                "plugin toggle requested name=\(target.displayName, privacy: .public) enabled=\(enabled) optimisticMatch=\(previous != nil)"
+            )
+        case .setSkillEnabled(let target, let enabled):
+            var session = runtimeSession.integrationCatalogSession
+            let previous = session.setSkillEnabledOptimistically(path: target.path, enabled: enabled)
+            toggleRollback = previous.map { .skill(path: target.path, enabled: $0) }
+            publishIntegrationCatalogSession(session)
+            Self.pluginCatalogLogger.info(
+                "skill toggle requested name=\(target.displayName, privacy: .public) enabled=\(enabled) optimisticMatch=\(previous != nil) path=\(target.path, privacy: .private)"
+            )
+        case .installPlugin(let target):
+            toggleRollback = nil
+            Self.pluginCatalogLogger.info(
+                "plugin install requested id=\(target.id, privacy: .public) marketplace=\(target.marketplaceName, privacy: .public)"
+            )
+        case .uninstallPlugin(let target):
+            toggleRollback = nil
+            Self.pluginCatalogLogger.info("plugin uninstall requested id=\(target.id, privacy: .public)")
+        case .uninstallSkill(let target):
+            toggleRollback = nil
+            Self.pluginCatalogLogger.info("skill uninstall requested name=\(target.name, privacy: .public)")
+        case .tryInChat:
+            toggleRollback = nil
+        }
+
         Task {
+            let provider: (any CodexPluginCatalogActionProvider)?
+            if let pluginCatalogActionProviderOverride {
+                provider = pluginCatalogActionProviderOverride
+            } else if let codex {
+                provider = CodexAppServerPluginCatalogActionProvider(codex: codex)
+            } else {
+                provider = nil
+            }
+            guard let provider else {
+                Self.pluginCatalogLogger.error("catalog action rejected because app-server is disconnected")
+                restoreCatalogToggle(toggleRollback)
+                if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: false) }
+                appendIntegrationActivity(.init(
+                    title: "Plugin action unavailable",
+                    detail: "Connect to Codex before changing plugins or skills."
+                ))
+                return
+            }
             let outcome = await CodexPluginCatalogActionSession.perform(
                 action,
-                provider: CodexUnsupportedPluginCatalogActionProvider()
+                provider: provider
             )
+            if outcome.didSucceed {
+                Self.pluginCatalogLogger.info(
+                    "catalog action succeeded result=\(outcome.activity.title, privacy: .public)"
+                )
+            } else {
+                Self.pluginCatalogLogger.error(
+                    "catalog action failed result=\(outcome.activity.title, privacy: .public) detail=\(outcome.activity.detail, privacy: .private)"
+                )
+            }
             if let draftPrompt = outcome.draftPrompt {
                 sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
                 invalidatePendingChatSelection()
@@ -1749,10 +2353,78 @@ final class CodexCoreAppModel {
                 composerSession.setDraft(draftPrompt, for: currentThreadID)
             }
             appendIntegrationActivity(outcome.activity)
-            if outcome.shouldRefresh {
+            if outcome.didSucceed, outcome.shouldRefresh {
                 await refreshPlugins()
+            } else if !outcome.didSucceed {
+                restoreCatalogToggle(toggleRollback)
+            }
+            if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: false) }
+        }
+    }
+
+    func performPluginControlPlaneAction(_ request: CodexIntegrationControlPlaneRequest) {
+        Task {
+            let response = await performIntegrationControlPlaneRequest(request)
+            if case .mcpOAuthLogin = request,
+               case .dictionary(let object)? = response,
+               case .string(let authorizationURL)? = object["authorizationUrl"],
+               let url = URL(string: authorizationURL) {
+                NSWorkspace.shared.open(url)
+            }
+
+            switch request.permissionBoundary {
+            case .pluginMutation, .skillConfigurationWrite, .configurationWrite:
+                await refreshPlugins()
+            case .externalAuthentication:
+                await refreshMCPServers()
+            case .externalResourceRead, .externalToolExecution, nil:
+                break
             }
         }
+    }
+
+    private func pluginCatalogMutationKey(for action: CodexPluginRouteAction) -> PluginCatalogMutationKey? {
+        switch action {
+        case .installPlugin(let target), .uninstallPlugin(let target), .setPluginEnabled(let target, _):
+            return .plugin(target.id)
+        case .setSkillEnabled(let target, _), .uninstallSkill(let target):
+            return .skill(target.name.contains(":") ? target.name : target.path)
+        case .tryInChat:
+            return nil
+        }
+    }
+
+    private func isPluginCatalogMutationPending(_ key: PluginCatalogMutationKey) -> Bool {
+        switch key {
+        case .plugin(let id): pendingPluginActionIDs.contains(id)
+        case .skill(let id): pendingSkillActionIDs.contains(id)
+        }
+    }
+
+    private func setPluginCatalogMutationPending(_ key: PluginCatalogMutationKey, pending: Bool) {
+        switch key {
+        case .plugin(let id):
+            if pending { pendingPluginActionIDs.insert(id) } else { pendingPluginActionIDs.remove(id) }
+        case .skill(let id):
+            if pending { pendingSkillActionIDs.insert(id) } else { pendingSkillActionIDs.remove(id) }
+        }
+    }
+
+    private func restoreCatalogToggle(_ rollback: PluginCatalogToggleRollback?) {
+        guard let rollback else { return }
+        var session = runtimeSession.integrationCatalogSession
+        switch rollback {
+        case .plugin(let id, let enabled):
+            session.setPluginEnabledOptimistically(id: id, enabled: enabled)
+        case .skill(let path, let enabled):
+            session.setSkillEnabledOptimistically(path: path, enabled: enabled)
+        }
+        publishIntegrationCatalogSession(session)
+    }
+
+    private func publishIntegrationCatalogSession(_ session: CodexIntegrationCatalogSession) {
+        runtimeSession.integrationCatalogSession = session
+        integrationCatalogRevision &+= 1
     }
 
     func pinCurrentChat() {
@@ -1877,6 +2549,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, approved: approved) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
@@ -1893,6 +2566,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, decision: decision) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
@@ -1912,6 +2586,7 @@ final class CodexCoreAppModel {
                 ) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
@@ -1925,6 +2600,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.acceptInteractivePrompt(id: id) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
@@ -1938,6 +2614,7 @@ final class CodexCoreAppModel {
                 if let activity = try await promptRuntime.declineInteractivePrompt(id: id) {
                     appendActivity(.notice, title: activity.title, detail: activity.detail)
                 }
+                notifyDockStateChanged()
             } catch {
                 appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
@@ -1962,6 +2639,7 @@ final class CodexCoreAppModel {
             let normalized = CodexProjectSummary.normalizedPath(workspace)
             if normalized != CodexProjectSummary.normalizedPath(workspacePath) {
                 workspacePath = normalized
+                refreshGitBranch()
                 sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
                 invalidatePendingChatSelection()
                 clearThreadState()
@@ -2386,10 +3064,17 @@ final class CodexCoreAppModel {
 
     private func monitorSideChatTurn(_ lease: CodexTurnLease) {
         sideChatTurnCompletionTask?.cancel()
+        let activityKey = "side-chat.\(lease.key.threadID.rawValue).\(lease.key.turnID.rawValue)"
+        beginProcessActivity(
+            key: activityKey,
+            reason: "Running Codex side chat in \(lease.key.threadID.rawValue)"
+        )
         sideChatTurnCompletionTask = Task { [weak self] in
+            guard let self else { return }
+            defer { endProcessActivity(key: activityKey) }
             do {
                 _ = try await lease.awaitTerminal()
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeSideChatTurnLease?.key == lease.key {
                     activeSideChatTurnLease = nil
                 }
@@ -2399,7 +3084,7 @@ final class CodexCoreAppModel {
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 if activeSideChatTurnLease?.key == lease.key {
                     activeSideChatTurnLease = nil
                 }
@@ -2419,6 +3104,20 @@ final class CodexCoreAppModel {
 
     func copyText(_ text: String) {
         clipboardService.copy(text)
+    }
+
+    func copyWorkingDirectory() {
+        copyText(workspacePath)
+        appendActivity(.notice, title: "Copied working directory", detail: workspacePath)
+    }
+
+    func copySessionID() {
+        guard let currentThreadID else {
+            appendActivity(.notice, title: "Session ID unavailable", detail: "Open a chat first")
+            return
+        }
+        copyText(currentThreadID)
+        appendActivity(.notice, title: "Copied session ID", detail: currentThreadID)
     }
 
     func handleSlashCommand(
@@ -2571,7 +3270,10 @@ final class CodexCoreAppModel {
             gitBranch: gitBranch,
             turnDiff: currentDiff,
             environmentInfo: environmentInfoState,
-            sourceFiles: Array(sourceFiles)
+            sourceFiles: Array(sourceFiles),
+            plan: !isSending && !currentPlan.isEmpty
+                ? CodexPlanSummary(steps: currentPlan, explanation: currentPlanExplanation)
+                : nil
         )
     }
 
@@ -2607,6 +3309,7 @@ final class CodexCoreAppModel {
             cancelCurrentThreadObservation()
             activeTurnCompletionTask?.cancel()
             sideChatTurnCompletionTask?.cancel()
+            endAllProcessActivities()
             activeTurnCompletionTask = nil
             sideChatTurnCompletionTask = nil
             activeTurnLease = nil
@@ -2634,6 +3337,7 @@ final class CodexCoreAppModel {
 
     private func resetSessionState() async {
         await stopBottomTerminalSession()
+        endAllProcessActivities()
         await runtimeSession.disconnect()
         promptRuntime.disconnect()
         cancelCurrentThreadObservation()
@@ -2642,6 +3346,8 @@ final class CodexCoreAppModel {
         cancelSkillsChangedObservation()
         mentionSearchSession.reset()
         structuredPanelDismissalState = CodexStructuredPanelDismissalState()
+        configRequirements = nil
+        announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         loginTask?.cancel()
         loginTask = nil
         let previousCodex = codex
@@ -2651,7 +3357,11 @@ final class CodexCoreAppModel {
         authSession.resetAuthentication()
         threadListSession.reset(currentWorkspacePath: workspacePath)
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
-        runtimeSession.integrationCatalogSession.reset()
+        var integrationSession = runtimeSession.integrationCatalogSession
+        integrationSession.reset()
+        publishIntegrationCatalogSession(integrationSession)
+        runtimeSession.integrationControlPlaneSession.reset()
+        didBootstrapPluginMarketplaces = false
         configurationSession.reset()
         invalidatePendingChatSelection()
         clearThreadState()

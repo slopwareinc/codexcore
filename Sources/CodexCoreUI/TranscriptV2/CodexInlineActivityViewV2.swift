@@ -122,6 +122,20 @@ struct CodexInlineActivityViewV2: View {
 
 enum CodexProductToolPresentationV2 {
     static func label(_ call: CodexProductToolCallV2) -> String {
+        if call.namespace == "codex_app" {
+            switch call.tool {
+            case "create_thread":
+                if call.status == .inProgress { return "Creating chat" }
+                return threadReference(call) == nil ? "Created chat" : "Chat created"
+            case "send_message_to_thread":
+                return call.status == .inProgress ? "Sending message to chat" : "Sent message to chat"
+            case "read_thread":
+                return call.status == .inProgress ? "Reading chat" : "Read chat"
+            case "list_threads":
+                return call.status == .inProgress ? "Listing chats" : "Listed chats"
+            default: break
+            }
+        }
         let words = call.tool
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
             .split(whereSeparator: { $0 == "_" || $0 == "-" })
@@ -138,7 +152,36 @@ enum CodexProductToolPresentationV2 {
         if value.contains("github") { return "point.3.connected.trianglepath.dotted" }
         if value.contains("search") || value.contains("research") { return "magnifyingglass" }
         if value.contains("read") { return "book" }
+        if value.contains("thread") { return "bubble.left.and.bubble.right" }
         if value.contains("issue") || value.contains("pull_request") { return "arrow.triangle.branch" }
         return "wrench.and.screwdriver"
+    }
+
+    static func threadReference(_ call: CodexProductToolCallV2) -> CodexThreadReferenceV2? {
+        guard call.namespace == "codex_app" else { return nil }
+        if call.tool == "read_thread" || call.tool == "send_message_to_thread" {
+            guard case .dictionary(let arguments)? = call.arguments,
+                  case .string(let threadID)? = arguments["threadId"]
+            else { return nil }
+            let hostID: String? = if case .string(let value)? = arguments["hostId"] { value } else { nil }
+            return .init(hostID: hostID, threadID: threadID)
+        }
+        guard call.tool == "create_thread", call.success == true else { return nil }
+        for item in call.contentItems {
+            guard case .dictionary(let object) = item,
+                  case .string(let type)? = object["type"], type == "inputText",
+                  case .string(let text)? = object["text"],
+                  let data = text.data(using: .utf8),
+                  let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let threadID = result["threadId"] as? String
+            else { continue }
+            return .init(hostID: result["hostId"] as? String, threadID: threadID)
+        }
+        return nil
+    }
+
+    static func accessibilityLabel(_ call: CodexProductToolCallV2) -> String {
+        let label = label(call)
+        return threadReference(call) == nil ? label : "\(label). Open chat"
     }
 }

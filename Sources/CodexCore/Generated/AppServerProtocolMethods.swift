@@ -119,6 +119,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case configRead = "config/read"
     case externalAgentConfigDetect = "externalAgentConfig/detect"
     case externalAgentConfigImport = "externalAgentConfig/import"
+    case externalAgentConfigImportRecordHistory = "externalAgentConfig/import/recordHistory"
     case externalAgentConfigImportReadHistories = "externalAgentConfig/import/readHistories"
     case configValueWrite = "config/value/write"
     case configBatchWrite = "config/batchWrite"
@@ -215,7 +216,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 126
+    public static let clientMethodCount = 127
     public static let notificationMethodCount = 70
     public static let serverRequestMethodCount = 11
 }

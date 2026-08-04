@@ -7,6 +7,11 @@ public enum CodexAppRoute: String, CaseIterable, Sendable, Equatable {
     case automations
     case settingsAbout
 
+    public static let primarySidebarRoutes: [CodexAppRoute] = [
+        .plugins,
+        .automations,
+    ]
+
     public var title: String {
         switch self {
         case .chat: return "Chat"

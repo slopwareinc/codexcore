@@ -67,6 +67,8 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
     public var rawText: String
     public var referencedFiles: [CodexReferencedFile]
     public var responseAnnotations: [CodexResponseAnnotationContent]
+    /// Independent Codex task that sent this message, when present.
+    public var delegationSource: CodexThreadReferenceV2?
     public var isOptimistic: Bool
     public init(
         id: String,
@@ -75,6 +77,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         rawText: String? = nil,
         referencedFiles: [CodexReferencedFile] = [],
         responseAnnotations: [CodexResponseAnnotationContent] = [],
+        delegationSource: CodexThreadReferenceV2? = nil,
         isOptimistic: Bool = false
     ) {
         self.id = id
@@ -83,6 +86,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         self.rawText = rawText ?? text
         self.referencedFiles = referencedFiles
         self.responseAnnotations = responseAnnotations
+        self.delegationSource = delegationSource
         self.isOptimistic = isOptimistic
     }
 
@@ -92,6 +96,17 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         return [request, attachments]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
+    }
+}
+
+/// Stable navigation identity for an independent Codex task referenced in a transcript.
+public struct CodexThreadReferenceV2: Sendable, Equatable, Hashable {
+    public var hostID: String?
+    public var threadID: String
+
+    public init(hostID: String? = nil, threadID: String) {
+        self.hostID = hostID
+        self.threadID = threadID
     }
 }
 
@@ -123,6 +138,45 @@ public enum CodexTurnStatusV2: Sendable, Equatable {
     case working(since: Int64?)
     case done(durationMs: Int?)
     case failed(message: String)
+
+    /// Details retained for a user-stopped turn. This is a value type rather
+    /// than a protocol status so callers can preserve the elapsed work time
+    /// while the existing canonical failure mapping remains source-compatible.
+    public struct Interruption: Sendable, Equatable {
+        public var durationMs: Int?
+        public var message: String
+
+        public init(durationMs: Int? = nil, message: String = "Turn interrupted") {
+            self.durationMs = durationMs
+            self.message = message
+        }
+    }
+
+    private static let interruptionPrefix = "\u{001E}codex-turn-interrupted\u{001F}"
+
+    /// Constructs an interrupted terminal state while retaining the elapsed
+    /// duration before the user stopped the turn. The encoded payload stays
+    /// inside the legacy `.failed` case so existing canonical projections and
+    /// their exhaustive switches continue to compile.
+    public static func interrupted(durationMs: Int? = nil, message: String = "Turn interrupted") -> Self {
+        let duration = durationMs.map(String.init) ?? ""
+        return .failed(message: interruptionPrefix + duration + "\n" + message)
+    }
+
+    public var interruption: Interruption? {
+        guard case .failed(let message) = self else { return nil }
+        if message.hasPrefix(Self.interruptionPrefix) {
+            let payload = String(message.dropFirst(Self.interruptionPrefix.count))
+            let parts = payload.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            let duration = parts.first.flatMap { Int($0) }
+            let detail = parts.dropFirst().first.map(String.init) ?? "Turn interrupted"
+            return Interruption(durationMs: duration, message: detail)
+        }
+        // Canonical history currently reports interruption as a legacy failure
+        // message. Recognize that spelling so it still renders as stopped work.
+        guard message.localizedCaseInsensitiveContains("interrupt") else { return nil }
+        return Interruption(message: message)
+    }
 }
 
 public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
@@ -179,6 +233,23 @@ public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
     public init(id: String, command: String, label: String, action: CodexWorkCategoryV2, status: CodexWorkItemStatusV2, exitCode: Int? = nil, durationMs: Int? = nil, output: String? = nil) {
         self.id = id; self.command = command; self.label = label; self.action = action; self.status = status
         self.exitCode = exitCode; self.durationMs = durationMs; self.output = output
+    }
+
+    /// Compact outcome text used beside a command card's duration. A non-zero
+    /// exit status is a failure even when a transport-level item completed.
+    public var executionStateLabel: String {
+        switch status {
+        case .inProgress: return "running"
+        case .completed:
+            if let exitCode {
+                return exitCode == 0 ? "succeeded (exit 0)" : "failed (exit \(exitCode))"
+            }
+            return "finished"
+        case .failed:
+            return exitCode.map { "failed (exit \($0))" } ?? "failed"
+        case .declined: return "stopped"
+        case .unknown: return "status unknown"
+        }
     }
 }
 public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {

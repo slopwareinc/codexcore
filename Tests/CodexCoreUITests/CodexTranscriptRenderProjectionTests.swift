@@ -55,6 +55,192 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func commandCardsExposeExitOutcomeAndStyledANSIOutput() async throws {
+        let command = CodexCommandRowV2(
+            id: "command",
+            command: "printf output",
+            label: "Ran command",
+            action: .run,
+            status: .failed,
+            exitCode: 7,
+            durationMs: 1_200,
+            output: "\u{001B}[31mfailed\u{001B}[0m"
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "group", rows: [.command(command)]))],
+            status: .done(durationMs: 1_200)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id],
+                expandedRowIDs: ["group", "command"]
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let row = try #require(snapshot.itemsByID.values.first { $0.workRow?.kind == .command })
+        #expect(row.workRow?.exitCode == 7)
+        #expect(row.accessibilityLabel.contains("failed (exit 7)"))
+
+        let output = try #require(snapshot.itemsByID.values.first { $0.textRole == .expandedOutput })
+        #expect(output.preparedText?.attributedString.string == "failed")
+        #expect(output.preparedText?.attributedString.attribute(.foregroundColor, at: 0, effectiveRange: nil) != nil)
+    }
+
+    @Test func interruptedTurnsRenderDistinctlyAndKeepElapsedDuration() async throws {
+        let status = CodexTurnStatusV2.interrupted(durationMs: 12_000)
+        #expect(status.interruption?.durationMs == 12_000)
+
+        let turn = CodexTurnV2(
+            id: "interrupted",
+            narrative: [.notice(.init(id: "notice", message: "Stopped by user"))],
+            status: status
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let header = try #require(snapshot.itemsByID.values.first { $0.workHeader != nil })
+        let workHeader = try #require(header.workHeader)
+        guard case .interrupted(let durationMs, _) = workHeader.state else {
+            Issue.record("Expected an interrupted work header")
+            return
+        }
+        #expect(durationMs == 12_000)
+        #expect(header.accessibilityLabel.contains("Interrupted after 12s"))
+    }
+
+    @Test func fileCitationParserIsConservativeAndPreservesLocations() {
+        let text = "Open Sources/CodexCoreUI/View.swift:42:7, ./Tests/ViewTests.swift:9, and Package.swift. Ignore example.com, settings.json, and dev@example.com."
+        let candidates = CodexTranscriptFileCitationParser.candidates(in: text)
+
+        #expect(candidates.map(\.reference) == [
+            .init(path: "Sources/CodexCoreUI/View.swift", line: 42, column: 7),
+            .init(path: "./Tests/ViewTests.swift", line: 9),
+            .init(path: "Package.swift"),
+        ])
+        #expect(candidates.map { (text as NSString).substring(with: $0.range) } == [
+            "Sources/CodexCoreUI/View.swift:42:7",
+            "./Tests/ViewTests.swift:9",
+            "Package.swift",
+        ])
+    }
+
+    @Test func workspaceFileNavigationRejectsMissingAndEscapingPaths() {
+        let workspace = URL(fileURLWithPath: "/tmp/project")
+        let existing = Set([
+            workspace.appending(path: "Sources/App.swift").standardizedFileURL,
+            workspace.appending(path: "Package.swift").standardizedFileURL,
+        ])
+        let service = CodexWorkspaceTranscriptFileNavigationService(
+            workspaceURL: workspace,
+            fileExists: { existing.contains($0) },
+            openFile: { _ in },
+            revealFile: { _ in }
+        )
+
+        #expect(service.resolve(.init(path: "Sources/App.swift", line: 12))?.fileURL ==
+            workspace.appending(path: "Sources/App.swift").standardizedFileURL)
+        #expect(service.resolve(.init(path: "Package.swift")) != nil)
+        #expect(service.resolve(.init(path: "README.md")) == nil)
+        #expect(service.resolve(.init(path: "../outside.swift")) == nil)
+        #expect(service.resolve(.init(path: "/tmp/outside.swift")) == nil)
+    }
+
+    @Test func findProjectionSearchesMessagesAndCollapsedCommandOutputWithABoundedMatchSet() async throws {
+        let command = CodexCommandRowV2(
+            id: "command",
+            command: "printf needle",
+            label: "Ran command",
+            action: .run,
+            status: .completed,
+            output: "hidden needle output"
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            userMessage: .init(id: "user", text: "needle in prompt"),
+            narrative: [.workGroup(.init(id: "group", rows: [.command(command)]))],
+            finalAnswer: .init(id: "answer", text: "needle in answer", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [turn])
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let projection = CodexTranscriptFindProjection.matches(
+            query: "needle",
+            snapshot: snapshot,
+            presentation: presentation
+        )
+
+        #expect(projection.matches.count == 3)
+        let commandMatch = try #require(projection.matches.first { !$0.expansionRowIDs.isEmpty })
+        #expect(commandMatch.expansionRowIDs == ["group", "command"])
+        #expect(commandMatch.itemID.rawValue.hasSuffix(":row:command:detail"))
+
+        let repeated = Array(repeating: "hit", count: CodexTranscriptFindProjection.matchLimit + 5)
+            .joined(separator: " ")
+        let limitedTurn = CodexTurnV2(
+            id: "limited",
+            userMessage: .init(id: "limited-user", text: repeated),
+            status: .done(durationMs: nil)
+        )
+        let limitedPresentation = CodexThreadUIPresentation(
+            threadID: "limited-thread",
+            transcript: .init(turns: [limitedTurn])
+        )
+        let limitedSnapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: limitedPresentation,
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let limited = CodexTranscriptFindProjection.matches(
+            query: "hit",
+            snapshot: limitedSnapshot,
+            presentation: limitedPresentation
+        )
+        #expect(limited.matches.count == CodexTranscriptFindProjection.matchLimit)
+        #expect(limited.hitLimit)
+    }
+
+    @Test func terminalTurnsExposeRetryOnlyOnTheirAssistantAffordance() async throws {
+        let user = CodexUserMessageV2(id: "user", text: "Try this", rawText: "raw prompt")
+        let completed = CodexTurnV2(
+            id: "completed",
+            userMessage: user,
+            finalAnswer: .init(id: "answer", text: "Done", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        let failed = CodexTurnV2(
+            id: "failed",
+            userMessage: user,
+            narrative: [.notice(.init(id: "notice", message: "Stopped"))],
+            status: .failed(message: "Failed")
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [completed, failed])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+
+        let completedRetry = snapshot.itemsByID.values.filter { $0.retryUserMessage != nil && $0.turnID == "completed" }
+        #expect(completedRetry.count == 1)
+        #expect(completedRetry.first?.footer?.kind == .finalAnswer)
+        let failedRetry = snapshot.itemsByID.values.filter { $0.retryUserMessage != nil && $0.turnID == "failed" }
+        #expect(failedRetry.count == 1)
+        #expect(failedRetry.first?.workHeader != nil)
+        #expect(failedRetry.first?.retryUserMessage?.rawText == "raw prompt")
+    }
+
     @Test func onlyCompletedAssistantResponseTextAllowsAnnotations() async throws {
         let projector = CodexTranscriptRenderProjector()
         let completed = try await projector.project(
@@ -360,8 +546,117 @@ struct CodexTranscriptRenderProjectionTests {
             return
         }
         #expect(threadID == "019f670d-ce61-7cb2-a1eb-3b9bc5256026")
-        #expect(content[1].action == .openSubagent(threadID: threadID!))
+        #expect(content[1].action == .openThread(.init(threadID: threadID!)))
         #expect(content[2].preparedText?.attributedString.string.contains("After the handoff") == true)
+    }
+
+    @Test func pendingCreatedThreadDirectiveDoesNotResumeClientSetupIDAsAThread() async throws {
+        let turn = CodexTurnV2(
+            id: "turn",
+            finalAnswer: .init(
+                id: "final",
+                text: "::created-thread{clientThreadId=\"client-new-thread:setup-id\"}",
+                isStreaming: false
+            ),
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.directive != nil })
+        guard case .createdThread(let threadID, let pendingID) = item.directive?.kind else {
+            Issue.record("Expected a pending created-thread directive")
+            return
+        }
+        #expect(threadID == nil)
+        #expect(pendingID == "setup-id")
+        #expect(item.action == nil)
+    }
+
+    @Test func independentThreadCommunicationRendersBidirectionalNavigation() async throws {
+        let source = CodexThreadReferenceV2(hostID: "local", threadID: "source-thread")
+        let target = CodexThreadReferenceV2(hostID: "remote-host", threadID: "target-thread")
+        let send = CodexProductToolCallV2(
+            id: "send",
+            tool: "send_message_to_thread",
+            namespace: "codex_app",
+            arguments: .dictionary([
+                "threadId": .string(target.threadID),
+                "hostId": .string(target.hostID!),
+                "prompt": .string("Status?")
+            ]),
+            status: .completed,
+            contentItems: [],
+            success: true
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            userMessage: .init(
+                id: "user",
+                text: "Reply from the other task",
+                delegationSource: source
+            ),
+            narrative: [.productToolCall(send)],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+
+        let incoming = try #require(snapshot.itemsByID.values.first {
+            $0.workRow?.label == "Sent by Codex from another chat"
+        })
+        #expect(incoming.action == .openThread(source))
+        let outgoing = try #require(snapshot.itemsByID.values.first { $0.productTool?.id == "send" })
+        #expect(CodexProductToolPresentationV2.label(send) == "Sent message to chat")
+        #expect(outgoing.action == .openThread(target))
+        let delegatedBubble = try #require(snapshot.itemsByID.values.first {
+            $0.id.rawValue.contains(":user:user") && $0.textRole == .user
+        })
+        #expect(delegatedBubble.editUserText == nil)
+    }
+
+    @Test func completedCreateThreadToolRendersClickableChatCreatedCard() async throws {
+        let result = #"{"threadId":"created-thread","hostId":"remote-host"}"#
+        let call = CodexProductToolCallV2(
+            id: "create",
+            tool: "create_thread",
+            namespace: "codex_app",
+            arguments: .dictionary([:]),
+            status: .completed,
+            contentItems: [.dictionary([
+                "type": .string("inputText"),
+                "text": .string(result)
+            ])],
+            success: true
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.productToolCall(call)],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedWorkTurnIDs: [turn.id]
+            ),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+
+        let card = try #require(snapshot.itemsByID.values.first { $0.productTool?.id == call.id })
+        #expect(CodexProductToolPresentationV2.label(call) == "Chat created")
+        #expect(card.accessibilityLabel == "Chat created. Open chat")
+        #expect(card.action == .openThread(.init(hostID: "remote-host", threadID: "created-thread")))
     }
 
     @Test func identicalOrdinaryMarkdownIsRetainedAndHitsPreparedTextCache() async throws {
@@ -925,6 +1220,121 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(second.diagnostics.heightCacheMissCount == 0)
         #expect(second.diagnostics.preparedTextCacheHitCount > 0)
         #expect(second.diagnostics.preparedTextCacheMissCount == 0)
+    }
+
+    @Test func completedTurnPromotesEditsBesideFinalAnswer() async throws {
+        let diff = (1...5).map { index in
+            """
+            diff --git a/Sources/File\(index).swift b/Sources/File\(index).swift
+            --- a/Sources/File\(index).swift
+            +++ b/Sources/File\(index).swift
+            @@ -1 +1,2 @@
+            -old
+            +new
+            +more
+            """
+        }.joined(separator: "\n")
+        let turn = CodexTurnV2(
+            id: "turn-diff",
+            narrative: [.workGroup(.init(
+                id: "work",
+                rows: [.fileChange(.init(
+                    id: "files",
+                    files: (1...5).map { "Sources/File\($0).swift" },
+                    status: .completed,
+                    diff: diff
+                ))],
+                isLive: false
+            ))],
+            finalAnswer: .init(id: "final", text: "Implemented the changes.", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let collapsed = try await projector.project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let cardID = try #require(collapsed.orderedItemIDs.first { $0.rawValue.hasSuffix(":turn-diff") })
+        let card = try #require(collapsed.itemsByID[cardID]?.turnDiff)
+        let finalID = try #require(collapsed.orderedItemIDs.first { $0.rawValue.contains(":final:final:") })
+
+        #expect(card.title == "Edited 5 files")
+        #expect(card.visibleFiles.count == 3)
+        #expect(card.hiddenFileCount == 2)
+        #expect(card.totalAdded == 10)
+        #expect(card.totalRemoved == 5)
+        #expect(collapsed.orderedItemIDs.firstIndex(of: cardID)! < collapsed.orderedItemIDs.firstIndex(of: finalID)!)
+
+        let expanded = try await projector.project(
+            presentation: .init(
+                threadID: "thread",
+                transcript: .init(turns: [turn]),
+                expandedRowIDs: ["turn-diff:turn-diff"]
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let expandedCard = try #require(expanded.itemsByID[cardID]?.turnDiff)
+        #expect(expandedCard.visibleFiles.count == 5)
+        #expect(expandedCard.hiddenFileCount == 0)
+        #expect(expandedCard.isExpanded)
+    }
+
+    @Test func addedFileReachesReviewAsAUnifiedPatch() async throws {
+        // Added files arrive as bare content. Review renders unified diffs, so
+        // unmarked content would read as unchanged context in both gutters.
+        let turn = CodexTurnV2(
+            id: "turn-added",
+            narrative: [.workGroup(.init(
+                id: "work",
+                rows: [.fileChange(.init(
+                    id: "files",
+                    changes: [CodexFileChangeV2(
+                        id: "change",
+                        path: "games/guess_game.py",
+                        kind: .added,
+                        diff: "import random\nsecret = 4"
+                    )],
+                    status: .completed
+                ))],
+                isLive: false
+            ))],
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let card = try #require(snapshot.itemsByID.values.first { $0.turnDiff != nil }?.turnDiff)
+        let file = try #require(card.reviewSession.snapshot.files.first)
+        let patch = file.displayPatch
+
+        #expect(patch.hasPrefix("diff --git a/games/guess_game.py"))
+        #expect(patch.contains("@@ -0,0 +1,"))
+        #expect(patch.contains("\n+import random"))
+
+        let document = CodexReviewDiffDocument.parse(patch)
+        #expect(document.hasOldSide == false)
+        #expect(document.rows.contains { $0.kind == .add && $0.text == "import random" })
+    }
+
+    @Test func activeTurnDoesNotPromoteIncompleteEdits() async throws {
+        let turn = CodexTurnV2(
+            id: "active",
+            narrative: [.workGroup(.init(id: "work", rows: [.fileChange(.init(
+                id: "files", files: ["A.swift"], status: .inProgress, diff: "+new"
+            ))]))],
+            status: .working(since: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+
+        #expect(snapshot.itemsByID.values.allSatisfy { $0.turnDiff == nil })
     }
 
     private func allKindsTurn() -> CodexTurnV2 {

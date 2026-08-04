@@ -7,6 +7,79 @@ struct CodexTranscriptRenderItemID: Hashable, Sendable {
     var rawValue: String
 }
 
+struct CodexTranscriptFileCitationCandidate: Sendable, Equatable {
+    var reference: CodexTranscriptFileReference
+    var range: NSRange
+}
+
+enum CodexTranscriptFileCitationParser {
+    private static let expression = try? NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9@])((?:/|\.\.?/)?(?:[A-Za-z0-9_@+~.-]+/)*[A-Za-z0-9_@+~-]+\.[A-Za-z][A-Za-z0-9]{0,11})(?::([1-9][0-9]*))?(?::([1-9][0-9]*))?"#
+    )
+
+    static func candidates(in text: String) -> [CodexTranscriptFileCitationCandidate] {
+        guard let expression else { return [] }
+        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return expression.matches(in: text, range: fullRange).compactMap { match in
+            guard let pathRange = Range(match.range(at: 1), in: text) else { return nil }
+            let path = String(text[pathRange])
+            guard isPlausible(path: path, hasLine: match.range(at: 2).location != NSNotFound) else {
+                return nil
+            }
+            let line = integer(at: 2, match: match, text: text)
+            let column = integer(at: 3, match: match, text: text)
+            return CodexTranscriptFileCitationCandidate(
+                reference: .init(path: path, line: line, column: column),
+                range: match.range(at: 0)
+            )
+        }
+    }
+
+    private static func integer(at index: Int, match: NSTextCheckingResult, text: String) -> Int? {
+        guard let range = Range(match.range(at: index), in: text) else { return nil }
+        return Int(text[range])
+    }
+
+    private static func isPlausible(path: String, hasLine: Bool) -> Bool {
+        if path.contains("/") || hasLine { return true }
+        let knownWorkspaceNames: Set<String> = [
+            "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "Dockerfile", "Gemfile",
+            "Justfile", "LICENSE", "Makefile", "Package.swift", "Podfile", "README.md",
+        ]
+        return knownWorkspaceNames.contains(path)
+    }
+}
+
+enum CodexTranscriptFileCitationLink {
+    static func url(for reference: CodexTranscriptFileReference) -> URL? {
+        var components = URLComponents()
+        components.scheme = "codex-file"
+        components.host = "workspace"
+        components.queryItems = [URLQueryItem(name: "path", value: reference.path)]
+        if let line = reference.line {
+            components.queryItems?.append(URLQueryItem(name: "line", value: String(line)))
+        }
+        if let column = reference.column {
+            components.queryItems?.append(URLQueryItem(name: "column", value: String(column)))
+        }
+        return components.url
+    }
+
+    static func reference(from value: Any) -> CodexTranscriptFileReference? {
+        let url: URL?
+        if let candidate = value as? URL { url = candidate }
+        else if let candidate = value as? String { url = URL(string: candidate) }
+        else { url = nil }
+        guard let url, url.scheme == "codex-file",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let path = components.queryItems?.first(where: { $0.name == "path" })?.value
+        else { return nil }
+        let line = components.queryItems?.first(where: { $0.name == "line" })?.value.flatMap(Int.init)
+        let column = components.queryItems?.first(where: { $0.name == "column" })?.value.flatMap(Int.init)
+        return .init(path: path, line: line, column: column)
+    }
+}
+
 struct CodexTranscriptColumnMetrics: Sendable, Equatable {
     static let horizontalMargin: CGFloat = 24
     static let flowLayoutHorizontalAllowance: CGFloat = 32
@@ -74,8 +147,10 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case toggleRow(rowID: String)
     case selectDiffFile(rowID: String, index: Int)
     case openSubagent(threadID: String)
+    case openThread(CodexThreadReferenceV2)
     case openURL(String)
     case openFile(path: String, line: Int?)
+    case openReview(CodexTranscriptReviewRequest)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
 }
 
@@ -101,6 +176,7 @@ struct CodexTranscriptWorkHeaderRender: Sendable, Equatable {
     enum State: Sendable, Equatable {
         case working(startedAt: Date, showsDuration: Bool)
         case done(durationMs: Int?, isExpanded: Bool)
+        case interrupted(durationMs: Int?, message: String)
         case failed(message: String)
     }
 
@@ -122,6 +198,7 @@ struct CodexTranscriptWorkRowRender: Sendable, Equatable {
     var systemImage: String? = nil
     var style: CodexTranscriptWorkRowStyle = .standard
     var durationMs: Int?
+    var exitCode: Int? = nil
     var isExpanded: Bool
     var hasDetail: Bool
     var isSubagentLink: Bool
@@ -197,6 +274,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var workRow: CodexTranscriptWorkRowRender?
     var agentChips: [CodexTranscriptAgentChipRender]
     var diffPanel: CodexTranscriptDiffPanelRender?
+    var turnDiff: CodexTranscriptTurnDiffRender?
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
@@ -205,6 +283,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var action: CodexTranscriptRenderAction?
     var copyPayload: CodexTranscriptCopyPayload?
     var editUserText: String?
+    var retryUserMessage: CodexUserMessageV2?
     var copyTurnText: String
     var allowsTextSelection: Bool
     var allowsResponseAnnotation: Bool = false
@@ -455,6 +534,7 @@ actor CodexTranscriptRenderProjector {
                     workRow: draft.workRow,
                     agentChips: draft.agentChips,
                     diffPanel: draft.diffPanel,
+                    turnDiff: draft.turnDiff,
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
@@ -463,6 +543,7 @@ actor CodexTranscriptRenderProjector {
                     action: draft.action,
                     copyPayload: draft.copyPayload,
                     editUserText: draft.editUserText,
+                    retryUserMessage: Self.retryUserMessage(for: draft, turn: turn),
                     copyTurnText: copyTurnText,
                     allowsTextSelection: allowsTextSelection,
                     allowsResponseAnnotation: allowsResponseAnnotation,
@@ -501,6 +582,10 @@ actor CodexTranscriptRenderProjector {
                 : Self.shouldRenderWork(turn)
             let tailMode = Self.isWorkTailMode(turn)
             let workExpanded = Self.workIsExpanded(turn, presentation: presentation)
+            let turnDiff = Self.turnDiffRender(
+                turn: turn,
+                isExpanded: presentation.expandedRowIDs.contains("turn-diff:\(turn.id)")
+            )
             if showsWork {
                 let header = Self.workHeader(turn, expanded: workExpanded, presentedAt: presentedAt)
                 append(ItemDraft(
@@ -630,6 +715,7 @@ actor CodexTranscriptRenderProjector {
                                 status: Self.status(for: row),
                                 systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
+                                exitCode: Self.exitCode(for: row),
                                 isExpanded: isRowExpanded,
                                 hasDetail: hasDetail,
                                 isSubagentLink: subagentThreadID != nil
@@ -682,13 +768,18 @@ actor CodexTranscriptRenderProjector {
                                 ))
                             } else if isRowExpanded, let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
+                                let prepared = Self.prepareExpandedOutput(
+                                    bounded,
+                                    row: row,
+                                    theme: theme
+                                )
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
                                     fingerprint: "detail:\(bounded)",
                                     textRole: .expandedOutput,
-                                    preparedText: Self.preparePlain(bounded, font: theme.codeFont, color: theme.textSecondary, theme: theme),
+                                    preparedText: prepared,
                                     copyText: detail,
-                                    accessibilityLabel: "Expanded output: \(bounded)",
+                                    accessibilityLabel: "Expanded output: \(prepared.attributedString.string)",
                                     indentation: 0,
                                     maxWidthKind: .card,
                                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
@@ -702,7 +793,10 @@ actor CodexTranscriptRenderProjector {
                             id: "\(sectionID):product:\(call.id)",
                             fingerprint: "product:\(String(describing: call))",
                             productTool: call,
-                            accessibilityLabel: "Tool \([call.namespace, call.tool].compactMap { $0 }.joined(separator: " "))",
+                            action: CodexProductToolPresentationV2.threadReference(call).map {
+                                .openThread($0)
+                            },
+                            accessibilityLabel: CodexProductToolPresentationV2.accessibilityLabel(call),
                             maxWidthKind: .card,
                             fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
                             bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
@@ -831,6 +925,27 @@ actor CodexTranscriptRenderProjector {
                         cacheMisses: &preparedTextCacheMisses
                     ) { append(draft) }
                 }
+            }
+
+            if let turnDiff {
+                let rowHeight = CodexTranscriptTurnDiffCard.rowHeight
+                let disclosureHeight: CGFloat = turnDiff.hiddenFileCount > 0 || turnDiff.isExpanded
+                    ? rowHeight : 0
+                append(ItemDraft(
+                    id: "\(sectionID):turn-diff",
+                    fingerprint: "turn-diff:\(String(describing: turnDiff))",
+                    turnDiff: turnDiff,
+                    accessibilityLabel: "\(turnDiff.title), \(turnDiff.totalAdded) additions and \(turnDiff.totalRemoved) removals",
+                    maxWidthKind: .card,
+                    fixedHeight: CodexTranscriptTurnDiffCard.topSpacing
+                        + CodexTranscriptTurnDiffCard.headerHeight
+                        + CodexTranscriptTurnDiffCard.listVerticalInset * 2
+                        + CGFloat(turnDiff.visibleFiles.count) * rowHeight
+                        + disclosureHeight,
+                    // A card carries more visual weight than a text line, so it
+                    // gets a full gap instead of the tight interactive spacing.
+                    bottomSpacing: CodexTranscriptColumnMetrics.turnGap
+                ))
             }
 
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
@@ -964,6 +1079,7 @@ private extension CodexTranscriptRenderProjector {
         var workRow: CodexTranscriptWorkRowRender?
         var agentChips: [CodexTranscriptAgentChipRender]
         var diffPanel: CodexTranscriptDiffPanelRender?
+        var turnDiff: CodexTranscriptTurnDiffRender?
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
@@ -990,6 +1106,7 @@ private extension CodexTranscriptRenderProjector {
             workRow: CodexTranscriptWorkRowRender? = nil,
             agentChips: [CodexTranscriptAgentChipRender] = [],
             diffPanel: CodexTranscriptDiffPanelRender? = nil,
+            turnDiff: CodexTranscriptTurnDiffRender? = nil,
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
@@ -1016,6 +1133,7 @@ private extension CodexTranscriptRenderProjector {
             self.workRow = workRow
             self.agentChips = agentChips
             self.diffPanel = diffPanel
+            self.turnDiff = turnDiff
             self.code = code
             self.footer = footer
             self.productTool = productTool
@@ -1127,12 +1245,15 @@ private extension CodexTranscriptRenderProjector {
 
         switch directive.name {
         case "created-thread":
-            let legacy = attributes["clientThreadId"]?.replacingOccurrences(of: "client-new-thread:", with: "")
-            let threadID = attributes["threadId"] ?? attributes["threadID"] ?? legacy
-            let pendingID = attributes["pendingWorktreeId"] ?? attributes["pendingWorktreeID"]
+            let clientID = attributes["clientThreadId"]?.replacingOccurrences(of: "client-new-thread:", with: "")
+            let threadID = attributes["threadId"] ?? attributes["threadID"]
+            let pendingID = attributes["pendingWorktreeId"] ?? attributes["pendingWorktreeID"] ?? clientID
             render = .init(kind: .createdThread(threadID: threadID, pendingWorktreeID: pendingID), raw: raw)
-            action = pendingID == nil ? threadID.map(CodexTranscriptRenderAction.openSubagent) : nil
-            label = "Created thread · \(Self.shortIdentifier(threadID ?? pendingID ?? "pending"))"
+            action = pendingID == nil
+                ? threadID.map { .openThread(.init(threadID: $0)) }
+                : nil
+            label = (pendingID == nil ? "Chat created" : "Worktree chat queued")
+                + " · \(Self.shortIdentifier(threadID ?? pendingID ?? "pending"))"
         case "git-stage", "git-commit", "git-create-branch", "git-push":
             let verb = String(directive.name.dropFirst(4))
             let branch = attributes["branch"]
@@ -1417,6 +1538,30 @@ private extension CodexTranscriptRenderProjector {
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
         var drafts: [ItemDraft] = []
+        if let source = user.delegationSource {
+            let row = CodexTranscriptWorkRowRender(
+                kind: .other,
+                label: "Sent by Codex from another chat",
+                status: .completed,
+                systemImage: "bubble.left.and.bubble.right",
+                style: .inlineActivity,
+                durationMs: nil,
+                isExpanded: false,
+                hasDetail: false,
+                isSubagentLink: false
+            )
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):delegation-source",
+                fingerprint: "delegation-source:\(source)",
+                workRow: row,
+                action: .openThread(source),
+                accessibilityLabel: "Sent by Codex from another chat. Open source chat",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
+                bottomSpacing: 2
+            ))
+        }
         if !user.responseAnnotations.isEmpty {
             let count = user.responseAnnotations.count
             let summary = user.responseAnnotations.enumerated().map { index, annotation in
@@ -1491,7 +1636,7 @@ private extension CodexTranscriptRenderProjector {
                 textRole: .user,
                 preparedText: prepared,
                 copyText: user.text.isEmpty ? user.displayText : user.text,
-                editUserText: user.rawText,
+                editUserText: user.delegationSource == nil ? user.rawText : nil,
                 accessibilityLabel: "You: \(visibleUserText)",
                 isTrailingAligned: true,
                 maxWidthKind: .user,
@@ -1683,7 +1828,12 @@ private extension CodexTranscriptRenderProjector {
             for item in items {
                 counters.keys.filter { $0 > item.depth }.forEach { counters.removeValue(forKey: $0) }
                 counters[item.depth, default: 0] += 1
-                let marker = ordered ? "\(counters[item.depth]!).\t" : "•\t"
+                let marker: String
+                if item.isTask {
+                    marker = (item.isCompleted ? "☑" : "☐") + "\t"
+                } else {
+                    marker = ordered ? "\(counters[item.depth]!).\t" : "•\t"
+                }
                 let style = NSMutableParagraphStyle()
                 style.lineSpacing = theme.lineSpacing
                 style.paragraphSpacing = 4
@@ -1714,6 +1864,28 @@ private extension CodexTranscriptRenderProjector {
                 result.append(line)
             }
             return CodexPreparedTranscriptText(result)
+        case .blockquote(_, let text, _):
+            let prepared = NSMutableAttributedString(attributedString: prepareMarkdown(
+                text,
+                font: theme.bodyFont,
+                color: color(for: role, theme: theme),
+                theme: theme
+            ).attributedString)
+            if prepared.length > 0 {
+                let style = NSMutableParagraphStyle()
+                style.lineSpacing = theme.lineSpacing
+                style.headIndent = 16
+                style.firstLineHeadIndent = 16
+                prepared.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: prepared.length))
+            }
+            return CodexPreparedTranscriptText(prepared)
+        case .horizontalRule:
+            return preparePlain(
+                "────────────────────────",
+                font: theme.captionFont,
+                color: theme.textTertiary,
+                theme: theme
+            )
         case .table(_, let model):
             return prepareTable(model, role: role, theme: theme)
         case .code:
@@ -1810,6 +1982,24 @@ private extension CodexTranscriptRenderProjector {
             .foregroundColor: color,
             .paragraphStyle: style
         ]))
+    }
+
+    static func prepareExpandedOutput(
+        _ text: String,
+        row: CodexWorkRowV2,
+        theme: CodexTranscriptAppKitTheme
+    ) -> CodexPreparedTranscriptText {
+        guard case .command = row else {
+            return preparePlain(text, font: theme.codeFont, color: theme.textSecondary, theme: theme)
+        }
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = theme.lineSpacing
+        return CodexPreparedTranscriptText(ANSITerminalStyle.makeAppKitAttributedString(
+            from: ANSIParser().parse(text),
+            font: theme.codeFont,
+            defaultForeground: theme.textSecondary,
+            paragraphStyle: style
+        ))
     }
 
     static func prepareUserMessage(
@@ -1962,6 +2152,12 @@ private extension CodexTranscriptRenderProjector {
         case .done(let durationMs):
             return .init(state: .done(durationMs: durationMs, isExpanded: expanded))
         case .failed(let message):
+            if let interruption = turn.status.interruption {
+                return .init(state: .interrupted(
+                    durationMs: interruption.durationMs,
+                    message: interruption.message
+                ))
+            }
             return .init(state: .failed(message: message))
         }
     }
@@ -1976,6 +2172,9 @@ private extension CodexTranscriptRenderProjector {
         case .working(_, let showsDuration): return showsDuration ? "Working" : "Thinking"
         case .done(let duration, let expanded):
             return "\(CodexWorkBlockViewV2.completedLabel(duration)), \(expanded ? "expanded" : "collapsed")"
+        case .interrupted(let duration, let message):
+            let elapsed = duration.map { " after \(CodexWorkBlockViewV2.duration($0))" } ?? ""
+            return "Interrupted\(elapsed)" + (message.isEmpty ? "" : ": \(message)")
         case .failed(let message): return message.isEmpty ? "Work failed" : message
         }
     }
@@ -2027,6 +2226,11 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
+    static func exitCode(for row: CodexWorkRowV2) -> Int? {
+        guard case .command(let value) = row else { return nil }
+        return value.exitCode
+    }
+
     static func detail(for row: CodexWorkRowV2) -> String? {
         switch row {
         case .command(let value): return value.output?.codexAppKitNilIfEmpty
@@ -2063,7 +2267,11 @@ private extension CodexTranscriptRenderProjector {
         case .declined: "declined"
         case .unknown: "unknown status"
         }
-        return "\(render.label), \(state)"
+        let outcome: String? = {
+            guard case .command(let value) = row else { return nil }
+            return value.executionStateLabel
+        }()
+        return [render.label, outcome ?? state].joined(separator: ", ")
     }
 
     static func inlineActivityAccessibilityLabel(
@@ -2127,6 +2335,25 @@ private extension CodexTranscriptRenderProjector {
         flushWork()
         if let answer = turn.finalAnswer?.text.codexAppKitNilIfEmpty { parts.append("Assistant\n" + answer) }
         return parts.joined(separator: "\n\n")
+    }
+
+    private static func retryUserMessage(
+        for draft: ItemDraft,
+        turn: CodexTurnV2
+    ) -> CodexUserMessageV2? {
+        guard let userMessage = turn.userMessage else { return nil }
+        switch turn.status {
+        case .working:
+            return nil
+        case .done:
+            if draft.footer?.kind == .finalAnswer { return userMessage }
+            guard turn.finalAnswer?.text.isEmpty != false else { return nil }
+            return draft.workHeader == nil ? nil : userMessage
+        case .failed:
+            if draft.footer?.kind == .finalAnswer { return userMessage }
+            guard turn.finalAnswer?.text.isEmpty != false else { return nil }
+            return draft.workHeader == nil ? nil : userMessage
+        }
     }
 }
 

@@ -15,10 +15,26 @@ public struct CodexEmptyTranscriptView: View {
     }
 
     public static let defaultPrompts = [
-        Prompt(systemImage: "ladybug", prompt: "Debug an issue"),
-        Prompt(systemImage: "list.bullet.clipboard", prompt: "Plan implementation"),
-        Prompt(systemImage: "text.magnifyingglass", prompt: "Explain this project"),
-        Prompt(systemImage: "scope", prompt: "Find relevant code")
+        Prompt(
+            systemImage: "ladybug",
+            prompt: "Debug an issue",
+            detail: "Trace a failure, warning, or unexpected result"
+        ),
+        Prompt(
+            systemImage: "list.bullet.clipboard",
+            prompt: "Plan implementation",
+            detail: "Turn a goal into concrete steps"
+        ),
+        Prompt(
+            systemImage: "text.magnifyingglass",
+            prompt: "Explain this project",
+            detail: "Get a concise map of the current workspace"
+        ),
+        Prompt(
+            systemImage: "scope",
+            prompt: "Find relevant code",
+            detail: "Search symbols, files, and call sites"
+        )
     ]
     private let onSelect: (String) -> Void
     public init(onSelect: @escaping (String) -> Void) { self.onSelect = onSelect }

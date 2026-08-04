@@ -3,7 +3,6 @@ import Foundation
 public enum CodexProjectEnvironmentSelection: String, CaseIterable, Equatable, Sendable {
     case local
     case worktree
-    case cloud
 
     public var title: String {
         switch self {
@@ -11,10 +10,88 @@ public enum CodexProjectEnvironmentSelection: String, CaseIterable, Equatable, S
             return "Local"
         case .worktree:
             return "Worktree"
-        case .cloud:
-            return "Cloud"
         }
     }
+}
+
+public enum CodexWorktreeHandoffProgressStage: Int, CaseIterable, Equatable, Sendable {
+    case preparing
+    case creatingWorktree
+    case creatingBranch
+    case applyingTrackedChanges
+    case copyingUntrackedFiles
+    case finalizing
+
+    public var title: String {
+        switch self {
+        case .preparing:
+            return "Capturing source changes"
+        case .creatingWorktree:
+            return "Creating worktree"
+        case .creatingBranch:
+            return "Creating branch"
+        case .applyingTrackedChanges:
+            return "Applying tracked changes"
+        case .copyingUntrackedFiles:
+            return "Copying untracked files"
+        case .finalizing:
+            return "Finalizing handoff"
+        }
+    }
+
+    public var completedFraction: Double {
+        Double(rawValue + 1) / Double(Self.allCases.count)
+    }
+}
+
+public enum CodexWorktreeHandoffPathStatus: String, Equatable, Sendable {
+    case applied
+    case skipped
+    case conflicted
+
+    public var title: String {
+        switch self {
+        case .applied:
+            return "Applied"
+        case .skipped:
+            return "Skipped"
+        case .conflicted:
+            return "Conflicted"
+        }
+    }
+}
+
+public struct CodexWorktreeHandoffPathOutcome: Equatable, Sendable {
+    public var path: String
+    public var status: CodexWorktreeHandoffPathStatus
+    public var detail: String?
+
+    public init(
+        path: String,
+        status: CodexWorktreeHandoffPathStatus,
+        detail: String? = nil
+    ) {
+        self.path = path
+        self.status = status
+        self.detail = detail
+    }
+}
+
+public struct CodexProjectEnvironmentRepositorySnapshot: Equatable, Sendable {
+    public var branchName: String?
+    public var branches: [String]
+    public var dirtyFileCount: Int
+
+    public init(branchName: String?, branches: [String], dirtyFileCount: Int) {
+        self.branchName = branchName
+        self.branches = branches
+        self.dirtyFileCount = max(0, dirtyFileCount)
+    }
+}
+
+public protocol CodexProjectEnvironmentProviding: CodexWorktreeHandoffProviding {
+    func repositorySnapshot() async throws -> CodexProjectEnvironmentRepositorySnapshot
+    func checkoutBranch(_ branchName: String) async throws -> CodexProjectEnvironmentRepositorySnapshot
 }
 
 public enum CodexEnvironmentInfoState: Equatable, Sendable {
@@ -52,7 +129,7 @@ public struct CodexProjectEnvironmentState: Equatable, Sendable {
         selection = .worktree
         branchName = result.branchName
         worktreePath = result.worktreePath
-        workspacePath = result.worktreePath
+        workspacePath = result.workingDirectoryPath
     }
 }
 
@@ -171,11 +248,21 @@ public struct CodexWorktreeHandoffResult: Equatable, Sendable {
     public var title: String
     public var branchName: String
     public var worktreePath: String
+    public var workingDirectoryPath: String
+    public var pathOutcomes: [CodexWorktreeHandoffPathOutcome]
 
-    public init(title: String, branchName: String, worktreePath: String) {
+    public init(
+        title: String,
+        branchName: String,
+        worktreePath: String,
+        workingDirectoryPath: String? = nil,
+        pathOutcomes: [CodexWorktreeHandoffPathOutcome] = []
+    ) {
         self.title = title
         self.branchName = branchName
         self.worktreePath = worktreePath
+        self.workingDirectoryPath = workingDirectoryPath?.nilIfBlank ?? worktreePath
+        self.pathOutcomes = pathOutcomes
     }
 
     public var resultCard: CodexWorktreeHandoffResultCard {
@@ -183,7 +270,8 @@ public struct CodexWorktreeHandoffResult: Equatable, Sendable {
             title: "Handed-off to worktree",
             detail: "\(branchName) at \(worktreePath)",
             branchName: branchName,
-            worktreePath: worktreePath
+            worktreePath: worktreePath,
+            pathOutcomes: pathOutcomes
         )
     }
 }
@@ -193,28 +281,70 @@ public struct CodexWorktreeHandoffResultCard: Equatable, Sendable {
     public var detail: String
     public var branchName: String
     public var worktreePath: String
+    public var pathOutcomes: [CodexWorktreeHandoffPathOutcome]
 
-    public init(title: String, detail: String, branchName: String, worktreePath: String) {
+    public init(
+        title: String,
+        detail: String,
+        branchName: String,
+        worktreePath: String,
+        pathOutcomes: [CodexWorktreeHandoffPathOutcome] = []
+    ) {
         self.title = title
         self.detail = detail
         self.branchName = branchName
         self.worktreePath = worktreePath
+        self.pathOutcomes = pathOutcomes
     }
+}
+
+public struct CodexWorktreeHandoffFailure: Equatable, Sendable {
+    public var message: String
+    public var pathOutcomes: [CodexWorktreeHandoffPathOutcome]
+
+    public init(message: String, pathOutcomes: [CodexWorktreeHandoffPathOutcome] = []) {
+        self.message = message
+        self.pathOutcomes = pathOutcomes
+    }
+}
+
+public enum CodexWorktreeHandoffOutcome: Equatable, Sendable {
+    case success(CodexWorktreeHandoffResult)
+    case failure(CodexWorktreeHandoffFailure)
 }
 
 public struct CodexWorktreeHandoffCompletion: Equatable, Sendable {
     public var environment: CodexProjectEnvironmentState
-    public var activity: CodexActivity
-    public var resultCard: CodexWorktreeHandoffResultCard?
+    public var outcome: CodexWorktreeHandoffOutcome
 
     public init(
         environment: CodexProjectEnvironmentState,
-        activity: CodexActivity,
-        resultCard: CodexWorktreeHandoffResultCard?
+        outcome: CodexWorktreeHandoffOutcome
     ) {
         self.environment = environment
-        self.activity = activity
-        self.resultCard = resultCard
+        self.outcome = outcome
+    }
+
+    public var activity: CodexActivity {
+        switch outcome {
+        case .success(let result):
+            return CodexActivity(
+                kind: .notice,
+                title: result.resultCard.title,
+                detail: result.resultCard.detail
+            )
+        case .failure(let failure):
+            return CodexActivity(
+                kind: .notice,
+                title: "Worktree handoff failed",
+                detail: "\(failure.message) The source tree was left untouched."
+            )
+        }
+    }
+
+    public var resultCard: CodexWorktreeHandoffResultCard? {
+        guard case .success(let result) = outcome else { return nil }
+        return result.resultCard
     }
 }
 
@@ -233,17 +363,20 @@ public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
     public var modal: CodexWorktreeHandoffModalState?
     public var lastActivity: CodexActivity?
     public var resultCard: CodexWorktreeHandoffResultCard?
+    public var handoffFailure: CodexWorktreeHandoffFailure?
 
     public init(
         environment: CodexProjectEnvironmentState,
         modal: CodexWorktreeHandoffModalState? = nil,
         lastActivity: CodexActivity? = nil,
-        resultCard: CodexWorktreeHandoffResultCard? = nil
+        resultCard: CodexWorktreeHandoffResultCard? = nil,
+        handoffFailure: CodexWorktreeHandoffFailure? = nil
     ) {
         self.environment = environment
         self.modal = modal
         self.lastActivity = lastActivity
         self.resultCard = resultCard
+        self.handoffFailure = handoffFailure
     }
 
     public var rows: [CodexProjectEnvironmentPanelRow] {
@@ -279,25 +412,34 @@ public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
         )
         lastActivity = nil
         resultCard = nil
+        handoffFailure = nil
     }
 
     public mutating func apply(_ completion: CodexWorktreeHandoffCompletion) {
         environment = completion.environment
         lastActivity = completion.activity
         resultCard = completion.resultCard
+        if case .failure(let failure) = completion.outcome {
+            handoffFailure = failure
+        } else {
+            handoffFailure = nil
+        }
     }
 
     public static func defaultTargetPath(sourcePath: String, threadTitle: String) -> String {
         let source = sourcePath.trimmedForHandoff
         guard !source.isEmpty else { return "" }
-        let sourceURL = URL(fileURLWithPath: source)
+        let sourceURL = URL(fileURLWithPath: source).standardizedFileURL
+        let repositoryURL = CodexWorkspaceGitProbe.repositoryRoot(at: sourceURL) ?? sourceURL
         let branchName = CodexWorktreeHandoffModalState.defaultBranchName(for: threadTitle)
         let slug = branchName
             .replacingOccurrences(of: "codex/", with: "")
             .replacingOccurrences(of: "/", with: "-")
-        return sourceURL
+        let bucket = String(UUID().uuidString.prefix(4)).lowercased()
+        return repositoryURL
             .deletingLastPathComponent()
-            .appendingPathComponent("\(sourceURL.lastPathComponent)-worktrees")
+            .appendingPathComponent("\(repositoryURL.lastPathComponent)-worktrees")
+            .appendingPathComponent(bucket)
             .appendingPathComponent(slug)
             .path
     }
@@ -305,40 +447,56 @@ public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
 
 public protocol CodexWorktreeHandoffProviding: Sendable {
     func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult
+    func handOffToWorktree(
+        _ request: CodexWorktreeHandoffRequest,
+        progress: @escaping @MainActor @Sendable (CodexWorktreeHandoffProgressStage) -> Void
+    ) async throws -> CodexWorktreeHandoffResult
+}
+
+public extension CodexWorktreeHandoffProviding {
+    func handOffToWorktree(
+        _ request: CodexWorktreeHandoffRequest,
+        progress: @escaping @MainActor @Sendable (CodexWorktreeHandoffProgressStage) -> Void
+    ) async throws -> CodexWorktreeHandoffResult {
+        await progress(.preparing)
+        let result = try await handOffToWorktree(request)
+        await progress(.finalizing)
+        return result
+    }
 }
 
 public enum CodexWorktreeHandoffSession {
     public static func perform(
         modal: CodexWorktreeHandoffModalState,
         environment: CodexProjectEnvironmentState,
-        provider: any CodexWorktreeHandoffProviding
+        provider: any CodexWorktreeHandoffProviding,
+        progress: @escaping @MainActor @Sendable (CodexWorktreeHandoffProgressStage) -> Void = { _ in }
     ) async -> CodexWorktreeHandoffCompletion {
         guard let request = modal.request() else {
             return CodexWorktreeHandoffCompletion(
                 environment: environment,
-                activity: CodexActivity(
-                    kind: .notice,
-                    title: "Worktree handoff unavailable",
-                    detail: modal.validationErrors.map(\.message).joined(separator: ", ")
-                ),
-                resultCard: nil
+                outcome: .failure(CodexWorktreeHandoffFailure(
+                    message: modal.validationErrors.map(\.message).joined(separator: ", ")
+                ))
             )
         }
 
         do {
-            let result = try await provider.handOffToWorktree(request)
+            let result = try await provider.handOffToWorktree(request, progress: progress)
             var updated = environment
             updated.apply(result)
             return CodexWorktreeHandoffCompletion(
                 environment: updated,
-                activity: CodexActivity(kind: .notice, title: result.resultCard.title, detail: result.resultCard.detail),
-                resultCard: result.resultCard
+                outcome: .success(result)
             )
         } catch {
+            let pathOutcomes = (error as? CodexLocalProjectEnvironmentError)?.pathOutcomes ?? []
             return CodexWorktreeHandoffCompletion(
                 environment: environment,
-                activity: CodexActivity(kind: .notice, title: "Worktree handoff unavailable", detail: error.localizedDescription),
-                resultCard: nil
+                outcome: .failure(CodexWorktreeHandoffFailure(
+                    message: error.localizedDescription,
+                    pathOutcomes: pathOutcomes
+                ))
             )
         }
     }
@@ -346,6 +504,22 @@ public enum CodexWorktreeHandoffSession {
 
 public struct CodexUnsupportedWorktreeHandoffProvider: CodexWorktreeHandoffProviding {
     public init() {}
+
+    public func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
+        throw CodexUnsupportedWorktreeHandoffError()
+    }
+}
+
+public struct CodexUnsupportedProjectEnvironmentProvider: CodexProjectEnvironmentProviding {
+    public init() {}
+
+    public func repositorySnapshot() async throws -> CodexProjectEnvironmentRepositorySnapshot {
+        throw CodexUnsupportedWorktreeHandoffError()
+    }
+
+    public func checkoutBranch(_ branchName: String) async throws -> CodexProjectEnvironmentRepositorySnapshot {
+        throw CodexUnsupportedWorktreeHandoffError()
+    }
 
     public func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
         throw CodexUnsupportedWorktreeHandoffError()

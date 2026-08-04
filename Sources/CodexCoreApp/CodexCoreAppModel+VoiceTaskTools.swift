@@ -126,6 +126,62 @@ extension CodexCoreAppModel {
             ],
             required: ["threadId", "prompt"]
         ),
+        voiceTaskToolSpec(
+            name: "fork_thread",
+            description: "Fork an existing local task with its conversation context.",
+            properties: [
+                "threadId": stringProperty("The source task/thread identifier."),
+                "context": .dictionary([
+                    "type": .string("string"),
+                    "enum": .array([.string("local"), .string("same_worktree")]),
+                    "description": .string("Local keeps the current project context; same_worktree keeps the source worktree context."),
+                ]),
+                "ephemeral": .dictionary([
+                    "type": .string("boolean"),
+                    "description": .string("Whether the fork should be ephemeral, as side chats are."),
+                ]),
+            ],
+            required: ["threadId"]
+        ),
+        voiceTaskToolSpec(
+            name: "get_thread_status",
+            description: "Read canonical lifecycle and latest-turn status for one task.",
+            properties: ["threadId": stringProperty("The task/thread identifier.")],
+            required: ["threadId"]
+        ),
+        voiceTaskToolSpec(
+            name: "wait_threads",
+            description: "Wait for one to eight tasks to finish and return their result text or errors.",
+            properties: [
+                "threadIds": .dictionary([
+                    "type": .string("array"),
+                    "items": .dictionary(["type": .string("string")]),
+                    "minItems": .int(1),
+                    "maxItems": .int(8),
+                ]),
+                "timeoutSeconds": .dictionary([
+                    "type": .string("integer"),
+                    "minimum": .int(1),
+                    "maximum": .int(120),
+                ]),
+            ],
+            required: ["threadIds"]
+        ),
+        voiceTaskToolSpec(
+            name: "interrupt_thread",
+            description: "Interrupt a task and every running descendant task, leaf-first.",
+            properties: ["threadId": stringProperty("The root task/thread identifier.")],
+            required: ["threadId"]
+        ),
+        voiceTaskToolSpec(
+            name: "set_thread_archived",
+            description: "Archive or unarchive a task and its recursive descendants.",
+            properties: [
+                "threadId": stringProperty("The root task/thread identifier."),
+                "archived": .dictionary(["type": .string("boolean")]),
+            ],
+            required: ["threadId", "archived"]
+        ),
     ]
 
     func voiceThreadStartParameters(
@@ -356,8 +412,13 @@ extension CodexCoreAppModel {
                     "turnId": .string(turn.key.turnID.rawValue),
                     "status": .string("started"),
                 ])
-                Task {
-                    _ = try? await turn.awaitTerminal()
+                Task { [weak self] in
+                    guard let self else { return }
+                    _ = try? await self.withProcessActivity(
+                        reason: "Running Voice task in \(lease.id.rawValue)"
+                    ) {
+                        try await turn.awaitTerminal()
+                    }
                     await lease.close()
                     await self.refreshRecentChats()
                 }
@@ -394,6 +455,9 @@ extension CodexCoreAppModel {
             case "send_message_to_thread":
                 let threadID = try request.arguments.requiredString(for: "threadId")
                 let message = try request.arguments.requiredString(for: "prompt")
+                guard let sourceThreadID = request.scope.threadID else {
+                    throw CodexVoiceTaskToolError.missingArgument("sourceThreadId")
+                }
                 let response = try await codex.perform(CodexRequest.threadRead(.init(
                     includeTurns: false,
                     threadID: threadID
@@ -406,41 +470,104 @@ extension CodexCoreAppModel {
                 } else {
                     roots = workspaceRoots(containing: cwd)
                 }
-                let resumeWire = taskWireSelection(
-                    for: threadID,
-                    explicitTierOnly: true
-                )
-                let lease = try await codex.resumeThread(voiceThreadResumeParameters(
-                    wire: resumeWire,
-                    cwd: cwd,
-                    roots: roots,
-                    threadID: threadID
-                ))
-                hydrateModelPreference(
-                    for: threadID,
-                    modelID: lease.modelIdentifier,
-                    serviceTierID: lease.serviceTier
-                )
-                let targetWire = taskWireSelection(for: threadID).omittingEffort()
-                let turn = try await lease.startTurn(voiceTurnStartParameters(
-                    wire: targetWire,
-                    permissionConfiguration: nil,
-                    cwd: cwd,
-                    roots: roots,
+                let service = CodexThreadGraphService(codex: codex)
+                let receipt = try await service.sendMessage(
+                    to: .init(hostID: "local", threadID: ThreadID(threadID)),
                     prompt: message,
-                    threadID: threadID,
-                    clientUserMessageID: UUID().uuidString
-                ))
+                    source: .init(hostID: "local", threadID: ThreadID(sourceThreadID)),
+                    cwd: cwd,
+                    runtimeWorkspaceRoots: roots
+                )
                 let result: CodexJSONValue = .dictionary([
+                    "hostId": .string("local"),
                     "threadId": .string(threadID),
-                    "turnId": .string(turn.key.turnID.rawValue),
+                    "sourceThreadId": .string(sourceThreadID),
+                    "turnId": .string(receipt.turnID.rawValue),
                     "status": .string("started"),
                 ])
-                Task {
-                    _ = try? await turn.awaitTerminal()
-                    await lease.close()
-                }
                 content = result
+
+            case "fork_thread":
+                let threadID = try request.arguments.requiredString(for: "threadId")
+                let context = request.arguments.string(for: "context") ?? "local"
+                guard context == "local" || context == "same_worktree" else {
+                    throw CodexVoiceTaskToolError.unsupportedTarget(context)
+                }
+                let response = try await codex.perform(CodexRequest.threadRead(.init(
+                    includeTurns: false,
+                    threadID: threadID
+                )))
+                let cwd = response.thread.cwd.rawValue.stringValue ?? workspacePath
+                let roots = workspaceRoots(containing: cwd)
+                let service = CodexThreadGraphService(codex: codex)
+                let lease = try await service.fork(
+                    .init(hostID: "local", threadID: ThreadID(threadID)),
+                    cwd: cwd,
+                    runtimeWorkspaceRoots: roots,
+                    ephemeral: request.arguments.boolean(for: "ephemeral") ?? false
+                )
+                content = .dictionary([
+                    "hostId": .string("local"),
+                    "threadId": .string(lease.id.rawValue),
+                    "sourceThreadId": .string(threadID),
+                    "context": .string(context),
+                ])
+                await lease.close()
+
+            case "get_thread_status":
+                let threadID = try request.arguments.requiredString(for: "threadId")
+                let snapshot = await codex.session.canonicalSnapshot()
+                let key = CodexThreadGraphKey(hostID: "local", threadID: ThreadID(threadID))
+                let node = CodexThreadGraphProjector.project(snapshot, hostID: "local").nodes[key]
+                let latest = snapshot.turns(in: key.threadID).last
+                content = .dictionary([
+                    "hostId": .string("local"),
+                    "threadId": .string(threadID),
+                    "turnId": latest.map { .string($0.key.turnID.rawValue) } ?? .null,
+                    "turnStatus": latest.map { .string($0.status.rawValue) } ?? .null,
+                    "agentStatus": node?.lifecycle.map { .string($0.rawValue) } ?? .null,
+                    "message": (node?.errorMessage ?? node?.resultMessage).map(CodexJSONValue.string) ?? .null,
+                    "childThreadIds": .array((node?.children ?? []).map { .string($0.threadID.rawValue) }),
+                ])
+
+            case "wait_threads":
+                let ids = try request.arguments.requiredStringArray(for: "threadIds")
+                guard (1...8).contains(ids.count) else {
+                    throw CodexVoiceTaskToolError.invalidArgument("threadIds must contain 1...8 ids")
+                }
+                let seconds = min(max(request.arguments.integer(for: "timeoutSeconds") ?? 120, 1), 120)
+                let service = CodexThreadGraphService(codex: codex)
+                let results = try await service.wait(
+                    for: ids.map { .init(hostID: "local", threadID: ThreadID($0)) },
+                    timeout: .seconds(seconds)
+                )
+                content = .array(results.map { result in
+                    .dictionary([
+                        "hostId": .string(result.thread.hostID),
+                        "threadId": .string(result.thread.threadID.rawValue),
+                        "turnId": result.turnID.map { .string($0.rawValue) } ?? .null,
+                        "turnStatus": result.status.map { .string($0.rawValue) } ?? .null,
+                        "agentStatus": result.lifecycle.map { .string($0.rawValue) } ?? .null,
+                        "result": result.result.map(CodexJSONValue.string) ?? .null,
+                        "error": result.error.map(CodexJSONValue.string) ?? .null,
+                    ])
+                })
+
+            case "interrupt_thread":
+                let threadID = try request.arguments.requiredString(for: "threadId")
+                let report = await CodexThreadGraphService(codex: codex).interruptRecursively(
+                    .init(hostID: "local", threadID: ThreadID(threadID))
+                )
+                content = Self.voiceOperationReport(report)
+
+            case "set_thread_archived":
+                let threadID = try request.arguments.requiredString(for: "threadId")
+                let archived = try request.arguments.requiredBoolean(for: "archived")
+                let report = await CodexThreadGraphService(codex: codex).setArchivedRecursively(
+                    .init(hostID: "local", threadID: ThreadID(threadID)),
+                    archived: archived
+                )
+                content = Self.voiceOperationReport(report)
 
             default:
                 return .pending
@@ -468,6 +595,11 @@ extension CodexCoreAppModel {
         "list_threads",
         "read_thread",
         "send_message_to_thread",
+        "fork_thread",
+        "get_thread_status",
+        "wait_threads",
+        "interrupt_thread",
+        "set_thread_archived",
     ]
 
     private static func voiceTaskToolSpec(
@@ -478,6 +610,7 @@ extension CodexCoreAppModel {
     ) -> CodexSchemaDynamicToolSpec {
         CodexSchemaDynamicToolSpec(.dictionary([
             "name": .string(name),
+            "namespace": .string("codex_app"),
             "description": .string(description),
             "inputSchema": .dictionary([
                 "type": .string("object"),
@@ -486,6 +619,26 @@ extension CodexCoreAppModel {
                 "additionalProperties": .bool(false),
             ]),
         ]))
+    }
+
+    private static func stringProperty(_ description: String) -> CodexJSONValue {
+        .dictionary(["type": .string("string"), "description": .string(description)])
+    }
+
+    private static func voiceOperationReport(
+        _ report: CodexThreadGraphOperationReport
+    ) -> CodexJSONValue {
+        .dictionary([
+            "complete": .bool(report.isComplete),
+            "attemptedThreadIds": .array(report.attempted.map { .string($0.threadID.rawValue) }),
+            "succeededThreadIds": .array(report.succeeded.map { .string($0.threadID.rawValue) }),
+            "failures": .array(report.failures.map { failure in
+                .dictionary([
+                    "threadId": .string(failure.thread.threadID.rawValue),
+                    "error": .string(failure.message),
+                ])
+            }),
+        ])
     }
 
     private static func voiceTaskToolResult(
@@ -519,6 +672,7 @@ private enum CodexVoiceTaskToolError: LocalizedError {
     case notCurrentVoiceThread
     case unknownProject(String)
     case unsupportedTarget(String)
+    case invalidArgument(String)
 
     var errorDescription: String? {
         switch self {
@@ -530,6 +684,8 @@ private enum CodexVoiceTaskToolError: LocalizedError {
             "Unknown project: \(id). Call list_projects and use a returned projectId."
         case .unsupportedTarget(let type):
             "Unsupported task target: \(type)"
+        case .invalidArgument(let message):
+            message
         }
     }
 }
@@ -553,6 +709,33 @@ private extension CodexJSONValue {
         case .string(let value): return Int(value)
         default: return nil
         }
+    }
+
+    func boolean(for key: String) -> Bool? {
+        guard case .dictionary(let object) = self,
+              case .bool(let value)? = object[key] else { return nil }
+        return value
+    }
+
+    func requiredBoolean(for key: String) throws -> Bool {
+        guard let value = boolean(for: key) else {
+            throw CodexVoiceTaskToolError.missingArgument(key)
+        }
+        return value
+    }
+
+    func requiredStringArray(for key: String) throws -> [String] {
+        guard case .dictionary(let object) = self,
+              case .array(let values)? = object[key]
+        else { throw CodexVoiceTaskToolError.missingArgument(key) }
+        let strings = values.compactMap { value -> String? in
+            guard case .string(let string) = value, !string.isEmpty else { return nil }
+            return string
+        }
+        guard strings.count == values.count else {
+            throw CodexVoiceTaskToolError.invalidArgument("\(key) must contain only non-empty strings")
+        }
+        return strings
     }
 
     func requiredObject(for key: String) throws -> CodexJSONValue {

@@ -49,8 +49,12 @@ struct CodexTranscriptFileChangeRenderingTests {
             return
         }
         #expect(panel.isScrollableOutput)
-        #expect(panel.measuredHeight == CodexTranscriptColumnMetrics.diffPanelHeight + 8)
-        #expect(panel.bottomSpacing == 8)
+        #expect(
+            panel.measuredHeight
+                == CodexTranscriptColumnMetrics.diffPanelHeight
+                    + CodexTranscriptColumnMetrics.interactiveBottomSpacing
+        )
+        #expect(panel.bottomSpacing == CodexTranscriptColumnMetrics.interactiveBottomSpacing)
 
         var copiedPatch: String?
         let cell = CodexTranscriptCollectionItem()
