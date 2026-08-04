@@ -417,12 +417,39 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
         fingerprint = [
             String(describing: colorScheme),
             bodyFont.fontName, String(describing: bodyFont.pointSize), codeFont.fontName,
-            String(describing: codeFont.pointSize), String(describing: textPrimary),
-            String(describing: userBubble), String(describing: codeHeader),
-            String(describing: codeKeyword), String(describing: codeString),
-            String(describing: codeComment), String(describing: codeNumber),
-            String(describing: accent), String(describing: warning), String(describing: lineSpacing)
+            String(describing: codeFont.pointSize),
+            Self.colorFingerprint(textPrimary),
+            Self.colorFingerprint(userBubble), Self.colorFingerprint(codeHeader),
+            Self.colorFingerprint(codeKeyword), Self.colorFingerprint(codeString),
+            Self.colorFingerprint(codeComment), Self.colorFingerprint(codeNumber),
+            Self.colorFingerprint(accent), Self.colorFingerprint(warning),
+            String(describing: lineSpacing)
         ].joined(separator: ":")
+    }
+
+    /// Stable identity for a resolved color.
+    ///
+    /// `String(describing:)` must never be used here. `staticColorResolver`
+    /// flattens to sRGB but falls back to the dynamic color when conversion
+    /// fails, and a dynamic `NSColor`'s description is not stable across equal
+    /// values — each projection builds fresh instances, so the theme
+    /// fingerprint changed on every update and reconfigured all 1,085 items
+    /// instead of the one that actually changed. It reproduced only on a
+    /// headless runner, where the sRGB conversion is the part that fails.
+    ///
+    /// Components are stable whenever conversion succeeds, and the failure case
+    /// degrades to a constant: a theme change may then go unnoticed, which
+    /// costs a stale palette until the next structural update, while the
+    /// alternative costs a full reconfigure on every keystroke of streamed text.
+    private static func colorFingerprint(_ color: NSColor) -> String {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return "unresolved" }
+        return String(
+            format: "%.4f/%.4f/%.4f/%.4f",
+            srgb.redComponent,
+            srgb.greenComponent,
+            srgb.blueComponent,
+            srgb.alphaComponent
+        )
     }
 
     /// Returns a function that flattens a SwiftUI `Color` — adaptive or not —

@@ -15,6 +15,27 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(container.scrollView.contentInsets.top == 72)
     }
 
+    /// The theme fingerprint gates a full reconfigure of every cell, so equal
+    /// themes must produce byte-identical fingerprints across separate
+    /// constructions. It previously hashed `String(describing:)` of an
+    /// `NSColor`, which is unstable for a dynamic color — reconfiguring all
+    /// 1,085 items on each streamed update instead of the one that changed.
+    /// That only reproduced where the sRGB flattening fails, so assert the
+    /// invariant directly rather than relying on a headless runner to catch it.
+    @Test func themeFingerprintIsStableAcrossEqualConstructions() {
+        for scheme in [ColorScheme.dark, .light] {
+            let first = CodexTranscriptAppKitTheme(.officialDark, colorScheme: scheme)
+            let second = CodexTranscriptAppKitTheme(.officialDark, colorScheme: scheme)
+            #expect(first.fingerprint == second.fingerprint)
+            #expect(!first.fingerprint.contains("NSColor"))
+            #expect(!first.fingerprint.contains("0x"))
+        }
+
+        let dark = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        let light = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .light)
+        #expect(dark.fingerprint != light.fingerprint)
+    }
+
     @Test func unconfiguredCollectionItemDoesNotBuildEverySpecializedControlTree() {
         let cell = CodexTranscriptCollectionItem()
 
