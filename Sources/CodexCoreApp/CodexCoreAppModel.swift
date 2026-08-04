@@ -1382,9 +1382,10 @@ final class CodexCoreAppModel {
 
     func requestPluginRefresh() {
         let state = runtimeSession.integrationCatalogSession
-        guard !state.isLoadingPlugins, !state.isLoadingSkills else { return }
+        guard !state.isLoadingPlugins, !state.isLoadingApps, !state.isLoadingSkills else { return }
         var loadingState = state
         loadingState.beginPluginRefresh()
+        loadingState.beginAppRefresh()
         loadingState.beginSkillRefresh()
         publishIntegrationCatalogSession(loadingState)
         Task { await refreshPlugins() }
@@ -2250,6 +2251,11 @@ final class CodexCoreAppModel {
         using provider: any CodexIntegrationControlPlaneProvider
     ) async {
         let threadID = currentThreadID
+        var appListResponse: CodexJSONValue?
+        var installedAppsResponse: CodexJSONValue?
+        var catalogSession = runtimeSession.integrationCatalogSession
+        catalogSession.beginAppRefresh()
+        publishIntegrationCatalogSession(catalogSession)
         let requests: [CodexIntegrationControlPlaneRequest] = [
             .appList(.init(forceRefetch: false, limit: 100, threadID: threadID)),
             .appInstalled(.init(forceRefresh: false, threadID: threadID)),
@@ -2263,14 +2269,25 @@ final class CodexCoreAppModel {
                 using: provider,
                 announces: false
             )
-            // `hooks/list` is the only inventory response with a presentation
-            // projection; the rest are read back from the control-plane session.
-            guard case .hooksList = request, let response else { continue }
-            var session = runtimeSession.integrationCatalogSession
-            let activity = session.applyHooksResponse(response)
-            runtimeSession.integrationCatalogSession = session
-            appendIntegrationActivity(activity)
+            switch request {
+            case .appList:
+                appListResponse = response
+            case .appInstalled:
+                installedAppsResponse = response
+            case .hooksList:
+                guard let response else { continue }
+                var session = runtimeSession.integrationCatalogSession
+                let activity = session.applyHooksResponse(response)
+                runtimeSession.integrationCatalogSession = session
+                appendIntegrationActivity(activity)
+            default:
+                break
+            }
         }
+        var session = runtimeSession.integrationCatalogSession
+        let activity = session.applyAppResponses(list: appListResponse, installed: installedAppsResponse)
+        runtimeSession.integrationCatalogSession = session
+        appendIntegrationActivity(activity)
     }
 
     func performPluginCatalogAction(_ action: CodexPluginRouteAction) {

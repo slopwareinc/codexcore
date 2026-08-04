@@ -51,9 +51,14 @@ description, capabilities, source metadata, enable/install controls, and a
 **Try in chat** action when the manifest supplies a default prompt.
 
 Choose **Manage** beside Installed to search and configure Plugins, Apps, MCPs,
-and Skills in one place. MCP rows expose OAuth login when required. The create
-menu also adds or upgrades plugin marketplaces; completed mutations refresh the
-catalog from app-server state.
+Skills, and Marketplaces in one place. Empty tabs are hidden except MCPs, which
+stays reachable so the first server can be added. Plugin and skill switches
+change their enabled state without uninstalling them. Apps come from accessible
+`app/list` entries (not plugin capability metadata) and have
+their own enable switches. **Manage MCP servers** opens the complete server
+surface for enablement, OAuth login, tools and resources, and add/edit/remove
+configuration. Marketplace management supports add, update, and remove;
+completed mutations refresh the catalog from app-server state.
 
 ## Projects and chats
 

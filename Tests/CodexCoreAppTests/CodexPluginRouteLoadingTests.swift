@@ -13,6 +13,7 @@ struct CodexPluginRouteLoadingTests {
         model.selectAppRoute(.plugins)
 
         #expect(model.isLoadingPlugins)
+        #expect(model.isLoadingApps)
         #expect(model.isLoadingSkills)
     }
 
@@ -24,6 +25,7 @@ struct CodexPluginRouteLoadingTests {
         model.requestPluginRefresh()
 
         #expect(model.isLoadingPlugins)
+        #expect(model.isLoadingApps)
         #expect(model.isLoadingSkills)
     }
 

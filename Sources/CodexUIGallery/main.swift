@@ -739,6 +739,17 @@ private struct PluginsRouteScene: View {
     var body: some View {
         CodexPluginRouteView(
             plugins: plugins,
+            apps: [
+                CodexAppSummary(
+                    id: "gmail",
+                    displayName: "Gmail",
+                    detail: "Read and manage Gmail",
+                    developerName: "Google",
+                    category: "Productivity",
+                    enabled: true,
+                    runtimeName: "gmail"
+                )
+            ],
             skills: skills,
             mcpServers: [CodexMCPServerStatus(name: "filesystem", displayName: "Filesystem", startupStatus: "ready")],
             initialTab: tab,

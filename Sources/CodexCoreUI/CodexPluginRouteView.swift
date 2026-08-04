@@ -11,17 +11,24 @@ public struct CodexPluginRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     public let plugins: [CodexPluginSummary]
+    public let marketplaces: [CodexMarketplaceSummary]
+    public let apps: [CodexAppSummary]
     public let skills: [CodexSkillSummary]
     public let mcpServers: [CodexMCPServerStatus]
     public let isLoadingPlugins: Bool
+    public let isLoadingApps: Bool
     public let isLoadingSkills: Bool
+    public let isLoadingMCPServers: Bool
     public let pluginErrorMessage: String?
+    public let appErrorMessage: String?
     public let skillErrorMessage: String?
+    public let mcpErrorMessage: String?
     public let pluginLoadErrors: [String]
     public let launcherTarget: CodexComposerPluginLauncher?
     public let pendingPluginIDs: Set<String>
     public let pendingSkillIDs: Set<String>
     public let controlPlaneProvider: (any CodexIntegrationControlPlaneProvider)?
+    public let threadID: String?
     public let onLoad: () -> Void
     public let onRefresh: () -> Void
     public let onAction: (CodexPluginRouteAction) -> Void
@@ -36,21 +43,32 @@ public struct CodexPluginRouteView: View {
     @State private var expandedMarketplaceSections: Set<String> = []
     @State private var expandedSkillSections: Set<String> = []
     @State private var showsMarketplaceManagement = false
+    @State private var showsMCPManagement = false
+    @State private var pendingAppIDs: Set<String> = []
+    @State private var appEnableOverrides: [String: Bool] = [:]
+    @State private var appMutationMessage: String?
     @FocusState private var isSearchFocused: Bool
 
     public init(
         plugins: [CodexPluginSummary],
+        marketplaces: [CodexMarketplaceSummary]? = nil,
+        apps: [CodexAppSummary] = [],
         skills: [CodexSkillSummary],
         mcpServers: [CodexMCPServerStatus],
         isLoadingPlugins: Bool = false,
+        isLoadingApps: Bool = false,
         isLoadingSkills: Bool = false,
+        isLoadingMCPServers: Bool = false,
         pluginErrorMessage: String? = nil,
+        appErrorMessage: String? = nil,
         skillErrorMessage: String? = nil,
+        mcpErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
         launcherTarget: CodexComposerPluginLauncher? = nil,
         pendingPluginIDs: Set<String> = [],
         pendingSkillIDs: Set<String> = [],
         controlPlaneProvider: (any CodexIntegrationControlPlaneProvider)? = nil,
+        threadID: String? = nil,
         initialTab: CodexPluginRoutePrimaryTab = .marketplace,
         initialManageTab: CodexPluginManageTab = .plugins,
         onLoad: @escaping () -> Void = {},
@@ -58,17 +76,24 @@ public struct CodexPluginRouteView: View {
         onAction: @escaping (CodexPluginRouteAction) -> Void
     ) {
         self.plugins = plugins
+        self.marketplaces = marketplaces ?? CodexMarketplaceSummary.summaries(from: plugins)
+        self.apps = apps
         self.skills = skills
         self.mcpServers = mcpServers
         self.isLoadingPlugins = isLoadingPlugins
+        self.isLoadingApps = isLoadingApps
         self.isLoadingSkills = isLoadingSkills
+        self.isLoadingMCPServers = isLoadingMCPServers
         self.pluginErrorMessage = pluginErrorMessage
+        self.appErrorMessage = appErrorMessage
         self.skillErrorMessage = skillErrorMessage
+        self.mcpErrorMessage = mcpErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
         self.launcherTarget = launcherTarget
         self.pendingPluginIDs = pendingPluginIDs
         self.pendingSkillIDs = pendingSkillIDs
         self.controlPlaneProvider = controlPlaneProvider
+        self.threadID = threadID
         let initialPage: CodexPluginRoutePage = switch initialTab {
         case .marketplace: .plugins
         case .skills: .skills
@@ -92,6 +117,8 @@ public struct CodexPluginRouteView: View {
     private var routeState: CodexPluginRouteState {
         CodexPluginRouteState(
             plugins: plugins,
+            marketplaces: marketplaces,
+            apps: apps,
             skills: skills,
             mcpServers: mcpServers,
             primaryTab: primaryTab,
@@ -127,10 +154,13 @@ public struct CodexPluginRouteView: View {
         .background(theme.colors.surfaceSunken)
         .onAppear {
             applyLauncherTargetIfNeeded()
+            ensureManageTabAvailable()
             onLoad()
         }
+        .onChange(of: routeState.manageCounts.map(\.tab)) { _, _ in ensureManageTabAvailable() }
         .onChange(of: launcherTarget) { _, _ in applyLauncherTargetIfNeeded() }
         .onChange(of: plugins.map(\.id)) { _, _ in applyLauncherTargetIfNeeded() }
+        .onChange(of: apps) { _, _ in appEnableOverrides = [:] }
         .onChange(of: selectedPluginID) { _, id in
             guard let id else { return }
             pluginDetailReturnPage = page == .manage ? .manage : .plugins
@@ -163,9 +193,21 @@ public struct CodexPluginRouteView: View {
         }
         .sheet(isPresented: $showsMarketplaceManagement) {
             CodexMarketplaceManagementSheet(
-                marketplaces: CodexMarketplaceSummary.summaries(from: plugins),
+                marketplaces: marketplaces,
                 provider: controlPlaneProvider,
                 onClose: { showsMarketplaceManagement = false },
+                onRefresh: onRefresh
+            )
+            .codexAgentTheme(theme)
+        }
+        .sheet(isPresented: $showsMCPManagement) {
+            CodexMCPStatusSheet(
+                servers: mcpServers,
+                isLoading: isLoadingMCPServers,
+                errorMessage: mcpErrorMessage,
+                threadID: threadID,
+                provider: controlPlaneProvider,
+                onClose: { showsMCPManagement = false },
                 onRefresh: onRefresh
             )
             .codexAgentTheme(theme)
@@ -599,9 +641,15 @@ public struct CodexPluginRouteView: View {
         case .apps:
             ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { managedAppRows } }
         case .mcps:
-            ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { mcpRows } }
+            VStack(alignment: .trailing, spacing: 10) {
+                Button("Manage MCP servers") { showsMCPManagement = true }
+                    .buttonStyle(.bordered)
+                ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { mcpRows } }
+            }
         case .skills:
             ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { managedSkillRows } }
+        case .marketplace:
+            marketplaceManagementRows
         }
     }
 
@@ -668,34 +716,68 @@ public struct CodexPluginRouteView: View {
     }
 
     @ViewBuilder private var managedAppRows: some View {
-        let visible = routeState.visiblePlugins
-        if isLoadingPlugins && visible.isEmpty {
+        let visible = routeState.visibleApps
+        if isLoadingApps && visible.isEmpty {
             loadingRows
         } else if visible.isEmpty {
-            emptyState(title: "No apps", detail: "Apps included by installed plugins appear here.")
+            emptyState(title: "No apps", detail: "Installed apps appear here after connecting your account.")
         } else {
-            ForEach(visible) { plugin in
-                Button {
-                    selectedPluginID = plugin.id
-                } label: {
+            ForEach(visible) { app in
+                HStack(spacing: 12) {
+                    CodexPluginIconView(reference: app.icon, size: 36)
+                        .frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(app.displayName).font(theme.fonts.label).lineLimit(1)
+                        Text(app.detail).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
+                    }
+                    Spacer()
+                    if pendingAppIDs.contains(app.id) { ProgressView().controlSize(.small) }
+                    Toggle("", isOn: Binding(
+                        get: { appEnableOverrides[app.id] ?? app.enabled },
+                        set: { setApp(app, enabled: $0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(controlPlaneProvider == nil || pendingAppIDs.contains(app.id))
+                    .accessibilityLabel("Enable \(app.displayName)")
+                }
+                .padding(.horizontal, 10)
+                .frame(height: CodexPluginLayoutMetrics.rowHeight)
+            }
+        }
+    }
+
+    private var marketplaceManagementRows: some View {
+        let visibleMarketplaces = routeState.visibleMarketplaces
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Plugin marketplaces").font(theme.fonts.label)
+                Spacer()
+                Button("Add or manage") { showsMarketplaceManagement = true }
+                    .buttonStyle(.bordered)
+            }
+            if visibleMarketplaces.isEmpty {
+                emptyState(title: "No marketplaces", detail: "Add a Git URL or local marketplace path.")
+            } else {
+                ForEach(visibleMarketplaces) { marketplace in
                     HStack(spacing: 12) {
-                        CodexPluginIconView(reference: plugin.icon, size: 36)
+                        Image(systemName: "shippingbox")
                             .frame(width: 40, height: 40)
+                            .background(theme.colors.surfaceElevated, in: RoundedRectangle(cornerRadius: 9))
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(plugin.displayName).font(theme.fonts.label).lineLimit(1)
-                            Text(plugin.detail).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
+                            Text(marketplace.displayName).font(theme.fonts.label)
+                            Text(marketplace.path?.nilIfBlank ?? "Remote marketplace")
+                                .font(theme.fonts.caption)
+                                .foregroundStyle(theme.colors.textSecondary)
                         }
                         Spacer()
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .accessibilityLabel("Installed")
+                        if marketplace.hasKnownUpdate {
+                            Text("Update available").foregroundStyle(theme.colors.accentText)
+                        }
                     }
                     .padding(.horizontal, 10)
                     .frame(height: CodexPluginLayoutMetrics.rowHeight)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(plugin.displayName), installed app")
             }
         }
     }
@@ -727,7 +809,10 @@ public struct CodexPluginRouteView: View {
 
     @ViewBuilder private var statusMessages: some View {
         if let error = pluginErrorMessage { statusBanner(error, color: theme.colors.danger) }
+        if let error = appErrorMessage { statusBanner(error, color: theme.colors.danger) }
+        if let error = mcpErrorMessage { statusBanner(error, color: theme.colors.danger) }
         if let error = skillErrorMessage { statusBanner(error, color: theme.colors.danger) }
+        if let appMutationMessage { statusBanner(appMutationMessage, color: theme.colors.warning) }
         ForEach(pluginLoadErrors, id: \.self) { statusBanner($0, color: theme.colors.warning) }
     }
 
@@ -792,6 +877,26 @@ public struct CodexPluginRouteView: View {
         case .apps: "Search apps"
         case .mcps: "Search MCPs"
         case .skills: "Search skills"
+        case .marketplace: "Search marketplaces"
+        }
+    }
+
+    private func setApp(_ app: CodexAppSummary, enabled: Bool) {
+        guard let controlPlaneProvider else { return }
+        appEnableOverrides[app.id] = enabled
+        pendingAppIDs.insert(app.id)
+        appMutationMessage = nil
+        Task {
+            do {
+                _ = try await controlPlaneProvider.perform(.configBatchWrite(
+                    CodexAppSummary.enabledParams(id: app.id, enabled: enabled)
+                ))
+                onRefresh()
+            } catch {
+                appEnableOverrides[app.id] = app.enabled
+                appMutationMessage = error.localizedDescription
+            }
+            pendingAppIDs.remove(app.id)
         }
     }
 
@@ -844,6 +949,11 @@ public struct CodexPluginRouteView: View {
             selectedPluginID = plugin.id
             page = .pluginDetail(plugin.id)
         }
+    }
+
+    private func ensureManageTabAvailable() {
+        let resolved = routeState.selectedManageTab
+        if manageTab != resolved { manageTab = resolved }
     }
 
     private func goBackOrClearSearch() {

@@ -41,6 +41,24 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         )
     }
 
+    func testManageHidesEmptyTabsButKeepsMCPReachable() {
+        let empty = CodexPluginRouteState(plugins: [])
+        XCTAssertEqual(empty.manageCounts.map(\.tab), [.mcps])
+        XCTAssertEqual(empty.selectedManageTab, .mcps)
+
+        let populated = CodexPluginRouteState(
+            plugins: [plugin(
+                name: "browser",
+                displayName: "Browser",
+                detail: "Control the browser",
+                installed: true,
+                enabled: true
+            )],
+            skills: [skill(name: "writer", displayName: "Writer", enabled: true)]
+        )
+        XCTAssertEqual(populated.manageCounts.map(\.tab), [.plugins, .mcps, .skills, .marketplace])
+    }
+
     @MainActor
     func testPluginRouteVirtualizesLargeMarketplaceWithNSTableView() throws {
         let plugins = (0..<2_200).map { index in
@@ -238,7 +256,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
     }
 
     @MainActor
-    func testManageUsesSwitchesForLocalPluginsAndStatusChecksForAccountPlugins() throws {
+    func testManageUsesSwitchesForEveryInstalledPlugin() throws {
         let local = plugin(
             name: "browser",
             displayName: "Browser",
@@ -257,7 +275,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         account.sourceType = "remote"
 
         XCTAssertTrue(local.supportsEnabledToggle)
-        XCTAssertFalse(account.supportsEnabledToggle)
+        XCTAssertTrue(account.supportsEnabledToggle)
 
         let route = CodexPluginCatalogTable(
             plugins: [local, account],
@@ -275,12 +293,12 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         window.contentView = hosting
         settle(hosting)
 
-        XCTAssertEqual(allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }.count, 1)
+        XCTAssertEqual(allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }.count, 2)
         XCTAssertEqual(
             allDescendants(of: NSImageView.self, in: hosting)
                 .filter { !$0.isHidden && $0.accessibilityLabel() == "Enabled" }
                 .count,
-            1
+            0
         )
     }
 
@@ -795,6 +813,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let pluginActivity = session.applyPluginResponse(pluginResponse)
         XCTAssertEqual(pluginActivity, CodexIntegrationCatalogActivity(title: "Loaded plugins", detail: "1 available"))
         XCTAssertEqual(session.plugins.map(\.displayName), ["Resume OpenCode"])
+        XCTAssertEqual(session.marketplaces.map(\.displayName), ["local"])
         XCTAssertEqual(session.pluginLoadErrors, ["/tmp/bad-marketplace.json: invalid manifest"])
         XCTAssertFalse(session.isLoadingPlugins)
 
@@ -804,6 +823,23 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         )
         XCTAssertFalse(session.plugins[0].enabled)
         XCTAssertNil(session.setPluginEnabledOptimistically(id: "missing", enabled: true))
+
+        let appActivity = session.applyAppResponses(
+            list: .dictionary(["data": .array([.dictionary([
+                "id": .string("gmail"),
+                "name": .string("Gmail"),
+                "isAccessible": .bool(true)
+            ])])]),
+            installed: .dictionary(["apps": .array([.dictionary([
+                "id": .string("gmail"),
+                "enabled": .bool(true),
+                "callable": .bool(true)
+            ])])])
+        )
+        XCTAssertEqual(appActivity, CodexIntegrationCatalogActivity(title: "Loaded apps", detail: "1 installed"))
+        XCTAssertEqual(session.apps.map(\.displayName), ["Gmail"])
+        XCTAssertEqual(session.setAppEnabledOptimistically(id: "gmail", enabled: false), true)
+        XCTAssertFalse(session.apps[0].enabled)
 
         let failedPlugins = session.failPluginRefresh(message: "bad marketplace")
         XCTAssertEqual(failedPlugins.title, "Plugin list unavailable")
@@ -855,6 +891,10 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         ]
         let state = CodexPluginRouteState(
             plugins: plugins,
+            apps: [
+                CodexAppSummary(id: "browser", displayName: "Browser"),
+                CodexAppSummary(id: "chrome", displayName: "Chrome")
+            ],
             skills: skills,
             mcpServers: [CodexMCPServerStatus(name: "filesystem")],
             searchQuery: "browser",
@@ -866,7 +906,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             "Plugins:2",
             "Apps:2",
             "MCPs:1",
-            "Skills:2"
+            "Skills:2",
+            "Marketplace:1"
         ])
         XCTAssertEqual(state.categoryCards.first?.title, "Browser")
 
@@ -879,6 +920,88 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertTrue(detail.metadata.contains("Version: 26.616.81150"))
         XCTAssertTrue(detail.legalLinks.contains("Website: https://openai.com"))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Open the browser and inspect the current page."))
+    }
+
+    func testAppInventoryUsesAccessibleOfficialListEntries() throws {
+        let listResponse: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "id": .string("gmail"),
+                    "name": .string("Gmail"),
+                    "description": .string("Read and manage Gmail"),
+                    "isAccessible": .bool(true),
+                    "isEnabled": .bool(false),
+                    "logoUrl": .string("https://example.com/gmail.png"),
+                    "branding": .dictionary([
+                        "developer": .string("Google"),
+                        "category": .string("Productivity")
+                    ])
+                ]),
+                .dictionary([
+                    "id": .string("drive"),
+                    "name": .string("Google Drive"),
+                    "description": .string("Work across Drive"),
+                    "isAccessible": .bool(false),
+                    "isEnabled": .bool(true)
+                ])
+            ])
+        ])
+        let installedResponse: CodexJSONValue = .dictionary([
+            "apps": .array([
+                .dictionary([
+                    "id": .string("gmail"),
+                    "enabled": .bool(true),
+                    "callable": .bool(true),
+                    "runtimeName": .string("gmail")
+                ])
+            ])
+        ])
+
+        let apps = CodexAppSummary.apps(
+            listResponse: listResponse,
+            installedResponse: installedResponse
+        )
+
+        XCTAssertEqual(apps.map(\.id), ["gmail"])
+        let gmail = try XCTUnwrap(apps.first)
+        XCTAssertEqual(gmail.displayName, "Gmail")
+        XCTAssertEqual(gmail.detail, "Read and manage Gmail")
+        XCTAssertEqual(gmail.developerName, "Google")
+        XCTAssertEqual(gmail.category, "Productivity")
+        XCTAssertFalse(gmail.enabled)
+        XCTAssertTrue(gmail.callable)
+        XCTAssertEqual(gmail.runtimeName, "gmail")
+        XCTAssertEqual(gmail.icon.logo, "https://example.com/gmail.png")
+
+        let state = CodexPluginRouteState(
+            plugins: [],
+            apps: apps,
+            primaryTab: .manage,
+            manageTab: .apps
+        )
+        XCTAssertEqual(state.manageCounts.map { "\($0.tab.title):\($0.count)" }, ["Apps:1", "MCPs:0"])
+        XCTAssertEqual(state.visibleApps.map(\.displayName), ["Gmail"])
+    }
+
+    func testMarketplaceInventoryIncludesConfiguredSourcesWithoutPlugins() {
+        let response: CodexJSONValue = .dictionary([
+            "marketplaces": .array([
+                .dictionary([
+                    "name": .string("team-tools"),
+                    "path": .string("/tmp/team/marketplace.json"),
+                    "interface": .dictionary(["displayName": .string("Team Tools")]),
+                    "plugins": .array([])
+                ])
+            ])
+        ])
+
+        let marketplaces = CodexMarketplaceSummary.summaries(from: response)
+
+        XCTAssertEqual(marketplaces, [CodexMarketplaceSummary(
+            name: "team-tools",
+            displayName: "Team Tools",
+            path: "/tmp/team/marketplace.json"
+        )])
     }
 
     func testCatalogSessionOptimisticallyTogglesAndRestoresPluginsAndSkillsByCanonicalIdentity() throws {
@@ -1153,6 +1276,13 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(toggle.edits[0].mergeStrategy, .upsert)
         XCTAssertEqual(toggle.edits[0].value, .bool(false))
         XCTAssertEqual(toggle.reloadUserConfig, true)
+
+        let appToggle = CodexAppSummary.enabledParams(id: "gmail", enabled: false)
+        XCTAssertEqual(appToggle.edits.count, 1)
+        XCTAssertEqual(appToggle.edits[0].keyPath, "apps.gmail.enabled")
+        XCTAssertEqual(appToggle.edits[0].mergeStrategy, .upsert)
+        XCTAssertEqual(appToggle.edits[0].value, .bool(false))
+        XCTAssertEqual(appToggle.reloadUserConfig, true)
 
         let skillTarget = CodexSkillActionTarget(skill: skill(
             name: "browser:control",

@@ -42,6 +42,28 @@ public struct CodexMarketplaceSummary: Identifiable, Equatable, Sendable {
             )
         }.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
+
+    public static func summaries(from response: CodexJSONValue) -> [CodexMarketplaceSummary] {
+        guard case .dictionary(let object) = response,
+              case .array(let values)? = object["marketplaces"] else { return [] }
+        return values.compactMap { value in
+            guard case .dictionary(let marketplace) = value,
+                  let name = CodexJSONCoercion.flatString(from: marketplace["name"])?.nilIfBlank else {
+                return nil
+            }
+            let interface: [String: CodexJSONValue]
+            if case .dictionary(let value)? = marketplace["interface"] { interface = value }
+            else { interface = [:] }
+            return CodexMarketplaceSummary(
+                name: name,
+                displayName: CodexJSONCoercion.flatString(from: interface["displayName"])?.nilIfBlank ?? name,
+                path: CodexJSONCoercion.flatString(from: marketplace["path"])?.nilIfBlank,
+                localVersion: CodexJSONCoercion.flatString(from: marketplace["localVersion"])?.nilIfBlank,
+                availableVersion: CodexJSONCoercion.flatString(from: marketplace["availableVersion"])?.nilIfBlank
+            )
+        }
+        .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
 }
 
 struct CodexMarketplaceManagementSheet: View {
