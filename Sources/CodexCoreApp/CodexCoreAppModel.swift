@@ -279,7 +279,7 @@ final class CodexCoreAppModel {
                 config: config,
                 serverRequestHandler: { [weak self] request in
                     guard let self else { return .pending }
-                    return await self.handleVoiceTaskToolRequest(request)
+                    return await self.handleThreadTaskToolRequest(request)
                 }
             )
             self.codex = codex
@@ -1910,6 +1910,7 @@ final class CodexCoreAppModel {
                 start.config = Self.realtimeVoiceFeatureConfig
                 start.threadSource = CodexSchemaThreadSource(.string("realtime_voice"))
                 start.dynamicTools = Self.voiceTaskToolSpecs
+                start.multiAgentMode = Self.explicitRequestOnlyMultiAgentMode
                 let provenance = CodexModelPreference(
                     model: configurationSession.modelSelection,
                     serviceTier: configurationSession.serviceTierSelection,
@@ -2828,8 +2829,9 @@ final class CodexCoreAppModel {
     func threadStartParameters() -> CodexSchemaThreadStartParams {
         var parameters = configurationSession.wireSelection.applying(to: CodexSchemaThreadStartParams(
             cwd: workspacePath,
-            dynamicTools: Self.voiceTaskToolSpecs,
+            dynamicTools: Self.threadTaskToolSpecs,
             historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
+            multiAgentMode: Self.explicitRequestOnlyMultiAgentMode,
             runtimeWorkspaceRoots: protocolWorkspaceRoots
         ))
         configurationSession.newThreadApprovalSelection
@@ -2985,6 +2987,7 @@ final class CodexCoreAppModel {
             collaborationMode: collaborationMode,
             cwd: cwd,
             input: input.map { CodexSchemaUserInput($0.jsonValue) },
+            multiAgentMode: Self.explicitRequestOnlyMultiAgentMode,
             runtimeWorkspaceRoots: roots,
             threadID: threadID.rawValue
         ))

@@ -7,12 +7,11 @@ extension CodexCoreAppModel {
         "features.realtime_conversation": .bool(true),
     ])
 
-    static let voiceTaskToolSpecs: [CodexSchemaDynamicToolSpec] = [
-        voiceTaskToolSpec(
-            name: "end_realtime_voice_call",
-            description: "End the current voice chat. Only call this tool if the user explicitly asks to end the voice chat.",
-            properties: [:]
-        ),
+    /// Thread-management tools are available to ordinary text threads as well as
+    /// Voice-created threads. They are deliberately kept separate from the
+    /// Voice-only `end_realtime_voice_call` tool so a text thread can never look
+    /// like a realtime Voice session.
+    static let threadTaskToolSpecs: [CodexSchemaDynamicToolSpec] = [
         voiceTaskToolSpec(
             name: "list_projects",
             description: "List saved local projects available for creating a separate Codex task.",
@@ -184,6 +183,20 @@ extension CodexCoreAppModel {
         ),
     ]
 
+    /// Realtime Voice gets the same thread-management surface plus its one
+    /// Voice-only lifecycle tool.
+    static let voiceTaskToolSpecs: [CodexSchemaDynamicToolSpec] = [
+        voiceTaskToolSpec(
+            name: "end_realtime_voice_call",
+            description: "End the current voice chat. Only call this tool if the user explicitly asks to end the voice chat.",
+            properties: [:]
+        ),
+    ] + threadTaskToolSpecs
+
+    static let explicitRequestOnlyMultiAgentMode = CodexSchemaMultiAgentMode(
+        .string("explicitRequestOnly")
+    )
+
     func voiceThreadStartParameters(
         wire: CodexTaskWireSelection,
         permissionConfiguration: CodexPermissionProfileWireConfiguration,
@@ -198,6 +211,7 @@ extension CodexCoreAppModel {
             historyMode: CodexSchemaThreadHistoryMode(
                 rawValue: newThreadHistoryMode.rawValue
             ),
+            multiAgentMode: Self.explicitRequestOnlyMultiAgentMode,
             runtimeWorkspaceRoots: roots.map {
                 CodexSchemaAbsolutePathBuf(.string($0))
             }
@@ -249,6 +263,7 @@ extension CodexCoreAppModel {
             clientUserMessageID: clientUserMessageID,
             cwd: cwd,
             input: [CodexSchemaUserInput(CodexInput.text(prompt).jsonValue)],
+            multiAgentMode: Self.explicitRequestOnlyMultiAgentMode,
             runtimeWorkspaceRoots: roots.map {
                 CodexSchemaAbsolutePathBuf(.string($0))
             },
@@ -293,7 +308,9 @@ extension CodexCoreAppModel {
         )
     }
 
-    func handleVoiceTaskToolRequest(
+    // Dynamic thread tools are shared by normal and realtime Voice threads.
+    // The Voice-only lifecycle tool remains guarded by the active Voice session.
+    func handleThreadTaskToolRequest(
         _ parsed: CodexParsedServerRequest
     ) async -> CodexServerRequestHandlerDecision {
         if case .attestation = parsed.body {
@@ -308,7 +325,7 @@ extension CodexCoreAppModel {
 
         guard case .dynamicToolCall(let request) = parsed.body,
               request.scope.threadID != nil,
-              Self.voiceTaskToolNames.contains(request.tool),
+              Self.supportedThreadToolNames.contains(request.tool),
               let codex
         else {
             return .pending
@@ -588,8 +605,7 @@ extension CodexCoreAppModel {
             ?? [CodexProjectSummary.normalizedPath(cwd)]
     }
 
-    private static let voiceTaskToolNames: Set<String> = [
-        "end_realtime_voice_call",
+    private static let threadTaskToolNames: Set<String> = [
         "list_projects",
         "create_thread",
         "list_threads",
@@ -601,6 +617,9 @@ extension CodexCoreAppModel {
         "interrupt_thread",
         "set_thread_archived",
     ]
+
+    private static let supportedThreadToolNames: Set<String> =
+        threadTaskToolNames.union(["end_realtime_voice_call"])
 
     private static func voiceTaskToolSpec(
         name: String,
