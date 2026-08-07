@@ -23,7 +23,7 @@ public final class CodexBrowserSession: ObservableObject, Identifiable {
 
     public init(
         id: String = "browser:\(UUID().uuidString)",
-        title: String = "Browser"
+        title: String = CodexWorkspaceToolCatalog.manualBrowserTitle
     ) {
         self.id = id
         self.fallbackTitle = title
@@ -172,7 +172,7 @@ public struct CodexBrowserToolView: View {
             Divider().overlay(theme.colors.border)
             CodexBrowserWebView(session: session)
                 .background(theme.colors.surfaceSunken.opacity(0.8))
-                .accessibilityLabel("Browser")
+                .accessibilityLabel(CodexWorkspaceToolCatalog.manualBrowserAccessibilityLabel)
         }
     }
 
@@ -212,7 +212,7 @@ public struct CodexBrowserToolView: View {
                 )
                 .focused($isAddressFieldFocused)
                 .onSubmit(session.navigateToAddressText)
-                .accessibilityLabel("Browser address")
+                .accessibilityLabel(CodexWorkspaceToolCatalog.manualBrowserAddressAccessibilityLabel)
 
             browserButton(
                 systemImage: "arrow.up.forward.square",

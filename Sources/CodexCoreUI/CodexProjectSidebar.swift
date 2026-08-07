@@ -34,6 +34,8 @@ public struct CodexProjectSidebar: View {
     let onSelectChat: (CodexThreadSummary) -> Void
     let onTogglePinChat: (CodexThreadSummary) -> Void
     let onArchiveChat: (CodexThreadSummary) -> Void
+    let onUnarchiveChat: (CodexThreadSummary) -> Void
+    let onDeleteChat: (CodexThreadSummary) -> Void
 
     public init(
         serverName: String?,
@@ -57,7 +59,9 @@ public struct CodexProjectSidebar: View {
         onOpenFolder: @escaping () -> Void,
         onSelectChat: @escaping (CodexThreadSummary) -> Void,
         onTogglePinChat: @escaping (CodexThreadSummary) -> Void,
-        onArchiveChat: @escaping (CodexThreadSummary) -> Void
+        onArchiveChat: @escaping (CodexThreadSummary) -> Void,
+        onUnarchiveChat: @escaping (CodexThreadSummary) -> Void = { _ in },
+        onDeleteChat: @escaping (CodexThreadSummary) -> Void = { _ in }
     ) {
         self.serverName = serverName
         self.accountSummary = accountSummary
@@ -81,6 +85,8 @@ public struct CodexProjectSidebar: View {
         self.onSelectChat = onSelectChat
         self.onTogglePinChat = onTogglePinChat
         self.onArchiveChat = onArchiveChat
+        self.onUnarchiveChat = onUnarchiveChat
+        self.onDeleteChat = onDeleteChat
     }
 
     public var body: some View {
@@ -93,6 +99,7 @@ public struct CodexProjectSidebar: View {
                     routeRows
                     pinnedSection
                     projectlessSection
+                    archivedSection
                     projectListSection
                     olderProjectsSection
                 }
@@ -143,9 +150,36 @@ public struct CodexProjectSidebar: View {
                             showsRecency: true,
                             onSelect: { onSelectChat(row.summary) },
                             onTogglePin: { onTogglePinChat(row.summary) },
-                            onArchive: { onArchiveChat(row.summary) }
+                            onArchive: { onArchiveChat(row.summary) },
+                            onUnarchive: { onUnarchiveChat(row.summary) },
+                            onDelete: { onDeleteChat(row.summary) }
                         )
                     }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var archivedSection: some View {
+        if !snapshot.archivedRows.isEmpty && !snapshot.isCollapsed {
+            VStack(alignment: .leading, spacing: 2) {
+                SidebarSectionHeader(
+                    title: "Archived",
+                    isExpanded: true,
+                    attentionState: .idle
+                ) {}
+                ForEach(snapshot.archivedRows) { row in
+                    SidebarChatRow(
+                        row: row,
+                        indentation: 0,
+                        showsRecency: true,
+                        onSelect: { onSelectChat(row.summary) },
+                        onTogglePin: { onTogglePinChat(row.summary) },
+                        onArchive: { onArchiveChat(row.summary) },
+                        onUnarchive: { onUnarchiveChat(row.summary) },
+                        onDelete: { onDeleteChat(row.summary) }
+                    )
                 }
             }
         }
@@ -264,13 +298,15 @@ public struct CodexProjectSidebar: View {
                 isCollapsed: snapshot.isCollapsed,
                 action: onOpenSearch
             )
-            SidebarCommandRow(
-                systemImage: CodexAppRoute.plugins.systemImage,
-                title: CodexAppRoute.plugins.title,
-                isSelected: snapshot.selectedRoute == .plugins,
-                isCollapsed: snapshot.isCollapsed,
-                action: { onSelectRoute(.plugins) }
-            )
+            ForEach(CodexAppRoute.primarySidebarRoutes, id: \.rawValue) { route in
+                SidebarCommandRow(
+                    systemImage: route.systemImage,
+                    title: route.title,
+                    isSelected: snapshot.selectedRoute == route,
+                    isCollapsed: snapshot.isCollapsed,
+                    action: { onSelectRoute(route) }
+                )
+            }
         }
     }
 
@@ -295,7 +331,9 @@ public struct CodexProjectSidebar: View {
                             showsRecency: true,
                             onSelect: { onSelectChat(row.summary) },
                             onTogglePin: { onTogglePinChat(row.summary) },
-                            onArchive: { onArchiveChat(row.summary) }
+                            onArchive: { onArchiveChat(row.summary) },
+                            onUnarchive: { onUnarchiveChat(row.summary) },
+                            onDelete: { onDeleteChat(row.summary) }
                         )
                     }
                     ForEach(snapshot.pinnedProjects) { group in
@@ -314,7 +352,9 @@ public struct CodexProjectSidebar: View {
                             onSelectProject: onSelectProject,
                             onSelectChat: onSelectChat,
                             onTogglePinChat: onTogglePinChat,
-                            onArchiveChat: onArchiveChat
+                            onArchiveChat: onArchiveChat,
+                            onUnarchiveChat: onUnarchiveChat,
+                            onDeleteChat: onDeleteChat
                         )
                     }
                 }
@@ -353,7 +393,9 @@ public struct CodexProjectSidebar: View {
                         onSelectProject: onSelectProject,
                         onSelectChat: onSelectChat,
                         onTogglePinChat: onTogglePinChat,
-                        onArchiveChat: onArchiveChat
+                        onArchiveChat: onArchiveChat,
+                        onUnarchiveChat: onUnarchiveChat,
+                        onDeleteChat: onDeleteChat
                     )
                 }
             }
@@ -415,7 +457,9 @@ public struct CodexProjectSidebar: View {
                                 onSelectProject: onSelectProject,
                                 onSelectChat: onSelectChat,
                                 onTogglePinChat: onTogglePinChat,
-                                onArchiveChat: onArchiveChat
+                                onArchiveChat: onArchiveChat,
+                                onUnarchiveChat: onUnarchiveChat,
+                                onDeleteChat: onDeleteChat
                             )
                         }
                         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -597,6 +641,8 @@ private struct ProjectSidebarGroupView: View {
     let onSelectChat: (CodexThreadSummary) -> Void
     let onTogglePinChat: (CodexThreadSummary) -> Void
     let onArchiveChat: (CodexThreadSummary) -> Void
+    let onUnarchiveChat: (CodexThreadSummary) -> Void
+    let onDeleteChat: (CodexThreadSummary) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -691,7 +737,9 @@ private struct ProjectSidebarGroupView: View {
                             showsRecency: false,
                             onSelect: { onSelectChat(row.summary) },
                             onTogglePin: { onTogglePinChat(row.summary) },
-                            onArchive: { onArchiveChat(row.summary) }
+                            onArchive: { onArchiveChat(row.summary) },
+                            onUnarchive: { onUnarchiveChat(row.summary) },
+                            onDelete: { onDeleteChat(row.summary) }
                         )
                     }
                     if group.hiddenRowCount > 0 {
@@ -789,6 +837,7 @@ private struct ProjectSidebarGroupView: View {
 
 private struct SidebarChatRow: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isDeleteConfirmationPresented = false
 
     let row: CodexSidebarThreadRow
     var indentation: CGFloat = 0
@@ -796,6 +845,8 @@ private struct SidebarChatRow: View {
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
+    let onUnarchive: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         SidebarChatRowHost(
@@ -805,10 +856,21 @@ private struct SidebarChatRow: View {
             theme: theme,
             onSelect: onSelect,
             onTogglePin: onTogglePin,
-            onArchive: onArchive
+            onArchive: onArchive,
+            onUnarchive: onUnarchive,
+            onDelete: { isDeleteConfirmationPresented = true }
         )
         .frame(height: theme.fonts.sidebar.chatRowHeight)
         .help(row.summary.title)
+        .confirmationDialog(
+            "Delete \(row.summary.title)?",
+            isPresented: $isDeleteConfirmationPresented
+        ) {
+            Button("Delete chat", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the chat and its history.")
+        }
     }
 }
 
@@ -822,6 +884,8 @@ private struct SidebarChatRowHost: NSViewRepresentable {
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
+    let onUnarchive: () -> Void
+    let onDelete: () -> Void
 
     func makeNSView(context: Context) -> SidebarChatRowContainerView {
         let container = SidebarChatRowContainerView()
@@ -842,7 +906,9 @@ private struct SidebarChatRowHost: NSViewRepresentable {
                     showsRecency: showsRecency,
                     onSelect: onSelect,
                     onTogglePin: onTogglePin,
-                    onArchive: onArchive
+                    onArchive: onArchive,
+                    onUnarchive: onUnarchive,
+                    onDelete: onDelete
                 )
                 .codexAgentTheme(theme)
             ),
@@ -850,7 +916,9 @@ private struct SidebarChatRowHost: NSViewRepresentable {
                 SidebarChatRowActions(
                     row: row,
                     onTogglePin: onTogglePin,
-                    onArchive: onArchive
+                    onArchive: onArchive,
+                    onUnarchive: onUnarchive,
+                    onDelete: onDelete
                 )
                 .codexAgentTheme(theme)
                 .accessibilityHidden(true)
@@ -880,6 +948,8 @@ private struct SidebarChatRowContent: View {
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onArchive: () -> Void
+    let onUnarchive: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -926,6 +996,12 @@ private struct SidebarChatRowContent: View {
                     CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title),
                     action: onArchive
                 )
+            }
+            if row.canUnarchive {
+                Button("Unarchive chat \(row.summary.title)", action: onUnarchive)
+            }
+            if row.canDelete {
+                Button("Delete chat \(row.summary.title)", role: .destructive, action: onDelete)
             }
         }
     }
@@ -984,6 +1060,8 @@ private struct SidebarChatRowActions: View {
     let row: CodexSidebarThreadRow
     let onTogglePin: () -> Void
     let onArchive: () -> Void
+    let onUnarchive: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
@@ -1005,6 +1083,22 @@ private struct SidebarChatRowActions: View {
                     accessibilityLabel: CodexSidebarAccessibility.chatArchiveLabel(title: row.summary.title),
                     help: "Archive chat",
                     action: onArchive
+                )
+            }
+            if row.canUnarchive {
+                sidebarActionButton(
+                    systemImage: "arrow.uturn.backward",
+                    accessibilityLabel: "Unarchive chat \(row.summary.title)",
+                    help: "Unarchive chat",
+                    action: onUnarchive
+                )
+            }
+            if row.canDelete {
+                sidebarActionButton(
+                    systemImage: "trash",
+                    accessibilityLabel: "Delete chat \(row.summary.title)",
+                    help: "Delete chat",
+                    action: onDelete
                 )
             }
         }

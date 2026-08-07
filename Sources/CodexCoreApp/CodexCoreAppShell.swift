@@ -5,7 +5,9 @@ import CodexCoreUI
 
 struct CodexCoreAppShell: View {
     @Bindable var model: CodexCoreAppModel
+    let onKeyboardShortcutSettingsChanged: () -> Void
     @State private var isRenameSheetPresented = false
+    @State private var isDeleteConfirmationPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var isStatusSheetPresented = false
     @State private var isModelMenuPresented = false
@@ -94,7 +96,7 @@ struct CodexCoreAppShell: View {
             sidebarOverlaySession.dismissImmediately()
         }
         .overlay(alignment: .topTrailing) {
-            if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty || !model.currentPlan.isEmpty || model.currentDiff != nil {
+            if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty {
                 VStack(alignment: .trailing, spacing: 10) {
                     if !model.approvalPrompts.isEmpty {
                         CodexApprovalRequestsPanel(
@@ -114,14 +116,6 @@ struct CodexCoreAppShell: View {
                         )
                     }
 
-                    if !model.currentPlan.isEmpty || model.currentDiff != nil {
-                        CodexTurnPlanPanel(
-                            steps: model.currentPlan,
-                            explanation: model.currentPlanExplanation,
-                            diff: model.currentDiff,
-                            onCopyDiff: { diff in model.copyText(diff) }
-                        )
-                    }
                 }
                 .codexAgentTheme(model.theme)
                 .padding(.top, 54)
@@ -160,6 +154,33 @@ struct CodexCoreAppShell: View {
             )
             .codexAgentTheme(model.theme)
         }
+        .confirmationDialog(
+            "Delete \(model.currentChatTitle)?",
+            isPresented: $isDeleteConfirmationPresented
+        ) {
+            Button("Delete chat", role: .destructive) {
+                Task { await model.deleteCurrentChat() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the chat and its history.")
+        }
+        .confirmationDialog(
+            "Edit this message?",
+            isPresented: Binding(
+                get: { model.pendingEditRequest != nil },
+                set: { if !$0 { model.cancelEditUserMessage() } }
+            )
+        ) {
+            Button("Rollback and resend", role: .destructive) {
+                Task { await model.confirmEditUserMessage() }
+            }
+            Button("Cancel", role: .cancel) {
+                model.cancelEditUserMessage()
+            }
+        } message: {
+            Text("This removes this message and all later turns before sending the edited prompt.")
+        }
         .sheet(item: $projectEditTarget) { project in
             EditProjectSheet(
                 name: $projectNameDraft,
@@ -190,6 +211,8 @@ struct CodexCoreAppShell: View {
                 servers: model.mcpServers,
                 isLoading: model.isLoadingMCPServers,
                 errorMessage: model.mcpErrorMessage,
+                provider: model.integrationControlPlaneProvider,
+                threadID: model.currentThreadID,
                 onClose: { isMCPStatusSheetPresented = false },
                 onRefresh: { Task { await model.refreshMCPServers() } }
             )
@@ -241,7 +264,9 @@ struct CodexCoreAppShell: View {
             onOpenFolder: { chooseWorkspaceFolder() },
             onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
             onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
-            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
+            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } },
+            onUnarchiveChat: { chat in Task { await model.unarchiveSidebarChat(chat) } },
+            onDeleteChat: { chat in Task { await model.deleteSidebarChat(chat) } }
         )
     }
 
@@ -288,9 +313,9 @@ struct CodexCoreAppShell: View {
 
     private func routeDisplaysConversation(_ route: CodexAppRoute) -> Bool {
         switch route {
-        case .chat, .search, .automations:
+        case .chat, .search:
             true
-        case .plugins, .settingsAbout:
+        case .plugins, .automations, .settingsAbout:
             false
         }
     }
@@ -311,13 +336,18 @@ struct CodexCoreAppShell: View {
                 skillErrorMessage: model.skillErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
                 launcherTarget: model.pluginLauncherTarget,
-                onRefresh: { Task { await model.refreshPlugins() } },
-                onAction: { model.performPluginCatalogAction($0) }
+                pendingPluginIDs: model.pendingPluginActionIDs,
+                pendingSkillIDs: model.pendingSkillActionIDs,
+                onLoad: { model.requestPluginRefresh() },
+                onRefresh: { model.requestPluginRefresh() },
+                onAction: { model.performPluginCatalogAction($0) },
+                onOpenMCPDetails: { isMCPStatusSheetPresented = true }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.theme)
         case .automations:
             CodexAutomationRouteView(
+                automations: model.automations,
                 onAction: { model.performAutomationRouteAction($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -338,11 +368,14 @@ struct CodexCoreAppShell: View {
                 modelOptions: model.modelOptions,
                 reasoningSelection: $model.reasoningSelection,
                 isBottomPanelVisible: .constant(false),
+                keyboardShortcutSettings: $model.keyboardShortcutSettings,
                 gitSettings: $model.gitSettings,
                 newThreadHistoryMode: $model.newThreadHistoryMode,
+                followUpBehavior: $model.followUpBehavior,
                 mcpServers: model.mcpServers,
                 isLoadingMCPServers: model.isLoadingMCPServers,
-                onBackToApp: { model.selectAppRoute(.chat) }
+                onBackToApp: { model.selectAppRoute(.chat) },
+                onKeyboardShortcutSettingsChanged: onKeyboardShortcutSettingsChanged
             )
                 .codexAgentTheme(model.theme)
         }
@@ -384,6 +417,13 @@ struct CodexCoreAppShell: View {
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
                 gitReviewSession: model.gitReviewSession,
+                backgroundTerminalActions: CodexBackgroundTerminalActions(
+                    refresh: { Task { await model.refreshBackgroundTerminals() } },
+                    terminate: { processID in
+                        Task { await model.terminateBackgroundTerminal(processID: processID) }
+                    },
+                    clean: { Task { await model.cleanBackgroundTerminals() } }
+                ),
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 leadingTitlebarInset: model.sidebarSnapshot.isCollapsed
@@ -455,9 +495,18 @@ struct CodexCoreAppShell: View {
                 onFilesDropped: { [threadID = model.currentThreadID] urls in
                     model.addReferencedFileURLs(urls, to: threadID)
                 },
+                onEditUserMessageAtTurn: { rawText, turnID in
+                    model.requestEditUserMessage(rawText: rawText, turnID: turnID)
+                },
+                onEnvironmentHandoffCompletion: { completion in
+                    model.handleWorktreeHandoffCompletion(completion)
+                },
                 onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onSelectSubagentTranscript: {
                     model.runtimeSession.selectSubagentTranscript($0)
+                },
+                onStartReview: { target in
+                    Task { await model.startCodeReview(target) }
                 },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true },
                 onRefreshMCPServers: { Task { await model.refreshMCPServers() } },
@@ -557,6 +606,7 @@ struct CodexCoreAppShell: View {
                 isRenameSheetPresented = true
             },
             archiveChat: { Task { await model.archiveCurrentChat() } },
+            deleteChat: { isDeleteConfirmationPresented = true },
             openSideChat: { model.openSideChat() },
             copyChat: { model.copyChatTranscript() },
             forkChat: { Task { await model.forkCurrentChat() } },

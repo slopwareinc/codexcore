@@ -118,6 +118,26 @@ public enum CodexGitSettingsStorage {
     }
 }
 
+public enum CodexFollowUpBehaviorStorage {
+    private static let followUpBehaviorKey = "CodexCoreApp.followUpBehavior.v1"
+
+    public static func load(
+        from store: any CodexStringListPreferenceStore
+    ) -> CodexFollowUpBehavior {
+        guard let rawValue = store.loadStrings(forKey: followUpBehaviorKey).first,
+              let behavior = CodexFollowUpBehavior(rawValue: rawValue)
+        else { return .queue }
+        return behavior
+    }
+
+    public static func save(
+        _ behavior: CodexFollowUpBehavior,
+        to store: any CodexStringListPreferenceStore
+    ) {
+        store.saveStrings([behavior.rawValue], forKey: followUpBehaviorKey)
+    }
+}
+
 public enum CodexNewThreadHistoryModeStorage {
     private static let historyModeKey = "CodexCoreApp.newThreadHistoryMode.v1"
 

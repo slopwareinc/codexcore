@@ -831,6 +831,21 @@ private extension ProtocolStateAdapter {
         )
     }
 
+    func canonicalBackgroundTerminal(
+        _ value: CodexSchemaThreadBackgroundTerminal,
+        method: String
+    ) throws -> CanonicalBackgroundTerminal {
+        return CanonicalBackgroundTerminal(
+            processID: value.processID,
+            command: value.command,
+            cwd: value.cwd.rawValue,
+            itemID: value.itemID,
+            osPID: value.osPid,
+            cpuPercent: value.cpuPercent,
+            rssKB: value.rssKb
+        )
+    }
+
     func canonicalStatus(_ value: CodexSchemaThreadStatus) -> CanonicalThreadStatus {
         switch value {
         case .notLoaded:
@@ -1042,6 +1057,34 @@ private extension ProtocolStateAdapter {
         result: CodexJSONValue
     ) throws -> ProtocolStateAdaptation {
         switch context.method {
+        case .threadBackgroundTerminalsList:
+            let value: CodexSchemaThreadBackgroundTerminalsListResponse =
+                try decodeResponse(context, result)
+            let threadID = try requestThreadID(context)
+            let terminals = try value.data.map {
+                try canonicalBackgroundTerminal($0, method: context.method.rawValue)
+            }
+            let replacesExisting = context.requestParams["cursor"] == nil
+                || context.requestParams["cursor"] == .null
+            return .state([.backgroundTerminalsPage(
+                threadID: threadID,
+                terminals: terminals,
+                nextCursor: value.nextCursor,
+                replacesExisting: replacesExisting
+            )])
+
+        case .threadBackgroundTerminalsTerminate:
+            let value: CodexSchemaThreadBackgroundTerminalsTerminateResponse =
+                try decodeResponse(context, result)
+            guard value.terminated else { return .init(disposition: .ignored) }
+            return .state([.backgroundTerminalRemoved(
+                threadID: try requestThreadID(context),
+                processID: try requestString(context, key: "processId")
+            )])
+
+        case .threadBackgroundTerminalsClean:
+            return .state([.backgroundTerminalsRemoved(threadID: try requestThreadID(context))])
+
         case .threadArchive:
             try requireObjectResponse(context, result)
             return .state([.threadLifecycleUpdated(
@@ -1593,6 +1636,19 @@ private extension ProtocolStateAdapter {
             )
         }
         return ThreadID(raw)
+    }
+
+    func requestString(
+        _ context: ProtocolResponseContext,
+        key: String
+    ) throws -> String {
+        guard let value = context.requestParams.string(at: key) else {
+            throw ProtocolStateAdapterError.missingRequestContext(
+                method: context.method.rawValue,
+                field: key
+            )
+        }
+        return value
     }
 
     func requireObjectResponse(

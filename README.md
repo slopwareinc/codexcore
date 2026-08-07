@@ -35,7 +35,7 @@ The result is also self-demonstrating: CodexCore hosts Codex workflows, while Co
 | Product | Purpose |
 | --- | --- |
 | `CodexCore` | Process transport, typed app-server requests, thread/turn leases, canonical state, observation, approvals, dynamic tools, filesystem/process helpers, and protocol models. |
-| `CodexCoreUI` | SwiftUI workspace, AppKit-backed transcript, composer, prompts, files, terminal, browser, diff previews, plugins, subagents, and theming. |
+| `CodexCoreUI` | SwiftUI workspace, AppKit-backed transcript, composer, prompts, files, terminal, Manual Browser, diff previews, plugins, subagents, and theming. |
 | `codex-core-app` | Native macOS reference application. See the [support matrix](docs/reference/support-status.md). |
 | `codex-run` | Trusted development demo. It auto-approves operations and may write `todo.html` in its working directory. |
 

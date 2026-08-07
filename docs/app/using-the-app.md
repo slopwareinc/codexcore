@@ -16,6 +16,34 @@ the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to
 select, or Escape to close.
 
+## Automations
+
+Automations are stored locally under the active Codex home in
+`automations/<id>/automation.toml`. Templates and **Create via chat** open the
+ordinary new-chat composer with an unsent prompt, preserving its project,
+permission, model, and attachment controls. The dashboard also supports direct
+scheduled creation, editing, enable/disable, run now, and deletion. Each local
+run keeps bounded metadata (start/completion, outcome, error, and generated
+thread ID) in a sidecar next to the official TOML; this history is not an
+app-server automation API. Bulk mark-read clears local unread badges for run
+chats, while bulk pause/delete affects local definitions only and keeps existing
+run chats.
+
+When Codex is connected and the app is running, a due automation starts an
+independent background thread without changing the chat currently on screen.
+The dashboard records running, successful, and failed lifecycle state and posts
+a native macOS notification on completion when notification permission is
+available. Native notifications are enabled for the packaged `.app`; development
+launches through `swift run` skip them because macOS does not provide an
+application notification identity to an unbundled executable. Existing
+automation chats are preserved when a schedule is deleted.
+
+The pinned app-server protocol has no automation request or notification
+methods. Full server-owned parity—including runs while the desktop app is not
+open and cross-device schedule synchronization—will require an upstream
+protocol upgrade; generated protocol files must then be refreshed through the
+normal protocol-upgrade workflow.
+
 ## Projects and chats
 
 The sidebar groups chats by project. Chats can be pinned, archived, renamed, forked, copied, searched, and resumed. Projects can be selected, grouped, pinned, reordered, edited, removed, revealed in Finder, or used to archive their chats. Chat reorder/hide/reveal actions are not supported.

@@ -118,7 +118,7 @@ public enum CodexComposerAddMenuModel {
             CodexComposerAddMenuItem(id: .spreadsheets, title: "Spreadsheets", systemImage: "tablecells"),
             CodexComposerAddMenuItem(id: .presentations, title: "Presentations", systemImage: "rectangle.on.rectangle"),
             CodexComposerAddMenuItem(id: .templateCreator, title: "Template Creator", systemImage: "wand.and.stars"),
-            CodexComposerAddMenuItem(id: .browser, title: "Browser", systemImage: "globe"),
+            CodexComposerAddMenuItem(id: .browser, title: "Manual Browser", systemImage: "globe"),
             CodexComposerAddMenuItem(id: .computer, title: "Computer", systemImage: "display"),
             CodexComposerAddMenuItem(id: .github, title: "GitHub", systemImage: "chevron.left.forwardslash.chevron.right"),
             CodexComposerAddMenuItem(id: .filesAndChats, title: "Files and chats", systemImage: "magnifyingglass")
@@ -190,19 +190,19 @@ public extension CodexComposerPluginLauncher {
 
     static let browser = CodexComposerPluginLauncher(
         itemID: .browser,
-        title: "Browser",
-        searchQuery: "Browser",
+        title: "Manual Browser",
+        searchQuery: "Manual Browser",
         preferredPluginNames: ["browser"],
         fallbackDetail: CodexPluginRouteDetail.boundary(
-            id: "browser",
-            title: "Browser",
-            detail: "Control the in-app browser",
-            description: "Open and control the in-app browser for local development pages and files. Navigate, inspect, click, type, and take screenshots from chat.",
-            statusLabel: "Plugin detail",
-            prompt: "Browser\nTest my checkout flow on localhost",
-            capabilities: ["Interactive", "Read", "Write"],
-            metadata: ["Category: Engineering"],
-            legalLinks: ["Website", "Privacy Policy", "Terms of Service"]
+            id: "manual-browser",
+            title: "Manual Browser",
+            detail: "Browse docs and local previews manually",
+            description: "An embedded browser for user-directed navigation. Agent browser control is not available.",
+            statusLabel: "Manual browser",
+            prompt: nil,
+            capabilities: ["Read"],
+            metadata: ["Agent browser control unavailable"],
+            legalLinks: []
         )
     )
 

@@ -64,7 +64,7 @@ public struct CodexReconnectPolicy: Sendable, Equatable {
         multiplier: Double = 2
     ) {
         precondition(initialDelayMilliseconds <= maximumDelayMilliseconds)
-        precondition(multiplier >= 1)
+        precondition(multiplier.isFinite && multiplier >= 1)
         self.isEnabled = isEnabled
         self.initialDelayMilliseconds = initialDelayMilliseconds
         self.maximumDelayMilliseconds = maximumDelayMilliseconds
@@ -83,7 +83,10 @@ public struct CodexReconnectPolicy: Sendable, Equatable {
         }
         let exponent = Double(attempt - 1)
         let delay = Double(initialDelayMilliseconds) * pow(multiplier, exponent)
-        return min(maximumDelayMilliseconds, UInt64(min(delay, Double(UInt64.max))))
+        guard delay.isFinite, delay < Double(UInt64.max) else {
+            return maximumDelayMilliseconds
+        }
+        return min(maximumDelayMilliseconds, UInt64(delay))
     }
 }
 
@@ -400,7 +403,8 @@ public extension CanonicalStateSnapshot {
             return CanonicalStateSnapshot(
                 revision: revision,
                 account: account,
-                mcpServerStartupStatuses: mcpServerStartupStatuses
+                mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals
             )
 
         case .threads(let selectedThreadIDs):
@@ -414,6 +418,7 @@ public extension CanonicalStateSnapshot {
                 revision: revision,
                 account: account,
                 mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals.filter { selectedThreadIDs.contains($0.key) },
                 threadOrder: threadOrder.filter(selectedThreadIDs.contains),
                 threads: scopedThreads,
                 turns: scopedTurns,
@@ -443,6 +448,7 @@ public extension CanonicalStateSnapshot {
                 revision: revision,
                 account: account,
                 mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals.filter { selectedThreadIDs.contains($0.key) },
                 threadOrder: threadOrder.filter(selectedThreadIDs.contains),
                 threads: scopedThreads,
                 turns: scopedTurns,
@@ -475,6 +481,7 @@ public extension CanonicalStateSnapshot {
                 revision: revision,
                 account: account,
                 mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals.filter { selectedThreadIDs.contains($0.key) },
                 threadOrder: threadOrder.filter(selectedThreadIDs.contains),
                 threads: scopedThreads,
                 turns: scopedTurns,
@@ -502,6 +509,13 @@ public actor CodexSession:
     private struct ClientRequestKey: Sendable, Hashable {
         let connectionEpoch: UInt64
         let id: CodexJSONRPCID
+    }
+
+    private struct DynamicToolExecutionKey: Sendable, Hashable {
+        let connectionEpoch: UInt64
+        let callID: String
+        let threadID: String?
+        let turnID: String?
     }
 
     private struct PendingClientRequest {
@@ -566,6 +580,7 @@ public actor CodexSession:
     private let observations = ObservationHub()
     private var interactions = CodexInteractionInbox()
     private var serverRequestTasks: [CodexServerRequestKey: Task<Void, Never>] = [:]
+    private var dynamicToolExecutionKeys: Set<DynamicToolExecutionKey> = []
     private var serverRequestThreadLeases: [CodexServerRequestKey: ThreadLeaseToken] = [:]
     private var leases = ThreadLeaseRegistry()
     private var history = PaginatedHistoryCoordinator()
@@ -1692,7 +1707,9 @@ private extension CodexSession {
              CodexSessionError.codexHomePreparationFailed,
              CodexSessionError.codexHomeMismatch,
              CodexSessionError.handshakeBufferOverflow,
-             CodexSessionError.stateCommitFailed:
+             CodexSessionError.stateCommitFailed,
+             CodexTransportError.receiveBufferOverflow,
+             CodexTransportError.frameTooLarge:
             return false
         default:
             return true
@@ -1747,6 +1764,7 @@ private extension CodexSession {
         }
 
         outboundFrames.removeAll { $0.connectionEpoch == epoch }
+        dynamicToolExecutionKeys = dynamicToolExecutionKeys.filter { $0.connectionEpoch != epoch }
         for request in interactions.disconnect(connectionEpoch: epoch) {
             try? commitRequestInvalidation(scope: request.registration.scope)
             serverRequestTasks.removeValue(forKey: request.key)?.cancel()
@@ -1755,6 +1773,10 @@ private extension CodexSession {
         for key in Array(serverRequestThreadLeases.keys)
         where key.connectionEpoch == epoch {
             releaseThreadForServerRequest(key)
+        }
+        for key in Array(serverRequestTasks.keys)
+        where key.connectionEpoch == epoch {
+            serverRequestTasks.removeValue(forKey: key)?.cancel()
         }
         if shouldRun, lifecycle != .closing {
             lifecycle = .reconnecting(
@@ -2368,6 +2390,23 @@ private extension CodexSession {
                 method: request.method,
                 params: request.params
             )
+            if case .dynamicToolCall(let dynamic) = parsed.body {
+                let executionKey = DynamicToolExecutionKey(
+                    connectionEpoch: cursor.connectionEpoch,
+                    callID: dynamic.callID,
+                    threadID: dynamic.scope.threadID,
+                    turnID: dynamic.scope.turnID
+                )
+                guard dynamicToolExecutionKeys.insert(executionKey).inserted else {
+                    enqueueExecutionOnlyDynamicResult(
+                        key: key,
+                        text: "Dynamic tool call \(dynamic.callID) was already handled."
+                    )
+                    return
+                }
+                startExecutionOnlyServerRequestHandler(parsed)
+                return
+            }
             switch interactions.register(parsed) {
             case .identicalDuplicate:
                 return
@@ -2590,6 +2629,84 @@ private extension CodexSession {
             )
         }
         serverRequestTasks[key] = task
+    }
+
+    /// Dynamic tool calls are execution-only. Unlike approvals and elicitation,
+    /// they must not acquire a thread lease or enter the presentation inbox.
+    func startExecutionOnlyServerRequestHandler(_ request: CodexParsedServerRequest) {
+        guard let serverRequestHandler else {
+            applyDefaultExecutionOnlyDynamicPolicy(request)
+            return
+        }
+        let key = request.key
+        let task = Task { [weak self] in
+            let outcome = await serverRequestHandler(request)
+            await self?.executionOnlyServerRequestHandlerCompleted(
+                request: request,
+                outcome: outcome
+            )
+        }
+        serverRequestTasks[key] = task
+    }
+
+    func executionOnlyServerRequestHandlerCompleted(
+        request: CodexParsedServerRequest,
+        outcome: CodexServerRequestHandlerDecision
+    ) {
+        let key = request.key
+        serverRequestTasks.removeValue(forKey: key)
+        do {
+            switch outcome {
+            case .pending:
+                applyDefaultExecutionOnlyDynamicPolicy(request)
+            case .result(let result):
+                do {
+                    _ = try request.validate(result: result)
+                    try enqueueServerResponse(key: key, reply: .result(result))
+                } catch {
+                    enqueueExecutionOnlyDynamicResult(
+                        key: key,
+                        text: "Client produced an invalid dynamic-tool result: \(error)"
+                    )
+                }
+            case .error(let error):
+                try enqueueServerResponse(key: key, reply: .error(error))
+            }
+        } catch {
+            if activeConnectionEpoch == key.connectionEpoch {
+                abortConnection(key.connectionEpoch, error: error)
+            }
+        }
+    }
+
+    func enqueueExecutionOnlyDynamicResult(key: CodexServerRequestKey, text: String) {
+        do {
+            try enqueueServerResponse(
+                key: key,
+                reply: .result(.dictionary([
+                    "success": .bool(false),
+                    "contentItems": .array([
+                        .dictionary([
+                            "type": .string("inputText"),
+                            "text": .string(text),
+                        ])
+                    ]),
+                ]))
+            )
+        } catch {
+            if activeConnectionEpoch == key.connectionEpoch {
+                abortConnection(key.connectionEpoch, error: error)
+            }
+        }
+    }
+
+    func applyDefaultExecutionOnlyDynamicPolicy(_ request: CodexParsedServerRequest) {
+        guard case .dynamicToolCall(let dynamic) = request.body else { return }
+        let toolName = (dynamic.namespace.map { $0 + "." } ?? "") + dynamic.tool
+        enqueueExecutionOnlyDynamicResult(
+            key: request.key,
+            text: "Unsupported dynamic tool: \(toolName)"
+        )
     }
 
     func serverRequestHandlerCompleted(
@@ -3267,6 +3384,31 @@ private extension CodexSession {
         await executeHistoryEffect(effect)
     }
 
+    /// A history request may finish after unsubscribe, reconnect, or a newer
+    /// reconciliation has replaced its coordinator scope. Check the scope
+    /// again after every awaited RPC and before adapting/reducing the response;
+    /// coordinator rejection is intentionally too late to protect canonical
+    /// state once the adapter has run.
+    func isCurrentHistoryReconciliation(
+        _ reconciliation: ThreadReconciliationCommand
+    ) -> Bool {
+        guard activeConnectionEpoch == reconciliation.connectionEpoch,
+              let snapshot = history.snapshot(for: reconciliation.threadID) else {
+            return false
+        }
+        switch snapshot.phase {
+        case .awaitingResume(let epoch, let generation),
+             .paging(let epoch, let generation):
+            return epoch == reconciliation.connectionEpoch
+                && generation == reconciliation.operationID.rawValue
+        case .live(let cut):
+            return cut.connectionEpoch == reconciliation.connectionEpoch
+                && cut.resumeGeneration == reconciliation.operationID.rawValue
+        case .stale, .failed:
+            return false
+        }
+    }
+
     func executeHistoryEffect(_ effect: PaginatedHistoryEffect) async {
         switch effect {
         case .requestResume(let request):
@@ -3282,6 +3424,7 @@ private extension CodexSession {
                     ]),
                     connectionEpoch: request.reconciliation.connectionEpoch
                 )
+                guard isCurrentHistoryReconciliation(request.reconciliation) else { return }
                 let object = try historyObject(call.value, method: "thread/resume")
                 guard let resumeThread = object["thread"] else {
                     throw CodexSessionError.protocolViolation(
@@ -3352,6 +3495,7 @@ private extension CodexSession {
                     ]),
                     connectionEpoch: request.reconciliation.connectionEpoch
                 )
+                guard isCurrentHistoryReconciliation(request.reconciliation) else { return }
                 let object = try historyObject(call.value, method: "thread/turns/list")
                 let rawTurns = try historyArray(object, key: "data")
                 let records = try rawTurns.map { value -> PaginatedHistoryTurnRecord in
@@ -3417,6 +3561,7 @@ private extension CodexSession {
                     ]),
                     connectionEpoch: request.reconciliation.connectionEpoch
                 )
+                guard isCurrentHistoryReconciliation(request.reconciliation) else { return }
                 let object = try historyObject(call.value, method: "thread/items/list")
                 let rawEntries = try historyArray(object, key: "data")
                 let records = try rawEntries.map { value -> PaginatedHistoryItemRecord in
@@ -3541,10 +3686,10 @@ private extension CodexSession {
         _ installation: PaginatedHistoryInstallation
     ) throws {
         let command = installation.reconciliation
-        guard activeConnectionEpoch == command.connectionEpoch else {
+        guard isCurrentHistoryReconciliation(command) else {
             throw CodexSessionError.connectionLost(
                 connectionEpoch: command.connectionEpoch,
-                message: "History installation belongs to a sealed epoch"
+                message: "History installation belongs to a stale reconciliation"
             )
         }
         let threadID = command.threadID

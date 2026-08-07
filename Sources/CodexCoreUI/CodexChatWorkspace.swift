@@ -65,6 +65,8 @@ public struct CodexChatWorkspaceView: View {
     private let rateLimitBannerMessage: String?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
+    private let backgroundTerminalActions: CodexBackgroundTerminalActions?
+    private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
     private let leadingTitlebarInset: CGFloat
@@ -113,9 +115,10 @@ public struct CodexChatWorkspaceView: View {
     private let onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)?
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
-    private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
+    private let onEditUserMessageAtTurn: ((String, String) -> Void)?
     private let onCloseTranscriptMessage: ((UUID) -> Void)?
     private let onSelectSubagentTranscript: (String?) -> Void
+    private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenMCPDetails: (() -> Void)?
     private let onRefreshMCPServers: (() -> Void)?
     private let onToggleSidebar: () -> Void
@@ -133,6 +136,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
+    @State private var transcriptReviewRequest: CodexTranscriptReviewRequest?
 
     /// Creates a workspace and reports the subagent transcript currently visible
     /// in its side panel through `onSelectSubagentTranscript`.
@@ -151,6 +155,7 @@ public struct CodexChatWorkspaceView: View {
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
+        backgroundTerminalActions: CodexBackgroundTerminalActions? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = false,
         leadingTitlebarInset: CGFloat = 0,
@@ -199,9 +204,11 @@ public struct CodexChatWorkspaceView: View {
         onComposerAddMenuRoute: ((CodexComposerAddMenuRoute) -> Void)? = nil,
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil,
+        onEditUserMessageAtTurn: ((String, String) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
         onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
+        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenMCPDetails: (() -> Void)? = nil,
         onRefreshMCPServers: (() -> Void)? = nil,
         onToggleSidebar: @escaping () -> Void = {},
@@ -229,6 +236,8 @@ public struct CodexChatWorkspaceView: View {
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
+        self.backgroundTerminalActions = backgroundTerminalActions
+        self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
         self.leadingTitlebarInset = max(0, leadingTitlebarInset)
@@ -277,9 +286,10 @@ public struct CodexChatWorkspaceView: View {
         self.onComposerAddMenuRoute = onComposerAddMenuRoute
         self.onComposerChipClear = onComposerChipClear
         self.onFilesDropped = onFilesDropped
-        self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
+        self.onEditUserMessageAtTurn = onEditUserMessageAtTurn
         self.onCloseTranscriptMessage = onCloseTranscriptMessage
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
+        self.onStartReview = onStartReview
         self.onOpenMCPDetails = onOpenMCPDetails
         self.onRefreshMCPServers = onRefreshMCPServers
         self.onToggleSidebar = onToggleSidebar
@@ -354,6 +364,29 @@ public struct CodexChatWorkspaceView: View {
         .background(theme.colors.canvas.opacity(0.001))
     }
 
+    private func restoreEditedPrompt(_ rawText: String) {
+        if let decoded = CodexComposerPromptCodec.decode(rawText) {
+            draft = decoded.request
+            referencedFiles = decoded.files
+            responseAnnotations = decoded.responseAnnotations.enumerated().map { index, content in
+                CodexResponseTextAnnotation(
+                    id: "restored-\(index)-\(UUID().uuidString)",
+                    text: content.text,
+                    annotation: content.annotation,
+                    anchor: CodexResponseTextAnchor(
+                        renderItemID: "",
+                        startOffset: 0,
+                        endOffset: 0
+                    )
+                )
+            }
+        } else {
+            draft = rawText
+            referencedFiles = []
+            responseAnnotations = []
+        }
+    }
+
     private func mainColumn(
         panelState: CodexWorkspaceResponsivePanelState,
         isDockedOverviewVisible: Bool,
@@ -388,27 +421,13 @@ public struct CodexChatWorkspaceView: View {
                 onUpsertResponseAnnotation: upsertResponseAnnotation,
                 onRemoveResponseAnnotation: removeResponseAnnotation,
                 onOpenSubagent: openPanelTab,
+                onOpenReviewRequest: reviewPanelAction,
                 onEditUserMessage: { rawText in
-                    if let decoded = CodexComposerPromptCodec.decode(rawText) {
-                        draft = decoded.request
-                        referencedFiles = decoded.files
-                        responseAnnotations = decoded.responseAnnotations.enumerated().map { index, content in
-                            CodexResponseTextAnnotation(
-                                id: "restored-\(index)-\(UUID().uuidString)",
-                                text: content.text,
-                                annotation: content.annotation,
-                                anchor: CodexResponseTextAnchor(
-                                    renderItemID: "",
-                                    startOffset: 0,
-                                    endOffset: 0
-                                )
-                            )
-                        }
-                    } else {
-                        draft = rawText
-                        referencedFiles = []
-                        responseAnnotations = []
-                    }
+                    restoreEditedPrompt(rawText)
+                },
+                onEditUserMessageAtTurn: { rawText, turnID in
+                    restoreEditedPrompt(rawText)
+                    onEditUserMessageAtTurn?(rawText, turnID)
                 },
                 onForkChat: chatActions.forkChat,
                 agentDisplayNameByThreadID: Dictionary(
@@ -580,7 +599,8 @@ public struct CodexChatWorkspaceView: View {
         panel.agentTabs(
             sideChat: sideChat,
             subagents: subagents,
-            gitReviewSession: gitReviewSession
+            gitReviewSession: transcriptReviewRequest?.session ?? gitReviewSession,
+            plan: workspaceSummary?.plan
         )
     }
 
@@ -601,10 +621,10 @@ public struct CodexChatWorkspaceView: View {
             subagents: subagents,
             workspaceSummary: workspaceSummary,
             gitReviewSession: gitReviewSession,
+            outputs: presentationStore.activeCanonicalPresentation?.outputSummaries ?? [],
+            backgroundTerminalActions: backgroundTerminalActions,
             chatTitle: chatTitle,
-            onEnvironmentHandoffCompletion: { completion in
-                onEnvironmentHandoffCompletion?(completion)
-            },
+            onEnvironmentHandoffCompletion: onEnvironmentHandoffCompletion ?? { _ in },
             onSelectTab: openPanelTab
         )
     }
@@ -647,11 +667,14 @@ public struct CodexChatWorkspaceView: View {
             mountedFilesSessions: mountedFilesSessions,
             mountedFilePreviewSessions: mountedFilePreviewSessions,
             modelOptions: modelOptions,
+            workspaceURL: URL(fileURLWithPath: workspacePath),
+            selectedReviewFilePath: transcriptReviewRequest?.selectedFilePath,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
+            onStartReview: onStartReview,
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
@@ -683,6 +706,15 @@ public struct CodexChatWorkspaceView: View {
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen = true
         }
+    }
+
+    private func openReviewPanel(_ request: CodexTranscriptReviewRequest) {
+        transcriptReviewRequest = request
+        openPanelTab(CodexAgentPanelTab.review(request.session).id)
+    }
+
+    private var reviewPanelAction: (CodexTranscriptReviewRequest) -> Void {
+        openReviewPanel
     }
 
     private func closeSubagentTab(_ id: String) {

@@ -277,5 +277,13 @@ final class CodexCoreTests: XCTestCase {
             fenced?.findings.first?.title,
             "Fall back to turn/start when queue sync fails"
         )
+
+        let unicodePrefixed = MessageContentBridge.parseCodeReview(
+            text: "Review complete ✅ — \(json)"
+        )
+        XCTAssertEqual(
+            unicodePrefixed?.findings.first?.title,
+            "Fall back to turn/start when queue sync fails"
+        )
     }
 }

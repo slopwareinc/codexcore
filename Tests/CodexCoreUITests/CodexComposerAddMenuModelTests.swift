@@ -15,7 +15,7 @@ final class CodexComposerAddMenuModelTests: XCTestCase {
             "Spreadsheets",
             "Presentations",
             "Template Creator",
-            "Browser",
+            "Manual Browser",
             "Computer",
             "GitHub",
             "Files and chats"
@@ -54,9 +54,11 @@ final class CodexComposerAddMenuModelTests: XCTestCase {
         guard case .openPluginLauncher(let browserTarget)? = browser.hostActions.first else {
             return XCTFail("Browser row should launch plugin detail")
         }
-        XCTAssertEqual(browserTarget.title, "Browser")
-        XCTAssertEqual(browserTarget.searchQuery, "Browser")
-        XCTAssertEqual(browserTarget.fallbackDetail.prompt, "Browser\nTest my checkout flow on localhost")
+        XCTAssertEqual(browserTarget.title, "Manual Browser")
+        XCTAssertEqual(browserTarget.searchQuery, "Manual Browser")
+        XCTAssertNil(browserTarget.fallbackDetail.prompt)
+        XCTAssertTrue(browserTarget.fallbackDetail.description.contains("user-directed navigation"))
+        XCTAssertTrue(browserTarget.fallbackDetail.description.contains("not available"))
 
         let computer = CodexComposerAddMenuModel.route(itemID: .computer, canUsePlanMode: true)
         guard case .openPluginLauncher(let computerTarget)? = computer.hostActions.first else {

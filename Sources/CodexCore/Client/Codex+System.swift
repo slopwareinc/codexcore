@@ -1,6 +1,19 @@
 import Foundation
 
 extension Codex {
+    public func mcpServerOAuthLogin(
+        _ params: CodexSchemaMCPServerOAuthLoginParams
+    ) async throws -> CodexSchemaMCPServerOAuthLoginResponse {
+        try await perform(CodexRequest.mcpServerOAuthLogin(params))
+    }
+
+    public func mcpServerStatusList(
+        _ params: CodexSchemaListMCPServerStatusParams
+    ) async throws -> CodexSchemaListMCPServerStatusResponse {
+        try await perform(CodexRequest.mcpServerStatusList(params))
+    }
+
+
     @discardableResult
     public func configMCPServerReload() async throws -> CodexJSONValue {
         try CodexJSONValue(encoding: await perform(CodexRequest.configMCPServerReload()))

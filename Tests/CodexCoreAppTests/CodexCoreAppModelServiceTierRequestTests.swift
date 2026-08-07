@@ -5,6 +5,20 @@ import XCTest
 
 @MainActor
 final class CodexCoreAppModelServiceTierRequestTests: XCTestCase {
+    func testFollowUpBehaviorLoadsAndPersistsThroughAppModel() {
+        let store = AppPreferenceStore()
+        CodexFollowUpBehaviorStorage.save(.steer, to: store)
+
+        let app = CodexCoreAppModel(
+            clipboardService: CodexNoopClipboardService(),
+            preferenceStore: store
+        )
+
+        XCTAssertEqual(app.followUpBehavior, .steer)
+        app.followUpBehavior = .queue
+        XCTAssertEqual(CodexFollowUpBehaviorStorage.load(from: store), .queue)
+    }
+
     func testAppModelConstructorsCaptureTierAndMaximumEffort() throws {
         let (app, model, fast, _) = makeApp()
         app.configurationSession = CodexChatConfigurationSession(
@@ -63,6 +77,49 @@ final class CodexCoreAppModelServiceTierRequestTests: XCTestCase {
         XCTAssertEqual(turn.model, model.modelIdentifier)
         XCTAssertEqual(turn.serviceTier, fast.id)
         XCTAssertEqual(turn.effort?.rawValue, .string("max"))
+    }
+
+    func testNormalThreadStartsDoNotAdvertiseRealtimeVoiceTools() {
+        let (app, model, _, _) = makeApp()
+        app.configurationSession = CodexChatConfigurationSession(
+            modelSelection: model,
+            modelOptions: [model]
+        )
+
+        XCTAssertNil(app.threadStartParameters().dynamicTools)
+        XCTAssertNil(app.voiceThreadStartParameters(
+            wire: app.configurationSession.wireSelection,
+            cwd: "/tmp",
+            roots: ["/tmp"],
+            developerInstructions: nil
+        ).dynamicTools)
+    }
+
+    func testRealtimeVoiceToolsRequireSourceAndRealtimeStartKind() throws {
+        let (app, model, _, _) = makeApp()
+        app.configurationSession = CodexChatConfigurationSession(
+            modelSelection: model,
+            modelOptions: [model]
+        )
+
+        XCTAssertNil(CodexCoreAppModel.dynamicToolsForThreadStart(
+            threadSource: "realtime_voice",
+            threadStartKind: .normal
+        ))
+        XCTAssertNil(CodexCoreAppModel.dynamicToolsForThreadStart(
+            threadSource: "cli",
+            threadStartKind: .realtimeVoice
+        ))
+
+        let tools = try XCTUnwrap(CodexCoreAppModel.dynamicToolsForThreadStart(
+            threadSource: "realtime_voice",
+            threadStartKind: .realtimeVoice
+        ))
+        XCTAssertEqual(tools, CodexCoreAppModel.realtimeVoiceTaskToolSpecs)
+
+        let start = try app.realtimeVoiceThreadStartParametersForCurrentDraft()
+        XCTAssertEqual(start.threadSource, CodexSchemaThreadSource(.string("realtime_voice")))
+        XCTAssertEqual(start.dynamicTools, tools)
     }
 
     func testVoiceConstructorsDropAmbientOverridesAndUseTargetThread() {

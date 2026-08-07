@@ -1,8 +1,364 @@
 import XCTest
+import AppKit
+import SwiftUI
 @testable import CodexCore
 @testable import CodexCoreUI
 
 final class CodexIntegrationCatalogTests: XCTestCase {
+    func testOfficialPluginNavigationUsesSeparateMarketplaceManageAndDetailPages() {
+        XCTAssertNotEqual(CodexPluginRoutePage.plugins, .skills)
+        XCTAssertNotEqual(CodexPluginRoutePage.plugins, .manage)
+        XCTAssertEqual(CodexPluginRoutePage.pluginDetail("github"), .pluginDetail("github"))
+    }
+
+    func testOfficialCatalogLayoutAndExpansionMetricsStayConsistentAcrossTabs() {
+        XCTAssertEqual(CodexPluginLayoutMetrics.contentWidth, 736)
+        XCTAssertEqual(CodexPluginLayoutMetrics.rowHeight, 64)
+        XCTAssertEqual(CodexPluginLayoutMetrics.rowSpacing, 8)
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.visibleCount(total: 12, collapsedLimit: 5, isExpanded: false),
+            5
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.visibleCount(total: 12, collapsedLimit: 5, isExpanded: true),
+            12
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.moreLabel(
+                names: ["One", "Two", "Three", "GitHub", "Slack", "Gmail", "Drive", "Linear"],
+                collapsedLimit: 3,
+                isExpanded: false
+            ),
+            "See GitHub, Slack, and 3 more"
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.moreLabel(names: ["One", "Two"], collapsedLimit: 5, isExpanded: false),
+            nil
+        )
+        XCTAssertEqual(
+            CodexCatalogSectionPresentation.moreLabel(names: ["One", "Two"], collapsedLimit: 1, isExpanded: true),
+            "Show less"
+        )
+    }
+
+    @MainActor
+    func testPluginRouteVirtualizesLargeMarketplaceWithNSTableView() throws {
+        let plugins = (0..<2_200).map { index in
+            plugin(
+                name: "plugin-\(index)",
+                displayName: "Plugin \(index)",
+                detail: "Marketplace plugin number \(index)",
+                installed: false,
+                enabled: false,
+                installPolicy: "AVAILABLE",
+                category: "Productivity"
+            )
+        }
+        let route = CodexPluginCatalogTable(
+            plugins: plugins,
+            selectedPluginID: .constant(nil),
+            showsToggle: false,
+            pendingPluginIDs: [],
+            theme: .officialDark,
+            onAction: { _ in }
+        )
+        .frame(width: 1_000, height: 700)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_000, height: 700)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let table = try XCTUnwrap(firstDescendant(of: NSTableView.self, in: hosting))
+        XCTAssertEqual(table.numberOfRows, 2_200)
+        let realizedRows = (0..<table.numberOfRows).filter {
+            table.rowView(atRow: $0, makeIfNecessary: false) != nil
+        }
+        XCTAssertLessThan(realizedRows.count, 80, "Only viewport rows should have AppKit views")
+    }
+
+    @MainActor
+    func testOfficialPluginHeaderUsesTwoTabsInsteadOfThreeWaySegmentedControl() throws {
+        var largeTypeTheme = CodexAgentTheme.officialDark
+        largeTypeTheme.fonts.caption = .system(size: 24)
+        let route = CodexPluginRouteView(
+            plugins: [plugin(
+                name: "github",
+                displayName: "GitHub",
+                detail: "Triage pull requests",
+                installed: true,
+                enabled: true
+            )],
+            skills: [skill(name: "agents-sdk", displayName: "Agents SDK", enabled: true)],
+            mcpServers: [],
+            onRefresh: {},
+            onAction: { _ in }
+        )
+        .codexAgentTheme(largeTypeTheme)
+        .frame(width: 1_100, height: 720)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        hosting.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(firstDescendant(of: NSSegmentedControl.self, in: hosting))
+    }
+
+    @MainActor
+    func testManagePageAllocatesAVisibleVirtualizedInventory() throws {
+        let route = CodexPluginRouteView(
+            plugins: [plugin(
+                name: "browser",
+                displayName: "Browser",
+                detail: "Control the in-app browser",
+                installed: true,
+                enabled: true
+            )],
+            skills: [],
+            mcpServers: [],
+            initialTab: .manage,
+            onRefresh: {},
+            onAction: { _ in }
+        )
+        .frame(width: 1_100, height: 720)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hosting
+        settle(hosting)
+
+        let table = try XCTUnwrap(firstDescendant(of: NSTableView.self, in: hosting))
+        XCTAssertEqual(table.numberOfRows, 1)
+        XCTAssertGreaterThan(table.frame.height, 300)
+    }
+
+    @MainActor
+    func testEveryVisiblePluginAndSkillSwitchEmitsTheCanonicalToggleAction() throws {
+        let installedPlugin = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Triage pull requests",
+            installed: true,
+            enabled: true
+        )
+        let personalSkill = skill(name: "writer", displayName: "Writer", enabled: false)
+        var systemSkill = skill(name: "imagegen", displayName: "Image Gen", enabled: true)
+        systemSkill.path = "/tmp/system-skills/imagegen/SKILL.md"
+        systemSkill.scope = "system"
+        let recorder = CatalogActionRecorder()
+        let route = CodexPluginCatalogTable(
+            plugins: [installedPlugin],
+            selectedPluginID: .constant(nil),
+            showsToggle: true,
+            pendingPluginIDs: [],
+            theme: .officialDark,
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 1_100, height: 720)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        settle(hosting)
+
+        let pluginSwitches = allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }
+        XCTAssertEqual(pluginSwitches.count, 1, "The managed plugin row must expose an interactive switch")
+        pluginSwitches[0].performClick(nil)
+        XCTAssertEqual(
+            recorder.actions,
+            [.setPluginEnabled(.init(plugin: installedPlugin), enabled: false)]
+        )
+
+        recorder.actions.removeAll()
+        let skillRow = OfficialSkillRow(
+            skill: personalSkill,
+            icon: .init(),
+            showsToggle: true,
+            isPending: false,
+            onOpen: {},
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 700, height: 62)
+        let skillHosting = NSHostingView(rootView: skillRow)
+        skillHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 62)
+        let skillWindow = NSWindow(contentRect: skillHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        skillWindow.contentView = skillHosting
+        settle(skillHosting)
+        try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: skillHosting)).performClick(nil)
+
+        let detail = OfficialSkillDetailSheet(
+            skill: systemSkill,
+            icon: .init(),
+            isPending: false,
+            onClose: {},
+            onAction: { recorder.actions.append($0) }
+        )
+        let detailHosting = NSHostingView(rootView: detail)
+        detailHosting.frame = NSRect(x: 0, y: 0, width: 720, height: 620)
+        let detailWindow = NSWindow(contentRect: detailHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        detailWindow.contentView = detailHosting
+        settle(detailHosting)
+        try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: detailHosting)).performClick(nil)
+        let skillToggles = recorder.actions.compactMap { action -> (String, Bool)? in
+            guard case .setSkillEnabled(let target, let enabled) = action else { return nil }
+            return (target.path, enabled)
+        }
+        XCTAssertEqual(skillToggles.count, 2)
+        XCTAssertEqual(skillToggles.filter { $0.0 == personalSkill.path && $0.1 }.count, 1)
+        XCTAssertEqual(skillToggles.filter { $0.0 == systemSkill.path && !$0.1 }.count, 1)
+    }
+
+    @MainActor
+    func testManageUsesSwitchesForLocalPluginsAndStatusChecksForAccountPlugins() throws {
+        let local = plugin(
+            name: "browser",
+            displayName: "Browser",
+            detail: "Control the in-app browser",
+            installed: true,
+            enabled: true
+        )
+        var account = plugin(
+            name: "gmail",
+            displayName: "Gmail",
+            detail: "Read and manage Gmail",
+            installed: true,
+            enabled: true
+        )
+        account.marketplaceName = "openai-curated-remote"
+        account.sourceType = "remote"
+
+        XCTAssertTrue(local.supportsEnabledToggle)
+        XCTAssertFalse(account.supportsEnabledToggle)
+
+        let route = CodexPluginCatalogTable(
+            plugins: [local, account],
+            selectedPluginID: .constant(nil),
+            showsToggle: true,
+            pendingPluginIDs: [],
+            theme: .officialDark,
+            onAction: { _ in }
+        )
+        .frame(width: 736, height: 160)
+        let hosting = NSHostingView(rootView: route)
+        hosting.frame = NSRect(x: 0, y: 0, width: 736, height: 160)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hosting
+        settle(hosting)
+
+        XCTAssertEqual(allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }.count, 1)
+        XCTAssertEqual(
+            allDescendants(of: NSImageView.self, in: hosting)
+                .filter { !$0.isHidden && $0.accessibilityLabel() == "Enabled" }
+                .count,
+            1
+        )
+    }
+
+    @MainActor
+    func testPluginAddEmitsInstallAndPendingControlsCannotBeClickedTwice() throws {
+        let available = plugin(
+            name: "linear",
+            displayName: "Linear",
+            detail: "Plan and build products",
+            installed: false,
+            enabled: false,
+            installPolicy: "AVAILABLE"
+        )
+        let recorder = CatalogActionRecorder()
+        let active = CodexPluginCatalogTable(
+            plugins: [available],
+            selectedPluginID: .constant(nil),
+            showsToggle: false,
+            pendingPluginIDs: [],
+            theme: .officialDark,
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 700, height: 100)
+        let activeHosting = NSHostingView(rootView: active)
+        activeHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 100)
+        let activeWindow = NSWindow(contentRect: activeHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        activeWindow.contentView = activeHosting
+        settle(activeHosting)
+
+        let add = try XCTUnwrap(allDescendants(of: NSButton.self, in: activeHosting).first { $0.title == "Add" })
+        XCTAssertTrue(add.isEnabled)
+        add.performClick(nil)
+        XCTAssertEqual(recorder.actions, [.installPlugin(.init(plugin: available))])
+
+        let pending = CodexPluginCatalogTable(
+            plugins: [available],
+            selectedPluginID: .constant(nil),
+            showsToggle: false,
+            pendingPluginIDs: [available.protocolID],
+            theme: .officialDark,
+            onAction: { recorder.actions.append($0) }
+        )
+        .frame(width: 700, height: 100)
+        let pendingHosting = NSHostingView(rootView: pending)
+        pendingHosting.frame = activeHosting.frame
+        let pendingWindow = NSWindow(contentRect: pendingHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        pendingWindow.contentView = pendingHosting
+        settle(pendingHosting)
+
+        let pendingAdd = try XCTUnwrap(allDescendants(of: NSButton.self, in: pendingHosting).first { $0.title == "Add" })
+        XCTAssertFalse(pendingAdd.isEnabled)
+        pendingAdd.performClick(nil)
+        XCTAssertEqual(recorder.actions.count, 1)
+    }
+
+    func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let curated = temporary.appendingPathComponent("curated", isDirectory: true)
+        let serverManagedDuplicate = temporary.appendingPathComponent("duplicate", isDirectory: true)
+        let bundled = temporary.appendingPathComponent("bundled", isDirectory: true)
+        let bundledDuplicate = temporary.appendingPathComponent("bundled-duplicate", isDirectory: true)
+        let invalid = temporary.appendingPathComponent("invalid", isDirectory: true)
+        try writeMarketplace(named: "openai-curated", at: curated)
+        try writeMarketplace(named: "openai-curated", at: serverManagedDuplicate)
+        try writeMarketplace(named: "openai-bundled", at: bundled)
+        try writeMarketplace(named: "openai-bundled", at: bundledDuplicate)
+        try FileManager.default.createDirectory(
+            at: invalid.appendingPathComponent(".agents/plugins", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data("not json".utf8).write(to: invalid.appendingPathComponent(".agents/plugins/marketplace.json"))
+
+        XCTAssertEqual(
+            CodexPluginMarketplaceDiscovery.sources(
+                in: [curated, serverManagedDuplicate, invalid, bundled, bundledDuplicate]
+            ),
+            [
+                CodexPluginMarketplaceSource(name: "openai-bundled", path: bundled.path),
+            ]
+        )
+    }
+
     func testSlashCommandsMatchObservedCodexPaletteAndFilter() throws {
         XCTAssertEqual(CodexSlashCommand.observedCommands.map(\.title), [
             "Compact",
@@ -217,6 +573,10 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                                 "longDescription": .string("Resume long running agent work."),
                                 "developerName": .string("OpenAI"),
                                 "category": .string("Agents"),
+                                "logo": .string("/tmp/plugins/resume-from-opencode/logo.png"),
+                                "logoUrl": .string("https://cdn.example.com/resume.png"),
+                                "logoUrlDark": .string("https://cdn.example.com/resume-dark.png"),
+                                "composerIconUrl": .string("https://cdn.example.com/resume-composer.png"),
                                 "capabilities": .array([.string("skills"), .string("prompts")]),
                                 "screenshots": .array([]),
                                 "screenshotUrls": .array([])
@@ -252,18 +612,28 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                     "message": .string("invalid manifest")
                 ])
             ]),
-            "featuredPluginIds": .array([])
+            "featuredPluginIds": .array([.string("resume-from-opencode")])
         ])
 
         let plugins = CodexPluginSummary.plugins(from: response)
 
         XCTAssertEqual(plugins.count, 2)
         XCTAssertEqual(plugins[0].name, "resume-from-opencode")
+        XCTAssertEqual(plugins[0].protocolID, "resume-from-opencode")
+        XCTAssertTrue(plugins[0].isFeatured)
         XCTAssertEqual(plugins[0].displayName, "Resume OpenCode")
         XCTAssertEqual(plugins[0].statusLabel, "Installed")
         XCTAssertEqual(plugins[0].sourceLabel, "Local")
         XCTAssertEqual(plugins[0].sourceDetail, "/tmp/plugins/resume-from-opencode")
         XCTAssertEqual(plugins[0].marketplaceDisplayName, "Local marketplace")
+        XCTAssertEqual(plugins[0].icon.logo, "https://cdn.example.com/resume.png")
+        XCTAssertEqual(plugins[0].icon.logoDark, "https://cdn.example.com/resume-dark.png")
+        XCTAssertEqual(plugins[0].icon.composerIcon, "https://cdn.example.com/resume-composer.png")
+        XCTAssertEqual(
+            plugins[0].icon.url(prefersDark: true)?.absoluteString,
+            "https://cdn.example.com/resume-dark.png"
+        )
+        XCTAssertEqual(CodexPluginRouteDetail(plugin: plugins[0]).icon, plugins[0].icon)
         XCTAssertEqual(plugins[0].capabilities, ["skills", "prompts"])
         XCTAssertEqual(plugins[0].detail, "Resume a previous OpenCode session")
         XCTAssertEqual(plugins[1].statusLabel, "Available")
@@ -272,6 +642,47 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             CodexPluginSummary.loadErrorMessages(from: response),
             ["/tmp/bad-marketplace.json: invalid manifest"]
         )
+    }
+
+    func testPluginSummaryResolvesRelativeManifestIconsAgainstPublishedSourcePath() throws {
+        let raw: CodexJSONValue = .dictionary([
+            "id": .string("gmail@openai-curated-remote"),
+            "name": .string("gmail"),
+            "installed": .bool(true),
+            "enabled": .bool(true),
+            "installPolicy": .string("AVAILABLE"),
+            "authPolicy": .string("ON_USE"),
+            "source": .dictionary([
+                "type": .string("local"),
+                "path": .string("/tmp/plugins/gmail/0.1.5")
+            ]),
+            "interface": .dictionary([
+                "logo": .string("./assets/gmail.png"),
+                "logoDark": .string("assets/gmail-dark.png"),
+                "composerIcon": .string("./assets/gmail-small.svg"),
+                "capabilities": .array([])
+            ])
+        ])
+
+        let plugin = try XCTUnwrap(CodexPluginSummary(
+            raw: raw,
+            marketplace: .init(name: "openai-curated-remote")
+        ))
+
+        XCTAssertEqual(plugin.icon.logo, "/tmp/plugins/gmail/0.1.5/assets/gmail.png")
+        XCTAssertEqual(plugin.icon.logoDark, "/tmp/plugins/gmail/0.1.5/assets/gmail-dark.png")
+        XCTAssertEqual(plugin.icon.composerIcon, "/tmp/plugins/gmail/0.1.5/assets/gmail-small.svg")
+    }
+
+    @MainActor
+    func testPluginImageRepositoryLoadsPublishedLocalAssetSynchronously() throws {
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-plugin-icon-\(UUID().uuidString).tiff")
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        let symbol = try XCTUnwrap(NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil))
+        try XCTUnwrap(symbol.tiffRepresentation).write(to: temporaryURL)
+
+        XCTAssertNotNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
     }
 
     func testIntegrationCatalogSessionOwnsMCPAndPluginLoadingState() {
@@ -353,6 +764,13 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(session.pluginLoadErrors, ["/tmp/bad-marketplace.json: invalid manifest"])
         XCTAssertFalse(session.isLoadingPlugins)
 
+        XCTAssertEqual(
+            session.setPluginEnabledOptimistically(id: "resume-from-opencode", enabled: false),
+            true
+        )
+        XCTAssertFalse(session.plugins[0].enabled)
+        XCTAssertNil(session.setPluginEnabledOptimistically(id: "missing", enabled: true))
+
         let failedPlugins = session.failPluginRefresh(message: "bad marketplace")
         XCTAssertEqual(failedPlugins.title, "Plugin list unavailable")
         XCTAssertEqual(session.plugins, [])
@@ -427,6 +845,46 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertTrue(detail.metadata.contains("Version: 26.616.81150"))
         XCTAssertTrue(detail.legalLinks.contains("Website: https://openai.com"))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Open the browser and inspect the current page."))
+    }
+
+    func testCatalogSessionOptimisticallyTogglesAndRestoresPluginsAndSkillsByCanonicalIdentity() throws {
+        let firstPlugin = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Triage pull requests",
+            installed: true,
+            enabled: true
+        )
+        let secondPlugin = plugin(
+            name: "gmail",
+            displayName: "Gmail",
+            detail: "Manage email",
+            installed: true,
+            enabled: false
+        )
+        let firstSkill = skill(name: "shared-name", displayName: "Personal Skill", enabled: true)
+        var secondSkill = skill(name: "shared-name", displayName: "System Skill", enabled: false)
+        secondSkill.path = "/tmp/system-skills/shared-name/SKILL.md"
+        secondSkill.scope = "system"
+        var session = CodexIntegrationCatalogSession(
+            plugins: [firstPlugin, secondPlugin],
+            skills: [firstSkill, secondSkill]
+        )
+
+        let pluginPrevious = session.setPluginEnabledOptimistically(id: firstPlugin.protocolID, enabled: false)
+        XCTAssertEqual(pluginPrevious, true)
+        XCTAssertEqual(session.plugins.map(\.enabled), [false, false])
+        _ = session.setPluginEnabledOptimistically(id: firstPlugin.protocolID, enabled: try XCTUnwrap(pluginPrevious))
+        XCTAssertEqual(session.plugins.map(\.enabled), [true, false])
+
+        let skillPrevious = session.setSkillEnabledOptimistically(path: secondSkill.path, enabled: true)
+        XCTAssertEqual(skillPrevious, false)
+        XCTAssertEqual(session.skills.map(\.enabled), [true, true])
+        _ = session.setSkillEnabledOptimistically(path: secondSkill.path, enabled: try XCTUnwrap(skillPrevious))
+        XCTAssertEqual(session.skills.map(\.enabled), [true, false])
+
+        XCTAssertNil(session.setPluginEnabledOptimistically(id: "missing", enabled: true))
+        XCTAssertNil(session.setSkillEnabledOptimistically(path: "/missing/SKILL.md", enabled: true))
     }
 
     func testBrowserLauncherUsesCatalogDetailWithOracleMetadata() throws {
@@ -537,10 +995,57 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(detail.prompt, "Use the browser to inspect localhost.")
         XCTAssertEqual(detail.primaryAction, .setSkillEnabled(CodexSkillActionTarget(skill: enabled), enabled: false))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Use the browser to inspect localhost."))
-        XCTAssertFalse(detail.canUninstall)
+        XCTAssertTrue(detail.canUninstall)
     }
 
-    func testPluginCatalogActionsAreMockableAndBounded() async {
+    func testPluginRouteFiltersAndMCPManagementRemainSeparate() throws {
+        let openAI = CodexPluginSummary(
+            id: "openai:browser",
+            protocolID: "browser@openai-bundled",
+            name: "browser",
+            displayName: "Browser",
+            marketplaceName: "openai-bundled",
+            developerName: "OpenAI",
+            installed: true,
+            enabled: true,
+            capabilities: ["apps"]
+        )
+        let personal = CodexPluginSummary(
+            id: "personal:writer",
+            protocolID: "writer@personal",
+            name: "writer",
+            displayName: "Writer",
+            marketplaceName: "personal",
+            sourceType: "local"
+        )
+        let server = CodexMCPServerStatus(
+            name: "filesystem",
+            displayName: "Filesystem",
+            authStatus: "unsupported",
+            startupStatus: "ready",
+            tools: [.init(name: "read_file")]
+        )
+
+        let openAIState = CodexPluginRouteState(
+            plugins: [openAI, personal],
+            mcpServers: [server],
+            filter: .openAI
+        )
+        XCTAssertEqual(openAIState.visiblePlugins.map(\.displayName), ["Browser"])
+        XCTAssertEqual(openAIState.featuredPlugins.map(\.displayName), ["Browser"])
+
+        let mcpState = CodexPluginRouteState(
+            plugins: [openAI, personal],
+            mcpServers: [server],
+            primaryTab: .manage,
+            manageTab: .mcps
+        )
+        XCTAssertEqual(mcpState.manageCounts.first { $0.tab == .mcps }?.count, 1)
+        XCTAssertEqual(mcpState.visibleMCPServers.map(\.displayName), ["Filesystem"])
+        XCTAssertEqual(try XCTUnwrap(mcpState.selectedDetail).title, "Filesystem")
+    }
+
+    func testPluginCatalogActionsAreMockable() async {
         let available = plugin(
             name: "github",
             displayName: "GitHub",
@@ -563,12 +1068,83 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(tryInChat.draftPrompt, "Use GitHub")
         XCTAssertFalse(tryInChat.shouldRefresh)
 
-        let unsupported = await CodexPluginCatalogActionSession.perform(
-            .uninstallPlugin(target),
-            provider: CodexUnsupportedPluginCatalogActionProvider()
+        let personalSkill = skill(name: "writer", displayName: "Writer", enabled: true)
+        let uninstallSkill = await CodexPluginCatalogActionSession.perform(
+            .uninstallSkill(.init(skill: personalSkill)),
+            provider: provider
         )
-        XCTAssertEqual(unsupported.activity.title, "Plugin action unavailable")
-        XCTAssertTrue(unsupported.activity.detail.contains("uninstall is not wired"))
+        XCTAssertEqual(uninstallSkill.activity.title, "Uninstalled Writer")
+        XCTAssertTrue(uninstallSkill.shouldRefresh)
+
+    }
+
+    func testPluginProtocolMutationsUseServerIdentityAndExplicitControlPlaneSeams() throws {
+        let available = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Triage PRs and issues",
+            installed: false,
+            enabled: false,
+            installPolicy: "AVAILABLE"
+        )
+        let target = CodexPluginActionTarget(plugin: available)
+
+        XCTAssertEqual(target.id, "github@local")
+
+        let install = CodexPluginProtocolMutation.installParams(for: target)
+        XCTAssertEqual(install.pluginName, "github")
+        XCTAssertEqual(install.marketplacePath?.rawValue, .string("/tmp/marketplace.json"))
+        XCTAssertNil(install.remoteMarketplaceName)
+
+        let remote = CodexPluginSummary(
+            id: "openai-curated-remote:gmail",
+            protocolID: "gmail@openai-curated-remote",
+            name: "gmail",
+            marketplaceName: "openai-curated-remote",
+            installed: false,
+            enabled: false,
+            installPolicy: "AVAILABLE"
+        )
+        let remoteInstall = CodexPluginProtocolMutation.installParams(for: .init(plugin: remote))
+        XCTAssertNil(remoteInstall.marketplacePath)
+        XCTAssertEqual(remoteInstall.remoteMarketplaceName, "openai-curated-remote")
+        XCTAssertEqual(remoteInstall.pluginName, "gmail")
+
+        let uninstall = CodexPluginProtocolMutation.uninstallParams(for: target)
+        XCTAssertEqual(uninstall.pluginID, "github@local")
+
+        let toggle = CodexPluginProtocolMutation.pluginEnabledParams(for: target, enabled: false)
+        XCTAssertEqual(toggle.edits.count, 1)
+        XCTAssertEqual(toggle.edits[0].keyPath, "plugins.github@local.enabled")
+        XCTAssertEqual(toggle.edits[0].mergeStrategy, .upsert)
+        XCTAssertEqual(toggle.edits[0].value, .bool(false))
+        XCTAssertEqual(toggle.reloadUserConfig, true)
+
+        let skillTarget = CodexSkillActionTarget(skill: skill(
+            name: "browser:control",
+            displayName: "Control Browser",
+            enabled: true
+        ))
+        let skillToggle = CodexPluginProtocolMutation.skillEnabledParams(for: skillTarget, enabled: false)
+        XCTAssertEqual(skillToggle.name, "browser:control")
+        XCTAssertNil(skillToggle.path, "Namespaced plugin skills are addressed by name in the official control plane")
+        XCTAssertFalse(skillToggle.enabled)
+
+        let personalSkillTarget = CodexSkillActionTarget(skill: skill(
+            name: "release-notes",
+            displayName: "Release Notes",
+            enabled: true
+        ))
+        let personalSkillToggle = CodexPluginProtocolMutation.skillEnabledParams(
+            for: personalSkillTarget,
+            enabled: false
+        )
+        XCTAssertNil(personalSkillToggle.name)
+        XCTAssertEqual(personalSkillToggle.path?.rawValue, .string(personalSkillTarget.path))
+
+        let uninstallSkill = CodexPluginProtocolMutation.skillUninstallParams(for: skillTarget)
+        XCTAssertEqual(uninstallSkill.path.rawValue, .string("/tmp/skills/browser:control"))
+        XCTAssertEqual(uninstallSkill.recursive, true)
     }
 
     func testSkillSummariesParseAppServerSkillsForRoute() {
@@ -615,6 +1191,119 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(session.skills, skills)
     }
 
+
+    func testMCPProtocolMutationsUseGeneratedConfigWriteAndReloadSeams() throws {
+        let configuration = CodexMCPServerConfiguration(
+            name: "filesystem",
+            enabled: true,
+            transport: .stdio,
+            command: "npx",
+            arguments: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+            environment: ["TOKEN": "secret"],
+            enabledTools: ["read_file"],
+            disabledTools: ["delete_file"],
+            startupTimeoutSeconds: 10,
+            toolTimeoutSeconds: 60
+        )
+        let save = try CodexMCPProtocolMutation.save(configuration)
+        guard case .configValueWrite(let params) = save else {
+            return XCTFail("MCP save must use config/value/write")
+        }
+        XCTAssertEqual(save.operationID, "config/value/write")
+        XCTAssertEqual(params.keyPath, "mcp_servers.filesystem")
+        XCTAssertEqual(params.mergeStrategy, .replace)
+        XCTAssertEqual(params.value, .dictionary([
+            "enabled": .bool(true),
+            "command": .string("npx"),
+            "args": .array([
+                .string("-y"),
+                .string("@modelcontextprotocol/server-filesystem"),
+                .string("/tmp")
+            ]),
+            "env": .dictionary(["TOKEN": .string("secret")]),
+            "enabled_tools": .array([.string("read_file")]),
+            "disabled_tools": .array([.string("delete_file")]),
+            "startup_timeout_sec": .int(10),
+            "tool_timeout_sec": .int(60)
+        ]))
+
+        let toggle = try CodexMCPProtocolMutation.setEnabled(name: "filesystem", enabled: false)
+        guard case .configValueWrite(let toggleParams) = toggle else {
+            return XCTFail("MCP enablement must use config/value/write")
+        }
+        XCTAssertEqual(toggleParams.keyPath, "mcp_servers.filesystem.enabled")
+        XCTAssertEqual(toggleParams.value, .bool(false))
+
+        let remove = try CodexMCPProtocolMutation.remove(name: "filesystem")
+        guard case .configValueWrite(let removeParams) = remove else {
+            return XCTFail("MCP removal must use config/value/write")
+        }
+        XCTAssertEqual(removeParams.keyPath, "mcp_servers.filesystem")
+        XCTAssertEqual(removeParams.value, .null)
+        XCTAssertThrowsError(try CodexMCPProtocolMutation.remove(name: "not valid"))
+    }
+
+    func testMCPHTTPConfigurationAndOAuthUseCurrentProtocolInventory() throws {
+        let configuration = CodexMCPServerConfiguration(
+            name: "remote-tools",
+            transport: .streamableHTTP,
+            url: "https://example.test/mcp",
+            httpHeaders: ["X-Workspace": "demo"],
+            bearerTokenEnvironmentVariable: "MCP_TOKEN"
+        )
+        let request = try CodexMCPProtocolMutation.save(configuration)
+        guard case .configValueWrite(let params) = request else {
+            return XCTFail("MCP HTTP save must use config/value/write")
+        }
+        XCTAssertEqual(params.value, .dictionary([
+            "enabled": .bool(true),
+            "url": .string("https://example.test/mcp"),
+            "http_headers": .dictionary(["X-Workspace": .string("demo")]),
+            "bearer_token_env_var": .string("MCP_TOKEN")
+        ]))
+
+        let oauth = CodexIntegrationControlPlaneRequest.mcpOAuthLogin(.init(name: "remote-tools"))
+        XCTAssertEqual(oauth.operationID, "mcpServer/oauth/login")
+        XCTAssertEqual(CodexIntegrationControlPlaneRequest.mcpReload.operationID, "config/mcpServer/reload")
+    }
+
+}
+
+private func writeMarketplace(named name: String, at root: URL) throws {
+    let directory = root.appendingPathComponent(".agents/plugins", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let data = try JSONSerialization.data(withJSONObject: ["name": name, "plugins": []])
+    try data.write(to: directory.appendingPathComponent("marketplace.json"))
+}
+
+@MainActor
+private func firstDescendant<T: NSView>(of type: T.Type, in root: NSView) -> T? {
+    if let match = root as? T { return match }
+    for subview in root.subviews {
+        if let match = firstDescendant(of: type, in: subview) { return match }
+    }
+    return nil
+}
+
+@MainActor
+private func allDescendants<T: NSView>(of type: T.Type, in root: NSView) -> [T] {
+    var matches: [T] = []
+    if let root = root as? T { matches.append(root) }
+    for subview in root.subviews {
+        matches.append(contentsOf: allDescendants(of: type, in: subview))
+    }
+    return matches
+}
+
+@MainActor
+private func settle(_ hosting: NSView) {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    hosting.layoutSubtreeIfNeeded()
+}
+
+@MainActor
+private final class CatalogActionRecorder {
+    var actions: [CodexPluginRouteAction] = []
 }
 
 private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider {
@@ -645,6 +1334,13 @@ private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider
             shouldRefresh: true
         )
     }
+
+    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: CodexIntegrationCatalogActivity(title: "Uninstalled \(target.displayName)", detail: target.path),
+            shouldRefresh: true
+        )
+    }
 }
 
 private func plugin(
@@ -665,6 +1361,7 @@ private func plugin(
 ) -> CodexPluginSummary {
     CodexPluginSummary(
         id: "local:\(name)",
+        protocolID: "\(name)@local",
         name: name,
         displayName: displayName,
         shortDescription: detail,

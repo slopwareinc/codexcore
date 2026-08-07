@@ -15,3 +15,6 @@ __pycache__/
 
 # Stray build artifact from a scratch `t/t.swift` experiment.
 /t
+
+# Local-only parity/review discovery captures and reports.
+docs/review-workbench-evidence/

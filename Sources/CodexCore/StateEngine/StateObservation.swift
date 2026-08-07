@@ -33,10 +33,11 @@ public struct StateFieldMask: OptionSet, Codable, Sendable, Hashable {
     public static let moderation = Self(rawValue: 1 << 21)
     public static let extensions = Self(rawValue: 1 << 22)
     public static let mcpServerStartup = Self(rawValue: 1 << 23)
+    public static let backgroundTerminals = Self(rawValue: 1 << 24)
 
     public static let thread: Self = [
         .threadMetadata, .threadStatus, .threadRelationships, .threadHistory,
-        .threadGoal, .threadSettings,
+        .threadGoal, .threadSettings, .backgroundTerminals,
     ]
 
     public static let turn: Self = [
@@ -48,7 +49,7 @@ public struct StateFieldMask: OptionSet, Codable, Sendable, Hashable {
     public static let all: Self = [
         .connection, .account, .thread, .turn, .item, .requests,
         .submissionIntents, .diagnostics, .moderation,
-        .extensions, .mcpServerStartup,
+        .extensions, .mcpServerStartup, .backgroundTerminals,
     ]
 }
 
@@ -160,6 +161,8 @@ private extension CanonicalStateChange {
             .account
         case .mcpServerStartupStatusUpdated:
             .mcpServerStartup
+        case .backgroundTerminalsUpdated:
+            .backgroundTerminals
         case .threadInserted, .threadUpdated, .threadRemoved:
             .thread
         case .threadLifecycleUpdated:

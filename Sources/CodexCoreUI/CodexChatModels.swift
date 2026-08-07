@@ -2,6 +2,7 @@ public struct CodexChatActionHandlers {
     public var pinChat: (() -> Void)?
     public var renameChat: (() -> Void)?
     public var archiveChat: (() -> Void)?
+    public var deleteChat: (() -> Void)?
     public var openSideChat: (() -> Void)?
     public var copyChat: (() -> Void)?
     public var forkChat: (() -> Void)?
@@ -11,12 +12,14 @@ public struct CodexChatActionHandlers {
         pinChat: (() -> Void)? = nil,
         renameChat: (() -> Void)? = nil,
         archiveChat: (() -> Void)? = nil,
+        deleteChat: (() -> Void)? = nil,
         openSideChat: (() -> Void)? = nil,
         copyChat: (() -> Void)? = nil,
         forkChat: (() -> Void)? = nil,
         addAutomation: (() -> Void)? = nil
     ) {
         self.pinChat = pinChat; self.renameChat = renameChat; self.archiveChat = archiveChat
+        self.deleteChat = deleteChat
         self.openSideChat = openSideChat; self.copyChat = copyChat; self.forkChat = forkChat
         self.addAutomation = addAutomation
     }
@@ -32,6 +35,7 @@ public struct CodexChatActionHandlers {
         case .pinChat: pinChat
         case .renameChat: renameChat
         case .archiveChat: archiveChat
+        case .deleteChat: deleteChat
         case .openSideChat: openSideChat
         case .copy: copyChat
         case .fork: forkChat
@@ -41,13 +45,14 @@ public struct CodexChatActionHandlers {
 }
 
 public enum CodexChatActionID: String, CaseIterable, Equatable, Sendable {
-    case pinChat, renameChat, archiveChat, openSideChat, copy, fork, addAutomation
+    case pinChat, renameChat, archiveChat, deleteChat, openSideChat, copy, fork, addAutomation
 
     public var title: String {
         switch self {
         case .pinChat: "Pin chat"
         case .renameChat: "Rename chat"
         case .archiveChat: "Archive chat"
+        case .deleteChat: "Delete chat"
         case .openSideChat: "Open side chat"
         case .copy: "Copy"
         case .fork: "Fork"
@@ -60,6 +65,7 @@ public enum CodexChatActionID: String, CaseIterable, Equatable, Sendable {
         case .pinChat: "⌥⌘P"
         case .renameChat: "⌥⌘R"
         case .archiveChat: "⇧⌘A"
+        case .deleteChat: nil
         case .openSideChat: "⌥⌘S"
         default: nil
         }

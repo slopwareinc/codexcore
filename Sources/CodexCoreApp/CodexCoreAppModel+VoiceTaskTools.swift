@@ -3,11 +3,20 @@ import CodexCoreUI
 import Foundation
 
 extension CodexCoreAppModel {
+    /// The app-server schema carries the source on a thread start, while the
+    /// official host also carries an internal thread-start kind through its
+    /// dynamic-tool request. Keep both dimensions explicit so a normal start
+    /// can never inherit realtime Voice tools just because it shares a builder.
+    enum DynamicToolsThreadStartKind: Sendable, Equatable {
+        case normal
+        case realtimeVoice
+    }
+
     static let realtimeVoiceFeatureConfig: CodexJSONValue = .dictionary([
         "features.realtime_conversation": .bool(true),
     ])
 
-    static let voiceTaskToolSpecs: [CodexSchemaDynamicToolSpec] = [
+    static let realtimeVoiceTaskToolSpecs: [CodexSchemaDynamicToolSpec] = [
         voiceTaskToolSpec(
             name: "end_realtime_voice_call",
             description: "End the current voice chat. Only call this tool if the user explicitly asks to end the voice chat.",
@@ -128,6 +137,41 @@ extension CodexCoreAppModel {
         ),
     ]
 
+    /// Compatibility name for callers that only need to inspect the Voice
+    /// inventory. Production startup paths use the explicitly gated name.
+    static let voiceTaskToolSpecs = realtimeVoiceTaskToolSpecs
+
+    /// Dynamic tools are a capability of a realtime Voice root, not a property
+    /// of a normal thread or of a regular child task launched from Voice.
+    static func dynamicToolsForThreadStart(
+        threadSource: String?,
+        threadStartKind: DynamicToolsThreadStartKind
+    ) -> [CodexSchemaDynamicToolSpec]? {
+        guard threadSource == "realtime_voice",
+              threadStartKind == .realtimeVoice
+        else {
+            return nil
+        }
+        return realtimeVoiceTaskToolSpecs
+    }
+
+    /// Builds the realtime Voice root with both official gating dimensions set.
+    /// `threadStartKind` is not part of the pinned generated schema, so this
+    /// host-side policy keeps it paired with the wire `threadSource`.
+    func realtimeVoiceThreadStartParametersForCurrentDraft() throws -> CodexSchemaThreadStartParams {
+        var parameters = try threadStartParametersForCurrentDraft()
+        parameters.config = Self.realtimeVoiceFeatureConfig
+        parameters.threadSource = CodexSchemaThreadSource(.string("realtime_voice"))
+        parameters.dynamicTools = Self.dynamicToolsForThreadStart(
+            threadSource: "realtime_voice",
+            threadStartKind: .realtimeVoice
+        )
+        return parameters
+    }
+
+    /// Builds a regular child task started from Voice. It must not inherit the
+    /// realtime-only tools; only the realtime Voice root uses the gated builder
+    /// below.
     func voiceThreadStartParameters(
         wire: CodexTaskWireSelection,
         permissionConfiguration: CodexPermissionProfileWireConfiguration,
@@ -138,7 +182,6 @@ extension CodexCoreAppModel {
         var parameters = wire.applying(to: CodexSchemaThreadStartParams(
             cwd: cwd,
             developerInstructions: developerInstructions,
-            dynamicTools: Self.voiceTaskToolSpecs,
             historyMode: CodexSchemaThreadHistoryMode(
                 rawValue: newThreadHistoryMode.rawValue
             ),
@@ -251,8 +294,9 @@ extension CodexCoreAppModel {
         }
 
         guard case .dynamicToolCall(let request) = parsed.body,
-              request.scope.threadID != nil,
-              Self.voiceTaskToolNames.contains(request.tool),
+              let threadID = request.scope.threadID,
+              Self.realtimeVoiceTaskToolNames.contains(request.tool),
+              isRealtimeVoiceTaskThread(threadID),
               let codex
         else {
             return .pending
@@ -461,7 +505,7 @@ extension CodexCoreAppModel {
             ?? [CodexProjectSummary.normalizedPath(cwd)]
     }
 
-    private static let voiceTaskToolNames: Set<String> = [
+    private static let realtimeVoiceTaskToolNames: Set<String> = [
         "end_realtime_voice_call",
         "list_projects",
         "create_thread",
@@ -469,6 +513,19 @@ extension CodexCoreAppModel {
         "read_thread",
         "send_message_to_thread",
     ]
+
+    /// A dynamic call is accepted only for the active realtime Voice thread.
+    /// The sidebar source covers resumed/history threads; the local set covers
+    /// a newly-created Voice root before the thread index has refreshed.
+    private func isRealtimeVoiceTaskThread(_ threadID: String) -> Bool {
+        guard voiceSession.isActive, voiceSession.threadID == threadID else {
+            return false
+        }
+        if realtimeVoiceThreadIDs.contains(threadID) {
+            return true
+        }
+        return allSidebarChats.first(where: { $0.id == threadID })?.threadSource == "realtime_voice"
+    }
 
     private static func voiceTaskToolSpec(
         name: String,

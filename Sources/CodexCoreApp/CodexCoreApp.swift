@@ -52,6 +52,7 @@ private final class CodexMainWindow: NSWindow {
 @MainActor
 final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let mainWindowFrameAutosaveName = "CodexCore.MainWindow"
+    private static let mainWindowZoomedDefaultsKey = "CodexCore.MainWindow.isZoomed"
     private static let defaultMainWindowContentSize = NSSize(width: 1_416, height: 912)
     private static var sharedDelegate: CodexCoreApp?
 
@@ -63,7 +64,9 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     )
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var keyboardShortcutMenuItems: [CodexKeyboardShortcutAction: NSMenuItem] = [:]
     private var voiceOverlayController: CodexVoiceOverlayWindowController?
+    private let terminationCoordinator = CodexApplicationTerminationCoordinator()
 
     static func main() {
         let application = NSApplication.shared
@@ -76,6 +79,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        model.startAutomationScheduler()
         configureMainMenu()
         voiceOverlayController = CodexVoiceOverlayWindowController(
             model: model,
@@ -118,8 +122,43 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         voiceOverlayController?.updateMainThreadVisibility(false)
     }
 
+    func windowDidMove(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistMainWindowZoomState(for: window)
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistMainWindowZoomState(for: window)
+    }
+
+    private func persistMainWindowZoomState(for window: NSWindow) {
+        guard window === mainWindow else { return }
+        UserDefaults.standard.set(window.isZoomed, forKey: Self.mainWindowZoomedDefaultsKey)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        model.voiceSession.phase == .inactive
+        // The primary window is a hide-on-close surface. Explicit quit still
+        // enters applicationShouldTerminate(_:), where the termination
+        // coordinator drains the app-server before replying to AppKit.
+        false
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender === mainWindow else { return true }
+        sender.saveFrame(usingName: Self.mainWindowFrameAutosaveName)
+        persistMainWindowZoomState(for: sender)
+
+        switch CodexPrimaryWindowPersistence.closeAction(
+            isTerminationInProgress: terminationCoordinator.state != .running
+        ) {
+        case .hide:
+            sender.orderOut(nil)
+            updateVoiceOverlayContext()
+            return false
+        case .close:
+            return true
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -127,12 +166,15 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard model.voiceSession.phase != .inactive else { return .terminateNow }
-        Task { @MainActor [weak self, weak sender] in
-            guard let self else { return }
-            await model.disconnect()
-            sender?.reply(toApplicationShouldTerminate: true)
-        }
+        model.prepareForTermination()
+        terminationCoordinator.requestTermination(
+            disconnect: { [weak self] in
+                await self?.model.disconnect()
+            },
+            reply: { [weak sender] in
+                sender?.reply(toApplicationShouldTerminate: true)
+            }
+        )
         return .terminateLater
     }
 
@@ -143,6 +185,19 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard model.enqueueOpenURLs(urls) else { return }
+        showMainWindow()
+    }
+
+    func application(_ application: NSApplication, openFiles filenames: [String]) {
+        let urls = filenames.map { URL(fileURLWithPath: $0) }
+        if model.enqueueOpenURLs(urls) {
+            showMainWindow()
+        }
+        application.reply(toOpenOrPrint: .success)
+    }
+
     @objc private func newWindow(_ sender: Any?) {
         showMainWindow()
         Task { await model.startNewChat() }
@@ -150,7 +205,12 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            let controller = NSHostingController(rootView: CodexSettingsWindowView(model: model)
+            let controller = NSHostingController(rootView: CodexSettingsWindowView(
+                model: model,
+                onKeyboardShortcutSettingsChanged: { [weak self] in
+                    self?.applyKeyboardShortcutSettings()
+                }
+            )
                 .frame(minWidth: 700, minHeight: 500))
             let window = NSWindow(contentViewController: controller)
             window.title = "Settings"
@@ -176,7 +236,12 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func showMainWindow(focusComposer: Bool = false) {
         if mainWindow == nil {
-            let controller = NSHostingController(rootView: CodexCoreAppRootView(model: model)
+            let controller = NSHostingController(rootView: CodexCoreAppRootView(
+                model: model,
+                onKeyboardShortcutSettingsChanged: { [weak self] in
+                    self?.applyKeyboardShortcutSettings()
+                }
+            )
                 .codexClipboardService(clipboardService)
                 .frame(minWidth: CodexProjectSidebar.minimumExpandedShellWidth, minHeight: 540))
             let window = CodexMainWindow(contentViewController: controller)
@@ -198,9 +263,26 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.delegate = self
             let restoredSavedFrame = window.setFrameUsingName(Self.mainWindowFrameAutosaveName)
             _ = window.setFrameAutosaveName(Self.mainWindowFrameAutosaveName)
-            if !restoredSavedFrame {
+            let restorationPlan = CodexPrimaryWindowPersistence.restorationPlan(
+                savedFrame: restoredSavedFrame ? window.frame : nil,
+                savedIsZoomed: restoredSavedFrame && (
+                    (UserDefaults.standard.object(forKey: Self.mainWindowZoomedDefaultsKey) as? Bool)
+                        ?? window.isZoomed
+                ),
+                visibleFrames: NSScreen.screens.map(\.visibleFrame)
+            )
+            if restorationPlan.frame == nil {
+                // setFrameUsingName can accept a frame for a detached display.
+                // Reject it before the window is shown and clear a stale zoom
+                // state so the centered fallback is usable.
+                if window.isZoomed { window.zoom(nil) }
+                UserDefaults.standard.set(false, forKey: Self.mainWindowZoomedDefaultsKey)
                 window.setContentSize(Self.defaultMainWindowContentSize)
                 window.center()
+            } else if restorationPlan.isZoomed != window.isZoomed {
+                // Keep the native maximize state when AppKit restored a saved
+                // frame without retaining the state itself.
+                window.zoom(nil)
             }
             window.alignTrafficLights()
             DispatchQueue.main.async { [weak window] in
@@ -241,9 +323,10 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let fileItem = NSMenuItem()
         mainMenu.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
-        let newWindowItem = NSMenuItem(title: "New Chat", action: #selector(newWindow(_:)), keyEquivalent: "n")
+        let newWindowItem = NSMenuItem(title: "New Chat", action: #selector(newWindow(_:)), keyEquivalent: "")
         newWindowItem.target = self
         fileMenu.addItem(newWindowItem)
+        keyboardShortcutMenuItems[.newChat] = newWindowItem
         fileItem.submenu = fileMenu
 
         let editItem = NSMenuItem()
@@ -259,9 +342,10 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(responderMenuItem(title: "Paste", action: "paste:", key: "v"))
         editMenu.addItem(responderMenuItem(title: "Select All", action: "selectAll:", key: "a"))
         editMenu.addItem(.separator())
-        let searchItem = NSMenuItem(title: "Command Menu", action: #selector(openCommandPalette(_:)), keyEquivalent: "g")
+        let searchItem = NSMenuItem(title: "Command Menu", action: #selector(openCommandPalette(_:)), keyEquivalent: "")
         searchItem.target = self
         editMenu.addItem(searchItem)
+        keyboardShortcutMenuItems[.search] = searchItem
         editItem.submenu = editMenu
 
         let viewItem = NSMenuItem()
@@ -270,14 +354,36 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let toggleSidebarItem = NSMenuItem(
             title: "Toggle Sidebar",
             action: #selector(toggleSidebar(_:)),
-            keyEquivalent: "s"
+            keyEquivalent: ""
         )
         toggleSidebarItem.target = self
-        toggleSidebarItem.keyEquivalentModifierMask = [.command, .control]
         viewMenu.addItem(toggleSidebarItem)
+        keyboardShortcutMenuItems[.toggleSidebar] = toggleSidebarItem
         viewItem.submenu = viewMenu
 
         NSApplication.shared.mainMenu = mainMenu
+        applyKeyboardShortcutSettings()
+    }
+
+    private func applyKeyboardShortcutSettings() {
+        let settings = model.keyboardShortcutSettings
+        for action in CodexKeyboardShortcutAction.allCases {
+            guard let item = keyboardShortcutMenuItems[action] else { continue }
+            let shortcut = settings[action]
+            item.keyEquivalent = shortcut.key
+            item.keyEquivalentModifierMask = appKitModifierFlags(for: shortcut.modifiers)
+        }
+    }
+
+    private func appKitModifierFlags(
+        for modifiers: CodexKeyboardShortcutModifiers
+    ) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers.contains(.command) { flags.insert(.command) }
+        if modifiers.contains(.shift) { flags.insert(.shift) }
+        if modifiers.contains(.option) { flags.insert(.option) }
+        if modifiers.contains(.control) { flags.insert(.control) }
+        return flags
     }
 
     private func responderMenuItem(title: String, action: String, key: String) -> NSMenuItem {
@@ -289,6 +395,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 struct CodexCoreAppRootView: View {
     @Bindable var model: CodexCoreAppModel
+    let onKeyboardShortcutSettingsChanged: () -> Void
     @Environment(\.openURL) private var openURL
     @State private var didStartInitialConnection = false
 
@@ -298,7 +405,10 @@ struct CodexCoreAppRootView: View {
 
             Group {
                 if model.showsChatWorkspace {
-                    CodexCoreAppShell(model: model)
+                    CodexCoreAppShell(
+                        model: model,
+                        onKeyboardShortcutSettingsChanged: onKeyboardShortcutSettingsChanged
+                    )
                         .transition(.opacity)
                 } else if !model.isConnected {
                     WelcomeFlowView(model: model)
@@ -330,6 +440,7 @@ struct CodexCoreAppRootView: View {
 
 private struct CodexSettingsWindowView: View {
     @Bindable var model: CodexCoreAppModel
+    let onKeyboardShortcutSettingsChanged: () -> Void
 
     var body: some View {
         CodexSettingsAboutRouteView(
@@ -347,10 +458,13 @@ private struct CodexSettingsWindowView: View {
             modelOptions: model.modelOptions,
             reasoningSelection: $model.reasoningSelection,
             isBottomPanelVisible: .constant(false),
+            keyboardShortcutSettings: $model.keyboardShortcutSettings,
             gitSettings: $model.gitSettings,
             newThreadHistoryMode: $model.newThreadHistoryMode,
+            followUpBehavior: $model.followUpBehavior,
             mcpServers: model.mcpServers,
-            isLoadingMCPServers: model.isLoadingMCPServers
+            isLoadingMCPServers: model.isLoadingMCPServers,
+            onKeyboardShortcutSettingsChanged: onKeyboardShortcutSettingsChanged
         )
         .frame(minWidth: 700, minHeight: 500, alignment: .topLeading)
         .codexAgentTheme(model.theme)

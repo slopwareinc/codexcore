@@ -3,6 +3,11 @@ import CodexCoreUI
 
 @MainActor
 extension CodexCoreAppModel {
+    private var observedIntegrationCatalogSession: CodexIntegrationCatalogSession {
+        _ = integrationCatalogRevision
+        return runtimeSession.integrationCatalogSession
+    }
+
     var connectionState: ConnectionState {
         authSession.connectionState
     }
@@ -108,6 +113,7 @@ extension CodexCoreAppModel {
         sidebarNavigationSession.snapshot(
             projects: recentProjects,
             chats: allSidebarChats,
+            archivedChats: threadListSession.archivedChats,
             currentWorkspacePath: workspacePath,
             currentThreadID: currentThreadID,
             pinnedThreadIDs: pinnedThreadIDs,
@@ -128,44 +134,48 @@ extension CodexCoreAppModel {
         threadListSession.searchErrorMessage
     }
 
+    var integrationControlPlaneProvider: (any CodexIntegrationControlPlaneProvider)? {
+        codex.map(CodexAppServerIntegrationControlPlaneProvider.init)
+    }
+
     var mcpServers: [CodexMCPServerStatus] {
-        runtimeSession.integrationCatalogSession.mcpServers
+        observedIntegrationCatalogSession.mcpServers
     }
 
     var isLoadingMCPServers: Bool {
-        runtimeSession.integrationCatalogSession.isLoadingMCPServers
+        observedIntegrationCatalogSession.isLoadingMCPServers
     }
 
     var mcpErrorMessage: String? {
-        runtimeSession.integrationCatalogSession.mcpErrorMessage
+        observedIntegrationCatalogSession.mcpErrorMessage
     }
 
     var plugins: [CodexPluginSummary] {
-        runtimeSession.integrationCatalogSession.plugins
+        observedIntegrationCatalogSession.plugins
     }
 
     var isLoadingPlugins: Bool {
-        runtimeSession.integrationCatalogSession.isLoadingPlugins
+        observedIntegrationCatalogSession.isLoadingPlugins
     }
 
     var pluginErrorMessage: String? {
-        runtimeSession.integrationCatalogSession.pluginErrorMessage
+        observedIntegrationCatalogSession.pluginErrorMessage
     }
 
     var pluginLoadErrors: [String] {
-        runtimeSession.integrationCatalogSession.pluginLoadErrors
+        observedIntegrationCatalogSession.pluginLoadErrors
     }
 
     var skills: [CodexSkillSummary] {
-        runtimeSession.integrationCatalogSession.skills
+        observedIntegrationCatalogSession.skills
     }
 
     var isLoadingSkills: Bool {
-        runtimeSession.integrationCatalogSession.isLoadingSkills
+        observedIntegrationCatalogSession.isLoadingSkills
     }
 
     var skillErrorMessage: String? {
-        runtimeSession.integrationCatalogSession.skillErrorMessage
+        observedIntegrationCatalogSession.skillErrorMessage
     }
 
     var approvalPrompts: [CodexApprovalPrompt] {
@@ -231,16 +241,30 @@ extension CodexCoreAppModel {
     }
 
     var gitReviewSession: CodexGitReviewSession? {
-        CodexGitReviewSnapshot
-            .fromTurnDiff(branchName: gitBranch, turnDiff: currentDiff)
-            .map { snapshot in
-                CodexGitReviewSession(snapshot: snapshot)
-            }
+        if let snapshot = CodexGitReviewSnapshot.fromTurnDiff(
+            branchName: gitBranch,
+            turnDiff: currentDiff
+        ) {
+            return CodexGitReviewSession(snapshot: snapshot)
+        }
+        // A Git checkout can be reviewed, committed, and pushed before the
+        // current turn has produced any edits. Without this the summary's
+        // Changes, Commit or push, and Create pull request rows would go dead
+        // in a perfectly normal repository; Review opens on its Last Turn
+        // empty state and offers the repository sources from there.
+        guard let branch = gitBranch?.nilIfBlank else { return nil }
+        return CodexGitReviewSession(
+            snapshot: CodexGitReviewSnapshot(branchName: branch)
+        )
     }
 
     var followUpBehavior: CodexFollowUpBehavior {
         get { composerSession.followUpBehavior }
-        set { composerSession.followUpBehavior = newValue }
+        set {
+            guard composerSession.followUpBehavior != newValue else { return }
+            composerSession.followUpBehavior = newValue
+            CodexFollowUpBehaviorStorage.save(newValue, to: preferenceStore)
+        }
     }
 
     var mentionResults: [FuzzyFileSearchResult] {

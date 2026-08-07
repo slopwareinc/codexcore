@@ -1,5 +1,6 @@
 import Foundation
 import GhosttyTerminal
+import CodexCore
 import XCTest
 @testable import CodexCoreUI
 
@@ -12,9 +13,12 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(options.first?.isEnabled, true)
 
         let browser = options.first { $0.id == CodexWorkspaceToolCatalog.browserID }
-        XCTAssertEqual(browser?.title, "Browser")
+        XCTAssertEqual(CodexWorkspaceToolCatalog.manualBrowserTitle, "Manual Browser")
+        XCTAssertEqual(CodexWorkspaceToolCatalog.manualBrowserAccessibilityLabel, "Manual Browser")
+        XCTAssertEqual(CodexWorkspaceToolCatalog.manualBrowserAddressAccessibilityLabel, "Manual Browser address")
+        XCTAssertEqual(browser?.title, CodexWorkspaceToolCatalog.manualBrowserTitle)
         XCTAssertEqual(browser?.isEnabled, true)
-        XCTAssertEqual(browser?.detail, "Browse docs and local previews")
+        XCTAssertEqual(browser?.detail, CodexWorkspaceToolCatalog.manualBrowserDetail)
 
         let files = options.first { $0.id == CodexWorkspaceToolCatalog.filesID }
         XCTAssertEqual(files?.title, "Files")
@@ -42,7 +46,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(panel.terminalSessions.count, 1)
         XCTAssertEqual(panel.browserSessions.count, 1)
         XCTAssertEqual(panel.terminalSessions.first?.title, "Terminal")
-        XCTAssertEqual(panel.browserSessions.first?.title, "Browser")
+        XCTAssertEqual(panel.browserSessions.first?.title, "Manual Browser")
         // The most-recently opened tool becomes selected.
         XCTAssertEqual(panel.selectedTabID, firstBrowser)
 
@@ -117,6 +121,26 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
         panel.openSubagent(id: "agent-b")
         XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-b"])
+    }
+
+    @MainActor
+    func testPlanAndReviewUseDistinctWorkspaceTabs() {
+        let panel = CodexWorkspacePanelState()
+        let plan = CodexPlanSummary(
+            steps: [TurnPlanStep(step: "Inspect", status: .completed)]
+        )
+        let review = CodexGitReviewSession(
+            snapshot: CodexGitReviewSnapshot(branchName: "main")
+        )
+
+        let tabs = panel.agentTabs(
+            subagents: [],
+            gitReviewSession: review,
+            plan: plan
+        )
+
+        XCTAssertEqual(tabs.map(\.id), ["review", "plan"])
+        XCTAssertEqual(tabs.map(\.title), ["Review", "Plan"])
     }
 
     @MainActor
@@ -280,7 +304,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     func testBrowserSessionInitialState() {
         let session = CodexBrowserSession()
 
-        XCTAssertEqual(session.title, "Browser")
+        XCTAssertEqual(session.title, "Manual Browser")
         XCTAssertEqual(session.addressText, "")
         XCTAssertNil(session.currentURL)
         XCTAssertFalse(session.isLoading)

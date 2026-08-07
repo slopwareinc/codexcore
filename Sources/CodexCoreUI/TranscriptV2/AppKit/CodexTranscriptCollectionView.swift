@@ -33,7 +33,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onRemoveResponseAnnotation: (String) -> Void
     var productToolRenderer: CodexProductToolRendererV2?
     var onOpenSubagent: (String) -> Void
+    var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
     var onEditUserMessage: (String) -> Void
+    var onEditUserMessageAtTurn: ((String, String) -> Void)?
     var onForkChat: (() -> Void)?
     var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     var retryRevision: Int
@@ -64,7 +66,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: clipboardService,
             productToolRenderer: productToolRenderer,
             onOpenSubagent: onOpenSubagent,
+            onOpenReview: onOpenReview,
             onEditUserMessage: onEditUserMessage,
+            onEditUserMessageAtTurn: onEditUserMessageAtTurn,
             onForkChat: onForkChat,
             onResolveApproval: onResolveApproval,
             retryRevision: retryRevision,
@@ -110,7 +114,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
         private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
         private var onOpenSubagent: (String) -> Void = { _ in }
+        private var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
         private var onEditUserMessage: (String) -> Void = { _ in }
+        private var onEditUserMessageAtTurn: ((String, String) -> Void)?
         private var onForkChat: (() -> Void)?
         private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
         private var onProjectionError: (String?) -> Void = { _ in }
@@ -203,7 +209,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: any CodexClipboardService,
             productToolRenderer: CodexProductToolRendererV2?,
             onOpenSubagent: @escaping (String) -> Void,
+            onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
             onEditUserMessage: @escaping (String) -> Void,
+            onEditUserMessageAtTurn: ((String, String) -> Void)? = nil,
             onForkChat: (() -> Void)?,
             onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
             retryRevision: Int = 0,
@@ -241,7 +249,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
             self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
             self.onOpenSubagent = onOpenSubagent
+            self.onOpenReview = onOpenReview
             self.onEditUserMessage = onEditUserMessage
+            self.onEditUserMessageAtTurn = onEditUserMessageAtTurn
             self.onForkChat = onForkChat
             self.onResolveApproval = onResolveApproval
             self.onProjectionError = onProjectionError
@@ -403,9 +413,13 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 swiftUITheme: swiftUITheme,
                 contentHorizontalOffset: contentHorizontalOffset,
                 productToolRenderer: productToolRenderer,
+                canOpenReview: onOpenReview != nil,
                 performAction: { [weak self] action in self?.perform(action) },
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
                 editUserMessage: { [weak self] text in self?.onEditUserMessage(text) },
+                editUserMessageAtTurn: { [weak self] text, turnID in
+                    self?.onEditUserMessageAtTurn?(text, turnID)
+                },
                 forkChat: onForkChat,
                 responseAnnotations: responseAnnotations,
                 upsertResponseAnnotation: onUpsertResponseAnnotation,
@@ -708,6 +722,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 )
             case .openSubagent(let threadID):
                 onOpenSubagent(threadID)
+                return
+            case .openReview(let request):
+                onOpenReview?(request)
                 return
             case .openURL(let value):
                 guard let url = URL(string: value), url.scheme?.lowercased() == "https" else { return }

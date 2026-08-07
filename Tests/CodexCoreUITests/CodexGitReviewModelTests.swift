@@ -148,6 +148,27 @@ final class CodexGitReviewModelTests: XCTestCase {
         XCTAssertEqual(state.createPullRequestDisabledReason, "Commit or discard changes before creating a PR")
     }
 
+    func testConfiguredRemoteAllowsFirstCommitAndPushWithoutUpstream() {
+        let state = CodexGitReviewSession(
+            snapshot: CodexGitReviewSnapshot(
+                branchName: "new-feature",
+                remoteNames: ["origin"],
+                files: [
+                    CodexGitReviewFileChange(
+                        path: "Sources/New.swift",
+                        status: .added,
+                        isStaged: true,
+                        addedLines: 3
+                    )
+                ]
+            ),
+            commitDraft: CodexGitCommitDraft(message: "Start feature")
+        ).actionState
+
+        XCTAssertTrue(state.isCommitAndPushEnabled)
+        XCTAssertNil(state.commitAndPushDisabledReason)
+    }
+
     func testReviewFileListShowsEmptyAndMismatchStates() {
         let cleanList = CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(branchName: "main")).fileList
 

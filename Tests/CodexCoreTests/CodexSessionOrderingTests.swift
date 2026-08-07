@@ -1596,7 +1596,47 @@ final class CodexSessionOrderingTests: XCTestCase {
             dynamicToolResult,
             .dictionary([
                 "success": .bool(false),
-                "contentItems": .array([]),
+                "contentItems": .array([
+                    .dictionary([
+                        "type": .string("inputText"),
+                        "text": .string("Unsupported dynamic tool: lookup"),
+                    ])
+                ]),
+            ])
+        )
+        let pendingAfterDynamic = await session.pendingServerRequests()
+        XCTAssertFalse(
+            pendingAfterDynamic.contains {
+                $0.key.requestID == .string("default-dynamic-tool")
+            }
+        )
+        try await transport.sendServerRequest(
+            id: .string("default-dynamic-tool-duplicate"),
+            method: CodexServerRequestKind.dynamicToolCall.method,
+            params: [
+                "threadId": .string(Self.threadID.rawValue),
+                "turnId": .string("turn-defaults"),
+                "callId": .string("call-defaults"),
+                "tool": .string("lookup"),
+                "arguments": .dictionary(["query": .string("value")]),
+            ]
+        )
+        try await waitUntil {
+            await transport.responseWriteCount(id: .string("default-dynamic-tool-duplicate")) == 1
+        }
+        let duplicateDynamicToolResult = await transport.responseResult(
+            id: .string("default-dynamic-tool-duplicate")
+        )
+        XCTAssertEqual(
+            duplicateDynamicToolResult,
+            .dictionary([
+                "success": .bool(false),
+                "contentItems": .array([
+                    .dictionary([
+                        "type": .string("inputText"),
+                        "text": .string("Dynamic tool call call-defaults was already handled."),
+                    ])
+                ]),
             ])
         )
 
@@ -1730,8 +1770,19 @@ final class CodexSessionOrderingTests: XCTestCase {
             dynamicToolResult,
             .dictionary([
                 "success": .bool(false),
-                "contentItems": .array([]),
+                "contentItems": .array([
+                    .dictionary([
+                        "type": .string("inputText"),
+                        "text": .string("Unsupported dynamic tool: lookup"),
+                    ])
+                ]),
             ])
+        )
+        let pendingAfterDynamic = await session.pendingServerRequests()
+        XCTAssertFalse(
+            pendingAfterDynamic.contains {
+                $0.key.requestID == .string("handler-dynamic-tool")
+            }
         )
 
         try await transport.sendServerRequest(

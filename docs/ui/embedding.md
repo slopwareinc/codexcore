@@ -8,13 +8,19 @@
 - `CodexTranscriptViewV2`: transcript-only embedding.
 - `CodexPresentationStore`: canonical presentation projection used by production transcript hosts.
 - `CodexTranscriptItemPresentationPolicyV2`: host mapping from canonical items to compact semantic activity.
-- focused route and tool views for plugins, automations, files, terminal, and browser surfaces. A visible route does not imply that its mutation workflow is wired.
+- focused route and tool views for plugins, automations, files, terminal, and the Manual Browser surface. Manual Browser is user-directed WKWebView navigation, not an agent browser tool; a visible route does not imply that its mutation workflow is wired.
 
 Long `CodexTranscriptViewV2` conversations automatically show a compact turn
 navigator at the leading edge. Its markers follow canonical turn geometry,
 rise with a tapered neighboring-marker mount on hover, show the user request
 and assistant result in a native Liquid Glass preview, and jump to the selected
 turn without requiring host integration.
+
+Completed file-edit cards can open Review through `onOpenReviewRequest`. The
+request contains the originating turn's bounded review session and the clicked
+file path, so a host can open its Review panel directly on that file. The
+existing parameterless `onOpenReview` callback remains available for hosts
+that only need a generic Review route.
 
 ## Workspace skeleton
 

@@ -7,6 +7,11 @@ public enum CodexAppRoute: String, CaseIterable, Sendable, Equatable {
     case automations
     case settingsAbout
 
+    public static let primarySidebarRoutes: [CodexAppRoute] = [
+        .plugins,
+        .automations,
+    ]
+
     public var title: String {
         switch self {
         case .chat: return "Chat"
@@ -34,6 +39,8 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
     public var isPinned: Bool
     public var canPin: Bool
     public var canArchive: Bool
+    public var canUnarchive: Bool
+    public var canDelete: Bool
     public var liveStatus: CodexThreadLiveStatus
     public var hasUnreadWhileInactive: Bool
 
@@ -45,6 +52,8 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
         isPinned: Bool = false,
         canPin: Bool = true,
         canArchive: Bool = true,
+        canUnarchive: Bool = false,
+        canDelete: Bool = false,
         liveStatus: CodexThreadLiveStatus = .idle,
         hasUnreadWhileInactive: Bool = false
     ) {
@@ -53,6 +62,8 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
         self.isPinned = isPinned
         self.canPin = canPin
         self.canArchive = canArchive
+        self.canUnarchive = canUnarchive
+        self.canDelete = canDelete
         self.liveStatus = liveStatus
         self.hasUnreadWhileInactive = hasUnreadWhileInactive
     }
@@ -134,6 +145,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
     public var selectedThreadID: String?
     public var pinnedRows: [CodexSidebarThreadRow]
     public var projectlessRows: [CodexSidebarThreadRow]
+    public var archivedRows: [CodexSidebarThreadRow]
     public var pinnedProjects: [CodexSidebarProjectGroup]
     public var projects: [CodexSidebarProjectGroup]
     public var olderProjects: [CodexSidebarProjectGroup]
@@ -150,6 +162,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         selectedThreadID: String?,
         pinnedRows: [CodexSidebarThreadRow] = [],
         projectlessRows: [CodexSidebarThreadRow] = [],
+        archivedRows: [CodexSidebarThreadRow] = [],
         pinnedProjects: [CodexSidebarProjectGroup] = [],
         projects: [CodexSidebarProjectGroup],
         olderProjects: [CodexSidebarProjectGroup] = [],
@@ -165,6 +178,7 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         self.selectedThreadID = selectedThreadID
         self.pinnedRows = pinnedRows
         self.projectlessRows = projectlessRows
+        self.archivedRows = archivedRows
         self.pinnedProjects = pinnedProjects
         self.projects = projects
         self.olderProjects = olderProjects
@@ -419,6 +433,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     public func snapshot(
         projects: [CodexProjectSummary],
         chats: [CodexThreadSummary],
+        archivedChats: [CodexThreadSummary] = [],
         currentWorkspacePath: String,
         currentThreadID: String?,
         pinnedThreadIDs: [String] = [],
@@ -442,8 +457,23 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
                 isPinned: pinnedIDSet.contains(chat.id),
                 canPin: true,
                 canArchive: true,
+                canDelete: true,
                 liveStatus: live?.status ?? .idle,
                 hasUnreadWhileInactive: live?.hasUnreadWhileInactive ?? false
+            )
+        }
+
+        let archivedRows = archivedChats.map { chat in
+            CodexSidebarThreadRow(
+                summary: chat,
+                isSelected: chat.id == effectiveThreadID,
+                isPinned: false,
+                canPin: false,
+                canArchive: false,
+                canUnarchive: true,
+                canDelete: true,
+                liveStatus: .idle,
+                hasUnreadWhileInactive: false
             )
         }
 
@@ -526,6 +556,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             selectedThreadID: effectiveThreadID,
             pinnedRows: pinnedRows,
             projectlessRows: projectlessRows,
+            archivedRows: archivedRows,
             pinnedProjects: pinnedGroups,
             projects: recentGroups,
             olderProjects: olderGroups,

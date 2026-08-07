@@ -22,6 +22,26 @@ final class CodexThreadHistoryPreferenceTests: XCTestCase {
 
         XCTAssertEqual(CodexNewThreadHistoryModeStorage.load(from: store), .legacy)
     }
+
+    func testFollowUpBehaviorDefaultsToQueue() {
+        let store = LockedStringListPreferenceStore()
+
+        XCTAssertEqual(CodexFollowUpBehaviorStorage.load(from: store), .queue)
+    }
+
+    func testFollowUpBehaviorPersistsSteer() {
+        let store = LockedStringListPreferenceStore()
+
+        CodexFollowUpBehaviorStorage.save(.steer, to: store)
+
+        XCTAssertEqual(CodexFollowUpBehaviorStorage.load(from: store), .steer)
+    }
+
+    func testUnknownPersistedFollowUpBehaviorFallsBackToQueue() {
+        let store = LockedStringListPreferenceStore(defaultValue: ["future-behavior"])
+
+        XCTAssertEqual(CodexFollowUpBehaviorStorage.load(from: store), .queue)
+    }
 }
 
 private final class LockedStringListPreferenceStore:

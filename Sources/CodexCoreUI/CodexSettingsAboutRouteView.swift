@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import CodexCore
 
 public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
@@ -6,6 +7,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
     case appearance
     case profile
     case configuration
+    case keyboardShortcuts
     case git
     case integrations
     case about
@@ -18,6 +20,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .appearance: return "Appearance"
         case .profile: return "Profile"
         case .configuration: return "Configuration"
+        case .keyboardShortcuts: return "Keyboard Shortcuts"
         case .git: return "Git"
         case .integrations: return "Integrations"
         case .about: return "About"
@@ -30,6 +33,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .appearance: return "sun.max"
         case .profile: return "person.crop.circle"
         case .configuration: return "slider.horizontal.3"
+        case .keyboardShortcuts: return "keyboard"
         case .git: return "point.3.connected.trianglepath.dotted"
         case .integrations: return "puzzlepiece.extension"
         case .about: return "info.circle"
@@ -38,7 +42,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
 
     var groupTitle: String {
         switch self {
-        case .general, .appearance, .profile, .configuration:
+        case .general, .appearance, .profile, .configuration, .keyboardShortcuts:
             return "Personal"
         case .git:
             return "Coding"
@@ -59,6 +63,8 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
             return ["account", "profile", "plan", "server", "signed in"]
         case .configuration:
             return ["config", "sandbox", "workspace", "dependencies", "app server"]
+        case .keyboardShortcuts:
+            return ["keyboard", "shortcut", "hotkey", "command menu", "search", "reset"]
         case .git:
             return ["branch", "pull request", "merge", "commit", "draft"]
         case .integrations:
@@ -122,6 +128,7 @@ public struct CodexSettingsAboutRouteView: View {
     public let mcpServers: [CodexMCPServerStatus]
     public let isLoadingMCPServers: Bool
     public let onBackToApp: (() -> Void)?
+    public let onKeyboardShortcutSettingsChanged: () -> Void
 
     @Binding private var appearanceSettings: CodexAppearanceSettings
     @Binding private var approvalSelection: CodexApprovalSelection
@@ -130,8 +137,10 @@ public struct CodexSettingsAboutRouteView: View {
     private let modelOptions: [CodexModelSelection]
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var isBottomPanelVisible: Bool
+    @Binding private var keyboardShortcutSettings: CodexKeyboardShortcutSettings
     @Binding private var gitSettings: CodexGitSettings
     @Binding private var newThreadHistoryMode: CodexNewThreadHistoryMode
+    @Binding private var followUpBehavior: CodexFollowUpBehavior
 
     public init(
         metadata: CodexAboutMetadata,
@@ -143,13 +152,16 @@ public struct CodexSettingsAboutRouteView: View {
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         isBottomPanelVisible: Binding<Bool> = .constant(false),
+        keyboardShortcutSettings: Binding<CodexKeyboardShortcutSettings> = .constant(.defaults),
         gitSettings: Binding<CodexGitSettings> = .constant(.defaults),
         newThreadHistoryMode: Binding<CodexNewThreadHistoryMode> = .constant(
             .defaultForPinnedRelease
         ),
+        followUpBehavior: Binding<CodexFollowUpBehavior> = .constant(.queue),
         mcpServers: [CodexMCPServerStatus] = [],
         isLoadingMCPServers: Bool = false,
-        onBackToApp: (() -> Void)? = nil
+        onBackToApp: (() -> Void)? = nil,
+        onKeyboardShortcutSettingsChanged: @escaping () -> Void = {}
     ) {
         self.metadata = metadata
         self.accountSummary = accountSummary
@@ -160,11 +172,14 @@ public struct CodexSettingsAboutRouteView: View {
         self.modelOptions = modelOptions
         self._reasoningSelection = reasoningSelection
         self._isBottomPanelVisible = isBottomPanelVisible
+        self._keyboardShortcutSettings = keyboardShortcutSettings
         self._gitSettings = gitSettings
         self._newThreadHistoryMode = newThreadHistoryMode
+        self._followUpBehavior = followUpBehavior
         self.mcpServers = mcpServers
         self.isLoadingMCPServers = isLoadingMCPServers
         self.onBackToApp = onBackToApp
+        self.onKeyboardShortcutSettingsChanged = onKeyboardShortcutSettingsChanged
     }
 
     public var body: some View {
@@ -174,6 +189,9 @@ public struct CodexSettingsAboutRouteView: View {
             contentPane
         }
         .background(theme.colors.surface)
+        .onChange(of: keyboardShortcutSettings) { _, _ in
+            onKeyboardShortcutSettingsChanged()
+        }
     }
 
     private var settingsSidebar: some View {
@@ -265,7 +283,8 @@ public struct CodexSettingsAboutRouteView: View {
                 modelSelection: $modelSelection,
                 modelOptions: modelOptions,
                 reasoningSelection: $reasoningSelection,
-                isBottomPanelVisible: $isBottomPanelVisible
+                isBottomPanelVisible: $isBottomPanelVisible,
+                followUpBehavior: $followUpBehavior
             )
         case .appearance:
             CodexAppearanceSettingsView(settings: $appearanceSettings)
@@ -277,6 +296,8 @@ public struct CodexSettingsAboutRouteView: View {
                 approvalSelection: approvalSelection,
                 newThreadHistoryMode: $newThreadHistoryMode
             )
+        case .keyboardShortcuts:
+            CodexSettingsKeyboardShortcutsPage(settings: $keyboardShortcutSettings)
         case .git:
             CodexSettingsGitPage(settings: $gitSettings)
         case .integrations:
@@ -373,6 +394,7 @@ public struct CodexSettingsGeneralPage: View {
     let modelOptions: [CodexModelSelection]
     @Binding var reasoningSelection: CodexReasoningSelection
     @Binding var isBottomPanelVisible: Bool
+    @Binding var followUpBehavior: CodexFollowUpBehavior
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -384,9 +406,192 @@ public struct CodexSettingsGeneralPage: View {
                     selection: $reasoningSelection,
                     options: modelSelection.supportedReasoning
                 )
+                CodexSettingsFollowUpBehaviorRow(selection: $followUpBehavior)
             }
             .settingsPanel(theme: theme)
         }
+    }
+}
+
+
+public struct CodexSettingsKeyboardShortcutsPage: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    @Binding private var settings: CodexKeyboardShortcutSettings
+    @State private var capturingAction: CodexKeyboardShortcutAction?
+
+    public init(settings: Binding<CodexKeyboardShortcutSettings>) {
+        self._settings = settings
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .firstTextBaseline) {
+                CodexSettingsPageTitle("Keyboard Shortcuts")
+                Spacer()
+                Button("Reset to defaults") {
+                    capturingAction = nil
+                    settings.reset()
+                }
+                .buttonStyle(.borderless)
+                .disabled(settings == .defaults)
+                .accessibilityIdentifier("keyboard-shortcuts-reset")
+            }
+
+            VStack(spacing: 0) {
+                ForEach(CodexKeyboardShortcutAction.allCases) { action in
+                    CodexSettingsKeyboardShortcutRow(
+                        action: action,
+                        shortcut: binding(for: action),
+                        isCapturing: capturingAction == action,
+                        onBeginCapture: { capturingAction = action },
+                        onCancelCapture: { capturingAction = nil },
+                        onCapture: { shortcut in
+                            settings[action] = shortcut
+                            capturingAction = nil
+                        },
+                        onReset: {
+                            settings[action] = CodexKeyboardShortcutSettings.defaults[action]
+                        }
+                    )
+                }
+            }
+            .settingsPanel(theme: theme)
+
+            Text("Shortcuts use the app's global menu commands. Changes are saved for the next launch and apply immediately to the app menu.")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onDisappear { capturingAction = nil }
+    }
+
+    private func binding(for action: CodexKeyboardShortcutAction) -> Binding<CodexKeyboardShortcut> {
+        Binding(
+            get: { settings[action] },
+            set: { settings[action] = $0 }
+        )
+    }
+}
+
+public struct CodexSettingsKeyboardShortcutRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let action: CodexKeyboardShortcutAction
+    @Binding var shortcut: CodexKeyboardShortcut
+    let isCapturing: Bool
+    let onBeginCapture: () -> Void
+    let onCancelCapture: () -> Void
+    let onCapture: (CodexKeyboardShortcut) -> Void
+    let onReset: () -> Void
+
+    public init(
+        action: CodexKeyboardShortcutAction,
+        shortcut: Binding<CodexKeyboardShortcut>,
+        isCapturing: Bool,
+        onBeginCapture: @escaping () -> Void,
+        onCancelCapture: @escaping () -> Void,
+        onCapture: @escaping (CodexKeyboardShortcut) -> Void,
+        onReset: @escaping () -> Void
+    ) {
+        self.action = action
+        self._shortcut = shortcut
+        self.isCapturing = isCapturing
+        self.onBeginCapture = onBeginCapture
+        self.onCancelCapture = onCancelCapture
+        self.onCapture = onCapture
+        self.onReset = onReset
+    }
+
+    public var body: some View {
+        HStack(spacing: 18) {
+            CodexSettingsRowLabel(title: action.title, detail: action.detail, isEnabled: true)
+            Spacer(minLength: 12)
+            if isCapturing {
+                CodexKeyboardShortcutCaptureView { captured in
+                    onCapture(captured)
+                }
+                .frame(width: 170, height: 30)
+                .background(theme.colors.surfaceSunken.opacity(0.64), in: Capsule())
+                .overlay {
+                    Text("Press shortcut…")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .allowsHitTesting(false)
+                }
+                .accessibilityLabel("Capture shortcut for \(action.title)")
+                Button("Cancel", action: onCancelCapture)
+                    .buttonStyle(.borderless)
+            } else {
+                Button(shortcut.displayValue, action: onBeginCapture)
+                    .buttonStyle(.bordered)
+                    .frame(minWidth: 90)
+                    .accessibilityIdentifier("keyboard-shortcut-\(action.rawValue)")
+                    .accessibilityLabel("\(action.title), \(shortcut.displayValue). Capture shortcut")
+                if shortcut != CodexKeyboardShortcutSettings.defaults[action] {
+                    Button("Reset", action: onReset)
+                        .buttonStyle(.borderless)
+                }
+            }
+        }
+        .settingsRowFrame()
+    }
+}
+
+private struct CodexKeyboardShortcutCaptureView: NSViewRepresentable {
+    let onCapture: (CodexKeyboardShortcut) -> Void
+
+    func makeNSView(context: Context) -> CodexKeyboardShortcutCaptureNSView {
+        let view = CodexKeyboardShortcutCaptureNSView()
+        view.onCapture = onCapture
+        return view
+    }
+
+    func updateNSView(_ nsView: CodexKeyboardShortcutCaptureNSView, context: Context) {
+        nsView.onCapture = onCapture
+        DispatchQueue.main.async { [weak nsView] in
+            guard let nsView, let window = nsView.window else { return }
+            if window.firstResponder !== nsView {
+                window.makeFirstResponder(nsView)
+            }
+        }
+    }
+}
+
+private final class CodexKeyboardShortcutCaptureNSView: NSView {
+    var onCapture: ((CodexKeyboardShortcut) -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            window.makeFirstResponder(self)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard let shortcut = CodexKeyboardShortcut(event: event) else {
+            NSSound.beep()
+            return
+        }
+        onCapture?(shortcut)
+    }
+}
+
+private extension CodexKeyboardShortcut {
+    init?(event: NSEvent) {
+        guard let key = event.charactersIgnoringModifiers?.first else { return nil }
+
+        var modifiers: CodexKeyboardShortcutModifiers = []
+        if event.modifierFlags.contains(.command) { modifiers.insert(.command) }
+        if event.modifierFlags.contains(.shift) { modifiers.insert(.shift) }
+        if event.modifierFlags.contains(.option) { modifiers.insert(.option) }
+        if event.modifierFlags.contains(.control) { modifiers.insert(.control) }
+        guard !modifiers.isEmpty else { return nil }
+
+        self.init(key: String(key), modifiers: modifiers)
     }
 }
 
@@ -541,9 +746,9 @@ public struct CodexSettingsIntegrationsPage: View {
                     )
                 }
                 CodexSettingsDisabledRow(
-                    title: "Browser",
-                    detail: "Let CodexCore control the in-app browser",
-                    reason: "Use the composer add menu for now"
+                    title: CodexWorkspaceToolCatalog.manualBrowserTitle,
+                    detail: CodexWorkspaceToolCatalog.manualBrowserDetail,
+                    reason: "Open it from the workspace tools"
                 )
                 CodexSettingsDisabledRow(
                     title: "Computer use",
@@ -876,6 +1081,22 @@ public struct CodexSettingsReasoningRow: View {
             value: selection.displayName
         ) {
             ForEach(options.isEmpty ? CodexReasoningSelection.defaultOptions : options) { option in
+                Button(option.displayName) { selection = option }
+            }
+        }
+    }
+}
+
+public struct CodexSettingsFollowUpBehaviorRow: View {
+    @Binding var selection: CodexFollowUpBehavior
+
+    public var body: some View {
+        CodexSettingsMenuRow(
+            title: "Follow-up behavior",
+            detail: selection.detail,
+            value: selection.displayName
+        ) {
+            ForEach(CodexFollowUpBehavior.allCases) { option in
                 Button(option.displayName) { selection = option }
             }
         }

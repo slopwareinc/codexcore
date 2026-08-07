@@ -62,7 +62,10 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void
     private let onRemoveResponseAnnotation: (String) -> Void
     private let onOpenSubagent: (String) -> Void
+    private let onOpenReview: (() -> Void)?
+    private let onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)?
     private let onEditUserMessage: (String) -> Void
+    private let onEditUserMessageAtTurn: ((String, String) -> Void)?
     private let onForkChat: (() -> Void)?
     private let pendingApprovals: [CodexApprovalPrompt]
     private let agentDisplayNameByThreadID: [String: String]
@@ -82,7 +85,10 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
         onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
         onOpenSubagent: @escaping (String) -> Void = { _ in },
+        onOpenReview: (() -> Void)? = nil,
+        onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
+        onEditUserMessageAtTurn: ((String, String) -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
         pendingApprovals: [CodexApprovalPrompt] = [],
@@ -100,7 +106,10 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
         self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
         self.onOpenSubagent = onOpenSubagent
+        self.onOpenReview = onOpenReview
+        self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
+        self.onEditUserMessageAtTurn = onEditUserMessageAtTurn
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.pendingApprovals = pendingApprovals
@@ -123,7 +132,10 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
         onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
         onOpenSubagent: @escaping (String) -> Void = { _ in },
+        onOpenReview: (() -> Void)? = nil,
+        onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
+        onEditUserMessageAtTurn: ((String, String) -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
         pendingApprovals: [CodexApprovalPrompt] = [],
@@ -141,7 +153,10 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
         self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
         self.onOpenSubagent = onOpenSubagent
+        self.onOpenReview = onOpenReview
+        self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
+        self.onEditUserMessageAtTurn = onEditUserMessageAtTurn
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.pendingApprovals = pendingApprovals
@@ -171,7 +186,9 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 onRemoveResponseAnnotation: onRemoveResponseAnnotation,
                 productToolRenderer: productToolRenderer,
                 onOpenSubagent: onOpenSubagent,
+                onOpenReview: resolvedOpenReview,
                 onEditUserMessage: onEditUserMessage,
+                onEditUserMessageAtTurn: onEditUserMessageAtTurn,
                 onForkChat: onForkChat,
                 onResolveApproval: onResolveApproval,
                 retryRevision: projectionRetryRevision,
@@ -221,6 +238,12 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 .padding(.top, 12)
             }
         }
+    }
+
+    private var resolvedOpenReview: ((CodexTranscriptReviewRequest) -> Void)? {
+        if let onOpenReviewRequest { return onOpenReviewRequest }
+        guard let onOpenReview else { return nil }
+        return { _ in onOpenReview() }
     }
 
     private var effectivePresentation: CodexThreadUIPresentation {

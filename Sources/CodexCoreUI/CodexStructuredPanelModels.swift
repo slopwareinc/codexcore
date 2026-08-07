@@ -135,17 +135,6 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         return (pieces[0], pieces[1])
     }
 
-    private static func rateRow(_ metadata: String) -> CodexStatusPanelRateLimitRow? {
-        guard metadata.hasPrefix("rate=") else { return nil }
-        let payload = String(metadata.dropFirst(5))
-        let pieces = payload.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-        guard pieces.count == 3 else { return nil }
-        return CodexStatusPanelRateLimitRow(
-            title: pieces[0],
-            usedPercent: Int(pieces[1]),
-            resetLabel: pieces[2]
-        )
-    }
 }
 
 public struct CodexMCPStatusPanelServerRow: Identifiable, Equatable, Sendable {

@@ -25,6 +25,11 @@ public enum CodexWorkspaceToolCatalog {
     public static let browserID = "browser"
     public static let filesID = "files"
 
+    public static let manualBrowserTitle = "Manual Browser"
+    public static let manualBrowserDetail = "Browse docs and local previews manually"
+    public static let manualBrowserAccessibilityLabel = "Manual Browser"
+    public static let manualBrowserAddressAccessibilityLabel = "Manual Browser address"
+
     public static var launcherOptions: [CodexWorkspaceToolOption] {
         [
             CodexWorkspaceToolOption(
@@ -36,8 +41,8 @@ public enum CodexWorkspaceToolCatalog {
             ),
             CodexWorkspaceToolOption(
                 id: browserID,
-                title: "Browser",
-                detail: "Browse docs and local previews",
+                title: manualBrowserTitle,
+                detail: manualBrowserDetail,
                 systemImage: "globe",
                 isEnabled: true
             ),

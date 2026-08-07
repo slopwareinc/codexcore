@@ -260,9 +260,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var appKitTheme: CodexTranscriptAppKitTheme?
     private var swiftUITheme = CodexAgentTheme.officialDark
     private var contentHorizontalOffset: CGFloat = 0
+    private var canOpenReview = false
     private var performAction: ((CodexTranscriptRenderAction) -> Void)?
     private var copy: ((String) -> Void)?
     private var editUserMessage: ((String) -> Void)?
+    private var editUserMessageAtTurn: ((String, String) -> Void)?
     private var forkChat: (() -> Void)?
     private var upsertResponseAnnotation: ((CodexResponseTextAnnotation) -> Void)?
     private var removeResponseAnnotation: ((String) -> Void)?
@@ -401,6 +403,18 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     func selectDiffTabForTesting(at index: Int) {
         guard diffTabButtons.indices.contains(index) else { return }
         selectDiffTab(diffTabButtons[index])
+    }
+    func openTurnDiffReviewForTesting() {
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest()))
+    }
+    func openTurnDiffReviewForTesting(filePath: String) {
+        guard let turnDiff = item?.turnDiff, canOpenReview else { return }
+        performAction?(.openReview(turnDiff.reviewRequest(selectedFilePath: filePath)))
+    }
+    func toggleTurnDiffForTesting() {
+        guard let rowID = item?.turnDiff?.rowID else { return }
+        performAction?(.toggleRow(rowID: rowID))
     }
 
     override func loadView() {
@@ -632,9 +646,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         swiftUITheme: CodexAgentTheme,
         contentHorizontalOffset: CGFloat,
         productToolRenderer: CodexProductToolRendererV2?,
+        canOpenReview: Bool = false,
         performAction: @escaping (CodexTranscriptRenderAction) -> Void,
         copy: @escaping (String) -> Void,
         editUserMessage: @escaping (String) -> Void,
+        editUserMessageAtTurn: ((String, String) -> Void)? = nil,
         forkChat: (() -> Void)?,
         responseAnnotations: [CodexResponseTextAnnotation] = [],
         upsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
@@ -651,9 +667,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.appKitTheme = appKitTheme
         self.swiftUITheme = swiftUITheme
         self.contentHorizontalOffset = contentHorizontalOffset
+        self.canOpenReview = canOpenReview
         self.performAction = performAction
         self.copy = copy
         self.editUserMessage = editUserMessage
+        self.editUserMessageAtTurn = editUserMessageAtTurn
         self.forkChat = forkChat
         self.responseAnnotations = responseAnnotations
         self.upsertResponseAnnotation = upsertResponseAnnotation
@@ -723,6 +741,23 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             if item.action != nil { ensureActionControl() }
             if case .codeComment = directive.kind, item.preparedText != nil { ensureTextControls() }
             configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
+        } else if let turnDiff = item.turnDiff {
+            let hosting = NSHostingView(rootView: AnyView(
+                CodexTranscriptTurnDiffCard(
+                    render: turnDiff,
+                    onReview: canOpenReview
+                        ? { [weak self] request in self?.performAction?(.openReview(request)) }
+                        : nil,
+                    onToggleExpanded: { [weak self] in
+                        self?.performAction?(.toggleRow(rowID: turnDiff.rowID))
+                    }
+                )
+                .padding(.top, CodexTranscriptTurnDiffCard.topSpacing)
+                .codexAgentTheme(swiftUITheme)
+            ))
+            hosting.setAccessibilityLabel(item.accessibilityLabel)
+            hostedView = hosting
+            view.addSubview(hosting)
         } else if let diffPanel = item.diffPanel {
             ensureTextControls()
             ensureCopyControl()
@@ -2104,7 +2139,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         guard let item,
               item.textRole == .user || item.footer?.kind == .user,
               let text = item.editUserText ?? item.copyText else { return }
-        editUserMessage?(text)
+        if let editUserMessageAtTurn, let turnID = item.turnID.nilIfBlank {
+            editUserMessageAtTurn(text, turnID)
+        } else {
+            editUserMessage?(text)
+        }
     }
 
     @objc private func invokeForkChat() {
@@ -2212,23 +2251,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         )
     }
 
-    private static func workRowTitle(
-        _ row: CodexTranscriptWorkRowRender,
-        theme: CodexTranscriptAppKitTheme
-    ) -> NSAttributedString {
-        let glyph = codexStatusGlyphV2(row.status)
-        let duration = row.durationMs.map { "  " + CodexWorkBlockViewV2.duration($0) } ?? ""
-        let disclosure = row.isSubagentLink ? "  ↗" : (row.hasDetail ? (row.isExpanded ? "  ⌄" : "  ›") : "")
-        let result = NSMutableAttributedString(string: glyph, attributes: [
-            .font: theme.captionFont,
-            .foregroundColor: statusColor(row.status, theme: theme)
-        ])
-        result.append(NSAttributedString(
-            string: "  \(row.label)\(duration)\(disclosure)",
-            attributes: [.font: theme.captionFont, .foregroundColor: theme.textTertiary]
-        ))
-        return result
-    }
 
     private static func chipIconName(_ row: CodexTranscriptWorkRowRender) -> String {
         if let systemImage = row.systemImage, !systemImage.isEmpty { return systemImage }

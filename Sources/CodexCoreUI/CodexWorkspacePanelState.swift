@@ -34,10 +34,12 @@ public final class CodexWorkspacePanelState: ObservableObject {
     func agentTabs(
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState],
-        gitReviewSession: CodexGitReviewSession? = nil
+        gitReviewSession: CodexGitReviewSession? = nil,
+        plan: CodexPlanSummary? = nil
     ) -> [CodexAgentPanelTab] {
         var tabs: [CodexAgentPanelTab] = []
         if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
+        if let plan { tabs.append(.plan(plan)) }
         if let sideChat { tabs.append(.sideChat(sideChat)) }
         if let openSubagentTabID,
            let subagent = subagents.first(where: { $0.id == openSubagentTabID })
@@ -84,7 +86,9 @@ public final class CodexWorkspacePanelState: ObservableObject {
     public func openBrowser() -> String {
         let number = nextBrowserNumber
         nextBrowserNumber += 1
-        let title = number == 1 ? "Browser" : "Browser \(number)"
+        let title = number == 1
+            ? CodexWorkspaceToolCatalog.manualBrowserTitle
+            : "\(CodexWorkspaceToolCatalog.manualBrowserTitle) \(number)"
         let session = CodexBrowserSession(title: title)
         browserSessions.append(session)
         selectedTabID = session.id

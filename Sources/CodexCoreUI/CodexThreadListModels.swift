@@ -10,6 +10,10 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     public var modelProvider: String?
     public var threadSource: String?
     public var parentThreadID: String?
+    /// Whether the server currently places this thread in archived history.
+    /// The field is optional in canonical snapshots, but list responses carry
+    /// a concrete value when they come from an archived/active query.
+    public var isArchived: Bool
     public var isEphemeral: Bool
     public var createdAt: TimeInterval?
     public var updatedAt: TimeInterval?
@@ -24,6 +28,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         modelProvider: String? = nil,
         threadSource: String? = nil,
         parentThreadID: String? = nil,
+        isArchived: Bool = false,
         isEphemeral: Bool = false,
         createdAt: TimeInterval? = nil,
         updatedAt: TimeInterval? = nil,
@@ -37,6 +42,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.modelProvider = modelProvider
         self.threadSource = threadSource
         self.parentThreadID = parentThreadID
+        self.isArchived = isArchived
         self.isEphemeral = isEphemeral
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -60,6 +66,9 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             modelProvider: Self.string(in: object, keys: ["modelProvider"]),
             threadSource: Self.string(in: object, keys: ["threadSource"]),
             parentThreadID: Self.string(in: object, keys: ["parentThreadId"]),
+            isArchived: CodexJSONCoercion.bool(in: object, key: "archived")
+                ?? CodexJSONCoercion.bool(in: object, key: "isArchived")
+                ?? false,
             isEphemeral: CodexJSONCoercion.bool(in: object, key: "ephemeral") ?? false,
             createdAt: Self.timeInterval(in: object, key: "createdAt"),
             updatedAt: Self.timeInterval(in: object, key: "updatedAt"),
