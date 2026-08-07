@@ -91,6 +91,23 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(child.transcript.turns.isEmpty)
     }
 
+    @Test func sourceMetadataKeepsAgentPathSeparateFromRolloutPath() {
+        let metadata = CanonicalThreadMetadata(
+            agentNickname: "Rawls",
+            path: "/tmp/rollout-2026-08-07.jsonl",
+            source: .dictionary([
+                "subagent": .dictionary([
+                    "thread_spawn": .dictionary([
+                        "agent_path": .string("/root/tiny_test"),
+                        "agent_nickname": .string("Rawls"),
+                    ])
+                ])
+            ])
+        )
+        #expect(metadata.agentPathFromSource == "/root/tiny_test")
+        #expect(metadata.path == "/tmp/rollout-2026-08-07.jsonl")
+    }
+
     @Test func agentPathWinsOverInternalNicknameForDisplayName() {
         let child = CodexSubagentV2(
             threadID: "child",
@@ -582,7 +599,8 @@ private extension CodexSubagentCanonicalPresentationTests {
             parentThreadID: parentThreadID,
             agentNickname: "Scout",
             agentRole: "explorer",
-            path: "/root/scout",
+            agentPath: "/root/scout",
+            path: "/tmp/rollout-child.jsonl",
             updatedAt: ProtocolSeconds(1_700_000_000),
             lastChangedRevision: StateRevision(2),
             attentionRevision: StateRevision(2),

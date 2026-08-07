@@ -315,7 +315,7 @@ public struct CodexSubagentStoreV2: Sendable {
             indexedMetadataByID[id] = IndexedMetadata(
                 nickname: summary.agentNickname,
                 role: summary.agentRole,
-                path: summary.path,
+                path: summary.agentPath,
                 parentThreadID: summary.parentThreadID?.rawValue
             )
             let knownChild = discoveriesByID[id]?.parentThreadID == parentThreadID.rawValue
@@ -324,7 +324,7 @@ public struct CodexSubagentStoreV2: Sendable {
             let discovery = CodexSubagentDiscoveryV2(
                 threadID: id,
                 parentThreadID: parentThreadID.rawValue,
-                agentPath: summary.path,
+                agentPath: summary.agentPath,
                 prompt: discoveriesByID[id]?.prompt
             )
             _ = register(discovery)
@@ -334,7 +334,7 @@ public struct CodexSubagentStoreV2: Sendable {
                 nickname: summary.agentNickname,
                 role: summary.agentRole,
                 prompt: nil,
-                agentPath: summary.path,
+                agentPath: summary.agentPath,
                 parentThreadID: parentThreadID.rawValue
             )
             if let status = Self.status(from: summary),
@@ -393,15 +393,19 @@ public struct CodexSubagentStoreV2: Sendable {
             _ = register(.init(
                 threadID: id,
                 parentThreadID: summary.metadata.parentThreadID?.rawValue,
-                agentPath: summary.metadata.path
+                agentPath: summary.metadata.agentPathFromSource
             ))
         }
         guard var agent = agentsByID[id] else { return nil }
         let previous = agent
 
-        agent.nickname = summary.metadata.agentNickname ?? agent.nickname
-        agent.role = summary.metadata.agentRole ?? agent.role
-        agent.agentPath = summary.metadata.path ?? agent.agentPath
+        agent.nickname = summary.metadata.agentNickname
+            ?? summary.metadata.agentNicknameFromSource
+            ?? agent.nickname
+        agent.role = summary.metadata.agentRole
+            ?? summary.metadata.agentRoleFromSource
+            ?? agent.role
+        agent.agentPath = summary.metadata.agentPathFromSource ?? agent.agentPath
         agent.parentThreadID =
             summary.metadata.parentThreadID?.rawValue ?? agent.parentThreadID
         agent.depth = agent.agentPath.map(Self.depth) ?? agent.depth
