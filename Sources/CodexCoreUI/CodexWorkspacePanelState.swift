@@ -18,6 +18,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
     @Published public var selectedTabID: String?
     @Published public var panelWidth: CGFloat
     @Published private(set) var openSubagentTabID: String?
+    @Published private(set) var isSubagentDetailVisible = false
 
     private var nextTerminalNumber = 1
     private var nextBrowserNumber = 1
@@ -51,12 +52,19 @@ public final class CodexWorkspacePanelState: ObservableObject {
 
     func openSubagent(id: String) {
         openSubagentTabID = id
+        isSubagentDetailVisible = true
         selectedTabID = id
+    }
+
+    func backFromSubagent() {
+        // Keep the child tab mounted so the panel can show the sibling list.
+        isSubagentDetailVisible = false
     }
 
     func closeSubagent(id: String, fallbackTabIDs: [String]) {
         guard openSubagentTabID == id else { return }
         openSubagentTabID = nil
+        isSubagentDetailVisible = false
         if selectedTabID == id {
             selectedTabID = firstAvailableTabID(fallbackTabIDs.filter { $0 != id })
         }

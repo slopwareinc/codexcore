@@ -124,6 +124,38 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testSubagentBackKeepsPanelMountedForSiblingList() {
+        let panel = CodexWorkspacePanelState()
+        let agents = [
+            CodexSubagentState(
+                id: "agent-a",
+                name: "Architecture",
+                title: "Architecture",
+                prompt: "",
+                status: .completed
+            ),
+            CodexSubagentState(
+                id: "agent-b",
+                name: "Tests",
+                title: "Tests",
+                prompt: "",
+                status: .running
+            ),
+        ]
+
+        panel.openSubagent(id: "agent-a")
+        XCTAssertTrue(panel.isSubagentDetailVisible)
+        panel.backFromSubagent()
+        XCTAssertFalse(panel.isSubagentDetailVisible)
+        XCTAssertEqual(panel.openSubagentTabID, "agent-a")
+        XCTAssertEqual(panel.selectedTabID, "agent-a")
+
+        panel.openSubagent(id: "agent-b")
+        XCTAssertTrue(panel.isSubagentDetailVisible)
+        XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-b"])
+    }
+
+    @MainActor
     func testPlanAndReviewUseDistinctWorkspaceTabs() {
         let panel = CodexWorkspacePanelState()
         let plan = CodexPlanSummary(

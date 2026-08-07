@@ -684,6 +684,10 @@ public struct CodexChatWorkspaceView: View {
             onCloseFiles: closeFilesTab,
             onCloseFilePreview: closeFilePreviewTab,
             onCloseSubagent: closeSubagentTab,
+            onOpenSubagent: openPanelTab,
+            onBackFromSubagent: { panel.backFromSubagent() },
+            subagents: subagents,
+            isSubagentDetailVisible: panel.isSubagentDetailVisible,
             onSelectSubagentTranscript: onSelectSubagentTranscript,
             showsCloseButton: showsCloseButton,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }

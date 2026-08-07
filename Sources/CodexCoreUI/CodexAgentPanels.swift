@@ -964,7 +964,6 @@ public struct CodexAgentSidePanel: View {
     private let mountedBrowserSessions: [CodexBrowserSession]
     private let mountedFilesSessions: [CodexFilesSession]
     private let mountedFilePreviewSessions: [CodexFilePreviewSession]
-    private let modelOptions: [CodexModelSelection]
     private let workspaceURL: URL?
     private let selectedReviewFilePath: String?
     private let isSideChatSending: Bool
@@ -981,6 +980,10 @@ public struct CodexAgentSidePanel: View {
     private let onCloseFiles: (String) -> Void
     private let onCloseFilePreview: (String) -> Void
     private let onCloseSubagent: (String) -> Void
+    private let onOpenSubagent: (String) -> Void
+    private let onBackFromSubagent: () -> Void
+    private let subagents: [CodexSubagentState]
+    private let isSubagentDetailVisible: Bool
     private let onSelectSubagentTranscript: (String?) -> Void
     private let showsCloseButton: Bool
     private let onClose: () -> Void
@@ -1016,6 +1019,10 @@ public struct CodexAgentSidePanel: View {
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
+        onOpenSubagent: @escaping (String) -> Void = { _ in },
+        onBackFromSubagent: @escaping () -> Void = {},
+        subagents: [CodexSubagentState] = [],
+        isSubagentDetailVisible: Bool = true,
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
@@ -1032,7 +1039,6 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
-        self.modelOptions = modelOptions
         self.workspaceURL = workspaceURL
         self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
@@ -1049,6 +1055,10 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
+        self.onOpenSubagent = onOpenSubagent
+        self.onBackFromSubagent = onBackFromSubagent
+        self.subagents = subagents
+        self.isSubagentDetailVisible = isSubagentDetailVisible
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.showsCloseButton = showsCloseButton
         self.onClose = onClose
@@ -1084,6 +1094,10 @@ public struct CodexAgentSidePanel: View {
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
         onCloseSubagent: @escaping (String) -> Void = { _ in },
+        onOpenSubagent: @escaping (String) -> Void = { _ in },
+        onBackFromSubagent: @escaping () -> Void = {},
+        subagents: [CodexSubagentState] = [],
+        isSubagentDetailVisible: Bool = true,
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
@@ -1100,7 +1114,6 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
-        self.modelOptions = modelOptions
         self.workspaceURL = workspaceURL
         self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
@@ -1117,6 +1130,10 @@ public struct CodexAgentSidePanel: View {
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
         self.onCloseSubagent = onCloseSubagent
+        self.onOpenSubagent = onOpenSubagent
+        self.onBackFromSubagent = onBackFromSubagent
+        self.subagents = subagents
+        self.isSubagentDetailVisible = isSubagentDetailVisible
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.showsCloseButton = showsCloseButton
         self.onClose = onClose
@@ -1204,7 +1221,10 @@ public struct CodexAgentSidePanel: View {
                         onSendSideChatMessage: onSendSideChatMessage,
                         onInterruptSideChatMessage: onInterruptSideChatMessage,
                         onStartReview: onStartReview,
-                        modelOptions: modelOptions,
+                        onOpenSubagent: onOpenSubagent,
+                        onBackFromSubagent: onBackFromSubagent,
+                        subagents: subagents,
+                        isSubagentDetailVisible: isSubagentDetailVisible,
                         workspaceURL: workspaceURL,
                         selectedReviewFilePath: selectedReviewFilePath
                     )
@@ -1374,7 +1394,7 @@ public struct CodexAgentSidePanel: View {
 
                         ForEach(tabs) { tab in
                             AgentPanelTabButton(
-                                title: tab.title,
+                                title: tab.isSubagent ? "Subagents" : tab.title,
                                 systemImage: tab.systemImage,
                                 isSelected: tab.id == selectedTab?.id,
                                 width: tabWidth,
@@ -1691,13 +1711,12 @@ private struct CodexAgentPanelContent: View {
     let onSendSideChatMessage: () -> Void
     let onInterruptSideChatMessage: () -> Void
     let onStartReview: (CodexReviewTarget) -> Void
-    let modelOptions: [CodexModelSelection]
+    let onOpenSubagent: (String) -> Void
+    let onBackFromSubagent: () -> Void
+    let subagents: [CodexSubagentState]
+    let isSubagentDetailVisible: Bool
     let workspaceURL: URL?
     let selectedReviewFilePath: String?
-    @State private var agentDraft = ""
-    @State private var agentApproval = CodexApprovalSelection.askForApproval
-    @State private var agentModel = CodexModelSelection.appServerDefault
-    @State private var agentReasoning = CodexReasoningSelection.medium
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1711,14 +1730,10 @@ private struct CodexAgentPanelContent: View {
                     empty: "Side chat is ready for a focused branch of the parent conversation."
                 )
             case .subagent(let subagent):
-                transcriptPanel(
-                    transcript: subagent.transcript,
-                    transcriptID: subagent.id,
-                    empty: subagent.transcriptAvailability == .exceedsDisplayLimit
-                        ? "This transcript exceeds the in-memory display limit."
-                        : "No transcript returned yet."
-                ) {
-                    subagentHeader(subagent)
+                if isSubagentDetailVisible {
+                    subagentDetailPanel(subagent)
+                } else {
+                    subagentList
                 }
             case .review(let session):
                 if let workspaceURL {
@@ -1740,6 +1755,81 @@ private struct CodexAgentPanelContent: View {
         }
     }
 
+    private var subagentList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(subagents) { subagent in
+                    Button {
+                        onOpenSubagent(subagent.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "person.wave.2")
+                                .foregroundStyle(theme.colors.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(subagent.name)
+                                    .font(theme.fonts.body)
+                                    .foregroundStyle(theme.colors.textPrimary)
+                                Text(subagent.title)
+                                    .font(theme.fonts.caption)
+                                    .foregroundStyle(theme.colors.textTertiary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            SubagentStatusBadge(status: subagent.status)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func subagentDetailPanel(_ subagent: CodexSubagentState) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                Button {
+                    onBackFromSubagent()
+                } label: {
+                    Image(systemName: "arrow.left")
+                        .font(theme.fonts.body.weight(.medium))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textSecondary)
+                .accessibilityLabel("Back to subagents")
+
+                Image(systemName: "person.wave.2")
+                    .foregroundStyle(theme.colors.accent)
+                Text(subagent.name)
+                    .font(theme.fonts.body.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            CodexTranscriptViewV2(
+                transcript: subagent.transcript,
+                bottomContentInset: 16
+            ) {
+                emptyText(
+                    subagent.transcriptAvailability == .exceedsDisplayLimit
+                        ? "This transcript exceeds the in-memory display limit."
+                        : "No transcript returned yet."
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var parentChatPill: some View {
         HStack(spacing: 7) {
             Image(systemName: "arrow.up.left")
@@ -1753,24 +1843,6 @@ private struct CodexAgentPanelContent: View {
         .background(theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity), in: Capsule())
         .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    private func subagentHeader(_ subagent: CodexSubagentState) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(subagent.name)
-                    .font(theme.fonts.body)
-                    .foregroundStyle(theme.colors.textPrimary)
-                SubagentStatusBadge(status: subagent.status)
-            }
-            if subagent.title != subagent.name {
-                Text(subagent.title)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
     }
 
     private func transcriptPanel(
@@ -1849,20 +1921,8 @@ private struct CodexAgentPanelContent: View {
                 onInterrupt: onInterruptSideChatMessage
             )
         case .subagent:
-            CodexComposerBar(
-                draft: $agentDraft,
-                placeholder: "Ask this agent...",
-                isCompact: true,
-                approvalSelection: $agentApproval,
-                approvalOptions: CodexApprovalSelection.defaultOptions,
-                modelSelection: $agentModel,
-                modelOptions: modelOptions,
-                reasoningSelection: $agentReasoning,
-                isSending: false,
-                canSend: false,
-                onSend: {},
-                onInterrupt: {}
-            )
+            // Child transcripts are read-only in the official side panel.
+            EmptyView()
         case .review:
             EmptyView()
         }
