@@ -132,7 +132,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         await transport.sendParentDiscovery()
         try await eventually { coordinator.agents.count == 1 }
         #expect(coordinator.agents.first?.nickname == nil)
-        #expect(coordinator.agents.first?.status == .pending)
+        #expect(coordinator.agents.first?.status == .working(since: nil))
         coordinator.selectTranscript("child")
         let revisionBeforeChildMetadata = coordinator.changeRevision
         try await eventually { gate.invocationCount == 1 }
