@@ -57,7 +57,9 @@ public final class CodexSubagentPresentationCoordinator {
     @ObservationIgnored var selectedProjection: CodexSelectedSubagentProjection?
     @ObservationIgnored private var parentObservationTask: Task<Void, Never>?
     @ObservationIgnored private var indexObservationTask: Task<Void, Never>?
-    @ObservationIgnored private var generation: UInt64 = 0
+    @ObservationIgnored var metadataRefreshTasks: [ThreadID: Task<Void, Never>] = [:]
+    @ObservationIgnored var metadataRefreshAttemptedIDs: Set<ThreadID> = []
+    @ObservationIgnored var generation: UInt64 = 0
     @ObservationIgnored private var nextSelectionID: UInt64 = 0
     @ObservationIgnored var nextProjectionID: UInt64 = 0
 
@@ -122,6 +124,7 @@ public final class CodexSubagentPresentationCoordinator {
     isolated deinit {
         parentObservationTask?.cancel()
         indexObservationTask?.cancel()
+        for task in metadataRefreshTasks.values { task.cancel() }
         selectedProjection?.observationTask?.cancel()
         selectedProjection?.projectionTask?.cancel()
         if let lease = selectedProjection?.lease {
@@ -212,7 +215,7 @@ public final class CodexSubagentPresentationCoordinator {
 
 // MARK: - Parent and index observation
 
-private extension CodexSubagentPresentationCoordinator {
+extension CodexSubagentPresentationCoordinator {
     func startParentObservation(threadID: ThreadID, generation: UInt64) {
         let codex = self.codex
         parentObservationTask = Task { [weak self] in
@@ -337,6 +340,7 @@ extension CodexSubagentPresentationCoordinator {
         seenIndexedChildIDs.removeAll(keepingCapacity: false)
         removedIndexedChildIDs.removeAll(keepingCapacity: false)
         selectedProjection = nil
+        metadataRefreshAttemptedIDs.removeAll(keepingCapacity: false)
         store.removeAll()
         mapper.reset()
     }
@@ -346,6 +350,9 @@ extension CodexSubagentPresentationCoordinator {
         parentObservationTask = nil
         indexObservationTask?.cancel()
         indexObservationTask = nil
+        for task in metadataRefreshTasks.values { task.cancel() }
+        metadataRefreshTasks.removeAll(keepingCapacity: false)
+        metadataRefreshAttemptedIDs.removeAll(keepingCapacity: false)
     }
 
     func isCurrent(_ generation: UInt64, parentThreadID: ThreadID) -> Bool {

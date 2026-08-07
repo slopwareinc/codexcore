@@ -41,6 +41,37 @@ struct CodexSubagentPresentationCoordinatorTests {
         await codex.close()
     }
 
+    @Test func collaborationChildMetadataLoadsBeforeSelection() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "codexcore-subagent-metadata-refresh-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let home = CodexHome(path: homeURL.path)
+        let transport = CoordinatorTestTransport(homePath: home.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: home)
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+        coordinator.selectParent("parent")
+
+        await transport.sendCollaborationDiscovery()
+        try await eventually {
+            coordinator.agents.count == 1
+        }
+        try await eventually {
+            coordinator.agents.first?.nickname == "Scout"
+                && coordinator.agents.first?.displayName == "Scout"
+        }
+        #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 0)
+        #expect(await transport.reads() == 1)
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
     @Test func childLeaseSurvivesReconnectProjectsContentAndReleasesOnRemoval() async throws {
         let homeURL = URL(
             fileURLWithPath: "/private/tmp",
@@ -131,7 +162,7 @@ struct CodexSubagentPresentationCoordinatorTests {
 
         await transport.sendParentDiscovery()
         try await eventually { coordinator.agents.count == 1 }
-        #expect(coordinator.agents.first?.nickname == nil)
+        #expect(coordinator.agents.first?.nickname == "Scout")
         #expect(coordinator.agents.first?.status == .working(since: nil))
         coordinator.selectTranscript("child")
         let revisionBeforeChildMetadata = coordinator.changeRevision
@@ -180,6 +211,10 @@ struct CodexSubagentPresentationCoordinatorTests {
         try await eventually {
             coordinator.agents.count == 2
         }
+        try await eventually {
+            coordinator.agents.allSatisfy { $0.nickname == "Scout" }
+        }
+        #expect(await transport.reads() == 2)
 
         #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 0)
         #expect(coordinator.diagnostics.childProjectionScheduleCount == 0)
@@ -501,6 +536,7 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var openCount = 0
     private(set) var resumeCount = 0
+    private(set) var readCount = 0
     private(set) var unsubscribeCount = 0
     private var resumedIDs: [String] = []
 
@@ -536,6 +572,7 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 "userAgent": .string("codex/0.145.0-alpha.20"),
             ])
         case "thread/read":
+            readCount += 1
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
             result = Self.threadMetadataResult(threadID: threadID)
         case "thread/resume":
@@ -574,6 +611,8 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
         resumedIDs
     }
 
+    func reads() -> Int { readCount }
+
     func sendParentDiscovery(childIDs: [String] = ["child"]) {
         sendNotification(
             method: "turn/started",
@@ -592,22 +631,61 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
             ]
         )
         for childID in childIDs {
+            let item: [String: CodexJSONValue] = [
+                "type": .string("subAgentActivity"),
+                "id": .string("spawn-\(childID)"),
+                "kind": .string("started"),
+                "agentThreadId": .string(childID),
+                "agentPath": .string("/root/\(childID)"),
+            ]
             sendNotification(
                 method: "item/completed",
                 params: [
                     "threadId": .string("parent"),
                     "turnId": .string("parent-turn"),
                     "completedAtMs": .int(1_700_000_000_100),
-                    "item": .dictionary([
-                        "type": .string("subAgentActivity"),
-                        "id": .string("spawn-\(childID)"),
-                        "kind": .string("started"),
-                        "agentThreadId": .string(childID),
-                        "agentPath": .string("/root/\(childID)"),
-                    ]),
+                    "item": .dictionary(item),
                 ]
             )
         }
+    }
+
+    func sendCollaborationDiscovery(childID: String = "child") {
+        sendNotification(
+            method: "turn/started",
+            params: [
+                "threadId": .string("parent"),
+                "turn": .dictionary([
+                    "id": .string("parent-turn"),
+                    "items": .array([]),
+                    "itemsView": .string("notLoaded"),
+                    "status": .string("inProgress"),
+                    "error": .null,
+                    "startedAt": .int(1_700_000_000),
+                    "completedAt": .null,
+                    "durationMs": .null,
+                ]),
+            ]
+        )
+        sendNotification(
+            method: "item/completed",
+            params: [
+                "threadId": .string("parent"),
+                "turnId": .string("parent-turn"),
+                "completedAtMs": .int(1_700_000_000_100),
+                "item": .dictionary([
+                    "type": .string("collabAgentToolCall"),
+                    "agentsStates": .dictionary([
+                        childID: .dictionary(["status": .string("completed")])
+                    ]),
+                    "id": .string("spawn-\(childID)"),
+                    "receiverThreadIds": .array([.string(childID)]),
+                    "senderThreadId": .string("parent"),
+                    "status": .string("completed"),
+                    "tool": .string("spawnAgent"),
+                ]),
+            ]
+        )
     }
 
     func sendThreadDeleted(_ threadID: String) {

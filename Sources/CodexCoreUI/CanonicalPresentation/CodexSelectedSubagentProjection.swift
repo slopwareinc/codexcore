@@ -219,10 +219,49 @@ extension CodexSubagentPresentationCoordinator {
     func reconcileChildren() {
         let desired = desiredChildIDs
         for id in store.threadIDs where !desired.contains(id) {
+            metadataRefreshTasks.removeValue(forKey: id)?.cancel()
+            metadataRefreshAttemptedIDs.remove(id)
             if selectedProjection?.threadID == id {
                 closeSelectedProjection(discardContent: true)
             }
             store.remove(threadID: id)
+        }
+        for id in desired
+            where metadataRefreshTasks[id] == nil
+                && !metadataRefreshAttemptedIDs.contains(id)
+        {
+            guard let agent = store.agent(threadID: id.rawValue),
+                  agent.agentPath == nil || agent.nickname == nil || agent.role == nil
+            else { continue }
+            metadataRefreshAttemptedIDs.insert(id)
+            startMetadataRefresh(threadID: id)
+        }
+    }
+
+    /// Fetches only the child's thread metadata. This deliberately uses
+    /// `includeTurns: false`: unselected children must receive their native
+    /// nickname/path without acquiring a transcript lease or loading history.
+    func startMetadataRefresh(threadID: ThreadID) {
+        guard let parentThreadID else { return }
+        let generation = self.generation
+        let codex = self.codex
+        metadataRefreshTasks[threadID] = Task { [weak self] in
+            defer { self?.metadataRefreshTasks.removeValue(forKey: threadID) }
+            do {
+                _ = try await codex.perform(CodexRequest.threadRead(.init(
+                    includeTurns: false,
+                    threadID: threadID.rawValue
+                )))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.isCurrent(generation, parentThreadID: parentThreadID)
+            else { return }
+            self.applyThreadIndex(
+                await codex.session.threadIndexSnapshot(),
+                parentThreadID: parentThreadID
+            )
         }
     }
 
