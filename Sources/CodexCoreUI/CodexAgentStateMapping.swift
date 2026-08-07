@@ -42,7 +42,8 @@ public struct CodexAgentStateMapper: Sendable {
         let previousSubagents = subagents
         lifecycleEvents = projectLifecycle(
             parentSnapshot,
-            parentThreadID: parentThreadID
+            parentThreadID: parentThreadID,
+            projectedChildren: projectedChildren
         )
         subagents = projectedChildren.map(Self.panelState)
         return previousEvents != lifecycleEvents || previousSubagents != subagents
@@ -52,8 +53,12 @@ public struct CodexAgentStateMapper: Sendable {
 private extension CodexAgentStateMapper {
     mutating func projectLifecycle(
         _ snapshot: CanonicalStateSnapshot,
-        parentThreadID: ThreadID
+        parentThreadID: ThreadID,
+        projectedChildren: [CodexSubagentV2]
     ) -> [CodexAgentLifecycleEvent] {
+        let namesByThreadID = Dictionary(
+            uniqueKeysWithValues: projectedChildren.map { ($0.threadID, $0.displayName) }
+        )
         var events: [CodexAgentLifecycleEvent] = []
         var liveKeys: Set<ItemKey> = []
 
@@ -65,7 +70,11 @@ private extension CodexAgentStateMapper {
                 liveKeys.insert(item.key)
                 let id = lifecycleEventIDs[item.key] ?? UUID()
                 lifecycleEventIDs[item.key] = id
-                if let event = Self.lifecycleEvent(id: id, item: item) {
+                if let event = Self.lifecycleEvent(
+                    id: id,
+                    item: item,
+                    namesByThreadID: namesByThreadID
+                ) {
                     events.append(event)
                 }
             }
@@ -77,14 +86,15 @@ private extension CodexAgentStateMapper {
 
     static func lifecycleEvent(
         id: UUID,
-        item: CanonicalItem
+        item: CanonicalItem,
+        namesByThreadID: [String: String]
     ) -> CodexAgentLifecycleEvent? {
         switch item.kind {
         case .collabAgentToolCall:
             let tool = item.payload.string("tool") ?? "update"
             let completed = item.authority == .completed
             let threadIDs = item.payload.stringArray("receiverThreadIds")
-            let names = threadIDs.map(shortAgentName)
+            let names = threadIDs.map { namesByThreadID[$0] ?? shortAgentName($0) }
             let status = lifecycleStatus(tool: tool, completed: completed, payload: item.payload)
             return CodexAgentLifecycleEvent(
                 id: id,
@@ -101,11 +111,14 @@ private extension CodexAgentStateMapper {
 
         case .subAgentActivity:
             guard let threadID = item.payload.string("agentThreadId") else { return nil }
-            let name = item.payload.string("agentPath") ?? shortAgentName(threadID)
+            let name = item.payload.string("agentPath")
+                .flatMap(displayName(fromAgentPath:))
+                ?? namesByThreadID[threadID]
+                ?? shortAgentName(threadID)
             let kind = item.payload.string("kind") ?? "updated"
             let status: CodexAgentLifecycleEvent.Status = switch kind {
             case "started", "interacted": .running
-            case "interrupted": .failed
+            case "interrupted": .completed
             default: .running
             }
             let title = switch kind {
@@ -132,7 +145,7 @@ private extension CodexAgentStateMapper {
         CodexSubagentState(
             id: child.threadID,
             name: child.displayName,
-            title: child.role ?? "Subagent",
+            title: child.role == "default" ? "Subagent" : (child.role ?? "Subagent"),
             prompt: child.prompt ?? "Subagent task",
             status: child.panelStatus,
             transcript: child.transcript,
@@ -150,7 +163,9 @@ private extension CodexAgentStateMapper {
         let statuses = payload.object("agentsStates")?.values.compactMap {
             CodexJSONCoercion.dictionary(from: $0)?.string("status")?.lowercased()
         } ?? []
-        if statuses.contains(where: { $0 == "failed" || $0 == "error" }) { return .failed }
+        if statuses.contains(where: {
+            ["failed", "error", "errored", "notfound"].contains($0)
+        }) { return .failed }
         if completed, tool == "wait" { return .completed }
         if completed, tool == "spawnAgent" { return .running }
         return completed ? .completed : (tool == "spawnAgent" ? .spawning : .running)
@@ -173,6 +188,23 @@ private extension CodexAgentStateMapper {
         case "closeAgent": return completed ? "Closed \(label)" : "Closing \(label)"
         default: return "Subagent update"
         }
+    }
+
+    static func displayName(fromAgentPath path: String) -> String? {
+        let component = path
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty && $0 != "root" }
+            .last
+        guard let component else { return nil }
+        let normalized = component
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .split(whereSeparator: { $0.isWhitespace })
+            .map { $0.lowercased() }
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return nil }
+        return normalized.prefix(1).uppercased() + normalized.dropFirst()
     }
 
     static func itemDate(_ item: CanonicalItem) -> Date {

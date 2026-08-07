@@ -38,6 +38,7 @@ final class CodexCoreAppModelServiceTierRequestTests: XCTestCase {
         let start = app.threadStartParameters()
         XCTAssertEqual(start.model, model.modelIdentifier)
         XCTAssertEqual(start.serviceTier, fast.id)
+        XCTAssertEqual(start.multiAgentMode, CodexCoreAppModel.defaultMultiAgentMode)
 
         app.isProjectlessDraft = false
         let resume = app.threadResumeParameters(threadID: "thread-1")

@@ -18,6 +18,55 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(child.prompt == "Inspect the repository")
     }
 
+    @Test func parentActivityUpdatesChildLifecycleImmediately() throws {
+        var store = CodexSubagentStoreV2()
+
+        _ = store.applyParentSnapshot(
+            parentSnapshot(activity: "started"),
+            parentThreadID: "parent"
+        )
+        let startedChild = try #require(store.agent(threadID: "child"))
+        guard case .working = startedChild.status else {
+            Issue.record("A started activity should make the child immediately visible as working")
+            return
+        }
+
+        _ = store.applyParentSnapshot(
+            parentSnapshot(activity: "interrupted"),
+            parentThreadID: "parent"
+        )
+        let interruptedChild = try #require(store.agent(threadID: "child"))
+        guard case .completed = interruptedChild.status else {
+            Issue.record("An interrupted activity should be terminal before child hydration")
+            return
+        }
+    }
+
+    @Test func explicitAgentStateWinsOverCompletedSpawnOperation() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyParentSnapshot(
+            parentSnapshot(stateStatus: "pendingInit"),
+            parentThreadID: "parent"
+        )
+
+        let child = try #require(store.agent(threadID: "child"))
+        guard case .pending = child.status else {
+            Issue.record("The explicit pendingInit state should not be overwritten by spawn")
+            return
+        }
+    }
+
+    @Test func sendInputDoesNotReplaceOriginalSpawnPrompt() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyParentSnapshot(parentSnapshot(), parentThreadID: "parent")
+        _ = store.applyParentSnapshot(
+            parentSnapshot(operation: "sendInput"),
+            parentThreadID: "parent"
+        )
+
+        #expect(store.agent(threadID: "child")?.prompt == "Inspect the repository")
+    }
+
     @Test func lightweightIndexAddsIdentityWithoutCopyingTranscript() throws {
         var store = CodexSubagentStoreV2()
         let populated = CanonicalThreadIndexSnapshot(
@@ -358,31 +407,65 @@ private extension CodexSubagentCanonicalPresentationTests {
         )
     }
 
-    func parentSnapshot(close: Bool = false) -> CanonicalStateSnapshot {
+    func parentSnapshot(
+        close: Bool = false,
+        activity: String? = nil,
+        operation: String? = nil,
+        stateStatus: String? = nil
+    ) -> CanonicalStateSnapshot {
         let threadID: ThreadID = "parent"
         let turnID: TurnID = "parent-turn"
         let itemID: ItemID = close ? "close" : "spawn"
+        let tool = close ? "closeAgent" : operation ?? "spawnAgent"
+        let prompt: CodexJSONValue = close
+            ? .null
+            : .string(operation == "sendInput" ? "Follow-up" : "Inspect the repository")
+        let states: CodexJSONValue = stateStatus.map { status in
+            .dictionary(["child": .dictionary(["status": .string(status)])])
+        } ?? .dictionary([:])
         let item = CanonicalItem(
             key: .init(threadID: threadID, turnID: turnID, itemID: itemID),
             kind: .collabAgentToolCall,
             payload: [
                 "type": .string("collabAgentToolCall"),
                 "id": .string(itemID.rawValue),
-                "tool": .string(close ? "closeAgent" : "spawnAgent"),
+                "tool": .string(tool),
                 "status": .string("completed"),
                 "receiverThreadIds": .array([.string("child")]),
-                "prompt": close ? .null : .string("Inspect the repository"),
-                "agentsStates": .dictionary([:]),
+                "prompt": prompt,
+                "agentsStates": states,
             ],
             authority: .completed,
             completedAt: ProtocolMilliseconds(1_700_000_000_000),
             consistency: .authoritative,
             lastChangedRevision: StateRevision(1)
         )
+        var itemOrder = [itemID]
+        var items = [item.key: item]
+        if let activity {
+            let activityID = ItemID("activity-\(activity)")
+            let activityItem = CanonicalItem(
+                key: .init(threadID: threadID, turnID: turnID, itemID: activityID),
+                kind: .subAgentActivity,
+                payload: [
+                    "type": .string("subAgentActivity"),
+                    "id": .string(activityID.rawValue),
+                    "kind": .string(activity),
+                    "agentThreadId": .string("child"),
+                    "agentPath": .string("/root/scout"),
+                ],
+                authority: .completed,
+                completedAt: ProtocolMilliseconds(1_700_000_000_000),
+                consistency: .authoritative,
+                lastChangedRevision: StateRevision(1)
+            )
+            itemOrder.append(activityID)
+            items[activityItem.key] = activityItem
+        }
         let turn = CanonicalTurn(
             key: .init(threadID: threadID, turnID: turnID),
             status: .completed,
-            itemOrder: [itemID],
+            itemOrder: itemOrder,
             itemsCoverage: .full,
             itemsConsistency: .authoritative,
             lastChangedRevision: StateRevision(1)
@@ -399,7 +482,7 @@ private extension CodexSubagentCanonicalPresentationTests {
                 lastChangedRevision: StateRevision(1)
             )],
             turns: [turn.key: turn],
-            items: [item.key: item]
+            items: items
         )
     }
 

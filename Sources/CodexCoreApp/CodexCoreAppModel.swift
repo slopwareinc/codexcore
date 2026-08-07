@@ -2777,6 +2777,7 @@ final class CodexCoreAppModel {
             historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
             runtimeWorkspaceRoots: protocolWorkspaceRoots
         ))
+        parameters.multiAgentMode = Self.defaultMultiAgentMode
         configurationSession.newThreadApprovalSelection
             .permissionProfileWireConfiguration
             .apply(to: &parameters)

@@ -72,6 +72,15 @@ extension CodexSubagentV2 {
     }
 }
 
+private extension CodexSubagentLiveStatusV2 {
+    var isActive: Bool {
+        switch self {
+        case .pending, .working: true
+        case .completed, .closed, .failed: false
+        }
+    }
+}
+
 public struct CodexSubagentDiscoveryV2: Sendable, Equatable {
     public var threadID: String
     public var parentThreadID: String?
@@ -176,8 +185,8 @@ public struct CodexSubagentStoreV2: Sendable {
     public var workingCount: Int {
         agents.reduce(0) { count, agent in
             switch agent.status {
-            case .working, .pending: count + 1
-            case .completed, .closed, .failed: count
+            case .working: count + 1
+            case .pending, .completed, .closed, .failed: count
             }
         }
     }
@@ -201,7 +210,9 @@ public struct CodexSubagentStoreV2: Sendable {
                 let ids = item.payload.stringArray("receiverThreadIds")
                 for id in ids {
                     let path = discoveriesByID[id]?.agentPath
-                    let prompt = item.payload.string("prompt") ?? discoveriesByID[id]?.prompt
+                    let prompt = item.payload.string("tool") == "spawnAgent"
+                        ? item.payload.string("prompt")
+                        : discoveriesByID[id]?.prompt
                     let discovery = CodexSubagentDiscoveryV2(
                         threadID: id,
                         parentThreadID: parentThreadID.rawValue,
@@ -211,8 +222,33 @@ public struct CodexSubagentStoreV2: Sendable {
                     _ = register(discovery)
                     currentDiscoveries[id] = discoveriesByID[id] ?? discovery
                 }
-                applyAgentStatePayload(item.payload.object("agentsStates"))
-                if item.payload.string("tool") == "closeAgent", item.authority == .completed {
+                let states = item.payload.object("agentsStates")
+                registerAgentStateIDs(states, parentThreadID: parentThreadID)
+                if let states {
+                    for id in states.keys {
+                        let discovery = CodexSubagentDiscoveryV2(
+                            threadID: id,
+                            parentThreadID: parentThreadID.rawValue,
+                            agentPath: discoveriesByID[id]?.agentPath,
+                            prompt: discoveriesByID[id]?.prompt
+                        )
+                        currentDiscoveries[id] = discoveriesByID[id] ?? discovery
+                    }
+                }
+                applyCollaborationToolState(
+                    item.payload,
+                    receiverThreadIDs: ids
+                )
+                applyAgentStatePayload(states)
+                if item.payload.string("tool") == "wait",
+                   item.payload.string("status")?.lowercased() == "completed"
+                {
+                    applyCompletedWaitState(receiverThreadIDs: ids)
+                }
+                if item.payload.string("tool") == "closeAgent",
+                   item.authority == .completed,
+                   item.payload.string("status")?.lowercased() == "completed"
+                {
                     for id in ids { closeStates[id] = .closed }
                 }
 
@@ -227,6 +263,7 @@ public struct CodexSubagentStoreV2: Sendable {
                 )
                 _ = register(discovery)
                 currentDiscoveries[id] = discoveriesByID[id] ?? discovery
+                applySubagentActivityState(item.payload, threadID: id)
 
             default:
                 continue
@@ -498,6 +535,19 @@ private extension CodexSubagentStoreV2 {
         return isNew
     }
 
+    mutating func registerAgentStateIDs(
+        _ states: [String: CodexJSONValue]?,
+        parentThreadID: ThreadID
+    ) {
+        guard let states else { return }
+        for id in states.keys where agentsByID[id] == nil {
+            _ = register(.init(
+                threadID: id,
+                parentThreadID: parentThreadID.rawValue
+            ))
+        }
+    }
+
     mutating func applyAgentStatePayload(_ states: [String: CodexJSONValue]?) {
         guard let states else { return }
         for (id, rawState) in states {
@@ -505,19 +555,76 @@ private extension CodexSubagentStoreV2 {
                   let rawStatus = state.string("status")?.lowercased(),
                   agentsByID[id] != nil else { continue }
             switch rawStatus {
-            case "completed", "done":
+            case "pendinginit", "pending", "waiting":
+                agentsByID[id]?.status = .pending
+            case "completed", "done", "interrupted", "shutdown":
+                // The official renderer treats interrupted/shutdown child
+                // states as terminal "done" status. A closeAgent completion
+                // is kept distinct and applied by the caller below.
                 agentsByID[id]?.status = .completed(durationMs: nil)
-            case "failed", "error":
+            case "failed", "error", "errored", "notfound":
                 agentsByID[id]?.status = .failed(
                     message: state.string("message") ?? "Subagent failed"
                 )
-            case "closed", "shutdown":
+            case "closed":
                 agentsByID[id]?.status = .closed
             case "running", "working":
                 agentsByID[id]?.status = .working(since: nil)
             default:
                 break
             }
+        }
+    }
+
+    mutating func applyCollaborationToolState(
+        _ payload: [String: CodexJSONValue],
+        receiverThreadIDs: [String]
+    ) {
+        let tool = payload.string("tool") ?? ""
+        let status = payload.string("status")?.lowercased()
+        let ids = receiverThreadIDs.isEmpty
+            && tool == "wait"
+            && status == "completed"
+            ? Array(agentsByID.keys)
+            : receiverThreadIDs
+
+        if ["spawnAgent", "sendInput", "resumeAgent"].contains(tool) {
+            for id in ids where agentsByID[id] != nil {
+                if status == "failed" {
+                    agentsByID[id]?.status = .failed(
+                        message: payload.string("message") ?? "Subagent operation failed"
+                    )
+                } else {
+                    agentsByID[id]?.status = .working(since: nil)
+                }
+            }
+        }
+    }
+
+    mutating func applyCompletedWaitState(receiverThreadIDs: [String]) {
+        let ids = receiverThreadIDs.isEmpty
+            ? Array(agentsByID.keys)
+            : receiverThreadIDs
+        for id in ids where agentsByID[id]?.status.isActive == true {
+            agentsByID[id]?.status = .completed(durationMs: nil)
+        }
+    }
+
+    mutating func applySubagentActivityState(
+        _ payload: [String: CodexJSONValue],
+        threadID: String
+    ) {
+        guard agentsByID[threadID] != nil else { return }
+        switch payload.string("kind")?.lowercased() {
+        case "started", "interacted":
+            agentsByID[threadID]?.status = .working(since: nil)
+        case "interrupted":
+            // Official activity projection renders interruption as terminal
+            // done; a canonical child failure still wins when its snapshot is
+            // later hydrated.
+            agentsByID[threadID]?.status = .completed(durationMs: nil)
+        default:
+            break
         }
     }
 
