@@ -134,6 +134,11 @@ final class CodexCoreAppModel {
     var activityLog = CodexActivityLogSession()
     var structuredPanelDismissalState = CodexStructuredPanelDismissalState()
     let runtimeSession = CodexChatRuntimeSession()
+    // The child coordinator observes thread-index metadata independently of the
+    // parent snapshot. Keep the app model invalidated for those name/status
+    // updates so transcript chips and the floating summary refresh without a
+    // manual child selection.
+    var subagentPresentationRevision: UInt64 = 0
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
     var modelPreferenceByThread: [String: CodexModelPreference]
@@ -217,6 +222,9 @@ final class CodexCoreAppModel {
             hiddenProjectIDs: hiddenProjectIDs,
             projectAliases: projectAliases
         )
+        runtimeSession.onSubagentChange = { [weak self] in
+            self?.subagentPresentationRevision &+= 1
+        }
     }
 
     convenience init() {

@@ -65,7 +65,10 @@ extension CodexCoreAppModel {
     }
 
     var subagents: [CodexSubagentState] {
-        runtimeSession.subagents
+        // Register the coordinator bridge as an observation dependency. The
+        // coordinator publishes metadata independently of parent snapshots.
+        _ = subagentPresentationRevision
+        return runtimeSession.subagents
     }
 
     var allSidebarChats: [CodexThreadSummary] {

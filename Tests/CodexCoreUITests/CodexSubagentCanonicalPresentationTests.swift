@@ -91,6 +91,29 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(child.transcript.turns.isEmpty)
     }
 
+    @Test func agentPathWinsOverInternalNicknameForDisplayName() {
+        let child = CodexSubagentV2(
+            threadID: "child",
+            agentPath: "/root/tiny_test",
+            nickname: "Rawls"
+        )
+        #expect(child.displayName == "Tiny test")
+    }
+
+    @Test func indexedMetadataArrivingBeforeParentDiscoveryUpdatesUnselectedChild() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyThreadIndex(
+            .init(revision: StateRevision(2), threads: [indexChild(parentThreadID: nil)]),
+            parentThreadID: "parent"
+        )
+        _ = store.applyParentSnapshot(parentSnapshot(), parentThreadID: "parent")
+
+        let child = try #require(store.agent(threadID: "child"))
+        #expect(child.nickname == "Scout")
+        #expect(child.agentPath == "/root/scout")
+        #expect(child.displayName == "Scout")
+    }
+
     @Test func childSnapshotProjectsNonEmptyTranscriptAndExactStatus() throws {
         var store = CodexSubagentStoreV2()
         _ = store.applyParentSnapshot(parentSnapshot(), parentThreadID: "parent")
@@ -544,7 +567,7 @@ private extension CodexSubagentCanonicalPresentationTests {
         )
     }
 
-    func indexChild() -> CanonicalThreadIndexSummary {
+    func indexChild(parentThreadID: ThreadID? = "parent") -> CanonicalThreadIndexSummary {
         CanonicalThreadIndexSummary(
             id: "child",
             order: 1,
@@ -556,7 +579,7 @@ private extension CodexSubagentCanonicalPresentationTests {
             name: nil,
             preview: nil,
             cwd: nil,
-            parentThreadID: "parent",
+            parentThreadID: parentThreadID,
             agentNickname: "Scout",
             agentRole: "explorer",
             path: "/root/scout",

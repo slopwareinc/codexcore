@@ -54,10 +54,19 @@ public struct CodexSubagentV2: Identifiable, Sendable {
     }
 
     public var displayName: String {
-        if let nickname, !nickname.isEmpty { return nickname }
+        // Native UI derives child labels from the agent path when present
+        // (for example `/root/tiny_test` -> `Tiny test`), then falls back to
+        // the nickname for detached/index-only threads.
         let raw = agentPath?.split(separator: "/").last.map(String.init)
+            ?? (nickname?.isEmpty == false ? nickname : nil)
             ?? "agent-\(threadID.split(separator: "-").first ?? Substring(threadID))"
-        return raw.replacingOccurrences(of: "_", with: " ").capitalized
+        let normalized = raw
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .split(whereSeparator: { $0.isWhitespace })
+            .map { $0.lowercased() }
+            .joined(separator: " ")
+        return normalized.prefix(1).uppercased() + normalized.dropFirst()
     }
 }
 
@@ -165,8 +174,19 @@ extension CodexSubagentStoreV2 {
 /// retaining child presentations here. `applyChildSnapshot` remains a standalone
 /// value API for hosts that render `CodexSubagentsPanelV2` directly.
 public struct CodexSubagentStoreV2: Sendable {
+    private struct IndexedMetadata: Sendable {
+        var nickname: String?
+        var role: String?
+        var path: String?
+        var parentThreadID: String?
+    }
+
     private var agentsByID: [String: CodexSubagentV2] = [:]
     private var discoveriesByID: [String: CodexSubagentDiscoveryV2] = [:]
+    // Thread-list metadata can arrive before the parent snapshot establishes
+    // the relationship. Cache it so the first lightweight child discovery can
+    // publish its friendly name/status without opening the child transcript.
+    private var indexedMetadataByID: [String: IndexedMetadata] = [:]
 
     public init() {}
 
@@ -220,6 +240,10 @@ public struct CodexSubagentStoreV2: Sendable {
                         prompt: prompt
                     )
                     _ = register(discovery)
+                    applyIndexedMetadataIfAvailable(
+                        id: id,
+                        fallbackParentThreadID: parentThreadID.rawValue
+                    )
                     currentDiscoveries[id] = discoveriesByID[id] ?? discovery
                 }
                 let states = item.payload.object("agentsStates")
@@ -262,6 +286,10 @@ public struct CodexSubagentStoreV2: Sendable {
                     prompt: discoveriesByID[id]?.prompt
                 )
                 _ = register(discovery)
+                applyIndexedMetadataIfAvailable(
+                    id: id,
+                    fallbackParentThreadID: parentThreadID.rawValue
+                )
                 currentDiscoveries[id] = discoveriesByID[id] ?? discovery
                 applySubagentActivityState(item.payload, threadID: id)
 
@@ -282,8 +310,17 @@ public struct CodexSubagentStoreV2: Sendable {
         parentThreadID: ThreadID
     ) -> [CodexSubagentDiscoveryV2] {
         var currentDiscoveries: [CodexSubagentDiscoveryV2] = []
-        for summary in index.threads where summary.parentThreadID == parentThreadID {
+        for summary in index.threads {
             let id = summary.id.rawValue
+            indexedMetadataByID[id] = IndexedMetadata(
+                nickname: summary.agentNickname,
+                role: summary.agentRole,
+                path: summary.path,
+                parentThreadID: summary.parentThreadID?.rawValue
+            )
+            let knownChild = discoveriesByID[id]?.parentThreadID == parentThreadID.rawValue
+                || agentsByID[id]?.parentThreadID == parentThreadID.rawValue
+            guard summary.parentThreadID == parentThreadID || knownChild else { continue }
             let discovery = CodexSubagentDiscoveryV2(
                 threadID: id,
                 parentThreadID: parentThreadID.rawValue,
@@ -470,11 +507,13 @@ public struct CodexSubagentStoreV2: Sendable {
     public mutating func remove(threadID: ThreadID) {
         agentsByID.removeValue(forKey: threadID.rawValue)
         discoveriesByID.removeValue(forKey: threadID.rawValue)
+        indexedMetadataByID.removeValue(forKey: threadID.rawValue)
     }
 
     public mutating func removeAll() {
         agentsByID.removeAll(keepingCapacity: false)
         discoveriesByID.removeAll(keepingCapacity: false)
+        indexedMetadataByID.removeAll(keepingCapacity: false)
     }
 
     public mutating func updateMetadata(
@@ -502,6 +541,22 @@ public struct CodexSubagentStoreV2: Sendable {
         agent.parentThreadID = parentThreadID ?? agent.parentThreadID
         agentsByID[threadID] = agent
     }
+
+    private mutating func applyIndexedMetadataIfAvailable(
+        id: String,
+        fallbackParentThreadID: String
+    ) {
+        guard let metadata = indexedMetadataByID[id] else { return }
+        updateMetadata(
+            threadID: id,
+            nickname: metadata.nickname,
+            role: metadata.role,
+            prompt: nil,
+            agentPath: metadata.path,
+            parentThreadID: metadata.parentThreadID ?? fallbackParentThreadID
+        )
+    }
+
 }
 
 private extension CodexSubagentStoreV2 {

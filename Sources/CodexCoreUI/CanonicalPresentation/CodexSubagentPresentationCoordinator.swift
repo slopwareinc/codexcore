@@ -38,6 +38,7 @@ public final class CodexSubagentPresentationCoordinator {
     public internal(set) var diagnostics = CodexSubagentPresentationDiagnostics()
 
     @ObservationIgnored let codex: Codex
+    @ObservationIgnored var onChange: (@MainActor () -> Void)?
     @ObservationIgnored let projectionByteCapacity: Int
     @ObservationIgnored let projectionOperation: @Sendable (
         CanonicalStateSnapshot,
@@ -326,6 +327,7 @@ extension CodexSubagentPresentationCoordinator {
         }
         lifecycleEvents = mapper.lifecycleEvents
         changeRevision &+= 1
+        onChange?()
     }
 
     func clearProjectionState() {

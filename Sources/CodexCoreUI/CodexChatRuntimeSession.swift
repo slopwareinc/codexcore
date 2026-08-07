@@ -5,6 +5,9 @@ import CodexCore
 public final class CodexChatRuntimeSession {
     private var state: CodexChatRuntimeState
     private var subagentCoordinator: CodexSubagentPresentationCoordinator?
+    /// Bridges coordinator-only metadata updates to the app model, which is
+    /// intentionally the sole observable owner of chat view state.
+    public var onSubagentChange: (@MainActor () -> Void)?
     public let presentationStore: CodexPresentationStore
     public let sideChatPresentationStore: CodexPresentationStore
 
@@ -85,6 +88,9 @@ public final class CodexChatRuntimeSession {
         presentationStore.connect(adapter)
         sideChatPresentationStore.connect(adapter)
         let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+        coordinator.onChange = { [weak self] in
+            self?.onSubagentChange?()
+        }
         subagentCoordinator = coordinator
         coordinator.selectParent(presentationStore.selectedThreadID)
     }
