@@ -813,7 +813,10 @@ actor CodexTranscriptRenderProjector {
                 if case .working = turn.status,
                    let tail = turn.liveTail?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !tail.isEmpty,
-                   !(tail == "Thinking" && turn.narrative.isEmpty) {
+                   CodexWorkBlockViewV2.shouldRenderLiveTail(
+                       narrative: turn.narrative,
+                       liveTail: tail
+                   ) {
                     append(ItemDraft(
                         id: "\(sectionID):live-tail",
                         fingerprint: "tail:\(tail)",

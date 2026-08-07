@@ -55,6 +55,17 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexWorkBlockViewV2.completedLabel(8_000) == "Worked for 8s")
     }
 
+    @Test func genericThinkingFallbackDoesNotRenderASecondLiveTail() {
+        #expect(!CodexWorkBlockViewV2.shouldRenderLiveTail(
+            narrative: [],
+            liveTail: "Thinking"
+        ))
+        #expect(CodexWorkBlockViewV2.shouldRenderLiveTail(
+            narrative: [],
+            liveTail: "Reading files"
+        ))
+    }
+
     @Test func onlyCompletedAssistantResponseTextAllowsAnnotations() async throws {
         let projector = CodexTranscriptRenderProjector()
         let completed = try await projector.project(

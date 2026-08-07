@@ -73,7 +73,8 @@ public struct CodexWorkBlockViewV2: View {
                             .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
                     }
                     conversationBody(showsNarrative: true)
-                    if let liveTail, !liveTail.isEmpty {
+                    if Self.shouldRenderLiveTail(narrative: narrative, liveTail: liveTail),
+                       let liveTail, !liveTail.isEmpty {
                         CodexLiveTailV2(text: liveTail)
                             .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
                     }
@@ -138,6 +139,19 @@ public struct CodexWorkBlockViewV2: View {
             if case .prose = $0 { return true }
             return false
         }) > 1
+    }
+
+    /// The working header already renders the generic `Thinking` label. Do not
+    /// append the same protocol fallback as a second live-tail row.
+    nonisolated static func shouldRenderLiveTail(
+        narrative: [CodexNarrativeEntry],
+        liveTail: String?
+    ) -> Bool {
+        guard let liveTail = liveTail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !liveTail.isEmpty
+        else { return false }
+        return liveTail != "Thinking"
+            || showsWorkingDuration(narrative: narrative, liveTail: liveTail)
     }
 
     @ViewBuilder
