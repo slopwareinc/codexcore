@@ -149,6 +149,22 @@ extension CodexCoreAppModel {
         observedIntegrationCatalogSession.plugins
     }
 
+    var marketplaces: [CodexMarketplaceSummary] {
+        observedIntegrationCatalogSession.marketplaces
+    }
+
+    var apps: [CodexAppSummary] {
+        observedIntegrationCatalogSession.apps
+    }
+
+    var isLoadingApps: Bool {
+        observedIntegrationCatalogSession.isLoadingApps
+    }
+
+    var appErrorMessage: String? {
+        observedIntegrationCatalogSession.appErrorMessage
+    }
+
     var isLoadingPlugins: Bool {
         observedIntegrationCatalogSession.isLoadingPlugins
     }

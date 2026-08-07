@@ -19,6 +19,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public private(set) var isLoadingPlugins: Bool
     public private(set) var pluginErrorMessage: String?
     public private(set) var pluginLoadErrors: [String]
+    public private(set) var marketplaces: [CodexMarketplaceSummary]
+    public private(set) var apps: [CodexAppSummary]
+    public private(set) var isLoadingApps: Bool
+    public private(set) var appErrorMessage: String?
     public private(set) var skills: [CodexSkillSummary]
     public private(set) var isLoadingSkills: Bool
     public private(set) var skillErrorMessage: String?
@@ -34,6 +38,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins: Bool = false,
         pluginErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
+        marketplaces: [CodexMarketplaceSummary] = [],
+        apps: [CodexAppSummary] = [],
+        isLoadingApps: Bool = false,
+        appErrorMessage: String? = nil,
         skills: [CodexSkillSummary] = [],
         isLoadingSkills: Bool = false,
         skillErrorMessage: String? = nil,
@@ -48,6 +56,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         self.isLoadingPlugins = isLoadingPlugins
         self.pluginErrorMessage = pluginErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
+        self.marketplaces = marketplaces
+        self.apps = apps
+        self.isLoadingApps = isLoadingApps
+        self.appErrorMessage = appErrorMessage
         self.skills = skills
         self.isLoadingSkills = isLoadingSkills
         self.skillErrorMessage = skillErrorMessage
@@ -64,6 +76,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins = false
         pluginErrorMessage = nil
         pluginLoadErrors = []
+        marketplaces = []
+        apps = []
+        isLoadingApps = false
+        appErrorMessage = nil
         skills = []
         isLoadingSkills = false
         skillErrorMessage = nil
@@ -156,8 +172,12 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public mutating func requirePluginConnection(message: String) {
         plugins = []
         pluginLoadErrors = []
+        marketplaces = []
         isLoadingPlugins = false
         pluginErrorMessage = message
+        apps = []
+        isLoadingApps = false
+        appErrorMessage = message
         skills = []
         isLoadingSkills = false
         skillErrorMessage = message
@@ -166,6 +186,30 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public mutating func beginPluginRefresh() {
         isLoadingPlugins = true
         pluginErrorMessage = nil
+    }
+
+    public mutating func beginAppRefresh() {
+        isLoadingApps = true
+        appErrorMessage = nil
+    }
+
+    @discardableResult
+    public mutating func applyAppResponses(
+        list: CodexJSONValue?,
+        installed: CodexJSONValue?
+    ) -> CodexIntegrationCatalogActivity {
+        apps = CodexAppSummary.apps(listResponse: list, installedResponse: installed)
+        isLoadingApps = false
+        appErrorMessage = nil
+        return .init(title: "Loaded apps", detail: "\(apps.count) installed")
+    }
+
+    @discardableResult
+    public mutating func setAppEnabledOptimistically(id: String, enabled: Bool) -> Bool? {
+        guard let index = apps.firstIndex(where: { $0.id == id }) else { return nil }
+        let previous = apps[index].enabled
+        apps[index].enabled = enabled
+        return previous
     }
 
     public mutating func beginSkillRefresh() {
@@ -192,6 +236,7 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     @discardableResult
     public mutating func applyPluginResponse(_ raw: CodexJSONValue) -> CodexIntegrationCatalogActivity {
         plugins = CodexPluginSummary.plugins(from: raw)
+        marketplaces = CodexMarketplaceSummary.summaries(from: raw)
         pluginLoadErrors = CodexPluginSummary.loadErrorMessages(from: raw)
         isLoadingPlugins = false
         return CodexIntegrationCatalogActivity(title: "Loaded plugins", detail: "\(plugins.count) available")
@@ -217,6 +262,7 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     @discardableResult
     public mutating func failPluginRefresh(message: String) -> CodexIntegrationCatalogActivity {
         plugins = []
+        marketplaces = []
         pluginLoadErrors = []
         isLoadingPlugins = false
         pluginErrorMessage = message
