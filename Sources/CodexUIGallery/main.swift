@@ -34,6 +34,7 @@ struct Gallery {
             Scene(name: "palette", width: 720, content: AnyView(PaletteSpecimen())),
             Scene(name: "plan-panel", width: 420, content: AnyView(PlanPanelScene())),
             Scene(name: "summary-plan-and-changes", width: 420, content: AnyView(SummaryPlanAndChangesScene())),
+            Scene(name: "agent-panel-completed", width: 668, content: AnyView(AgentPanelCompletedScene())),
             Scene(name: "transcript-turn-changes", width: 860, content: AnyView(TranscriptTurnChangesScene())),
             Scene(name: "review-workbench", width: 900, content: AnyView(ReviewWorkbenchScene())),
             Scene(name: "review-workbench-modified", width: 900, content: AnyView(
@@ -136,7 +137,7 @@ struct Gallery {
             .codexAgentTheme(theme)
             .environment(\.colorScheme, scheme)
 
-        if scene.name.hasPrefix("plugins-") {
+        if scene.name.hasPrefix("plugins-") || scene.name == "agent-panel-completed" {
             try renderHosted(root, width: scene.width, height: 768, to: url)
             return
         }
@@ -594,6 +595,37 @@ private struct SummaryPlanAndChangesScene: View {
             onSelectTab: { _ in }
         )
         .padding(24)
+    }
+}
+
+private struct AgentPanelCompletedScene: View {
+    @State private var selectedTabID: String? = "cicero"
+    @State private var panelWidth: CGFloat = 620
+
+    private let review = CodexGitReviewSession(
+        snapshot: CodexGitReviewSnapshot(
+            branchName: "codex/fix-agent-panel-glitches",
+            files: []
+        )
+    )
+
+    private let agent = CodexSubagentState(
+        id: "cicero",
+        name: "Cicero",
+        title: "Subagent",
+        prompt: "Do nothing",
+        status: .completed
+    )
+
+    var body: some View {
+        CodexAgentSidePanel(
+            tabs: [.review(review), .subagent(agent)],
+            selectedTabID: $selectedTabID,
+            width: $panelWidth,
+            showsCloseButton: true,
+            onClose: {}
+        )
+        .frame(height: 720)
     }
 }
 

@@ -121,6 +121,20 @@ public struct CodexSubagentState: Identifiable, Equatable, Sendable {
 }
 
 public extension CodexSubagentState {
+    internal var emptyTranscriptMessage: String {
+        if transcriptAvailability == .exceedsDisplayLimit {
+            return "This transcript exceeds the in-memory display limit."
+        }
+        switch status {
+        case .running:
+            return "Waiting for this agent’s transcript…"
+        case .completed, .closed:
+            return "This agent completed without returning a transcript."
+        case .failed:
+            return "This agent failed before returning a transcript."
+        }
+    }
+
     var isVisibleInFloatingSummary: Bool {
         status != .closed
     }
