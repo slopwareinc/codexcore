@@ -454,16 +454,48 @@ public actor CodexStdioTransport: CodexFrameTransport {
     /// The process has been reaped before this is called, so the pipe reaches
     /// EOF and the loop cannot block indefinitely. It still runs off the actor
     /// because `availableData` is a blocking FileHandle API.
+    /// Collects whatever the child already wrote to stderr without ever blocking.
+    ///
+    /// The previous implementation looped on `FileHandle.availableData`, which
+    /// returns empty only at EOF and otherwise blocks. Clearing
+    /// `readabilityHandler` does not cancel an invocation already dispatched on
+    /// GCD's queue, so that handler and this drain could read the same
+    /// descriptor concurrently; whichever one lost the race then waited forever
+    /// for an EOF the other had already consumed. `close()` never returned, and
+    /// every caller behind it — app shutdown included — hung with it. It
+    /// reproduced as an intermittent CI timeout rather than a consistent
+    /// failure, which is exactly what a race looks like.
+    ///
+    /// Reading the descriptor directly in non-blocking mode cannot deadlock. The
+    /// child is already reaped by the time this runs, so everything it wrote is
+    /// sitting in the pipe buffer, and the loop stops at EOF, `EAGAIN`, or an
+    /// error. A concurrent handler is harmless: the ring is lock-guarded, and a
+    /// racing reader now sees `EAGAIN` instead of blocking.
     nonisolated private static func drain(
         _ handle: FileHandle,
         into stderrCapture: CodexStderrRing
     ) async {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                while true {
-                    let chunk = handle.availableData
-                    guard !chunk.isEmpty else { break }
-                    stderrCapture.append(chunk)
+                let descriptor = handle.fileDescriptor
+                let existingFlags = fcntl(descriptor, F_GETFL)
+                if existingFlags != -1 {
+                    _ = fcntl(descriptor, F_SETFL, existingFlags | O_NONBLOCK)
+                }
+
+                var buffer = [UInt8](repeating: 0, count: 4_096)
+                readLoop: while true {
+                    let bytesRead = buffer.withUnsafeMutableBytes { raw in
+                        read(descriptor, raw.baseAddress, raw.count)
+                    }
+                    if bytesRead > 0 {
+                        stderrCapture.append(Data(buffer[0..<bytesRead]))
+                        continue
+                    }
+                    if bytesRead == 0 { break readLoop }
+                    if errno == EINTR { continue }
+                    // EAGAIN/EWOULDBLOCK means nothing further is buffered.
+                    break readLoop
                 }
                 continuation.resume()
             }
@@ -474,29 +506,75 @@ public actor CodexStdioTransport: CodexFrameTransport {
     /// so transport shutdown does not occupy Swift's cooperative executor. A
     /// child that ignores SIGTERM is killed after a bounded grace period, and
     /// `close()` still does not return until that exact child has been reaped.
+    ///
+    /// Three details here are load-bearing. Each was observed hanging `close()`
+    /// -- and therefore app shutdown -- against a child that ignores SIGTERM:
+    ///
+    /// - `Process.waitUntilExit()` is not used. A sampled hang showed a thread
+    ///   parked inside it while the child had already exited and been reaped,
+    ///   with no descendant left in the process table: once Foundation misses
+    ///   the termination it waits for one that can never arrive, and SIGKILL
+    ///   cannot help something already dead. `terminationHandler` plus a
+    ///   semaphore observes exit without that failure mode.
+    /// - Escalation must not consult `Process.isRunning`. Foundation can report
+    ///   it `false` while termination is still pending, so a guard on it skipped
+    ///   the kill and left the child running. Reaping is tracked explicitly,
+    ///   which also makes the kill safe from PID reuse: an unreaped PID is still
+    ///   this child.
+    /// - The timer must not be `Task.sleep`. That schedules on the cooperative
+    ///   pool, which other work in the same process can saturate, delaying the
+    ///   escalation past any useful deadline. A dispatch timer is independent of
+    ///   the pool.
+    ///
+    /// The wait is bounded, so shutdown makes progress even if every one of
+    /// those mechanisms fails.
     nonisolated private static func waitUntilExit(
         _ process: Process,
         forceAfter gracePeriod: Duration
     ) async {
         let processID = process.processIdentifier
-        let escalation = Task {
-            do {
-                try await Task.sleep(for: gracePeriod)
-            } catch {
-                return
-            }
-            guard process.isRunning else { return }
+        let hasBeenReaped = CodexTransportFlag()
+        let finished = DispatchSemaphore(value: 0)
+        let graceSeconds = Double(gracePeriod.components.seconds)
+            + Double(gracePeriod.components.attoseconds) / 1e18
+
+        process.terminationHandler = { _ in
+            hasBeenReaped.value = true
+            finished.signal()
+        }
+        // The child can exit before the handler is installed, in which case
+        // Foundation never invokes it.
+        if !process.isRunning {
+            hasBeenReaped.value = true
+            finished.signal()
+        }
+
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + graceSeconds) {
+            guard !hasBeenReaped.value else { return }
             _ = Darwin.kill(processID, SIGKILL)
         }
 
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                process.waitUntilExit()
+                // Bounded on purpose. SIGKILL has already been sent by this
+                // deadline, so the child is gone; waiting longer would only
+                // reproduce the unbounded block this replaced.
+                _ = finished.wait(timeout: .now() + graceSeconds + 5)
                 continuation.resume()
             }
         }
-        escalation.cancel()
-        await escalation.value
+    }
+}
+
+/// Minimal lock-guarded boolean shared between a dispatch timer and the thread
+/// blocked in `waitUntilExit()`.
+private final class CodexTransportFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        get { lock.withLock { storage } }
+        set { lock.withLock { storage = newValue } }
     }
 }
 
