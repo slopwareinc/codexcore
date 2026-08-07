@@ -61,8 +61,8 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
         ))
 
         XCTAssertEqual(result.branchName, "codex/environment-transfer")
-        XCTAssertEqual(try String(contentsOf: target.appending(path: "tracked.txt")), "unstaged\n")
-        XCTAssertEqual(try String(contentsOf: target.appending(path: "untracked.txt")), "new\n")
+        XCTAssertEqual(try String(contentsOf: target.appending(path: "tracked.txt"), encoding: .utf8), "unstaged\n")
+        XCTAssertEqual(try String(contentsOf: target.appending(path: "untracked.txt"), encoding: .utf8), "new\n")
         XCTAssertTrue(try fixture.git("status", "--porcelain").isEmpty)
         XCTAssertTrue(try fixture.git("stash", "list").isEmpty)
         XCTAssertEqual(try fixture.git(at: target, "rev-parse", "--abbrev-ref", "HEAD").trimmingCharacters(in: .whitespacesAndNewlines), "codex/environment-transfer")

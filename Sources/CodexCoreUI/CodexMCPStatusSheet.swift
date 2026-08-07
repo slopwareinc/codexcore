@@ -226,7 +226,10 @@ private struct MCPServerStatusRow: View {
                 } else {
                     Text(server.authStatusLabel).foregroundStyle(theme.colors.textSecondary)
                 }
-                Toggle("", isOn: Binding(get: { server.enabled }, set: onSetEnabled))
+                Toggle("", isOn: Binding(
+                    get: { server.enabled },
+                    set: { enabled in onSetEnabled(enabled) }
+                ))
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .help(server.enabled ? "Disable server" : "Enable server")

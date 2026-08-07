@@ -156,23 +156,13 @@ public struct CodexFileDropTargetModifier: ViewModifier {
                                 }
                                 continue
                             }
-                            provider.loadInPlaceFileRepresentation(forTypeIdentifier: type) { url, isInPlace, _ in
-                                if let url {
-                                    let stableURL = isInPlace ? url : CodexDroppedFileMaterializer.materialize(url, suggestedName: suggestedName ?? url.lastPathComponent, typeIdentifier: type)
-                                    batch.finish(index: index, url: stableURL)
-                                } else {
-                                    provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
-                                        let stableURL: URL?
-                                        if type == UTType.fileURL.identifier, let data,
-                                           let fileURL = URL(dataRepresentation: data, relativeTo: nil) {
-                                            stableURL = fileURL
-                                        } else {
-                                            stableURL = data.flatMap { CodexDroppedFileMaterializer.materialize($0, suggestedName: suggestedName, typeIdentifier: type) }
-                                        }
-                                        batch.finish(index: index, url: stableURL)
-                                    }
-                                }
-                            }
+                            CodexFileDropProviderLoader(
+                                provider: provider,
+                                typeIdentifier: type,
+                                suggestedName: suggestedName,
+                                batch: batch,
+                                index: index
+                            ).load()
                         }
                         return true
                     }
@@ -180,6 +170,73 @@ public struct CodexFileDropTargetModifier: ViewModifier {
                 content
             }
         }
+    }
+}
+
+@MainActor
+private final class CodexFileDropProviderLoader {
+    private let provider: NSItemProvider
+    private let typeIdentifier: String
+    private let suggestedName: String?
+    private let batch: CodexFileDropBatch
+    private let index: Int
+
+    init(
+        provider: NSItemProvider,
+        typeIdentifier: String,
+        suggestedName: String?,
+        batch: CodexFileDropBatch,
+        index: Int
+    ) {
+        self.provider = provider
+        self.typeIdentifier = typeIdentifier
+        self.suggestedName = suggestedName
+        self.batch = batch
+        self.index = index
+    }
+
+    func load() {
+        provider.loadInPlaceFileRepresentation(forTypeIdentifier: typeIdentifier) { [self] url, isInPlace, _ in
+            Task { @MainActor in
+                handleInPlaceResult(url: url, isInPlace: isInPlace)
+            }
+        }
+    }
+
+    private func handleInPlaceResult(url: URL?, isInPlace: Bool) {
+        if let url {
+            let stableURL = isInPlace
+                ? url
+                : CodexDroppedFileMaterializer.materialize(
+                    url,
+                    suggestedName: suggestedName ?? url.lastPathComponent,
+                    typeIdentifier: typeIdentifier
+                )
+            batch.finish(index: index, url: stableURL)
+        } else {
+            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { [self] data, _ in
+                Task { @MainActor in
+                    finish(data: data)
+                }
+            }
+        }
+    }
+
+    private func finish(data: Data?) {
+        let stableURL: URL?
+        if typeIdentifier == UTType.fileURL.identifier, let data,
+           let fileURL = URL(dataRepresentation: data, relativeTo: nil) {
+            stableURL = fileURL
+        } else {
+            stableURL = data.flatMap {
+                CodexDroppedFileMaterializer.materialize(
+                    $0,
+                    suggestedName: suggestedName,
+                    typeIdentifier: typeIdentifier
+                )
+            }
+        }
+        batch.finish(index: index, url: stableURL)
     }
 }
 

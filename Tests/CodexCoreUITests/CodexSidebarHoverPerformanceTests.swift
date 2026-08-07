@@ -39,38 +39,40 @@ struct CodexSidebarHoverPerformanceTests {
     @Test func hoverColorMatchesTheViewsOwnAppearanceNotTheAmbientOne() {
         let elevated = CodexColorPair(light: 0xEEEEEE, dark: 0x111111)
 
-        let previousAmbient = NSAppearance.current
-        NSAppearance.current = NSAppearance(named: .darkAqua)
-        defer { NSAppearance.current = previousAmbient }
+        guard let ambientAppearance = NSAppearance(named: .darkAqua) else {
+            Issue.record("Expected darkAqua appearance to be available")
+            return
+        }
+        ambientAppearance.performAsCurrentDrawingAppearance {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 260, height: 34),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+            window.appearance = NSAppearance(named: .aqua)
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 34),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.appearance = NSAppearance(named: .aqua)
+            let view = SidebarChatRowContainerView(frame: NSRect(x: 0, y: 0, width: 260, height: 34))
+            window.contentView?.addSubview(view)
+            view.configure(
+                content: AnyView(Text("Task")),
+                actions: AnyView(Text("Actions")),
+                hoverColor: elevated.color.opacity(0.08),
+                selectionColor: .clear,
+                isSelected: false
+            )
 
-        let view = SidebarChatRowContainerView(frame: NSRect(x: 0, y: 0, width: 260, height: 34))
-        window.contentView?.addSubview(view)
-        view.configure(
-            content: AnyView(Text("Task")),
-            actions: AnyView(Text("Actions")),
-            hoverColor: elevated.color.opacity(0.08),
-            selectionColor: .clear,
-            isSelected: false
-        )
+            view.setHoveredForTesting(true)
+            let painted = view.backgroundColorForTesting
 
-        view.setHoveredForTesting(true)
-        let painted = view.backgroundColorForTesting
-
-        // The window is pinned to Light; the process-ambient appearance is
-        // Dark. A resolution that leaked the ambient appearance would paint
-        // something close to `elevated.dark` (near-black); the correct
-        // result is close to `elevated.light` (near-white).
-        #expect(isNear(painted, hex: 0xEEEEEE), "painted \(painted) should resolve to the window's Light appearance")
-        #expect(!isNear(painted, hex: 0x111111), "painted \(painted) leaked the ambient Dark appearance")
-        #expect(painted.alphaComponent < 0.1)
+            // The window is pinned to Light; the process-ambient appearance is
+            // Dark. A resolution that leaked the ambient appearance would paint
+            // something close to `elevated.dark` (near-black); the correct
+            // result is close to `elevated.light` (near-white).
+            #expect(isNear(painted, hex: 0xEEEEEE), "painted \(painted) should resolve to the window's Light appearance")
+            #expect(!isNear(painted, hex: 0x111111), "painted \(painted) leaked the ambient Dark appearance")
+            #expect(painted.alphaComponent < 0.1)
+        }
     }
 
     @Test func selectedRowUsesOneTranslucentSelectionOverlayWhenHovered() {

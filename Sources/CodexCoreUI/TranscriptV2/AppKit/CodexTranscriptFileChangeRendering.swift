@@ -70,16 +70,16 @@ struct CodexTranscriptTurnDiffRender: Sendable, Equatable {
 struct CodexTranscriptTurnDiffCard: View {
     /// Shared with the render projection so the measured row height and the
     /// drawn row height cannot drift apart.
-    static let horizontalInset: CGFloat = 16
-    static let iconSize: CGFloat = 32
-    static let iconGap: CGFloat = 12
-    static let headerHeight: CGFloat = 60
-    static let rowHeight: CGFloat = 32
-    static let listVerticalInset: CGFloat = 6
+    nonisolated static let horizontalInset: CGFloat = 16
+    nonisolated static let iconSize: CGFloat = 32
+    nonisolated static let iconGap: CGFloat = 12
+    nonisolated static let headerHeight: CGFloat = 60
+    nonisolated static let rowHeight: CGFloat = 32
+    nonisolated static let listVerticalInset: CGFloat = 6
     /// Clearance from the work-group chip that sits directly above the card.
-    static let topSpacing: CGFloat = 10
+    nonisolated static let topSpacing: CGFloat = 10
     /// File rows hang under the header title, not under its icon.
-    static var rowLeadingInset: CGFloat { horizontalInset + iconSize + iconGap }
+    nonisolated static var rowLeadingInset: CGFloat { horizontalInset + iconSize + iconGap }
 
     @Environment(\.codexAgentTheme) private var theme
     @State private var isHeaderHovered = false

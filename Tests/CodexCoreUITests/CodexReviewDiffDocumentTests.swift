@@ -41,7 +41,7 @@ struct CodexReviewDiffDocumentTests {
         #expect(document.rows.allSatisfy { $0.kind == .context })
     }
 
-    @Test func modifiedFileKeepsBothSidesAndStripsMarkers() {
+    @Test func modifiedFileKeepsBothSidesAndStripsMarkers() throws {
         let document = CodexReviewDiffDocument.parse("""
         diff --git a/A.swift b/A.swift
         index 1234567..89abcde 100644
@@ -56,13 +56,13 @@ struct CodexReviewDiffDocumentTests {
 
         #expect(document.hasOldSide)
         #expect(document.hasNewSide)
-        let removed = try? #require(document.rows.first { $0.kind == .remove })
-        #expect(removed?.oldLine == 11)
-        #expect(removed?.newLine == nil)
-        #expect(removed?.text == "    let removed = 2")
-        let added = try? #require(document.rows.first { $0.kind == .add })
-        #expect(added?.newLine == 11)
-        #expect(added?.oldLine == nil)
+        let removed = try #require(document.rows.first { $0.kind == .remove })
+        #expect(removed.oldLine == 11)
+        #expect(removed.newLine == nil)
+        #expect(removed.text == "    let removed = 2")
+        let added = try #require(document.rows.first { $0.kind == .add })
+        #expect(added.newLine == 11)
+        #expect(added.oldLine == nil)
         // One number per row: the new side, falling back to the old side for
         // a line that only existed before the change.
         #expect(document.rows.filter { $0.kind != .hunk }.map(\.displayLine) == [10, 11, 11, 12])

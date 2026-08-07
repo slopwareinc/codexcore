@@ -454,7 +454,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         )
         var coordinator: CodexSubagentPresentationCoordinator? =
             CodexSubagentPresentationCoordinator(codex: codex)
-        weak var weakCoordinator = coordinator
+        weak let weakCoordinator = coordinator
         coordinator?.selectParent("parent")
         await transport.sendParentDiscovery()
         try await eventually { coordinator?.agents.count == 1 }

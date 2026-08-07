@@ -69,10 +69,13 @@ struct CodexAppKitColorResolutionTests {
     /// resolving a color while the *ambient* appearance disagrees with the
     /// one actually wanted.
     private func withAmbientAppearance(_ name: NSAppearance.Name, _ body: () -> Void) {
-        let previous = NSAppearance.current
-        NSAppearance.current = NSAppearance(named: name)
-        defer { NSAppearance.current = previous }
-        body()
+        guard let appearance = NSAppearance(named: name) else {
+            Issue.record("Expected appearance \(name.rawValue) to be available")
+            return
+        }
+        appearance.performAsCurrentDrawingAppearance {
+            body()
+        }
     }
 
     private func isWhite(_ color: NSColor) -> Bool {
