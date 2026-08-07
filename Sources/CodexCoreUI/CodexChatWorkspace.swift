@@ -10,10 +10,23 @@ private struct CodexComposerOverlayHeightKey: PreferenceKey {
 }
 
 public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
+    /// Preserves the transcript's 736-point reading measure plus its standard
+    /// horizontal gutters while a tool panel is docked beside it.
+    private static let minimumReadableChatWidth: CGFloat = 792
+
     public var availableWidth: CGFloat
+    private var sidePanelWidth: CGFloat
 
     public init(availableWidth: CGFloat) {
+        self.init(availableWidth: availableWidth, sidePanelWidth: 400)
+    }
+
+    init(
+        availableWidth: CGFloat,
+        sidePanelWidth: CGFloat
+    ) {
         self.availableWidth = max(0, availableWidth)
+        self.sidePanelWidth = min(max(sidePanelWidth, 300), 680)
     }
 
     public var supportsDockedOverviewWithoutSidePanel: Bool {
@@ -21,7 +34,7 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     }
 
     public var supportsDockedOverviewWithSidePanel: Bool {
-        availableWidth >= 1_740
+        availableWidth >= 1_300 + max(440, sidePanelWidth)
     }
 
     public func supportsDockedOverview(isSidePanelOpen: Bool) -> Bool {
@@ -29,7 +42,7 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     }
 
     public var usesPersistentSidePanel: Bool {
-        availableWidth >= 980
+        availableWidth >= Self.minimumReadableChatWidth + sidePanelWidth
     }
 
     public var usesFloatingSummaryPanel: Bool {
@@ -303,7 +316,10 @@ public struct CodexChatWorkspaceView: View {
 
     public var body: some View {
         GeometryReader { proxy in
-            let panelState = CodexWorkspaceResponsivePanelState(availableWidth: proxy.size.width)
+            let panelState = CodexWorkspaceResponsivePanelState(
+                availableWidth: proxy.size.width,
+                sidePanelWidth: panel.panelWidth
+            )
             let isDockedOverviewVisible = isSummaryPanelOpen && panelState.supportsDockedOverview(isSidePanelOpen: panel.isAgentPanelOpen)
             let isFloatingOverviewVisible = isCompactSummaryPanelPresented && !isDockedOverviewVisible
             // Float the overview over the main chat column, not the side panel:

@@ -1564,9 +1564,7 @@ private struct CodexAgentPanelContent: View {
                 transcriptPanel(
                     transcript: subagent.transcript,
                     transcriptID: subagent.id,
-                    empty: subagent.transcriptAvailability == .exceedsDisplayLimit
-                        ? "This transcript exceeds the in-memory display limit."
-                        : "No transcript returned yet."
+                    empty: subagent.emptyTranscriptMessage
                 ) {
                     subagentHeader(subagent)
                 }

@@ -52,9 +52,7 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
     }
 
     public var environmentModeTitle: String {
-        if let isWorktree = CodexWorkspaceGitProbe.isLinkedWorktree(at: URL(fileURLWithPath: workspacePath)) {
-            return isWorktree ? "Worktree" : "Local"
-        }
+        // Do not launch a synchronous Git subprocess while SwiftUI is rendering.
         return CodexWorkspaceGitProbe.heuristicWorktreePath(URL(fileURLWithPath: workspacePath))
             ? "Worktree" : "Local"
     }

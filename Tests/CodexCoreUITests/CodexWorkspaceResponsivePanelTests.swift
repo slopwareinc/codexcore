@@ -17,14 +17,43 @@ struct CodexWorkspaceResponsivePanelTests {
 
         #expect(!CodexWorkspaceResponsivePanelState(availableWidth: 1_739).supportsDockedOverviewWithSidePanel)
         #expect(CodexWorkspaceResponsivePanelState(availableWidth: 1_740).supportsDockedOverviewWithSidePanel)
+
+        #expect(
+            !CodexWorkspaceResponsivePanelState(
+                availableWidth: 1_979,
+                sidePanelWidth: 680
+            ).supportsDockedOverviewWithSidePanel
+        )
+        #expect(
+            CodexWorkspaceResponsivePanelState(
+                availableWidth: 1_980,
+                sidePanelWidth: 680
+            ).supportsDockedOverviewWithSidePanel
+        )
     }
 
     @Test func onlyAnOverlaySidePanelOwnsAnInternalCloseButton() {
-        let overlay = CodexWorkspaceResponsivePanelState(availableWidth: 979)
+        let overlay = CodexWorkspaceResponsivePanelState(availableWidth: 1_191)
         #expect(overlay.usesOverlaySidePanel)
         #expect(overlay.showsCloseButtonInsideSidePanel)
 
-        let persistent = CodexWorkspaceResponsivePanelState(availableWidth: 980)
+        let persistent = CodexWorkspaceResponsivePanelState(availableWidth: 1_192)
+        #expect(persistent.usesPersistentSidePanel)
+        #expect(!persistent.showsCloseButtonInsideSidePanel)
+    }
+
+    @Test func resizedPanelOnlyDocksWhenTheChatKeepsItsReadableWidth() {
+        let overlay = CodexWorkspaceResponsivePanelState(
+            availableWidth: 1_471,
+            sidePanelWidth: 680
+        )
+        #expect(overlay.usesOverlaySidePanel)
+        #expect(overlay.showsCloseButtonInsideSidePanel)
+
+        let persistent = CodexWorkspaceResponsivePanelState(
+            availableWidth: 1_472,
+            sidePanelWidth: 680
+        )
         #expect(persistent.usesPersistentSidePanel)
         #expect(!persistent.showsCloseButtonInsideSidePanel)
     }
