@@ -185,6 +185,7 @@ extension CodexCoreAppModel {
             historyMode: CodexSchemaThreadHistoryMode(
                 rawValue: newThreadHistoryMode.rawValue
             ),
+            multiAgentMode: Self.defaultMultiAgentMode,
             runtimeWorkspaceRoots: roots.map {
                 CodexSchemaAbsolutePathBuf(.string($0))
             }
@@ -236,6 +237,7 @@ extension CodexCoreAppModel {
             clientUserMessageID: clientUserMessageID,
             cwd: cwd,
             input: [CodexSchemaUserInput(CodexInput.text(prompt).jsonValue)],
+            multiAgentMode: Self.defaultMultiAgentMode,
             runtimeWorkspaceRoots: roots.map {
                 CodexSchemaAbsolutePathBuf(.string($0))
             },
@@ -534,6 +536,7 @@ extension CodexCoreAppModel {
         required: [String] = []
     ) -> CodexSchemaDynamicToolSpec {
         CodexSchemaDynamicToolSpec(.dictionary([
+            "type": .string("function"),
             "name": .string(name),
             "description": .string(description),
             "inputSchema": .dictionary([

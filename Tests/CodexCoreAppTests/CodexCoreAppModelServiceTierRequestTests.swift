@@ -38,6 +38,7 @@ final class CodexCoreAppModelServiceTierRequestTests: XCTestCase {
         let start = app.threadStartParameters()
         XCTAssertEqual(start.model, model.modelIdentifier)
         XCTAssertEqual(start.serviceTier, fast.id)
+        XCTAssertEqual(start.multiAgentMode, CodexCoreAppModel.defaultMultiAgentMode)
 
         app.isProjectlessDraft = false
         let resume = app.threadResumeParameters(threadID: "thread-1")
@@ -77,6 +78,7 @@ final class CodexCoreAppModelServiceTierRequestTests: XCTestCase {
         XCTAssertEqual(turn.model, model.modelIdentifier)
         XCTAssertEqual(turn.serviceTier, fast.id)
         XCTAssertEqual(turn.effort?.rawValue, .string("max"))
+        XCTAssertEqual(turn.multiAgentMode, CodexCoreAppModel.defaultMultiAgentMode)
     }
 
     func testNormalThreadStartsDoNotAdvertiseRealtimeVoiceTools() {
@@ -151,9 +153,11 @@ final class CodexCoreAppModelServiceTierRequestTests: XCTestCase {
         )
         XCTAssertEqual(voiceStart.model, "alternate-model")
         XCTAssertNil(voiceStart.serviceTier)
+        XCTAssertEqual(voiceStart.multiAgentMode, CodexCoreAppModel.defaultMultiAgentMode)
         XCTAssertEqual(voiceTurn.model, "alternate-model")
         XCTAssertNil(voiceTurn.serviceTier)
         XCTAssertNil(voiceTurn.effort)
+        XCTAssertEqual(voiceTurn.multiAgentMode, CodexCoreAppModel.defaultMultiAgentMode)
 
         app.modelPreferenceByThread["target-thread"] = CodexModelPreference(
             model: model,

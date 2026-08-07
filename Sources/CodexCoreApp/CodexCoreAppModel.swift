@@ -32,6 +32,12 @@ final class CodexCoreAppModel {
     typealias ConnectionState = CodexConnectionState
     typealias Activity = CodexActivity
 
+    /// Enables the app-server's native collaboration tools while requiring an
+    /// explicit user request before the model delegates to another agent.
+    static let defaultMultiAgentMode = CodexSchemaMultiAgentMode(
+        .string("explicitRequestOnly")
+    )
+
     private static let pluginCatalogLogger = Logger(
         subsystem: "com.slopware.codexcore",
         category: "plugin-catalog"
@@ -2771,6 +2777,7 @@ final class CodexCoreAppModel {
             historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
             runtimeWorkspaceRoots: protocolWorkspaceRoots
         ))
+        parameters.multiAgentMode = Self.defaultMultiAgentMode
         configurationSession.newThreadApprovalSelection
             .permissionProfileWireConfiguration
             .apply(to: &parameters)
@@ -2924,6 +2931,7 @@ final class CodexCoreAppModel {
             collaborationMode: collaborationMode,
             cwd: cwd,
             input: input.map { CodexSchemaUserInput($0.jsonValue) },
+            multiAgentMode: Self.defaultMultiAgentMode,
             runtimeWorkspaceRoots: roots,
             threadID: threadID.rawValue
         ))

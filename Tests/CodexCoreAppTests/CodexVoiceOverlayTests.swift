@@ -146,6 +146,7 @@ struct CodexVoiceOverlayTests {
     func endCallToolMatchesOfficialContract() {
         for spec in CodexCoreAppModel.voiceTaskToolSpecs {
             guard case let .dictionary(object) = spec.rawValue,
+                  object["type"] == .string("function"),
                   let nameValue = object["name"],
                   case let .string(name) = nameValue
             else { continue }
