@@ -13,6 +13,8 @@ struct CodexPluginRouteLoadingTests {
         model.selectAppRoute(.plugins)
 
         #expect(model.isLoadingPlugins)
+        #expect(model.isLoadingApps)
+        #expect(model.isLoadingMCPServers)
         #expect(model.isLoadingSkills)
     }
 
@@ -24,6 +26,8 @@ struct CodexPluginRouteLoadingTests {
         model.requestPluginRefresh()
 
         #expect(model.isLoadingPlugins)
+        #expect(model.isLoadingApps)
+        #expect(model.isLoadingMCPServers)
         #expect(model.isLoadingSkills)
     }
 
@@ -211,7 +215,6 @@ private actor GatedPluginCatalogActionProvider: CodexPluginCatalogActionProvider
         case uninstall(String)
         case pluginEnabled(String, Bool)
         case skillEnabled(String, Bool)
-        case uninstallSkill(String)
     }
 
     private(set) var invocations: [Invocation] = []
@@ -236,10 +239,6 @@ private actor GatedPluginCatalogActionProvider: CodexPluginCatalogActionProvider
 
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
         await record(.skillEnabled(target.name.contains(":") ? target.name : target.path, enabled))
-    }
-
-    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
-        await record(.uninstallSkill(target.path))
     }
 
     func waitForInvocationCount(_ expected: Int) async {

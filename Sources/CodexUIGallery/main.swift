@@ -46,7 +46,9 @@ struct Gallery {
             Scene(name: "plugins-skills", width: 1180, content: AnyView(PluginsRouteScene(tab: .skills))),
             Scene(name: "plugins-manage", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage))),
             Scene(name: "plugins-manage-apps", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .apps))),
+            Scene(name: "plugins-manage-mcps", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .mcps))),
             Scene(name: "plugins-manage-skills", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .skills))),
+            Scene(name: "plugins-manage-marketplace", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .marketplace))),
             Scene(name: "chips", width: 720, content: AnyView(ChipSpecimen()))
         ]
     }
@@ -686,6 +688,43 @@ private struct PluginsRouteScene: View {
         )
     ]
 
+    private let apps = [
+        CodexAppSummary(
+            id: "github-app",
+            name: "GitHub",
+            description: "Use GitHub tools from Codex.",
+            isAccessible: true,
+            isEnabled: true,
+            isInstalled: true,
+            runtimeName: "github",
+            runtimeEnabled: true,
+            runtimeCallable: true
+        ),
+        CodexAppSummary(
+            id: "slack-app",
+            name: "Slack",
+            description: "Search and summarize Slack conversations.",
+            isAccessible: true,
+            isEnabled: nil,
+            isInstalled: false
+        )
+    ]
+
+    private let marketplaces = [
+        CodexMarketplaceSummary(
+            name: "openai-bundled",
+            displayName: "OpenAI bundled",
+            path: "/registered/openai-bundled/marketplace.json",
+            pluginCount: 7
+        ),
+        CodexMarketplaceSummary(
+            name: "team-tools",
+            displayName: "Team tools",
+            path: nil,
+            pluginCount: 3
+        )
+    ]
+
     private let skills = [
         CodexSkillSummary(
             name: "agents-sdk",
@@ -708,6 +747,8 @@ private struct PluginsRouteScene: View {
     var body: some View {
         CodexPluginRouteView(
             plugins: plugins,
+            marketplaces: marketplaces,
+            apps: apps,
             skills: skills,
             mcpServers: [CodexMCPServerStatus(name: "filesystem", displayName: "Filesystem", startupStatus: "ready")],
             initialTab: tab,

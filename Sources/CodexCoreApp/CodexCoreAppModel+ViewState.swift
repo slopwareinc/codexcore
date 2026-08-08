@@ -157,6 +157,10 @@ extension CodexCoreAppModel {
         observedIntegrationCatalogSession.plugins
     }
 
+    var marketplaces: [CodexMarketplaceSummary] {
+        observedIntegrationCatalogSession.marketplaces
+    }
+
     var isLoadingPlugins: Bool {
         observedIntegrationCatalogSession.isLoadingPlugins
     }
@@ -169,6 +173,30 @@ extension CodexCoreAppModel {
         observedIntegrationCatalogSession.pluginLoadErrors
     }
 
+    var pluginReadDetails: [String: CodexPluginReadDetail] {
+        observedIntegrationCatalogSession.pluginReadDetails
+    }
+
+    var loadingPluginReadIDs: Set<String> {
+        observedIntegrationCatalogSession.loadingPluginReadIDs
+    }
+
+    var pluginReadErrors: [String: String] {
+        observedIntegrationCatalogSession.pluginReadErrors
+    }
+
+    var apps: [CodexAppSummary] {
+        observedIntegrationCatalogSession.apps
+    }
+
+    var isLoadingApps: Bool {
+        observedIntegrationCatalogSession.isLoadingApps
+    }
+
+    var appErrorMessage: String? {
+        observedIntegrationCatalogSession.appErrorMessage
+    }
+
     var skills: [CodexSkillSummary] {
         observedIntegrationCatalogSession.skills
     }
@@ -179,6 +207,10 @@ extension CodexCoreAppModel {
 
     var skillErrorMessage: String? {
         observedIntegrationCatalogSession.skillErrorMessage
+    }
+
+    var skillLoadErrors: [String] {
+        observedIntegrationCatalogSession.skillLoadErrors
     }
 
     var approvalPrompts: [CodexApprovalPrompt] {

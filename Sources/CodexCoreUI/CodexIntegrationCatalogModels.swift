@@ -22,8 +22,8 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     public var version: String?
     public var detail: String?
     public var authStatus: String
-    /// Whether the configured server is enabled. Older app-server responses omit this and default to enabled.
-    public var enabled: Bool
+    /// Configuration enablement, when explicitly reported. Runtime status alone does not imply it.
+    public var enabled: Bool?
     public var startupStatus: String?
     public var error: String?
     public var tools: [Entry]
@@ -38,7 +38,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         version: String? = nil,
         detail: String? = nil,
         authStatus: String = "unknown",
-        enabled: Bool = true,
+        enabled: Bool? = nil,
         startupStatus: String? = nil,
         error: String? = nil,
         tools: [Entry] = [],
@@ -60,7 +60,11 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
 
     public init?(raw value: CodexJSONValue) {
         guard case .dictionary(let object) = value,
-              let name = Self.string(in: object, keys: ["name", "id", "serverName"])?.nilIfBlank else {
+              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank,
+              let authStatus = Self.string(in: object, keys: ["authStatus"])?.nilIfBlank,
+              case .dictionary(let tools)? = object["tools"],
+              case .array(let resources)? = object["resources"],
+              case .array(let resourceTemplates)? = object["resourceTemplates"] else {
             return nil
         }
 
@@ -77,13 +81,13 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             displayName: displayName,
             version: version,
             detail: detail,
-            authStatus: Self.string(in: object, keys: ["authStatus", "auth", "authentication"]) ?? "unknown",
-            enabled: Self.bool(in: object, keys: ["enabled", "isEnabled"]) ?? true,
+            authStatus: authStatus,
+            enabled: Self.bool(in: object, keys: ["enabled", "isEnabled"]),
             startupStatus: Self.string(in: object, keys: ["status", "startupStatus", "state"]),
             error: Self.string(in: object, keys: ["error"]),
-            tools: Self.entries(from: object["tools"]),
-            resources: Self.entries(from: object["resources"]),
-            resourceTemplates: Self.entries(from: object["resourceTemplates"])
+            tools: Self.entries(from: .dictionary(tools)),
+            resources: Self.entries(from: .array(resources)),
+            resourceTemplates: Self.entries(from: .array(resourceTemplates))
         )
     }
 
@@ -206,6 +210,159 @@ public struct CodexPluginIconReference: Equatable, Hashable, Sendable {
     }
 }
 
+public struct CodexAppSummary: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var description: String?
+    public var distributionChannel: String?
+    public var installURL: String?
+    public var isAccessible: Bool?
+    public var isEnabled: Bool?
+    public var labels: [String: String]?
+    public var logoURL: String?
+    public var logoURLDark: String?
+    public var pluginDisplayNames: [String]?
+    public var isInstalled: Bool
+    public var runtimeName: String?
+    public var runtimeEnabled: Bool?
+    public var runtimeCallable: Bool?
+
+    public init(
+        id: String,
+        name: String,
+        description: String? = nil,
+        distributionChannel: String? = nil,
+        installURL: String? = nil,
+        isAccessible: Bool? = nil,
+        isEnabled: Bool? = nil,
+        labels: [String: String]? = nil,
+        logoURL: String? = nil,
+        logoURLDark: String? = nil,
+        pluginDisplayNames: [String]? = nil,
+        isInstalled: Bool = false,
+        runtimeName: String? = nil,
+        runtimeEnabled: Bool? = nil,
+        runtimeCallable: Bool? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.distributionChannel = distributionChannel
+        self.installURL = installURL
+        self.isAccessible = isAccessible
+        self.isEnabled = isEnabled
+        self.labels = labels
+        self.logoURL = logoURL
+        self.logoURLDark = logoURLDark
+        self.pluginDisplayNames = pluginDisplayNames
+        self.isInstalled = isInstalled
+        self.runtimeName = runtimeName
+        self.runtimeEnabled = runtimeEnabled
+        self.runtimeCallable = runtimeCallable
+    }
+
+    public init(catalog: CodexSchemaAppInfo, installed: CodexSchemaInstalledApp?) {
+        self.init(
+            id: catalog.id,
+            name: catalog.name,
+            description: catalog.description,
+            distributionChannel: catalog.distributionChannel,
+            installURL: catalog.installUrl,
+            isAccessible: catalog.isAccessible,
+            isEnabled: catalog.isEnabled,
+            labels: catalog.labels,
+            logoURL: catalog.logoUrl,
+            logoURLDark: catalog.logoUrlDark,
+            pluginDisplayNames: catalog.pluginDisplayNames,
+            isInstalled: installed != nil,
+            runtimeName: installed?.runtimeName,
+            runtimeEnabled: installed?.enabled,
+            runtimeCallable: installed?.callable
+        )
+    }
+
+    public static func join(
+        catalog: [CodexSchemaAppInfo],
+        installed: [CodexSchemaInstalledApp]
+    ) -> [CodexAppSummary] {
+        let installedByID = Dictionary(installed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        let catalogIDs = Set(catalog.map(\.id))
+        let catalogRecords = catalog.map { CodexAppSummary(catalog: $0, installed: installedByID[$0.id]) }
+        let installedOnlyRecords = installedByID.values
+            .filter { !catalogIDs.contains($0.id) }
+            .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+            .map { app in
+                CodexAppSummary(
+                    id: app.id,
+                    name: app.runtimeName?.nilIfBlank ?? app.id,
+                    isInstalled: true,
+                    runtimeName: app.runtimeName,
+                    runtimeEnabled: app.enabled,
+                    runtimeCallable: app.callable
+                )
+            }
+        return catalogRecords + installedOnlyRecords
+    }
+}
+
+public struct CodexPluginReadDetail: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var description: String?
+    public var appNames: [String]
+    public var appTemplateNames: [String]
+    public var mcpServerNames: [String]
+    public var skillNames: [String]
+    public var hookNames: [String]
+    public var scheduledTaskNames: [String]
+    public var shareURL: String?
+
+    public init(id: String, detail: CodexSchemaPluginDetail) {
+        self.id = id
+        self.description = detail.description?.nilIfBlank
+        self.appNames = detail.apps.map(\.name)
+        self.appTemplateNames = detail.appTemplates.map(\.name)
+        self.mcpServerNames = detail.mcpServers
+        self.skillNames = detail.skills.map { $0.interface?.displayName?.nilIfBlank ?? $0.name }
+        self.hookNames = detail.hooks.map { "\($0.eventName.rawValue): \($0.key)" }
+        self.scheduledTaskNames = detail.scheduledTasks?.map(\.name) ?? []
+        self.shareURL = detail.shareUrl?.nilIfBlank
+    }
+}
+
+public struct CodexMarketplaceSummary: Identifiable, Equatable, Sendable {
+    public var name: String
+    public var displayName: String
+    public var path: String?
+    public var pluginCount: Int
+
+    public var id: String { name }
+
+    public init(name: String, displayName: String? = nil, path: String? = nil, pluginCount: Int) {
+        self.name = name
+        self.displayName = displayName?.nilIfBlank ?? name
+        self.path = path?.nilIfBlank
+        self.pluginCount = pluginCount
+    }
+
+    /// Returns only marketplaces explicitly reported by `plugin/list`. Missing or
+    /// malformed entries stay unknown; filesystem and cache paths are never inferred.
+    public static func marketplaces(from response: CodexJSONValue) -> [CodexMarketplaceSummary] {
+        guard case .dictionary(let object) = response,
+              case .array(let values)? = object["marketplaces"] else { return [] }
+        return values.compactMap { value in
+            guard case .dictionary(let marketplace) = value,
+                  let name = CodexJSONCoercion.flatString(from: marketplace["name"])?.nilIfBlank,
+                  case .array(let plugins)? = marketplace["plugins"] else { return nil }
+            let interface: [String: CodexJSONValue]
+            if case .dictionary(let fields)? = marketplace["interface"] { interface = fields } else { interface = [:] }
+            let displayName = CodexJSONCoercion.flatString(from: interface["displayName"])?.nilIfBlank
+            let path = CodexJSONCoercion.flatString(from: marketplace["path"])?.nilIfBlank
+            return CodexMarketplaceSummary(name: name, displayName: displayName, path: path, pluginCount: plugins.count)
+        }
+        .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+}
+
 public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var id: String
     public var protocolID: String
@@ -221,11 +378,15 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var installed: Bool
     public var enabled: Bool
     public var installPolicy: String
-    public var availability: String
+    public var installPolicySource: String?
+    public var availability: String?
+    public var disabledReason: String?
     public var authPolicy: String
     public var sourceType: String?
     public var sourceDetail: String?
     public var localVersion: String?
+    public var version: String?
+    public var remotePluginID: String?
     public var defaultPrompt: String?
     public var websiteURL: String?
     public var privacyPolicyURL: String?
@@ -250,11 +411,15 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         installed: Bool = false,
         enabled: Bool = false,
         installPolicy: String = "NOT_AVAILABLE",
-        availability: String = "AVAILABLE",
+        installPolicySource: String? = nil,
+        availability: String? = nil,
+        disabledReason: String? = nil,
         authPolicy: String = "ON_USE",
         sourceType: String? = nil,
         sourceDetail: String? = nil,
         localVersion: String? = nil,
+        version: String? = nil,
+        remotePluginID: String? = nil,
         defaultPrompt: String? = nil,
         websiteURL: String? = nil,
         privacyPolicyURL: String? = nil,
@@ -278,11 +443,15 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.installed = installed
         self.enabled = enabled
         self.installPolicy = installPolicy
+        self.installPolicySource = installPolicySource
         self.availability = availability
+        self.disabledReason = disabledReason
         self.authPolicy = authPolicy
         self.sourceType = sourceType
         self.sourceDetail = sourceDetail
         self.localVersion = localVersion
+        self.version = version
+        self.remotePluginID = remotePluginID
         self.defaultPrompt = defaultPrompt
         self.websiteURL = websiteURL
         self.privacyPolicyURL = privacyPolicyURL
@@ -295,13 +464,18 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     public init?(raw value: CodexJSONValue, marketplace: MarketplaceContext) {
         guard case .dictionary(let object) = value,
-              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank else {
+              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank,
+              let pluginID = Self.string(in: object, keys: ["id"])?.nilIfBlank,
+              let installed = Self.bool(from: object["installed"]),
+              let enabled = Self.bool(from: object["enabled"]),
+              let installPolicy = Self.string(in: object, keys: ["installPolicy"])?.nilIfBlank,
+              let authPolicy = Self.string(in: object, keys: ["authPolicy"])?.nilIfBlank,
+              let rawSource = object["source"], rawSource != .null else {
             return nil
         }
 
-        let pluginID = Self.string(in: object, keys: ["id"])?.nilIfBlank ?? name
         let interface = Self.dictionary(from: object["interface"])
-        let source = Self.dictionary(from: object["source"])
+        let source = Self.dictionary(from: rawSource)
         let sourcePath = Self.string(in: source, keys: ["path"])
         self.init(
             id: "\(marketplace.name):\(pluginID)",
@@ -315,14 +489,18 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             marketplacePath: marketplace.path,
             category: Self.string(in: interface, keys: ["category"]),
             developerName: Self.string(in: interface, keys: ["developerName"]),
-            installed: Self.bool(from: object["installed"]) ?? false,
-            enabled: Self.bool(from: object["enabled"]) ?? false,
-            installPolicy: Self.string(in: object, keys: ["installPolicy"]) ?? "NOT_AVAILABLE",
-            availability: Self.string(in: object, keys: ["availability"]) ?? "AVAILABLE",
-            authPolicy: Self.string(in: object, keys: ["authPolicy"]) ?? "ON_USE",
+            installed: installed,
+            enabled: enabled,
+            installPolicy: installPolicy,
+            installPolicySource: Self.string(in: object, keys: ["installPolicySource"]),
+            availability: Self.string(in: object, keys: ["availability"]),
+            disabledReason: Self.string(in: object, keys: ["disabledReason"]),
+            authPolicy: authPolicy,
             sourceType: Self.string(in: source, keys: ["type"]),
             sourceDetail: Self.sourceDetail(from: source),
             localVersion: Self.string(in: object, keys: ["localVersion"]),
+            version: Self.string(in: object, keys: ["version"]),
+            remotePluginID: Self.string(in: object, keys: ["remotePluginId"]),
             defaultPrompt: Self.prompt(from: interface["defaultPrompt"]),
             websiteURL: Self.string(in: interface, keys: ["websiteUrl"]),
             privacyPolicyURL: Self.string(in: interface, keys: ["privacyPolicyUrl"]),
@@ -385,12 +563,43 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         }
     }
 
+    public var isAdminDisabled: Bool {
+        availability == "DISABLED_BY_ADMIN"
+    }
+
+    public var isInstalledByAdmin: Bool {
+        sourceType?.lowercased() == "remote"
+            && installed
+            && installPolicy == "INSTALLED_BY_DEFAULT"
+    }
+
+    public var canInstall: Bool {
+        !installed && installPolicy == "AVAILABLE" && !isAdminDisabled
+    }
+
+    public var canUninstall: Bool {
+        installed && !isInstalledByAdmin && !isAdminDisabled
+    }
+
     public var statusLabel: String {
-        if installed, enabled { return "Installed" }
-        if installed { return "Installed, disabled" }
+        if isAdminDisabled { return "Disabled by admin" }
+        if installed, enabled { return "Enabled" }
+        if installed { return "Disabled" }
         if installPolicy == "AVAILABLE" { return "Available" }
-        if installPolicy == "INSTALLED_BY_DEFAULT" { return "Default" }
+        if installPolicy == "INSTALLED_BY_DEFAULT" { return "Installed by admin" }
         return "Unavailable"
+    }
+
+    public var stateLabels: [String] {
+        var labels: [String] = []
+        if installed { labels.append("Installed") }
+        labels.append(statusLabel)
+        if isInstalledByAdmin, !labels.contains("Installed by admin") {
+            labels.append("Installed by admin")
+        } else if sourceType?.lowercased() == "remote" {
+            labels.append("Remote")
+        }
+        return labels
     }
 
     public var sourceLabel: String {
@@ -417,9 +626,8 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     /// plugins. Account-backed remote plugins are installed/removed as a unit
     /// and appear with a status checkmark in Manage.
     public var supportsEnabledToggle: Bool {
-        guard installed else { return false }
-        if sourceType?.lowercased() == "remote" { return false }
-        return !marketplaceName.lowercased().contains("curated-remote")
+        guard installed, !isAdminDisabled else { return false }
+        return sourceType?.lowercased() != "remote"
     }
 
     public struct MarketplaceContext: Equatable, Sendable {
@@ -531,12 +739,16 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     public var detail: String
     public var description: String
     public var path: String
+    public var cwd: String?
     public var scope: String?
     public var enabled: Bool
     public var defaultPrompt: String?
+    public var iconSmall: String?
+    public var iconLarge: String?
+    public var brandColor: String?
     public var dependencies: [String]
 
-    public var id: String { path }
+    public var id: String { "\(cwd ?? "")\0\(path)" }
 
     public init(
         name: String,
@@ -544,9 +756,13 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         detail: String? = nil,
         description: String = "",
         path: String,
+        cwd: String? = nil,
         scope: String? = nil,
         enabled: Bool = true,
         defaultPrompt: String? = nil,
+        iconSmall: String? = nil,
+        iconLarge: String? = nil,
+        brandColor: String? = nil,
         dependencies: [String] = []
     ) {
         self.name = name
@@ -554,16 +770,21 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         self.detail = detail?.nilIfBlank ?? description.nilIfBlank ?? "Skill"
         self.description = description
         self.path = path
+        self.cwd = cwd
         self.scope = scope
         self.enabled = enabled
         self.defaultPrompt = defaultPrompt
+        self.iconSmall = iconSmall
+        self.iconLarge = iconLarge
+        self.brandColor = brandColor
         self.dependencies = dependencies
     }
 
-    public init?(raw value: CodexJSONValue) {
+    public init?(raw value: CodexJSONValue, cwd: String? = nil) {
         guard case .dictionary(let object) = value,
               let name = Self.string(in: object, keys: ["name"])?.nilIfBlank,
-              let path = Self.string(in: object, keys: ["path"])?.nilIfBlank else {
+              let path = Self.string(in: object, keys: ["path"])?.nilIfBlank,
+              let enabled = CodexJSONCoercion.bool(in: object, key: "enabled") else {
             return nil
         }
         let interface = Self.dictionary(in: object, key: "interface")
@@ -573,9 +794,13 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
             detail: interface.flatMap { Self.string(in: $0, keys: ["shortDescription"]) } ?? Self.string(in: object, keys: ["shortDescription"]),
             description: Self.string(in: object, keys: ["description"]) ?? "",
             path: path,
+            cwd: cwd,
             scope: Self.string(in: object, keys: ["scope"]),
-            enabled: CodexJSONCoercion.bool(in: object, key: "enabled") ?? true,
+            enabled: enabled,
             defaultPrompt: interface.flatMap { Self.prompt(from: $0["defaultPrompt"]) },
+            iconSmall: interface.flatMap { Self.string(in: $0, keys: ["iconSmall"]) },
+            iconLarge: interface.flatMap { Self.string(in: $0, keys: ["iconLarge"]) },
+            brandColor: interface.flatMap { Self.string(in: $0, keys: ["brandColor"]) },
             dependencies: Self.dependencies(from: object["dependencies"])
         )
     }
@@ -592,9 +817,10 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
                   case .array(let skills)? = entryObject["skills"] else {
                 continue
             }
+            let cwd = Self.string(in: entryObject, keys: ["cwd"])
             for value in skills {
-                guard let summary = CodexSkillSummary(raw: value),
-                      seen.insert(summary.path).inserted else {
+                guard let summary = CodexSkillSummary(raw: value, cwd: cwd),
+                      seen.insert(summary.id).inserted else {
                     continue
                 }
                 summaries.append(summary)
@@ -603,6 +829,22 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         return summaries.sorted { lhs, rhs in
             if lhs.enabled != rhs.enabled { return lhs.enabled && !rhs.enabled }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    public static func loadErrorMessages(from response: CodexJSONValue) -> [String] {
+        guard case .dictionary(let object) = response,
+              case .array(let entries)? = object["data"] else { return [] }
+        return entries.flatMap { entry -> [String] in
+            guard case .dictionary(let fields) = entry,
+                  case .array(let errors)? = fields["errors"] else { return [] }
+            let cwd = string(in: fields, keys: ["cwd"])
+            return errors.compactMap { error in
+                guard case .dictionary(let details) = error,
+                      let message = string(in: details, keys: ["message"])?.nilIfBlank else { return nil }
+                let path = string(in: details, keys: ["path"])?.nilIfBlank ?? cwd?.nilIfBlank
+                return path.map { "\($0): \(message)" } ?? message
+            }
         }
     }
 
@@ -649,20 +891,18 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func dependencies(from value: CodexJSONValue?) -> [String] {
-        guard case .dictionary(let object)? = value else { return [] }
-        return object.compactMap { key, value in
-            guard bool(from: value) ?? false else { return nil }
-            return key
-        }.sorted()
-    }
-
-    private static func bool(from value: CodexJSONValue?) -> Bool? {
-        switch value {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
+        guard case .dictionary(let object)? = value,
+              case .array(let tools)? = object["tools"] else { return [] }
+        return tools.compactMap { tool in
+            guard case .dictionary(let fields) = tool else { return nil }
+            let type = string(in: fields, keys: ["type"])
+            let value = string(in: fields, keys: ["value", "command", "url"])
+            switch (type, value) {
+            case let (.some(type), .some(value)): return "\(type): \(value)"
+            case let (.some(type), nil): return type
+            case let (nil, .some(value)): return value
+            case (nil, nil): return nil
+            }
         }
     }
 }
@@ -702,6 +942,7 @@ public enum CodexPluginManageTab: String, CaseIterable, Equatable, Sendable {
     case apps
     case mcps
     case skills
+    case marketplace
 
     public var title: String {
         switch self {
@@ -709,6 +950,7 @@ public enum CodexPluginManageTab: String, CaseIterable, Equatable, Sendable {
         case .apps: return "Apps"
         case .mcps: return "MCPs"
         case .skills: return "Skills"
+        case .marketplace: return "Marketplace"
         }
     }
 }
@@ -725,27 +967,36 @@ public struct CodexPluginManageCount: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct CodexPluginCategoryCard: Identifiable, Equatable, Sendable {
-    public var title: String
-    public var count: Int
-    public var detail: String
-
-    public var id: String { title }
-
-    public init(title: String, count: Int, detail: String) {
-        self.title = title
-        self.count = count
-        self.detail = detail
-    }
-}
-
 public enum CodexPluginRouteAction: Equatable, Sendable {
     case installPlugin(CodexPluginActionTarget)
     case uninstallPlugin(CodexPluginActionTarget)
     case setPluginEnabled(CodexPluginActionTarget, enabled: Bool)
     case setSkillEnabled(CodexSkillActionTarget, enabled: Bool)
-    case uninstallSkill(CodexSkillActionTarget)
+    case setAppEnabled(CodexAppActionTarget, enabled: Bool)
+    case addMarketplace(source: String)
+    case upgradeMarketplace(CodexMarketplaceActionTarget)
+    case removeMarketplace(CodexMarketplaceActionTarget)
     case tryInChat(prompt: String)
+}
+
+public struct CodexAppActionTarget: Equatable, Sendable {
+    public var id: String
+    public var name: String
+
+    public init(app: CodexAppSummary) {
+        self.id = app.id
+        self.name = app.name
+    }
+}
+
+public struct CodexMarketplaceActionTarget: Equatable, Sendable {
+    public var name: String
+    public var displayName: String
+
+    public init(marketplace: CodexMarketplaceSummary) {
+        self.name = marketplace.name
+        self.displayName = marketplace.displayName
+    }
 }
 
 public struct CodexPluginActionTarget: Equatable, Sendable {
@@ -802,12 +1053,43 @@ public protocol CodexPluginCatalogActionProvider: Sendable {
     func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
-    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome
+    func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
+    func addMarketplace(source: String) async -> CodexPluginActionOutcome
+    func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
+    func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
+}
+
+public extension CodexPluginCatalogActionProvider {
+    func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: .init(title: "App action unsupported", detail: "This provider does not implement local app execution settings."),
+            didSucceed: false
+        )
+    }
+
+    func addMarketplace(source: String) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+    func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+    func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+
+    private func unsupportedMarketplaceMutation() -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: .init(title: "Marketplace action unsupported", detail: "This provider does not implement marketplace management."),
+            didSucceed: false
+        )
+    }
 }
 
 /// Pure request construction keeps the plugin control plane inspectable and
 /// testable without coupling UI state to generated protocol representations.
 public enum CodexPluginProtocolMutation {
+    public static func readParams(for plugin: CodexPluginSummary) -> CodexSchemaPluginReadParams {
+        CodexSchemaPluginReadParams(
+            marketplacePath: plugin.marketplacePath.map { CodexAppServerSchemaValue(.string($0)) },
+            pluginName: plugin.name,
+            remoteMarketplaceName: plugin.marketplacePath == nil ? plugin.marketplaceName : nil
+        )
+    }
+
     public static func installParams(for target: CodexPluginActionTarget) -> CodexSchemaPluginInstallParams {
         CodexSchemaPluginInstallParams(
             marketplacePath: target.marketplacePath.map { CodexAppServerSchemaValue(.string($0)) },
@@ -836,6 +1118,19 @@ public enum CodexPluginProtocolMutation {
         )
     }
 
+    public static func appEnabledParams(for target: CodexAppActionTarget, enabled: Bool) -> CodexSchemaConfigBatchWriteParams {
+        CodexSchemaConfigBatchWriteParams(
+            edits: [
+                CodexSchemaConfigEdit(
+                    keyPath: "apps.\(target.id).enabled",
+                    mergeStrategy: .upsert,
+                    value: .bool(enabled)
+                )
+            ],
+            reloadUserConfig: true
+        )
+    }
+
     public static func skillEnabledParams(
         for target: CodexSkillActionTarget,
         enabled: Bool
@@ -852,38 +1147,19 @@ public enum CodexPluginProtocolMutation {
         )
     }
 
-    public static func skillUninstallParams(for target: CodexSkillActionTarget) -> CodexSchemaFSRemoveParams {
-        let directory = URL(fileURLWithPath: target.path).deletingLastPathComponent().path
-        return CodexSchemaFSRemoveParams(
-            path: CodexAppServerSchemaValue(.string(directory)),
-            recursive: true
-        )
+    public static func marketplaceAddParams(source: String) -> CodexSchemaMarketplaceAddParams {
+        CodexSchemaMarketplaceAddParams(source: source)
     }
-}
 
-public enum CodexPluginCatalogActionSession {
-    public static func perform(
-        _ action: CodexPluginRouteAction,
-        provider: any CodexPluginCatalogActionProvider
-    ) async -> CodexPluginActionOutcome {
-        switch action {
-        case .installPlugin(let target):
-            return await provider.installPlugin(target)
-        case .uninstallPlugin(let target):
-            return await provider.uninstallPlugin(target)
-        case .setPluginEnabled(let target, let enabled):
-            return await provider.setPluginEnabled(target, enabled: enabled)
-        case .setSkillEnabled(let target, let enabled):
-            return await provider.setSkillEnabled(target, enabled: enabled)
-        case .uninstallSkill(let target):
-            return await provider.uninstallSkill(target)
-        case .tryInChat(let prompt):
-            return CodexPluginActionOutcome(
-                activity: CodexIntegrationCatalogActivity(title: "Prepared plugin prompt", detail: prompt),
-                draftPrompt: prompt
-            )
-        }
+    public static func marketplaceUpgradeParams(for target: CodexMarketplaceActionTarget) -> CodexSchemaMarketplaceUpgradeParams {
+        CodexSchemaMarketplaceUpgradeParams(marketplaceName: target.name)
     }
+
+    public static func marketplaceRemoveParams(for target: CodexMarketplaceActionTarget) -> CodexSchemaMarketplaceRemoveParams {
+        CodexSchemaMarketplaceRemoveParams(marketplaceName: target.name)
+    }
+
+
 }
 
 /// Protocol-backed plugin and skill mutations. MCP management intentionally stays
@@ -941,18 +1217,56 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
         }
     }
 
-    public func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
-        guard target.scope == "user" else {
-            return CodexPluginActionOutcome(activity: .init(
-                title: "Can’t uninstall \(target.displayName)",
-                detail: "Only personal skills can be uninstalled from this surface."
-            ), didSucceed: false)
-        }
+    public func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
         do {
-            _ = try await codex.remove(CodexPluginProtocolMutation.skillUninstallParams(for: target))
-            return success("Uninstalled \(target.displayName)", detail: target.path)
+            _ = try await codex.configBatchWrite(CodexPluginProtocolMutation.appEnabledParams(for: target, enabled: enabled))
+            return CodexPluginActionOutcome(
+                activity: .init(title: "Updated \(target.name)", detail: enabled ? "Enabled local execution" : "Disabled local execution"),
+                didSucceed: true,
+                shouldRefresh: true
+            )
         } catch {
-            return failure("Couldn’t uninstall \(target.displayName)", error: error)
+            return failure("Couldn’t update \(target.name)", error: error)
+        }
+    }
+
+
+    public func addMarketplace(source: String) async -> CodexPluginActionOutcome {
+        do {
+            let response = try await codex.marketplaceAdd(CodexPluginProtocolMutation.marketplaceAddParams(source: source))
+            return success(response.alreadyAdded ? "Marketplace already registered" : "Added marketplace", detail: response.marketplaceName)
+        } catch {
+            return failure("Couldn’t add marketplace", error: error)
+        }
+    }
+
+    public func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome {
+        do {
+            let response = try await codex.marketplaceUpgrade(CodexPluginProtocolMutation.marketplaceUpgradeParams(for: target))
+            if let error = response.errors.first(where: { $0.marketplaceName == target.name }) {
+                return CodexPluginActionOutcome(activity: .init(title: "Couldn’t upgrade \(target.displayName)", detail: error.message), didSucceed: false)
+            }
+            guard response.selectedMarketplaces.contains(target.name) else {
+                return CodexPluginActionOutcome(
+                    activity: .init(
+                        title: "Upgrade status unknown for \(target.displayName)",
+                        detail: "Codex did not confirm that this marketplace was selected."
+                    ),
+                    didSucceed: false
+                )
+            }
+            return success("Upgraded \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t upgrade \(target.displayName)", error: error)
+        }
+    }
+
+    public func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome {
+        do {
+            _ = try await codex.marketplaceRemove(CodexPluginProtocolMutation.marketplaceRemoveParams(for: target))
+            return success("Removed \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t remove \(target.displayName)", error: error)
         }
     }
 
@@ -1059,7 +1373,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         self.metadata = [
             plugin.developerName.map { "Developer: \($0)" },
             plugin.category.map { "Category: \($0)" },
-            plugin.localVersion.map { "Version: \($0)" },
+            (plugin.version ?? plugin.localVersion).map { "Version: \($0)" },
             "Marketplace: \(plugin.marketplaceDisplayName)"
         ].compactMap { $0 }
         self.legalLinks = [
@@ -1067,9 +1381,9 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
             plugin.privacyPolicyURL.map { "Privacy: \($0)" },
             plugin.termsOfServiceURL.map { "Terms: \($0)" }
         ].compactMap { $0 }
-        self.canInstall = !plugin.installed && plugin.installPolicy == "AVAILABLE"
-        self.canUninstall = plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT"
-        self.canToggleEnabled = plugin.installed
+        self.canInstall = plugin.canInstall
+        self.canUninstall = plugin.canUninstall
+        self.canToggleEnabled = plugin.supportsEnabledToggle
         self.isEnabled = plugin.enabled
         self.boundaryActionTitle = nil
         self.icon = plugin.icon.isEmpty ? nil : plugin.icon
@@ -1090,7 +1404,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         ]
         self.legalLinks = []
         self.canInstall = false
-        self.canUninstall = skill.scope == "user"
+        self.canUninstall = false
         self.canToggleEnabled = true
         self.isEnabled = skill.enabled
         self.boundaryActionTitle = nil
@@ -1151,204 +1465,5 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
             isEnabled: false,
             boundaryActionTitle: boundaryActionTitle
         )
-    }
-}
-
-public struct CodexPluginRouteState: Equatable, Sendable {
-    public var plugins: [CodexPluginSummary]
-    public var skills: [CodexSkillSummary]
-    public var mcpServers: [CodexMCPServerStatus]
-    public var primaryTab: CodexPluginRoutePrimaryTab
-    public var manageTab: CodexPluginManageTab
-    public var searchQuery: String
-    public var filter: CodexPluginCatalogFilter
-    public var selectedPluginID: String?
-    public var selectedSkillID: String?
-    public var launcherTarget: CodexComposerPluginLauncher?
-
-    public init(
-        plugins: [CodexPluginSummary],
-        skills: [CodexSkillSummary] = [],
-        mcpServers: [CodexMCPServerStatus] = [],
-        primaryTab: CodexPluginRoutePrimaryTab = .marketplace,
-        manageTab: CodexPluginManageTab = .plugins,
-        searchQuery: String = "",
-        filter: CodexPluginCatalogFilter = .all,
-        selectedPluginID: String? = nil,
-        selectedSkillID: String? = nil,
-        launcherTarget: CodexComposerPluginLauncher? = nil
-    ) {
-        self.plugins = plugins
-        self.skills = skills
-        self.mcpServers = mcpServers
-        self.primaryTab = primaryTab
-        self.manageTab = manageTab
-        self.searchQuery = searchQuery
-        self.filter = filter
-        self.selectedPluginID = selectedPluginID
-        self.selectedSkillID = selectedSkillID
-        self.launcherTarget = launcherTarget
-    }
-
-    public var manageCounts: [CodexPluginManageCount] {
-        [
-            CodexPluginManageCount(tab: .plugins, count: plugins.filter(\.installed).count),
-            CodexPluginManageCount(tab: .apps, count: plugins.filter { $0.installed && ($0.capabilityMatches("apps") || $0.capabilityMatches("app")) }.count),
-            CodexPluginManageCount(tab: .mcps, count: mcpServers.count),
-            CodexPluginManageCount(tab: .skills, count: skills.count)
-        ]
-    }
-
-    public var categoryCards: [CodexPluginCategoryCard] {
-        let buckets = Dictionary(grouping: marketplacePlugins) { plugin in
-            plugin.category?.nilIfBlank ?? plugin.sourceLabel
-        }
-        return buckets.map { title, plugins in
-            CodexPluginCategoryCard(
-                title: title,
-                count: plugins.count,
-                detail: plugins.map(\.displayName).prefix(3).joined(separator: ", ")
-            )
-        }
-        .sorted { lhs, rhs in
-            if lhs.count != rhs.count { return lhs.count > rhs.count }
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-        }
-    }
-
-    public var featuredPlugins: [CodexPluginSummary] {
-        let featured = marketplacePlugins.filter(\.isFeatured)
-        return filtered(featured.isEmpty ? Array(marketplacePlugins.prefix(2)) : featured)
-    }
-
-    public var visiblePlugins: [CodexPluginSummary] {
-        filtered(pluginsForCurrentTab)
-    }
-
-    public var visibleSkills: [CodexSkillSummary] {
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return skills }
-        return skills.filter { skill in
-            [skill.name, skill.displayName, skill.detail, skill.description, skill.path, skill.scopeLabel]
-                .contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    public var visibleMCPServers: [CodexMCPServerStatus] {
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return mcpServers }
-        return mcpServers.filter { server in
-            [server.name, server.displayName, server.detail ?? "", server.inventorySummary]
-                .contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    public var selectedDetail: CodexPluginRouteDetail? {
-        if primaryTab == .skills {
-            let skill = skills.first { $0.id == selectedSkillID } ?? visibleSkills.first ?? skills.first
-            return skill.map(CodexPluginRouteDetail.init(skill:))
-        }
-        if primaryTab == .manage, manageTab == .mcps {
-            return visibleMCPServers.first.map(CodexPluginRouteDetail.init(mcpServer:))
-        }
-        if let selectedPluginID,
-           let plugin = plugins.first(where: { $0.id == selectedPluginID }) {
-            return CodexPluginRouteDetail(plugin: plugin)
-        }
-        if let launcherTarget,
-           let plugin = matchedPlugin(for: launcherTarget) {
-            return CodexPluginRouteDetail(plugin: plugin)
-        }
-        let plugin = visiblePlugins.first
-            ?? plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }
-            ?? plugins.first
-        return plugin.map(CodexPluginRouteDetail.init(plugin:)) ?? launcherTarget?.fallbackDetail
-    }
-
-    private var marketplacePlugins: [CodexPluginSummary] {
-        plugins
-    }
-
-    private var pluginsForCurrentTab: [CodexPluginSummary] {
-        switch primaryTab {
-        case .marketplace:
-            return marketplacePlugins
-        case .skills:
-            return []
-        case .manage:
-            switch manageTab {
-            case .plugins:
-                return plugins.filter(\.installed)
-            case .apps:
-                return plugins.filter { $0.installed && ($0.capabilityMatches("apps") || $0.capabilityMatches("app")) }
-            case .mcps:
-                return []
-            case .skills:
-                return []
-            }
-        }
-    }
-
-    private var normalizedSearch: String {
-        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func filtered(_ plugins: [CodexPluginSummary]) -> [CodexPluginSummary] {
-        // Marketplace source filters do not apply to the installed inventory.
-        // Leaking "By OpenAI" into Manage produced non-zero tab counts with an
-        // empty list for local and workspace plugins.
-        let plugins = primaryTab == .marketplace ? plugins.filter(matchesFilter) : plugins
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return plugins }
-        return plugins.filter { plugin in
-            [
-                plugin.name,
-                plugin.displayName,
-                plugin.detail,
-                plugin.marketplaceDisplayName,
-                plugin.category ?? "",
-                plugin.developerName ?? "",
-                plugin.capabilities.joined(separator: " "),
-                plugin.keywords.joined(separator: " ")
-            ].contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    private func matchesFilter(_ plugin: CodexPluginSummary) -> Bool {
-        switch filter {
-        case .all:
-            return true
-        case .openAI:
-            return plugin.developerName?.localizedCaseInsensitiveContains("OpenAI") == true
-                || plugin.marketplaceName.localizedCaseInsensitiveContains("openai")
-        case .workspace:
-            return plugin.sourceType == "local" && plugin.sourceDetail?.contains("/.codex/") != true
-        case .personal:
-            return plugin.sourceType == "local" || plugin.marketplaceName.localizedCaseInsensitiveContains("personal")
-        }
-    }
-
-    private func matchedPlugin(for target: CodexComposerPluginLauncher) -> CodexPluginSummary? {
-        let preferred = target.preferredPluginNames.map { $0.lowercased() }
-        return plugins.first { plugin in
-            let candidates = [
-                plugin.name.lowercased(),
-                plugin.displayName.lowercased(),
-                plugin.id.lowercased()
-            ]
-            return preferred.contains { preferredName in
-                candidates.contains { candidate in
-                    candidate == preferredName || candidate.contains(preferredName)
-                }
-            }
-        }
-    }
-}
-
-private extension CodexPluginSummary {
-    func capabilityMatches(_ needle: String) -> Bool {
-        capabilities.contains { capability in
-            capability.localizedCaseInsensitiveContains(needle)
-        }
     }
 }

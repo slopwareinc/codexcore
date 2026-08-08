@@ -15,7 +15,6 @@ public struct CodexMCPStatusSheet: View {
     public let onRefresh: () -> Void
 
     @State private var editor: CodexMCPServerConfiguration?
-    @State private var serverPendingRemoval: CodexMCPServerStatus?
     @State private var activityMessage: String?
     @State private var isMutating = false
 
@@ -79,6 +78,11 @@ public struct CodexMCPStatusSheet: View {
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textSecondary)
             }
+            if !servers.isEmpty {
+                Text("Existing servers are shown from runtime status. Edit and remove require complete configuration provenance and are unavailable here.")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
 
             ScrollView {
                 LazyVStack(spacing: 8) {
@@ -86,11 +90,8 @@ public struct CodexMCPStatusSheet: View {
                         MCPServerStatusRow(
                             server: server,
                             isMutating: isMutating,
-                            canManage: provider != nil,
-                            onSetEnabled: { setEnabled(server, enabled: $0) },
-                            onLogin: { login(server) },
-                            onEdit: { editor = configurationStub(for: server) },
-                            onRemove: { serverPendingRemoval = server }
+                            canAuthenticate: provider != nil,
+                            onLogin: { login(server) }
                         )
                     }
                 }
@@ -104,23 +105,6 @@ public struct CodexMCPStatusSheet: View {
             CodexMCPServerEditor(configuration: configuration, onCancel: { editor = nil }) { save($0) }
                 .codexAgentTheme(theme)
         }
-        .confirmationDialog(
-            "Remove MCP server?",
-            isPresented: Binding(
-                get: { serverPendingRemoval != nil },
-                set: { if !$0 { serverPendingRemoval = nil } }
-            ),
-            presenting: serverPendingRemoval
-        ) { server in
-            Button("Remove \(server.displayName)", role: .destructive) { remove(server) }
-            Button("Cancel", role: .cancel) {}
-        } message: { server in
-            Text("This removes the \(server.name) configuration and reloads MCP servers.")
-        }
-    }
-
-    private func configurationStub(for server: CodexMCPServerStatus) -> CodexMCPServerConfiguration {
-        CodexMCPServerConfiguration(name: server.name, enabled: server.enabled)
     }
 
     private func save(_ configuration: CodexMCPServerConfiguration) {
@@ -132,39 +116,6 @@ public struct CodexMCPStatusSheet: View {
                 _ = try await provider.perform(.mcpReload)
                 activityMessage = "Saved \(configuration.name) and reloaded MCP servers."
                 editor = nil
-                onRefresh()
-            } catch {
-                activityMessage = error.localizedDescription
-            }
-            isMutating = false
-        }
-    }
-
-    private func setEnabled(_ server: CodexMCPServerStatus, enabled: Bool) {
-        guard let provider else { return }
-        isMutating = true
-        Task { @MainActor in
-            do {
-                _ = try await provider.perform(try CodexMCPProtocolMutation.setEnabled(name: server.name, enabled: enabled))
-                _ = try await provider.perform(.mcpReload)
-                activityMessage = "\(enabled ? "Enabled" : "Disabled") \(server.displayName)."
-                onRefresh()
-            } catch {
-                activityMessage = error.localizedDescription
-            }
-            isMutating = false
-        }
-    }
-
-    private func remove(_ server: CodexMCPServerStatus) {
-        guard let provider else { return }
-        serverPendingRemoval = nil
-        isMutating = true
-        Task { @MainActor in
-            do {
-                _ = try await provider.perform(try CodexMCPProtocolMutation.remove(name: server.name))
-                _ = try await provider.perform(.mcpReload)
-                activityMessage = "Removed \(server.displayName)."
                 onRefresh()
             } catch {
                 activityMessage = error.localizedDescription
@@ -200,11 +151,8 @@ private struct MCPServerStatusRow: View {
 
     let server: CodexMCPServerStatus
     let isMutating: Bool
-    let canManage: Bool
-    let onSetEnabled: (Bool) -> Void
+    let canAuthenticate: Bool
     let onLogin: () -> Void
-    let onEdit: () -> Void
-    let onRemove: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -222,30 +170,21 @@ private struct MCPServerStatusRow: View {
                 }
                 Spacer()
                 if server.authStatus == "notLoggedIn" {
-                    Button("Log in", action: onLogin).buttonStyle(.bordered).controlSize(.small)
+                    Button("Log in", action: onLogin)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!canAuthenticate)
                 } else {
                     Text(server.authStatusLabel).foregroundStyle(theme.colors.textSecondary)
                 }
-                Toggle("", isOn: Binding(
-                    get: { server.enabled },
-                    set: { enabled in onSetEnabled(enabled) }
-                ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .help(server.enabled ? "Disable server" : "Enable server")
-                Menu {
-                    Button("Edit", action: onEdit)
-                    Button("Remove", role: .destructive, action: onRemove)
-                } label: {
-                    Image(systemName: "ellipsis").frame(width: 26, height: 26)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                Text("Configuration read-only")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
-            .disabled(isMutating || !canManage)
+            .disabled(isMutating)
 
             HStack(spacing: 8) {
-                Text(server.enabled ? (server.startupStatus ?? "Status unavailable") : "Disabled")
+                Text(runtimeStatusLabel)
                     .foregroundStyle(statusColor)
                 Text(server.inventorySummary).foregroundStyle(theme.colors.textSecondary)
                 if let error = server.error?.nilIfBlank {
@@ -261,8 +200,14 @@ private struct MCPServerStatusRow: View {
         .overlay(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous).stroke(theme.colors.border))
     }
 
+    private var runtimeStatusLabel: String {
+        if server.enabled == false { return "Disabled" }
+        if let startupStatus = server.startupStatus?.nilIfBlank { return startupStatus.capitalized }
+        return server.enabled == true ? "Enabled; runtime status unavailable" : "Configuration enablement unknown"
+    }
+
     private var statusImage: String {
-        guard server.enabled else { return "pause.circle" }
+        if server.enabled == false { return "pause.circle" }
         switch server.startupStatus {
         case "ready": return "checkmark.circle.fill"
         case "failed": return "exclamationmark.triangle.fill"
@@ -273,7 +218,7 @@ private struct MCPServerStatusRow: View {
     }
 
     private var statusColor: Color {
-        guard server.enabled else { return theme.colors.textTertiary }
+        if server.enabled == false { return theme.colors.textTertiary }
         switch server.startupStatus {
         case "ready": return theme.colors.success
         case "failed": return theme.colors.danger
@@ -288,7 +233,11 @@ private struct CodexMCPServerEditor: View {
     @State private var draft: CodexMCPServerConfiguration
     @State private var arguments: String
     @State private var environment: String
+    @State private var environmentVariableNames: String
     @State private var headers: String
+    @State private var environmentHTTPHeaders: String
+    @State private var enabledTools: String
+    @State private var disabledTools: String
 
     let onCancel: () -> Void
     let onSave: (CodexMCPServerConfiguration) -> Void
@@ -297,7 +246,11 @@ private struct CodexMCPServerEditor: View {
         _draft = State(initialValue: configuration)
         _arguments = State(initialValue: configuration.arguments.joined(separator: "\n"))
         _environment = State(initialValue: Self.lines(configuration.environment))
+        _environmentVariableNames = State(initialValue: configuration.environmentVariableNames.joined(separator: "\n"))
         _headers = State(initialValue: Self.lines(configuration.httpHeaders))
+        _environmentHTTPHeaders = State(initialValue: Self.lines(configuration.environmentHTTPHeaders))
+        _enabledTools = State(initialValue: configuration.enabledTools?.joined(separator: "\n") ?? "")
+        _disabledTools = State(initialValue: configuration.disabledTools.joined(separator: "\n"))
         self.onCancel = onCancel
         self.onSave = onSave
     }
@@ -316,11 +269,16 @@ private struct CodexMCPServerEditor: View {
                     TextField("Command", text: $draft.command)
                     TextField("Arguments (one per line)", text: $arguments, axis: .vertical).lineLimit(2...5)
                     TextField("Environment (NAME=value)", text: $environment, axis: .vertical).lineLimit(2...5)
+                    TextField("Environment variables to pass through (one per line)", text: $environmentVariableNames, axis: .vertical).lineLimit(2...4)
+                    TextField("Working directory", text: Binding($draft.workingDirectory, replacingNilWith: ""))
                 } else {
                     TextField("URL", text: $draft.url)
                     TextField("Bearer token environment variable", text: Binding($draft.bearerTokenEnvironmentVariable, replacingNilWith: ""))
                     TextField("HTTP headers (Name=value)", text: $headers, axis: .vertical).lineLimit(2...5)
+                    TextField("Environment-backed headers (Name=ENV_VAR)", text: $environmentHTTPHeaders, axis: .vertical).lineLimit(2...5)
                 }
+                TextField("Enabled tools (one per line; blank means all)", text: $enabledTools, axis: .vertical).lineLimit(2...4)
+                TextField("Disabled tools (one per line)", text: $disabledTools, axis: .vertical).lineLimit(2...4)
                 TextField("Startup timeout (seconds)", value: Binding($draft.startupTimeoutSeconds, replacingNilWith: 10), format: .number)
                 TextField("Tool timeout (seconds)", value: Binding($draft.toolTimeoutSeconds, replacingNilWith: 60), format: .number)
             }
@@ -338,7 +296,12 @@ private struct CodexMCPServerEditor: View {
         var result = draft
         result.arguments = Self.values(arguments)
         result.environment = Self.dictionary(environment)
+        result.environmentVariableNames = Self.values(environmentVariableNames)
         result.httpHeaders = Self.dictionary(headers)
+        result.environmentHTTPHeaders = Self.dictionary(environmentHTTPHeaders)
+        let enabled = Self.values(enabledTools)
+        result.enabledTools = enabled.isEmpty ? nil : enabled
+        result.disabledTools = Self.values(disabledTools)
         return result
     }
 

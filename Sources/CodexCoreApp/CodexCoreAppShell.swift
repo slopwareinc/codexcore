@@ -328,19 +328,33 @@ struct CodexCoreAppShell: View {
         case .plugins:
             CodexPluginRouteView(
                 plugins: model.plugins,
+                marketplaces: model.marketplaces,
+                apps: model.apps,
                 skills: model.skills,
                 mcpServers: model.mcpServers,
                 isLoadingPlugins: model.isLoadingPlugins,
+                isLoadingMCPServers: model.isLoadingMCPServers,
+                isLoadingApps: model.isLoadingApps,
                 isLoadingSkills: model.isLoadingSkills,
                 pluginErrorMessage: model.pluginErrorMessage,
+                mcpErrorMessage: model.mcpErrorMessage,
+                appErrorMessage: model.appErrorMessage,
                 skillErrorMessage: model.skillErrorMessage,
+                marketplaceActionErrors: model.marketplaceActionErrors,
                 pluginLoadErrors: model.pluginLoadErrors,
+                skillLoadErrors: model.skillLoadErrors,
+                pluginReadDetails: model.pluginReadDetails,
+                loadingPluginReadIDs: model.loadingPluginReadIDs,
+                pluginReadErrors: model.pluginReadErrors,
                 launcherTarget: model.pluginLauncherTarget,
                 pendingPluginIDs: model.pendingPluginActionIDs,
                 pendingSkillIDs: model.pendingSkillActionIDs,
+                pendingAppIDs: model.pendingAppActionIDs,
+                pendingMarketplaceIDs: model.pendingMarketplaceActionIDs,
                 onLoad: { model.requestPluginRefresh() },
                 onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) },
+                onReadPlugin: { model.requestPluginRead($0) },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
