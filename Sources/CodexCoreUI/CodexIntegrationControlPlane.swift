@@ -81,7 +81,12 @@ public struct CodexMCPServerConfiguration: Identifiable, Equatable, Sendable {
     public var arguments: [String]
     public var url: String
     public var environment: [String: String]
+    /// Environment variable names to pass through from Codex's process.
+    public var environmentVariableNames: [String]
+    public var workingDirectory: String?
     public var httpHeaders: [String: String]
+    /// HTTP header names mapped to environment variables containing their values.
+    public var environmentHTTPHeaders: [String: String]
     public var bearerTokenEnvironmentVariable: String?
     public var enabledTools: [String]?
     public var disabledTools: [String]
@@ -98,7 +103,10 @@ public struct CodexMCPServerConfiguration: Identifiable, Equatable, Sendable {
         arguments: [String] = [],
         url: String = "",
         environment: [String: String] = [:],
+        environmentVariableNames: [String] = [],
+        workingDirectory: String? = nil,
         httpHeaders: [String: String] = [:],
+        environmentHTTPHeaders: [String: String] = [:],
         bearerTokenEnvironmentVariable: String? = nil,
         enabledTools: [String]? = nil,
         disabledTools: [String] = [],
@@ -112,7 +120,10 @@ public struct CodexMCPServerConfiguration: Identifiable, Equatable, Sendable {
         self.arguments = arguments
         self.url = url
         self.environment = environment
+        self.environmentVariableNames = environmentVariableNames
+        self.workingDirectory = workingDirectory
         self.httpHeaders = httpHeaders
+        self.environmentHTTPHeaders = environmentHTTPHeaders
         self.bearerTokenEnvironmentVariable = bearerTokenEnvironmentVariable
         self.enabledTools = enabledTools
         self.disabledTools = disabledTools
@@ -128,9 +139,16 @@ public struct CodexMCPServerConfiguration: Identifiable, Equatable, Sendable {
             value["command"] = .string(command)
             if !arguments.isEmpty { value["args"] = .array(arguments.map(CodexJSONValue.string)) }
             if !environment.isEmpty { value["env"] = .dictionary(environment.mapValues(CodexJSONValue.string)) }
+            if !environmentVariableNames.isEmpty {
+                value["env_vars"] = .array(environmentVariableNames.map(CodexJSONValue.string))
+            }
+            if let workingDirectory { value["cwd"] = .string(workingDirectory) }
         case .streamableHTTP:
             value["url"] = .string(url)
             if !httpHeaders.isEmpty { value["http_headers"] = .dictionary(httpHeaders.mapValues(CodexJSONValue.string)) }
+            if !environmentHTTPHeaders.isEmpty {
+                value["env_http_headers"] = .dictionary(environmentHTTPHeaders.mapValues(CodexJSONValue.string))
+            }
             if let bearerTokenEnvironmentVariable {
                 value["bearer_token_env_var"] = .string(bearerTokenEnvironmentVariable)
             }
@@ -155,7 +173,9 @@ public enum CodexMCPProtocolMutation {
         }
         return .configValueWrite(.init(
             keyPath: "mcp_servers.\(configuration.name)",
-            mergeStrategy: .replace,
+            // Merge the modeled fields into an existing server table so saving
+            // through this editor does not discard newer fields it cannot model.
+            mergeStrategy: .upsert,
             value: configuration.configValue
         ))
     }

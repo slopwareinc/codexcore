@@ -1200,6 +1200,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             command: "npx",
             arguments: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
             environment: ["TOKEN": "secret"],
+            environmentVariableNames: ["HOME", "PATH"],
+            workingDirectory: "/workspace",
             enabledTools: ["read_file"],
             disabledTools: ["delete_file"],
             startupTimeoutSeconds: 10,
@@ -1211,7 +1213,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         }
         XCTAssertEqual(save.operationID, "config/value/write")
         XCTAssertEqual(params.keyPath, "mcp_servers.filesystem")
-        XCTAssertEqual(params.mergeStrategy, .replace)
+        XCTAssertEqual(params.mergeStrategy, .upsert)
         XCTAssertEqual(params.value, .dictionary([
             "enabled": .bool(true),
             "command": .string("npx"),
@@ -1221,6 +1223,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                 .string("/tmp")
             ]),
             "env": .dictionary(["TOKEN": .string("secret")]),
+            "env_vars": .array([.string("HOME"), .string("PATH")]),
+            "cwd": .string("/workspace"),
             "enabled_tools": .array([.string("read_file")]),
             "disabled_tools": .array([.string("delete_file")]),
             "startup_timeout_sec": .int(10),
@@ -1249,6 +1253,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             transport: .streamableHTTP,
             url: "https://example.test/mcp",
             httpHeaders: ["X-Workspace": "demo"],
+            environmentHTTPHeaders: ["Authorization": "MCP_AUTH_HEADER"],
             bearerTokenEnvironmentVariable: "MCP_TOKEN"
         )
         let request = try CodexMCPProtocolMutation.save(configuration)
@@ -1259,6 +1264,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             "enabled": .bool(true),
             "url": .string("https://example.test/mcp"),
             "http_headers": .dictionary(["X-Workspace": .string("demo")]),
+            "env_http_headers": .dictionary(["Authorization": .string("MCP_AUTH_HEADER")]),
             "bearer_token_env_var": .string("MCP_TOKEN")
         ]))
 
