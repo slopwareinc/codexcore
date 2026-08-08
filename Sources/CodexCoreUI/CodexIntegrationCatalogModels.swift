@@ -986,10 +986,21 @@ public enum CodexPluginRouteAction: Equatable, Sendable {
     case setPluginEnabled(CodexPluginActionTarget, enabled: Bool)
     case setSkillEnabled(CodexSkillActionTarget, enabled: Bool)
     case uninstallSkill(CodexSkillActionTarget)
+    case setAppEnabled(CodexAppActionTarget, enabled: Bool)
     case addMarketplace(source: String)
     case upgradeMarketplace(CodexMarketplaceActionTarget)
     case removeMarketplace(CodexMarketplaceActionTarget)
     case tryInChat(prompt: String)
+}
+
+public struct CodexAppActionTarget: Equatable, Sendable {
+    public var id: String
+    public var name: String
+
+    public init(app: CodexAppSummary) {
+        self.id = app.id
+        self.name = app.name
+    }
 }
 
 public struct CodexMarketplaceActionTarget: Equatable, Sendable {
@@ -1057,12 +1068,20 @@ public protocol CodexPluginCatalogActionProvider: Sendable {
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome
+    func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func addMarketplace(source: String) async -> CodexPluginActionOutcome
     func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
     func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
 }
 
 public extension CodexPluginCatalogActionProvider {
+    func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: .init(title: "App action unsupported", detail: "This provider does not implement local app execution settings."),
+            didSucceed: false
+        )
+    }
+
     func addMarketplace(source: String) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
     func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
     func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
@@ -1106,6 +1125,19 @@ public enum CodexPluginProtocolMutation {
             edits: [
                 CodexSchemaConfigEdit(
                     keyPath: "plugins.\(target.id).enabled",
+                    mergeStrategy: .upsert,
+                    value: .bool(enabled)
+                )
+            ],
+            reloadUserConfig: true
+        )
+    }
+
+    public static func appEnabledParams(for target: CodexAppActionTarget, enabled: Bool) -> CodexSchemaConfigBatchWriteParams {
+        CodexSchemaConfigBatchWriteParams(
+            edits: [
+                CodexSchemaConfigEdit(
+                    keyPath: "apps.\(target.id).enabled",
                     mergeStrategy: .upsert,
                     value: .bool(enabled)
                 )
@@ -1168,6 +1200,8 @@ public enum CodexPluginCatalogActionSession {
             return await provider.setSkillEnabled(target, enabled: enabled)
         case .uninstallSkill(let target):
             return await provider.uninstallSkill(target)
+        case .setAppEnabled(let target, let enabled):
+            return await provider.setAppEnabled(target, enabled: enabled)
         case .addMarketplace(let source):
             return await provider.addMarketplace(source: source)
         case .upgradeMarketplace(let target):
@@ -1235,6 +1269,19 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
             )
         } catch {
             return failure("Couldn’t update \(target.displayName)", error: error)
+        }
+    }
+
+    public func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
+        do {
+            _ = try await codex.configBatchWrite(CodexPluginProtocolMutation.appEnabledParams(for: target, enabled: enabled))
+            return CodexPluginActionOutcome(
+                activity: .init(title: "Updated \(target.name)", detail: enabled ? "Enabled local execution" : "Disabled local execution"),
+                didSucceed: true,
+                shouldRefresh: true
+            )
+        } catch {
+            return failure("Couldn’t update \(target.name)", error: error)
         }
     }
 

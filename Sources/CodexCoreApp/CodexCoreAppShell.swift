@@ -347,6 +347,7 @@ struct CodexCoreAppShell: View {
                 launcherTarget: model.pluginLauncherTarget,
                 pendingPluginIDs: model.pendingPluginActionIDs,
                 pendingSkillIDs: model.pendingSkillActionIDs,
+                pendingAppIDs: model.pendingAppActionIDs,
                 pendingMarketplaceIDs: model.pendingMarketplaceActionIDs,
                 onLoad: { model.requestPluginRefresh() },
                 onRefresh: { model.requestPluginRefresh() },

@@ -32,7 +32,10 @@ or name matching.
 The **Apps** inventory comes from app-server `app/list` joined with
 `app/installed` by app ID. Catalog availability and local runtime installation,
 enablement, and callability stay separate; missing state is shown as unknown rather
-than inferred from plugin capability strings.
+than inferred from plugin capability strings. A Manage toggle appears only for an
+installed app with reported runtime enablement and writes only
+`apps.<appId>.enabled`; it does not claim to connect, install, authorize, or disconnect
+the account-owned app.
 
 Skills are shown as `(working directory, path)` occurrences with their reported
 scope, enabled state, dependencies, and list errors. Codex currently has no

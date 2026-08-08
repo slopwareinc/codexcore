@@ -144,4 +144,29 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
         XCTAssertNil(CodexMCPServerStatus(raw: missingRequiredInventory))
     }
 
+
+    func testInstalledAppEnablementUsesLocalAppsConfigOnly() {
+        let app = CodexAppSummary(
+            id: "github",
+            name: "GitHub",
+            isAccessible: true,
+            isEnabled: false,
+            isInstalled: true,
+            runtimeEnabled: false,
+            runtimeCallable: true
+        )
+        let target = CodexAppActionTarget(app: app)
+        XCTAssertEqual(
+            CodexPluginProtocolMutation.appEnabledParams(for: target, enabled: true),
+            CodexSchemaConfigBatchWriteParams(
+                edits: [
+                    .init(keyPath: "apps.github.enabled", mergeStrategy: .upsert, value: .bool(true))
+                ],
+                reloadUserConfig: true
+            )
+        )
+        XCTAssertEqual(app.isEnabled, false, "Catalog enablement remains separate from local runtime enablement")
+        XCTAssertEqual(app.runtimeEnabled, false)
+    }
+
 }

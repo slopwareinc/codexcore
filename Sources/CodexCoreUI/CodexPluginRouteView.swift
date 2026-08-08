@@ -30,6 +30,7 @@ public struct CodexPluginRouteView: View {
     public let launcherTarget: CodexComposerPluginLauncher?
     public let pendingPluginIDs: Set<String>
     public let pendingSkillIDs: Set<String>
+    public let pendingAppIDs: Set<String>
     public let pendingMarketplaceIDs: Set<String>
     public let onLoad: () -> Void
     public let onRefresh: () -> Void
@@ -70,6 +71,7 @@ public struct CodexPluginRouteView: View {
         launcherTarget: CodexComposerPluginLauncher? = nil,
         pendingPluginIDs: Set<String> = [],
         pendingSkillIDs: Set<String> = [],
+        pendingAppIDs: Set<String> = [],
         pendingMarketplaceIDs: Set<String> = [],
         initialTab: CodexPluginRoutePrimaryTab = .marketplace,
         initialManageTab: CodexPluginManageTab = .plugins,
@@ -99,6 +101,7 @@ public struct CodexPluginRouteView: View {
         self.launcherTarget = launcherTarget
         self.pendingPluginIDs = pendingPluginIDs
         self.pendingSkillIDs = pendingSkillIDs
+        self.pendingAppIDs = pendingAppIDs
         self.pendingMarketplaceIDs = pendingMarketplaceIDs
         let initialPage: CodexPluginRoutePage = switch initialTab {
         case .marketplace: .plugins
@@ -801,6 +804,7 @@ public struct CodexPluginRouteView: View {
             emptyState(title: "No apps", detail: "Installed and available apps appear here.")
         } else {
             ForEach(visible) { app in
+                let isPending = pendingAppIDs.contains(app.id)
                 HStack(spacing: 12) {
                     AsyncImage(url: appLogoURL(for: app)) { image in
                         image.resizable().scaledToFit()
@@ -815,14 +819,25 @@ public struct CodexPluginRouteView: View {
                         Text(appDetail(app)).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
                     }
                     Spacer()
-                    Text(CodexPluginStatusPresentation.appLabel(for: app))
+                    Text(isPending ? "Updating" : CodexPluginStatusPresentation.appLabel(for: app))
                         .font(theme.fonts.caption.weight(.medium))
                         .foregroundStyle(theme.colors.textSecondary)
+                    if app.isInstalled, let enabled = app.runtimeEnabled {
+                        Toggle("", isOn: Binding(
+                            get: { enabled },
+                            set: { onAction(.setAppEnabled(.init(app: app), enabled: $0)) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .disabled(isPending)
+                        .accessibilityLabel("Set \(app.name) local execution enabled")
+                    }
                 }
                 .padding(.horizontal, 10)
                 .frame(height: CodexPluginLayoutMetrics.rowHeight)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(app.name), \(CodexPluginStatusPresentation.appLabel(for: app))")
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(app.name), \(isPending ? "Updating" : CodexPluginStatusPresentation.appLabel(for: app))")
             }
         }
     }

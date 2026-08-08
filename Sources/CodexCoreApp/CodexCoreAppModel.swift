@@ -13,6 +13,7 @@ private enum PluginCatalogToggleRollback {
 private enum PluginCatalogMutationKey: Hashable {
     case plugin(String)
     case skill(String)
+    case app(String)
     case marketplace(String)
 }
 
@@ -49,6 +50,7 @@ final class CodexCoreAppModel {
     private(set) var integrationCatalogRevision = 0
     private(set) var pendingPluginActionIDs: Set<String> = []
     private(set) var pendingSkillActionIDs: Set<String> = []
+    private(set) var pendingAppActionIDs: Set<String> = []
     private(set) var pendingMarketplaceActionIDs: Set<String> = []
     private(set) var marketplaceActionErrorMessage: String?
 
@@ -2199,6 +2201,9 @@ final class CodexCoreAppModel {
         case .uninstallSkill(let target):
             toggleRollback = nil
             Self.pluginCatalogLogger.info("skill uninstall requested name=\(target.name, privacy: .public)")
+        case .setAppEnabled(let target, let enabled):
+            toggleRollback = nil
+            Self.pluginCatalogLogger.info("app execution toggle requested id=\(target.id, privacy: .public) enabled=\(enabled, privacy: .public)")
         case .addMarketplace(let source):
             toggleRollback = nil
             marketplaceActionErrorMessage = nil
@@ -2274,6 +2279,8 @@ final class CodexCoreAppModel {
             return .plugin(target.id)
         case .setSkillEnabled(let target, _), .uninstallSkill(let target):
             return .skill(target.name.contains(":") ? target.name : target.path)
+        case .setAppEnabled(let target, _):
+            return .app(target.id)
         case .addMarketplace(let source):
             return .marketplace(source.trimmingCharacters(in: .whitespacesAndNewlines))
         case .upgradeMarketplace(let target), .removeMarketplace(let target):
@@ -2287,6 +2294,7 @@ final class CodexCoreAppModel {
         switch key {
         case .plugin(let id): pendingPluginActionIDs.contains(id)
         case .skill(let id): pendingSkillActionIDs.contains(id)
+        case .app(let id): pendingAppActionIDs.contains(id)
         case .marketplace(let id): pendingMarketplaceActionIDs.contains(id)
         }
     }
@@ -2297,6 +2305,8 @@ final class CodexCoreAppModel {
             if pending { pendingPluginActionIDs.insert(id) } else { pendingPluginActionIDs.remove(id) }
         case .skill(let id):
             if pending { pendingSkillActionIDs.insert(id) } else { pendingSkillActionIDs.remove(id) }
+        case .app(let id):
+            if pending { pendingAppActionIDs.insert(id) } else { pendingAppActionIDs.remove(id) }
         case .marketplace(let id):
             if pending { pendingMarketplaceActionIDs.insert(id) } else { pendingMarketplaceActionIDs.remove(id) }
         }
@@ -3372,6 +3382,7 @@ final class CodexCoreAppModel {
         var integrationSession = runtimeSession.integrationCatalogSession
         integrationSession.reset()
         publishIntegrationCatalogSession(integrationSession)
+        pendingAppActionIDs.removeAll()
         pendingMarketplaceActionIDs.removeAll()
         marketplaceActionErrorMessage = nil
         configurationSession.reset()
