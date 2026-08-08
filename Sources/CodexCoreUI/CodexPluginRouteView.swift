@@ -370,6 +370,7 @@ public struct CodexPluginRouteView: View {
                     }
                 }
                 .padding(.horizontal, 24)
+                .padding(.top, 20)
                 .padding(.bottom, 48)
                 .frame(maxWidth: CodexPluginLayoutMetrics.browseContentWidth, alignment: .leading)
                 .frame(maxWidth: .infinity)
@@ -436,17 +437,7 @@ public struct CodexPluginRouteView: View {
         let installed = plugins.filter(\.installed)
         if !installed.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("Added").font(theme.fonts.chat.weight(.semibold))
-                    Spacer()
-                    Button("Manage") {
-                        selectedPluginID = nil
-                        page = .manage
-                        searchQuery = ""
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.colors.textSecondary)
-                }
+                Text("Added").font(theme.fonts.chat.weight(.semibold))
                 Divider().overlay(theme.colors.border)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
