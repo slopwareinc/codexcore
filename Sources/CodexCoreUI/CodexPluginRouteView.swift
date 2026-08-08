@@ -232,17 +232,23 @@ public struct CodexPluginRouteView: View {
                     Spacer()
                 }
                 Button(action: onRefresh) {
-                    Image(systemName: "arrow.clockwise").frame(width: 30, height: 30)
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 40, height: 40)
+                        .background(theme.colors.surfaceElevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(theme.colors.border))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 .disabled(isLoadingPlugins || isLoadingApps || isLoadingSkills || isLoadingMCPServers)
                 .help("Refresh plugins and skills")
                 .accessibilityLabel("Refresh plugins and skills")
                 .keyboardShortcut("r", modifiers: .command)
                 createMenu
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
-            .frame(height: 66)
+            .frame(maxWidth: CodexPluginLayoutMetrics.routeContentWidth)
+            .frame(maxWidth: .infinity)
+            .frame(height: 72)
 
             if !isPluginDetail {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -255,6 +261,8 @@ public struct CodexPluginRouteView: View {
                     }
                     .padding(.horizontal, 24)
                 }
+                .frame(maxWidth: CodexPluginLayoutMetrics.routeContentWidth)
+                .frame(maxWidth: .infinity)
                 .frame(height: 48)
             }
             Divider().overlay(theme.colors.border)
@@ -287,7 +295,7 @@ public struct CodexPluginRouteView: View {
                 .font(theme.fonts.chat.weight(.medium))
                 .foregroundStyle(selected ? theme.colors.textPrimary : theme.colors.textSecondary)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(height: 36)
                 .background(selected ? theme.colors.accentSoft : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -312,9 +320,9 @@ public struct CodexPluginRouteView: View {
                 Text("Add")
             }
             .padding(.horizontal, 10)
-            .frame(height: 32)
+            .frame(height: 40)
             .foregroundStyle(Color.white)
-            .background(theme.colors.accent, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .background(theme.colors.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -420,7 +428,8 @@ public struct CodexPluginRouteView: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 40)
-        .background(theme.colors.surfaceElevated, in: Capsule())
+        .background(theme.colors.surfaceElevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(theme.colors.border))
     }
 
     @ViewBuilder private var addedSection: some View {

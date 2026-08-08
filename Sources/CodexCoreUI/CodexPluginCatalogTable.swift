@@ -2,7 +2,8 @@ import SwiftUI
 
 enum CodexPluginLayoutMetrics {
     static let contentWidth: CGFloat = 736
-    static let browseContentWidth: CGFloat = 880
+    static let browseContentWidth: CGFloat = 1_080
+    static let routeContentWidth: CGFloat = 1_080
     static let rowHeight: CGFloat = 64
     static let rowSpacing: CGFloat = 8
 }
