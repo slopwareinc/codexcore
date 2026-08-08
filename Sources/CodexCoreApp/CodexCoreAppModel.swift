@@ -13,6 +13,7 @@ private enum PluginCatalogToggleRollback {
 private enum PluginCatalogMutationKey: Hashable {
     case plugin(String)
     case skill(String)
+    case marketplace(String)
 }
 
 func defaultWorkspacePath() -> String {
@@ -48,6 +49,8 @@ final class CodexCoreAppModel {
     private(set) var integrationCatalogRevision = 0
     private(set) var pendingPluginActionIDs: Set<String> = []
     private(set) var pendingSkillActionIDs: Set<String> = []
+    private(set) var pendingMarketplaceActionIDs: Set<String> = []
+    private(set) var marketplaceActionErrorMessage: String?
 
     var workspacePath = defaultWorkspacePath()
     var apiKey = ""
@@ -2166,6 +2169,18 @@ final class CodexCoreAppModel {
         case .uninstallSkill(let target):
             toggleRollback = nil
             Self.pluginCatalogLogger.info("skill uninstall requested name=\(target.name, privacy: .public)")
+        case .addMarketplace(let source):
+            toggleRollback = nil
+            marketplaceActionErrorMessage = nil
+            Self.pluginCatalogLogger.info("marketplace add requested source=\(source, privacy: .private)")
+        case .upgradeMarketplace(let target):
+            toggleRollback = nil
+            marketplaceActionErrorMessage = nil
+            Self.pluginCatalogLogger.info("marketplace upgrade requested name=\(target.name, privacy: .public)")
+        case .removeMarketplace(let target):
+            toggleRollback = nil
+            marketplaceActionErrorMessage = nil
+            Self.pluginCatalogLogger.info("marketplace remove requested name=\(target.name, privacy: .public)")
         case .tryInChat:
             toggleRollback = nil
         }
@@ -2183,9 +2198,11 @@ final class CodexCoreAppModel {
                 Self.pluginCatalogLogger.error("catalog action rejected because app-server is disconnected")
                 restoreCatalogToggle(toggleRollback)
                 if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: false) }
+                let detail = "Connect to Codex before changing plugins, skills, or marketplaces."
+                if case .marketplace = mutationKey { marketplaceActionErrorMessage = detail }
                 appendIntegrationActivity(.init(
                     title: "Plugin action unavailable",
-                    detail: "Connect to Codex before changing plugins or skills."
+                    detail: detail
                 ))
                 return
             }
@@ -2208,6 +2225,9 @@ final class CodexCoreAppModel {
                 clearThreadState()
                 composerSession.setDraft(draftPrompt, for: currentThreadID)
             }
+            if case .marketplace = mutationKey {
+                marketplaceActionErrorMessage = outcome.didSucceed ? nil : outcome.activity.detail
+            }
             appendIntegrationActivity(outcome.activity)
             if outcome.didSucceed, outcome.shouldRefresh {
                 await refreshPlugins()
@@ -2224,6 +2244,10 @@ final class CodexCoreAppModel {
             return .plugin(target.id)
         case .setSkillEnabled(let target, _), .uninstallSkill(let target):
             return .skill(target.name.contains(":") ? target.name : target.path)
+        case .addMarketplace(let source):
+            return .marketplace(source.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .upgradeMarketplace(let target), .removeMarketplace(let target):
+            return .marketplace(target.name)
         case .tryInChat:
             return nil
         }
@@ -2233,6 +2257,7 @@ final class CodexCoreAppModel {
         switch key {
         case .plugin(let id): pendingPluginActionIDs.contains(id)
         case .skill(let id): pendingSkillActionIDs.contains(id)
+        case .marketplace(let id): pendingMarketplaceActionIDs.contains(id)
         }
     }
 
@@ -2242,6 +2267,8 @@ final class CodexCoreAppModel {
             if pending { pendingPluginActionIDs.insert(id) } else { pendingPluginActionIDs.remove(id) }
         case .skill(let id):
             if pending { pendingSkillActionIDs.insert(id) } else { pendingSkillActionIDs.remove(id) }
+        case .marketplace(let id):
+            if pending { pendingMarketplaceActionIDs.insert(id) } else { pendingMarketplaceActionIDs.remove(id) }
         }
     }
 
@@ -3315,6 +3342,8 @@ final class CodexCoreAppModel {
         var integrationSession = runtimeSession.integrationCatalogSession
         integrationSession.reset()
         publishIntegrationCatalogSession(integrationSession)
+        pendingMarketplaceActionIDs.removeAll()
+        marketplaceActionErrorMessage = nil
         configurationSession.reset()
         invalidatePendingChatSelection()
         clearThreadState()

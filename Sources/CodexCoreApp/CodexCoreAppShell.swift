@@ -328,6 +328,7 @@ struct CodexCoreAppShell: View {
         case .plugins:
             CodexPluginRouteView(
                 plugins: model.plugins,
+                marketplaces: model.marketplaces,
                 apps: model.apps,
                 skills: model.skills,
                 mcpServers: model.mcpServers,
@@ -337,10 +338,13 @@ struct CodexCoreAppShell: View {
                 pluginErrorMessage: model.pluginErrorMessage,
                 appErrorMessage: model.appErrorMessage,
                 skillErrorMessage: model.skillErrorMessage,
+                marketplaceActionErrorMessage: model.marketplaceActionErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
+                skillLoadErrors: model.skillLoadErrors,
                 launcherTarget: model.pluginLauncherTarget,
                 pendingPluginIDs: model.pendingPluginActionIDs,
                 pendingSkillIDs: model.pendingSkillActionIDs,
+                pendingMarketplaceIDs: model.pendingMarketplaceActionIDs,
                 onLoad: { model.requestPluginRefresh() },
                 onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) },

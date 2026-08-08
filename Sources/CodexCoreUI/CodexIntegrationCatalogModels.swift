@@ -300,6 +300,40 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct CodexMarketplaceSummary: Identifiable, Equatable, Sendable {
+    public var name: String
+    public var displayName: String
+    public var path: String?
+    public var pluginCount: Int
+
+    public var id: String { name }
+
+    public init(name: String, displayName: String? = nil, path: String? = nil, pluginCount: Int) {
+        self.name = name
+        self.displayName = displayName?.nilIfBlank ?? name
+        self.path = path?.nilIfBlank
+        self.pluginCount = pluginCount
+    }
+
+    /// Returns only marketplaces explicitly reported by `plugin/list`. Missing or
+    /// malformed entries stay unknown; filesystem and cache paths are never inferred.
+    public static func marketplaces(from response: CodexJSONValue) -> [CodexMarketplaceSummary] {
+        guard case .dictionary(let object) = response,
+              case .array(let values)? = object["marketplaces"] else { return [] }
+        return values.compactMap { value in
+            guard case .dictionary(let marketplace) = value,
+                  let name = CodexJSONCoercion.flatString(from: marketplace["name"])?.nilIfBlank,
+                  case .array(let plugins)? = marketplace["plugins"] else { return nil }
+            let interface: [String: CodexJSONValue]
+            if case .dictionary(let fields)? = marketplace["interface"] { interface = fields } else { interface = [:] }
+            let displayName = CodexJSONCoercion.flatString(from: interface["displayName"])?.nilIfBlank
+            let path = CodexJSONCoercion.flatString(from: marketplace["path"])?.nilIfBlank
+            return CodexMarketplaceSummary(name: name, displayName: displayName, path: path, pluginCount: plugins.count)
+        }
+        .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+}
+
 public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var id: String
     public var protocolID: String
@@ -401,13 +435,18 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     public init?(raw value: CodexJSONValue, marketplace: MarketplaceContext) {
         guard case .dictionary(let object) = value,
-              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank else {
+              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank,
+              let pluginID = Self.string(in: object, keys: ["id"])?.nilIfBlank,
+              let installed = Self.bool(from: object["installed"]),
+              let enabled = Self.bool(from: object["enabled"]),
+              let installPolicy = Self.string(in: object, keys: ["installPolicy"])?.nilIfBlank,
+              let authPolicy = Self.string(in: object, keys: ["authPolicy"])?.nilIfBlank,
+              let rawSource = object["source"], rawSource != .null else {
             return nil
         }
 
-        let pluginID = Self.string(in: object, keys: ["id"])?.nilIfBlank ?? name
         let interface = Self.dictionary(from: object["interface"])
-        let source = Self.dictionary(from: object["source"])
+        let source = Self.dictionary(from: rawSource)
         let sourcePath = Self.string(in: source, keys: ["path"])
         self.init(
             id: "\(marketplace.name):\(pluginID)",
@@ -421,13 +460,13 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             marketplacePath: marketplace.path,
             category: Self.string(in: interface, keys: ["category"]),
             developerName: Self.string(in: interface, keys: ["developerName"]),
-            installed: Self.bool(from: object["installed"]) ?? false,
-            enabled: Self.bool(from: object["enabled"]) ?? false,
-            installPolicy: Self.string(in: object, keys: ["installPolicy"]) ?? "NOT_AVAILABLE",
+            installed: installed,
+            enabled: enabled,
+            installPolicy: installPolicy,
             installPolicySource: Self.string(in: object, keys: ["installPolicySource"]),
             availability: Self.string(in: object, keys: ["availability"]),
             disabledReason: Self.string(in: object, keys: ["disabledReason"]),
-            authPolicy: Self.string(in: object, keys: ["authPolicy"]) ?? "ON_USE",
+            authPolicy: authPolicy,
             sourceType: Self.string(in: source, keys: ["type"]),
             sourceDetail: Self.sourceDetail(from: source),
             localVersion: Self.string(in: object, keys: ["localVersion"]),
@@ -764,6 +803,22 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         }
     }
 
+    public static func loadErrorMessages(from response: CodexJSONValue) -> [String] {
+        guard case .dictionary(let object) = response,
+              case .array(let entries)? = object["data"] else { return [] }
+        return entries.flatMap { entry -> [String] in
+            guard case .dictionary(let fields) = entry,
+                  case .array(let errors)? = fields["errors"] else { return [] }
+            let cwd = string(in: fields, keys: ["cwd"])
+            return errors.compactMap { error in
+                guard case .dictionary(let details) = error,
+                      let message = string(in: details, keys: ["message"])?.nilIfBlank else { return nil }
+                let path = string(in: details, keys: ["path"])?.nilIfBlank ?? cwd?.nilIfBlank
+                return path.map { "\($0): \(message)" } ?? message
+            }
+        }
+    }
+
     public var scopeLabel: String {
         switch scope {
         case "user": return "Personal"
@@ -858,6 +913,7 @@ public enum CodexPluginManageTab: String, CaseIterable, Equatable, Sendable {
     case apps
     case mcps
     case skills
+    case marketplace
 
     public var title: String {
         switch self {
@@ -865,6 +921,7 @@ public enum CodexPluginManageTab: String, CaseIterable, Equatable, Sendable {
         case .apps: return "Apps"
         case .mcps: return "MCPs"
         case .skills: return "Skills"
+        case .marketplace: return "Marketplace"
         }
     }
 }
@@ -901,7 +958,20 @@ public enum CodexPluginRouteAction: Equatable, Sendable {
     case setPluginEnabled(CodexPluginActionTarget, enabled: Bool)
     case setSkillEnabled(CodexSkillActionTarget, enabled: Bool)
     case uninstallSkill(CodexSkillActionTarget)
+    case addMarketplace(source: String)
+    case upgradeMarketplace(CodexMarketplaceActionTarget)
+    case removeMarketplace(CodexMarketplaceActionTarget)
     case tryInChat(prompt: String)
+}
+
+public struct CodexMarketplaceActionTarget: Equatable, Sendable {
+    public var name: String
+    public var displayName: String
+
+    public init(marketplace: CodexMarketplaceSummary) {
+        self.name = marketplace.name
+        self.displayName = marketplace.displayName
+    }
 }
 
 public struct CodexPluginActionTarget: Equatable, Sendable {
@@ -959,6 +1029,22 @@ public protocol CodexPluginCatalogActionProvider: Sendable {
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome
+    func addMarketplace(source: String) async -> CodexPluginActionOutcome
+    func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
+    func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
+}
+
+public extension CodexPluginCatalogActionProvider {
+    func addMarketplace(source: String) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+    func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+    func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+
+    private func unsupportedMarketplaceMutation() -> CodexPluginActionOutcome {
+        CodexPluginActionOutcome(
+            activity: .init(title: "Marketplace action unsupported", detail: "This provider does not implement marketplace management."),
+            didSucceed: false
+        )
+    }
 }
 
 /// Pure request construction keeps the plugin control plane inspectable and
@@ -1008,6 +1094,19 @@ public enum CodexPluginProtocolMutation {
         )
     }
 
+    public static func marketplaceAddParams(source: String) -> CodexSchemaMarketplaceAddParams {
+        CodexSchemaMarketplaceAddParams(source: source)
+    }
+
+    public static func marketplaceUpgradeParams(for target: CodexMarketplaceActionTarget) -> CodexSchemaMarketplaceUpgradeParams {
+        CodexSchemaMarketplaceUpgradeParams(marketplaceName: target.name)
+    }
+
+    public static func marketplaceRemoveParams(for target: CodexMarketplaceActionTarget) -> CodexSchemaMarketplaceRemoveParams {
+        CodexSchemaMarketplaceRemoveParams(marketplaceName: target.name)
+    }
+
+    @available(*, deprecated, message: "Codex does not expose a skill-uninstall operation; do not substitute filesystem deletion.")
     public static func skillUninstallParams(for target: CodexSkillActionTarget) -> CodexSchemaFSRemoveParams {
         let directory = URL(fileURLWithPath: target.path).deletingLastPathComponent().path
         return CodexSchemaFSRemoveParams(
@@ -1033,6 +1132,12 @@ public enum CodexPluginCatalogActionSession {
             return await provider.setSkillEnabled(target, enabled: enabled)
         case .uninstallSkill(let target):
             return await provider.uninstallSkill(target)
+        case .addMarketplace(let source):
+            return await provider.addMarketplace(source: source)
+        case .upgradeMarketplace(let target):
+            return await provider.upgradeMarketplace(target)
+        case .removeMarketplace(let target):
+            return await provider.removeMarketplace(target)
         case .tryInChat(let prompt):
             return CodexPluginActionOutcome(
                 activity: CodexIntegrationCatalogActivity(title: "Prepared plugin prompt", detail: prompt),
@@ -1098,17 +1203,51 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
     }
 
     public func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
-        guard target.scope == "user" else {
-            return CodexPluginActionOutcome(activity: .init(
-                title: "Can’t uninstall \(target.displayName)",
-                detail: "Only personal skills can be uninstalled from this surface."
-            ), didSucceed: false)
-        }
+        CodexPluginActionOutcome(
+            activity: .init(
+                title: "Skill removal unavailable",
+                detail: "Codex does not expose a generated skill-uninstall operation. Remove \(target.displayName) with its owning package or filesystem workflow."
+            ),
+            didSucceed: false
+        )
+    }
+
+    public func addMarketplace(source: String) async -> CodexPluginActionOutcome {
         do {
-            _ = try await codex.remove(CodexPluginProtocolMutation.skillUninstallParams(for: target))
-            return success("Uninstalled \(target.displayName)", detail: target.path)
+            let response = try await codex.marketplaceAdd(CodexPluginProtocolMutation.marketplaceAddParams(source: source))
+            return success(response.alreadyAdded ? "Marketplace already registered" : "Added marketplace", detail: response.marketplaceName)
         } catch {
-            return failure("Couldn’t uninstall \(target.displayName)", error: error)
+            return failure("Couldn’t add marketplace", error: error)
+        }
+    }
+
+    public func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome {
+        do {
+            let response = try await codex.marketplaceUpgrade(CodexPluginProtocolMutation.marketplaceUpgradeParams(for: target))
+            if let error = response.errors.first(where: { $0.marketplaceName == target.name }) {
+                return CodexPluginActionOutcome(activity: .init(title: "Couldn’t upgrade \(target.displayName)", detail: error.message), didSucceed: false)
+            }
+            guard response.selectedMarketplaces.contains(target.name) else {
+                return CodexPluginActionOutcome(
+                    activity: .init(
+                        title: "Upgrade status unknown for \(target.displayName)",
+                        detail: "Codex did not confirm that this marketplace was selected."
+                    ),
+                    didSucceed: false
+                )
+            }
+            return success("Upgraded \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t upgrade \(target.displayName)", error: error)
+        }
+    }
+
+    public func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome {
+        do {
+            _ = try await codex.marketplaceRemove(CodexPluginProtocolMutation.marketplaceRemoveParams(for: target))
+            return success("Removed \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t remove \(target.displayName)", error: error)
         }
     }
 
@@ -1246,7 +1385,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
         ]
         self.legalLinks = []
         self.canInstall = false
-        self.canUninstall = skill.scope == "user"
+        self.canUninstall = false
         self.canToggleEnabled = true
         self.isEnabled = skill.enabled
         self.boundaryActionTitle = nil
@@ -1312,6 +1451,7 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
 
 public struct CodexPluginRouteState: Equatable, Sendable {
     public var plugins: [CodexPluginSummary]
+    public var marketplaces: [CodexMarketplaceSummary]
     public var apps: [CodexAppSummary]
     public var skills: [CodexSkillSummary]
     public var mcpServers: [CodexMCPServerStatus]
@@ -1325,6 +1465,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
 
     public init(
         plugins: [CodexPluginSummary],
+        marketplaces: [CodexMarketplaceSummary] = [],
         apps: [CodexAppSummary] = [],
         skills: [CodexSkillSummary] = [],
         mcpServers: [CodexMCPServerStatus] = [],
@@ -1337,6 +1478,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         launcherTarget: CodexComposerPluginLauncher? = nil
     ) {
         self.plugins = plugins
+        self.marketplaces = marketplaces
         self.apps = apps
         self.skills = skills
         self.mcpServers = mcpServers
@@ -1354,7 +1496,8 @@ public struct CodexPluginRouteState: Equatable, Sendable {
             CodexPluginManageCount(tab: .plugins, count: plugins.filter(\.installed).count),
             CodexPluginManageCount(tab: .apps, count: managedApps.count),
             CodexPluginManageCount(tab: .mcps, count: mcpServers.count),
-            CodexPluginManageCount(tab: .skills, count: skills.count)
+            CodexPluginManageCount(tab: .skills, count: skills.count),
+            CodexPluginManageCount(tab: .marketplace, count: marketplaces.count)
         ]
     }
 
@@ -1416,6 +1559,15 @@ public struct CodexPluginRouteState: Equatable, Sendable {
         }
     }
 
+    public var visibleMarketplaces: [CodexMarketplaceSummary] {
+        let needle = normalizedSearch
+        guard !needle.isEmpty else { return marketplaces }
+        return marketplaces.filter { marketplace in
+            [marketplace.name, marketplace.displayName, marketplace.path ?? ""]
+                .contains { $0.localizedCaseInsensitiveContains(needle) }
+        }
+    }
+
     public var selectedDetail: CodexPluginRouteDetail? {
         if primaryTab == .skills {
             let skill = skills.first { $0.id == selectedSkillID } ?? visibleSkills.first ?? skills.first
@@ -1460,7 +1612,7 @@ public struct CodexPluginRouteState: Equatable, Sendable {
                 return []
             case .mcps:
                 return []
-            case .skills:
+            case .skills, .marketplace:
                 return []
             }
         }

@@ -11,6 +11,7 @@ public struct CodexPluginRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     public let plugins: [CodexPluginSummary]
+    public let marketplaces: [CodexMarketplaceSummary]
     public let apps: [CodexAppSummary]
     public let skills: [CodexSkillSummary]
     public let mcpServers: [CodexMCPServerStatus]
@@ -20,10 +21,13 @@ public struct CodexPluginRouteView: View {
     public let pluginErrorMessage: String?
     public let appErrorMessage: String?
     public let skillErrorMessage: String?
+    public let marketplaceActionErrorMessage: String?
     public let pluginLoadErrors: [String]
+    public let skillLoadErrors: [String]
     public let launcherTarget: CodexComposerPluginLauncher?
     public let pendingPluginIDs: Set<String>
     public let pendingSkillIDs: Set<String>
+    public let pendingMarketplaceIDs: Set<String>
     public let onLoad: () -> Void
     public let onRefresh: () -> Void
     public let onAction: (CodexPluginRouteAction) -> Void
@@ -38,10 +42,12 @@ public struct CodexPluginRouteView: View {
     @State private var skillDetailID: String?
     @State private var expandedMarketplaceSections: Set<String> = []
     @State private var expandedSkillSections: Set<String> = []
+    @State private var marketplaceSource = ""
     @FocusState private var isSearchFocused: Bool
 
     public init(
         plugins: [CodexPluginSummary],
+        marketplaces: [CodexMarketplaceSummary] = [],
         apps: [CodexAppSummary] = [],
         skills: [CodexSkillSummary],
         mcpServers: [CodexMCPServerStatus],
@@ -51,10 +57,13 @@ public struct CodexPluginRouteView: View {
         pluginErrorMessage: String? = nil,
         appErrorMessage: String? = nil,
         skillErrorMessage: String? = nil,
+        marketplaceActionErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
+        skillLoadErrors: [String] = [],
         launcherTarget: CodexComposerPluginLauncher? = nil,
         pendingPluginIDs: Set<String> = [],
         pendingSkillIDs: Set<String> = [],
+        pendingMarketplaceIDs: Set<String> = [],
         initialTab: CodexPluginRoutePrimaryTab = .marketplace,
         initialManageTab: CodexPluginManageTab = .plugins,
         onLoad: @escaping () -> Void = {},
@@ -63,6 +72,7 @@ public struct CodexPluginRouteView: View {
         onOpenMCPDetails: @escaping () -> Void = {}
     ) {
         self.plugins = plugins
+        self.marketplaces = marketplaces
         self.apps = apps
         self.skills = skills
         self.mcpServers = mcpServers
@@ -72,10 +82,13 @@ public struct CodexPluginRouteView: View {
         self.pluginErrorMessage = pluginErrorMessage
         self.appErrorMessage = appErrorMessage
         self.skillErrorMessage = skillErrorMessage
+        self.marketplaceActionErrorMessage = marketplaceActionErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
+        self.skillLoadErrors = skillLoadErrors
         self.launcherTarget = launcherTarget
         self.pendingPluginIDs = pendingPluginIDs
         self.pendingSkillIDs = pendingSkillIDs
+        self.pendingMarketplaceIDs = pendingMarketplaceIDs
         let initialPage: CodexPluginRoutePage = switch initialTab {
         case .marketplace: .plugins
         case .skills: .skills
@@ -100,6 +113,7 @@ public struct CodexPluginRouteView: View {
     private var routeState: CodexPluginRouteState {
         CodexPluginRouteState(
             plugins: plugins,
+            marketplaces: marketplaces,
             apps: apps,
             skills: skills,
             mcpServers: mcpServers,
@@ -140,6 +154,13 @@ public struct CodexPluginRouteView: View {
         }
         .onChange(of: launcherTarget) { _, _ in applyLauncherTargetIfNeeded() }
         .onChange(of: plugins.map(\.id)) { _, _ in applyLauncherTargetIfNeeded() }
+        .onChange(of: manageCounts) { _, counts in
+            guard page == .manage,
+                  !counts.contains(where: { $0.tab == manageTab }),
+                  let fallback = counts.first?.tab else { return }
+            manageTab = fallback
+            searchQuery = ""
+        }
         .onChange(of: selectedPluginID) { _, id in
             guard let id else { return }
             pluginDetailReturnPage = page == .manage ? .manage : .plugins
@@ -621,7 +642,76 @@ public struct CodexPluginRouteView: View {
             }
         case .skills:
             ScrollView { LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) { managedSkillRows } }
+        case .marketplace:
+            marketplaceManagement
         }
+    }
+
+    private var marketplaceManagement: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                TextField("Marketplace source URL or path", text: $marketplaceSource)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(addMarketplace)
+                Button(action: addMarketplace) {
+                    if pendingMarketplaceIDs.contains(marketplaceSource.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                        CodexSpinner(size: .small)
+                    } else {
+                        Text("Add")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(marketplaceSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || pendingMarketplaceIDs.contains(marketplaceSource.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+            Text("Only sources you enter are registered. CodexCore does not discover marketplaces from local caches or files.")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+            ScrollView {
+                LazyVStack(spacing: CodexPluginLayoutMetrics.rowSpacing) {
+                    if routeState.visibleMarketplaces.isEmpty {
+                        emptyState(title: "No registered marketplaces", detail: "Marketplaces reported by Codex appear here.")
+                    } else {
+                        ForEach(routeState.visibleMarketplaces) { marketplace in
+                            marketplaceRow(marketplace)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func marketplaceRow(_ marketplace: CodexMarketplaceSummary) -> some View {
+        let isPending = pendingMarketplaceIDs.contains(marketplace.name)
+        return HStack(spacing: 12) {
+            Image(systemName: "shippingbox")
+                .frame(width: 36, height: 36)
+                .background(theme.colors.surfaceElevated, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(marketplace.displayName).font(theme.fonts.label)
+                Text(marketplace.path?.nilIfBlank ?? "Path not reported by Codex")
+                    .font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
+            }
+            Spacer()
+            Text("\(marketplace.pluginCount) \(marketplace.pluginCount == 1 ? "plugin" : "plugins")")
+                .font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary)
+            if isPending {
+                CodexSpinner(size: .small)
+            } else {
+                Button("Upgrade") { onAction(.upgradeMarketplace(.init(marketplace: marketplace))) }
+                    .buttonStyle(.bordered)
+                Button("Remove", role: .destructive) { onAction(.removeMarketplace(.init(marketplace: marketplace))) }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: CodexPluginLayoutMetrics.rowHeight)
+    }
+
+    private func addMarketplace() {
+        let source = marketplaceSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return }
+        onAction(.addMarketplace(source: source))
     }
 
     @ViewBuilder private func skillSection(_ title: String, skills: [CodexSkillSummary]) -> some View {
@@ -737,7 +827,7 @@ public struct CodexPluginRouteView: View {
                         Text(server.inventorySummary).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary)
                     }
                     Spacer()
-                    Text(server.error == nil ? "Connected" : "Error")
+                    Text(server.error == nil ? "Configured" : "Error")
                         .font(theme.fonts.caption.weight(.medium))
                         .foregroundStyle(server.error == nil ? theme.colors.textSecondary : theme.colors.danger)
                 }
@@ -749,10 +839,18 @@ public struct CodexPluginRouteView: View {
     }
 
     @ViewBuilder private var statusMessages: some View {
-        if let error = pluginErrorMessage { statusBanner(error, color: theme.colors.danger) }
-        if let error = appErrorMessage, page == .manage, manageTab == .apps { statusBanner(error, color: theme.colors.danger) }
-        if let error = skillErrorMessage { statusBanner(error, color: theme.colors.danger) }
-        ForEach(pluginLoadErrors, id: \.self) { statusBanner($0, color: theme.colors.warning) }
+        if page == .skills || (page == .manage && manageTab == .skills) {
+            if let skillErrorMessage { statusBanner(skillErrorMessage, color: theme.colors.danger) }
+            ForEach(skillLoadErrors, id: \.self) { statusBanner($0, color: theme.colors.warning) }
+        } else if page == .manage && manageTab == .apps {
+            if let appErrorMessage { statusBanner(appErrorMessage, color: theme.colors.danger) }
+        } else {
+            if let pluginErrorMessage { statusBanner(pluginErrorMessage, color: theme.colors.danger) }
+            if let marketplaceActionErrorMessage, page == .manage, manageTab == .marketplace {
+                statusBanner(marketplaceActionErrorMessage, color: theme.colors.danger)
+            }
+            ForEach(pluginLoadErrors, id: \.self) { statusBanner($0, color: theme.colors.warning) }
+        }
     }
 
     private func statusBanner(_ text: String, color: Color) -> some View {
@@ -824,6 +922,7 @@ public struct CodexPluginRouteView: View {
             .init(tab: .apps, count: apps.count),
             .init(tab: .mcps, count: mcpServers.count),
             .init(tab: .skills, count: skills.count),
+            .init(tab: .marketplace, count: marketplaces.count),
         ]
     }
 
@@ -850,6 +949,7 @@ public struct CodexPluginRouteView: View {
         case .apps: "Search apps"
         case .mcps: "Search MCPs"
         case .skills: "Search skills"
+        case .marketplace: "Search marketplaces"
         }
     }
 
@@ -1094,11 +1194,9 @@ struct OfficialSkillDetailSheet: View {
             }
 
             HStack {
-                if skill.scope?.lowercased() == "user" {
-                    Button("Uninstall", role: .destructive) { onAction(.uninstallSkill(.init(skill: skill))) }
-                        .buttonStyle(.bordered)
-                        .disabled(isPending)
-                }
+                Text("Skill removal is managed outside CodexCore")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
                 Spacer()
                 if let prompt = skill.defaultPrompt {
                     Button { onAction(.tryInChat(prompt: prompt)) } label: {

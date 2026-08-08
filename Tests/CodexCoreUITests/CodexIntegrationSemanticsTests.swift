@@ -84,4 +84,44 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
         XCTAssertEqual(first?.dependencies, ["binary: git"])
         XCTAssertNotEqual(first?.id, second?.id)
     }
+
+    func testSkillListErrorsRemainVisibleWithTheirReportedPath() {
+        let response: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "cwd": .string("/repo"),
+                    "skills": .array([]),
+                    "errors": .array([
+                        .dictionary([
+                            "path": .string("/repo/.agents/skills/broken/SKILL.md"),
+                            "message": .string("invalid front matter")
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        var session = CodexIntegrationCatalogSession()
+        session.applySkillResponse(response)
+        XCTAssertEqual(session.skillLoadErrors, ["/repo/.agents/skills/broken/SKILL.md: invalid front matter"])
+        XCTAssertNil(session.skillErrorMessage)
+    }
+
+
+    func testMalformedPluginLifecycleIsNotDefaultedIntoAnActionableRecord() {
+        let response: CodexJSONValue = .dictionary([
+            "marketplaces": .array([
+                .dictionary([
+                    "name": .string("official"),
+                    "plugins": .array([
+                        .dictionary([
+                            "id": .string("missing-lifecycle"),
+                            "name": .string("missing-lifecycle")
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        XCTAssertTrue(CodexPluginSummary.plugins(from: response).isEmpty)
+    }
+
 }

@@ -712,6 +712,9 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "enabled": .bool(true),
                             "id": .string("resume-from-opencode"),
                             "installed": .bool(true),
+                            "installPolicy": .string("AVAILABLE"),
+                            "authPolicy": .string("ON_USE"),
+                            "source": .dictionary(["type": .string("local")]),
                             "name": .string("resume-from-opencode"),
                             "interface": .dictionary([
                                 "displayName": .string("Resume OpenCode"),
@@ -836,7 +839,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             "Plugins:2",
             "Apps:2",
             "MCPs:1",
-            "Skills:2"
+            "Skills:2",
+            "Marketplace:0"
         ])
         XCTAssertEqual(state.categoryCards.first?.title, "Browser")
 
@@ -999,7 +1003,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(detail.prompt, "Use the browser to inspect localhost.")
         XCTAssertEqual(detail.primaryAction, .setSkillEnabled(CodexSkillActionTarget(skill: enabled), enabled: false))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Use the browser to inspect localhost."))
-        XCTAssertTrue(detail.canUninstall)
+        XCTAssertFalse(detail.canUninstall)
     }
 
     func testPluginRouteFiltersAndMCPManagementRemainSeparate() throws {
@@ -1146,9 +1150,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertNil(personalSkillToggle.name)
         XCTAssertEqual(personalSkillToggle.path?.rawValue, .string(personalSkillTarget.path))
 
-        let uninstallSkill = CodexPluginProtocolMutation.skillUninstallParams(for: skillTarget)
-        XCTAssertEqual(uninstallSkill.path.rawValue, .string("/tmp/skills/browser:control"))
-        XCTAssertEqual(uninstallSkill.recursive, true)
+        // Codex exposes no generated skill-uninstall operation. The UI must not
+        // substitute recursive filesystem deletion for one.
     }
 
     func testSkillSummariesParseAppServerSkillsForRoute() {

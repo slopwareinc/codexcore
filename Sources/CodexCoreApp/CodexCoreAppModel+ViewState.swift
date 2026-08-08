@@ -157,6 +157,10 @@ extension CodexCoreAppModel {
         observedIntegrationCatalogSession.plugins
     }
 
+    var marketplaces: [CodexMarketplaceSummary] {
+        observedIntegrationCatalogSession.marketplaces
+    }
+
     var isLoadingPlugins: Bool {
         observedIntegrationCatalogSession.isLoadingPlugins
     }
@@ -191,6 +195,10 @@ extension CodexCoreAppModel {
 
     var skillErrorMessage: String? {
         observedIntegrationCatalogSession.skillErrorMessage
+    }
+
+    var skillLoadErrors: [String] {
+        observedIntegrationCatalogSession.skillLoadErrors
     }
 
     var approvalPrompts: [CodexApprovalPrompt] {
