@@ -20,6 +20,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public private(set) var isLoadingPlugins: Bool
     public private(set) var pluginErrorMessage: String?
     public private(set) var pluginLoadErrors: [String]
+    public private(set) var pluginReadDetails: [String: CodexPluginReadDetail]
+    public private(set) var loadingPluginReadIDs: Set<String>
+    public private(set) var pluginReadErrors: [String: String]
     public private(set) var apps: [CodexAppSummary]
     public private(set) var isLoadingApps: Bool
     public private(set) var appErrorMessage: String?
@@ -37,6 +40,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins: Bool = false,
         pluginErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
+        pluginReadDetails: [String: CodexPluginReadDetail] = [:],
+        loadingPluginReadIDs: Set<String> = [],
+        pluginReadErrors: [String: String] = [:],
         apps: [CodexAppSummary] = [],
         isLoadingApps: Bool = false,
         appErrorMessage: String? = nil,
@@ -53,6 +59,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         self.isLoadingPlugins = isLoadingPlugins
         self.pluginErrorMessage = pluginErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
+        self.pluginReadDetails = pluginReadDetails
+        self.loadingPluginReadIDs = loadingPluginReadIDs
+        self.pluginReadErrors = pluginReadErrors
         self.apps = apps
         self.isLoadingApps = isLoadingApps
         self.appErrorMessage = appErrorMessage
@@ -71,6 +80,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins = false
         pluginErrorMessage = nil
         pluginLoadErrors = []
+        pluginReadDetails = [:]
+        loadingPluginReadIDs = []
+        pluginReadErrors = [:]
         apps = []
         isLoadingApps = false
         appErrorMessage = nil
@@ -130,6 +142,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         plugins = []
         marketplaces = []
         pluginLoadErrors = []
+        pluginReadDetails = [:]
+        loadingPluginReadIDs = []
+        pluginReadErrors = [:]
         isLoadingPlugins = false
         pluginErrorMessage = message
         apps = []
@@ -173,9 +188,29 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         return previous
     }
 
+    public mutating func beginPluginRead(id: String) {
+        loadingPluginReadIDs.insert(id)
+        pluginReadErrors.removeValue(forKey: id)
+    }
+
+    public mutating func applyPluginRead(id: String, response: CodexSchemaPluginReadResponse) {
+        pluginReadDetails[id] = CodexPluginReadDetail(id: id, detail: response.plugin)
+        loadingPluginReadIDs.remove(id)
+        pluginReadErrors.removeValue(forKey: id)
+    }
+
+    public mutating func failPluginRead(id: String, message: String) {
+        loadingPluginReadIDs.remove(id)
+        pluginReadErrors[id] = message
+    }
+
     @discardableResult
     public mutating func applyPluginResponse(_ raw: CodexJSONValue) -> CodexIntegrationCatalogActivity {
         plugins = CodexPluginSummary.plugins(from: raw)
+        let availableIDs = Set(plugins.map(\.id))
+        pluginReadDetails = pluginReadDetails.filter { availableIDs.contains($0.key) }
+        pluginReadErrors = pluginReadErrors.filter { availableIDs.contains($0.key) }
+        loadingPluginReadIDs.formIntersection(availableIDs)
         marketplaces = CodexMarketplaceSummary.marketplaces(from: raw)
         pluginLoadErrors = CodexPluginSummary.loadErrorMessages(from: raw)
         isLoadingPlugins = false
@@ -256,6 +291,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         plugins = []
         marketplaces = []
         pluginLoadErrors = []
+        pluginReadDetails = [:]
+        loadingPluginReadIDs = []
+        pluginReadErrors = [:]
         isLoadingPlugins = false
         pluginErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "Plugin list unavailable", detail: message)

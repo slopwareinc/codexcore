@@ -24,6 +24,9 @@ public struct CodexPluginRouteView: View {
     public let marketplaceActionErrorMessage: String?
     public let pluginLoadErrors: [String]
     public let skillLoadErrors: [String]
+    public let pluginReadDetails: [String: CodexPluginReadDetail]
+    public let loadingPluginReadIDs: Set<String>
+    public let pluginReadErrors: [String: String]
     public let launcherTarget: CodexComposerPluginLauncher?
     public let pendingPluginIDs: Set<String>
     public let pendingSkillIDs: Set<String>
@@ -31,6 +34,7 @@ public struct CodexPluginRouteView: View {
     public let onLoad: () -> Void
     public let onRefresh: () -> Void
     public let onAction: (CodexPluginRouteAction) -> Void
+    public let onReadPlugin: (CodexPluginSummary) -> Void
     public let onOpenMCPDetails: () -> Void
 
     @State private var page: CodexPluginRoutePage
@@ -60,6 +64,9 @@ public struct CodexPluginRouteView: View {
         marketplaceActionErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
         skillLoadErrors: [String] = [],
+        pluginReadDetails: [String: CodexPluginReadDetail] = [:],
+        loadingPluginReadIDs: Set<String> = [],
+        pluginReadErrors: [String: String] = [:],
         launcherTarget: CodexComposerPluginLauncher? = nil,
         pendingPluginIDs: Set<String> = [],
         pendingSkillIDs: Set<String> = [],
@@ -69,6 +76,7 @@ public struct CodexPluginRouteView: View {
         onLoad: @escaping () -> Void = {},
         onRefresh: @escaping () -> Void,
         onAction: @escaping (CodexPluginRouteAction) -> Void,
+        onReadPlugin: @escaping (CodexPluginSummary) -> Void = { _ in },
         onOpenMCPDetails: @escaping () -> Void = {}
     ) {
         self.plugins = plugins
@@ -85,6 +93,9 @@ public struct CodexPluginRouteView: View {
         self.marketplaceActionErrorMessage = marketplaceActionErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
         self.skillLoadErrors = skillLoadErrors
+        self.pluginReadDetails = pluginReadDetails
+        self.loadingPluginReadIDs = loadingPluginReadIDs
+        self.pluginReadErrors = pluginReadErrors
         self.launcherTarget = launcherTarget
         self.pendingPluginIDs = pendingPluginIDs
         self.pendingSkillIDs = pendingSkillIDs
@@ -99,6 +110,7 @@ public struct CodexPluginRouteView: View {
         self.onLoad = onLoad
         self.onRefresh = onRefresh
         self.onAction = onAction
+        self.onReadPlugin = onReadPlugin
         self.onOpenMCPDetails = onOpenMCPDetails
     }
 
@@ -162,9 +174,10 @@ public struct CodexPluginRouteView: View {
             searchQuery = ""
         }
         .onChange(of: selectedPluginID) { _, id in
-            guard let id else { return }
+            guard let id, let plugin = plugins.first(where: { $0.id == id }) else { return }
             pluginDetailReturnPage = page == .manage ? .manage : .plugins
             page = .pluginDetail(id)
+            onReadPlugin(plugin)
         }
         .onExitCommand(perform: goBackOrClearSearch)
         .overlay(alignment: .topTrailing) {
@@ -334,7 +347,9 @@ public struct CodexPluginRouteView: View {
             if let plugin = plugins.first(where: { $0.id == id }) {
                 OfficialPluginDetailPage(
                     plugin: plugin,
-                    skills: associatedSkills(with: plugin),
+                    readDetail: pluginReadDetails[plugin.id],
+                    isLoadingReadDetail: loadingPluginReadIDs.contains(plugin.id),
+                    readError: pluginReadErrors[plugin.id],
                     isPending: isPending(plugin),
                     onAction: onAction
                 )
@@ -965,21 +980,7 @@ public struct CodexPluginRouteView: View {
     }
 
     private func pluginIcon(for skill: CodexSkillSummary) -> CodexPluginIconReference {
-        let skillName = skill.name.lowercased()
-        return plugins.first { plugin in
-            skillName == plugin.name.lowercased()
-                || skillName.hasPrefix(plugin.name.lowercased() + ":")
-                || skill.path.lowercased().contains("/\(plugin.name.lowercased())/")
-        }?.icon ?? .init()
-    }
-
-    private func associatedSkills(with plugin: CodexPluginSummary) -> [CodexSkillSummary] {
-        let name = plugin.name.lowercased()
-        return skills.filter {
-            $0.name.lowercased() == name
-                || $0.name.lowercased().hasPrefix(name + ":")
-                || $0.path.lowercased().contains("/\(name)/")
-        }
+        CodexPluginIconReference(logo: skill.iconSmall ?? skill.iconLarge)
     }
 
     private func applyLauncherTargetIfNeeded() {
@@ -1217,7 +1218,9 @@ struct OfficialSkillDetailSheet: View {
 private struct OfficialPluginDetailPage: View {
     @Environment(\.codexAgentTheme) private var theme
     let plugin: CodexPluginSummary
-    let skills: [CodexSkillSummary]
+    let readDetail: CodexPluginReadDetail?
+    let isLoadingReadDetail: Bool
+    let readError: String?
     let isPending: Bool
     let onAction: (CodexPluginRouteAction) -> Void
 
@@ -1259,22 +1262,31 @@ private struct OfficialPluginDetailPage: View {
                     )
                 }
 
-                Text(plugin.longDescription?.nilIfBlank ?? plugin.detail)
+                Text(readDetail?.description ?? plugin.longDescription?.nilIfBlank ?? plugin.detail)
                     .font(theme.fonts.chat)
                     .foregroundStyle(theme.colors.textSecondary)
                     .lineSpacing(4)
 
-                if !skills.isEmpty {
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text("Skills  \(skills.count)").font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary)
-                        ForEach(skills) { skill in
-                            HStack {
-                                Text(skill.displayName).font(theme.fonts.label)
-                                Spacer()
-                                Text(skill.detail).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
-                            }
-                        }
+                if isLoadingReadDetail {
+                    HStack(spacing: 8) {
+                        CodexSpinner(size: .small)
+                        Text("Loading plugin relationships")
                     }
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                } else if let readError {
+                    Label(readError, systemImage: "exclamationmark.triangle.fill")
+                        .font(theme.fonts.caption)
+                        .foregroundStyle(theme.colors.danger)
+                }
+
+                if let readDetail {
+                    relationshipSection("Apps", values: readDetail.appNames)
+                    relationshipSection("App templates", values: readDetail.appTemplateNames)
+                    relationshipSection("MCP servers", values: readDetail.mcpServerNames)
+                    relationshipSection("Skills", values: readDetail.skillNames)
+                    relationshipSection("Hooks", values: readDetail.hookNames)
+                    relationshipSection("Scheduled tasks", values: readDetail.scheduledTaskNames)
                 }
 
                 VStack(alignment: .leading, spacing: 11) {
@@ -1286,6 +1298,7 @@ private struct OfficialPluginDetailPage: View {
                     if let website = plugin.websiteURL { linkRow("Website", url: website) }
                     if let privacy = plugin.privacyPolicyURL { linkRow("Privacy Policy", url: privacy) }
                     if let terms = plugin.termsOfServiceURL { linkRow("Terms of Service", url: terms) }
+                    if let shareURL = readDetail?.shareURL { linkRow("Share", url: shareURL) }
                 }
             }
             .padding(.horizontal, 24)
@@ -1313,6 +1326,21 @@ private struct OfficialPluginDetailPage: View {
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
         .disabled(isPending)
         .accessibilityLabel("More actions for \(plugin.displayName)")
+    }
+
+    @ViewBuilder private func relationshipSection(_ title: String, values: [String]) -> some View {
+        if !values.isEmpty {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("\(title)  \(values.count)")
+                    .font(theme.fonts.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+                ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    Text(value)
+                        .font(theme.fonts.label)
+                        .foregroundStyle(theme.colors.textPrimary)
+                }
+            }
+        }
     }
 
     private func informationRow(_ label: String, value: String) -> some View {

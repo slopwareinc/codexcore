@@ -124,4 +124,24 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
         XCTAssertTrue(CodexPluginSummary.plugins(from: response).isEmpty)
     }
 
+
+    func testMCPRuntimeStatusDoesNotInventConfigurationEnablement() {
+        let complete: CodexJSONValue = .dictionary([
+            "name": .string("filesystem"),
+            "authStatus": .string("unsupported"),
+            "tools": .dictionary([:]),
+            "resources": .array([]),
+            "resourceTemplates": .array([])
+        ])
+        let status = CodexMCPServerStatus(raw: complete)
+        XCTAssertNotNil(status)
+        XCTAssertNil(status?.enabled)
+
+        let missingRequiredInventory: CodexJSONValue = .dictionary([
+            "name": .string("filesystem"),
+            "authStatus": .string("unsupported")
+        ])
+        XCTAssertNil(CodexMCPServerStatus(raw: missingRequiredInventory))
+    }
+
 }

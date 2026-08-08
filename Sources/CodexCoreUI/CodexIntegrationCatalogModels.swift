@@ -22,8 +22,8 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     public var version: String?
     public var detail: String?
     public var authStatus: String
-    /// Whether the configured server is enabled. Older app-server responses omit this and default to enabled.
-    public var enabled: Bool
+    /// Configuration enablement, when explicitly reported. Runtime status alone does not imply it.
+    public var enabled: Bool?
     public var startupStatus: String?
     public var error: String?
     public var tools: [Entry]
@@ -38,7 +38,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         version: String? = nil,
         detail: String? = nil,
         authStatus: String = "unknown",
-        enabled: Bool = true,
+        enabled: Bool? = nil,
         startupStatus: String? = nil,
         error: String? = nil,
         tools: [Entry] = [],
@@ -60,7 +60,11 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
 
     public init?(raw value: CodexJSONValue) {
         guard case .dictionary(let object) = value,
-              let name = Self.string(in: object, keys: ["name", "id", "serverName"])?.nilIfBlank else {
+              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank,
+              let authStatus = Self.string(in: object, keys: ["authStatus"])?.nilIfBlank,
+              case .dictionary(let tools)? = object["tools"],
+              case .array(let resources)? = object["resources"],
+              case .array(let resourceTemplates)? = object["resourceTemplates"] else {
             return nil
         }
 
@@ -77,13 +81,13 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             displayName: displayName,
             version: version,
             detail: detail,
-            authStatus: Self.string(in: object, keys: ["authStatus", "auth", "authentication"]) ?? "unknown",
-            enabled: Self.bool(in: object, keys: ["enabled", "isEnabled"]) ?? true,
+            authStatus: authStatus,
+            enabled: Self.bool(in: object, keys: ["enabled", "isEnabled"]),
             startupStatus: Self.string(in: object, keys: ["status", "startupStatus", "state"]),
             error: Self.string(in: object, keys: ["error"]),
-            tools: Self.entries(from: object["tools"]),
-            resources: Self.entries(from: object["resources"]),
-            resourceTemplates: Self.entries(from: object["resourceTemplates"])
+            tools: Self.entries(from: .dictionary(tools)),
+            resources: Self.entries(from: .array(resources)),
+            resourceTemplates: Self.entries(from: .array(resourceTemplates))
         )
     }
 
@@ -297,6 +301,30 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
                 )
             }
         return catalogRecords + installedOnlyRecords
+    }
+}
+
+public struct CodexPluginReadDetail: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var description: String?
+    public var appNames: [String]
+    public var appTemplateNames: [String]
+    public var mcpServerNames: [String]
+    public var skillNames: [String]
+    public var hookNames: [String]
+    public var scheduledTaskNames: [String]
+    public var shareURL: String?
+
+    public init(id: String, detail: CodexSchemaPluginDetail) {
+        self.id = id
+        self.description = detail.description?.nilIfBlank
+        self.appNames = detail.apps.map(\.name)
+        self.appTemplateNames = detail.appTemplates.map(\.name)
+        self.mcpServerNames = detail.mcpServers
+        self.skillNames = detail.skills.map { $0.interface?.displayName?.nilIfBlank ?? $0.name }
+        self.hookNames = detail.hooks.map { "\($0.eventName.rawValue): \($0.key)" }
+        self.scheduledTaskNames = detail.scheduledTasks?.map(\.name) ?? []
+        self.shareURL = detail.shareUrl?.nilIfBlank
     }
 }
 
@@ -1050,6 +1078,14 @@ public extension CodexPluginCatalogActionProvider {
 /// Pure request construction keeps the plugin control plane inspectable and
 /// testable without coupling UI state to generated protocol representations.
 public enum CodexPluginProtocolMutation {
+    public static func readParams(for plugin: CodexPluginSummary) -> CodexSchemaPluginReadParams {
+        CodexSchemaPluginReadParams(
+            marketplacePath: plugin.marketplacePath.map { CodexAppServerSchemaValue(.string($0)) },
+            pluginName: plugin.name,
+            remoteMarketplaceName: plugin.marketplacePath == nil ? plugin.marketplaceName : nil
+        )
+    }
+
     public static func installParams(for target: CodexPluginActionTarget) -> CodexSchemaPluginInstallParams {
         CodexSchemaPluginInstallParams(
             marketplacePath: target.marketplacePath.map { CodexAppServerSchemaValue(.string($0)) },

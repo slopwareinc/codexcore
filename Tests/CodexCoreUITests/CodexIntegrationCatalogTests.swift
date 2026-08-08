@@ -699,7 +699,9 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "name": .string("read_file"),
                             "title": .string("Read file")
                         ])
-                    ])
+                    ]),
+                    "resources": .array([]),
+                    "resourceTemplates": .array([])
                 ])
             ])
         ])

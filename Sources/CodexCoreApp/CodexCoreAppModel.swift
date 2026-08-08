@@ -1414,6 +1414,36 @@ final class CodexCoreAppModel {
         Task { await refreshPlugins() }
     }
 
+    func requestPluginRead(_ plugin: CodexPluginSummary) {
+        let state = runtimeSession.integrationCatalogSession
+        guard state.pluginReadDetails[plugin.id] == nil,
+              !state.loadingPluginReadIDs.contains(plugin.id) else { return }
+        var loadingState = state
+        loadingState.beginPluginRead(id: plugin.id)
+        publishIntegrationCatalogSession(loadingState)
+        Task { await refreshPluginRead(plugin) }
+    }
+
+    private func refreshPluginRead(_ plugin: CodexPluginSummary) async {
+        guard let codex else {
+            var state = runtimeSession.integrationCatalogSession
+            state.failPluginRead(id: plugin.id, message: "Connect to Codex to load plugin details.")
+            publishIntegrationCatalogSession(state)
+            return
+        }
+        do {
+            let response = try await codex.pluginRead(CodexPluginProtocolMutation.readParams(for: plugin))
+            var state = runtimeSession.integrationCatalogSession
+            guard state.plugins.contains(where: { $0.id == plugin.id }) else { return }
+            state.applyPluginRead(id: plugin.id, response: response)
+            publishIntegrationCatalogSession(state)
+        } catch {
+            var state = runtimeSession.integrationCatalogSession
+            state.failPluginRead(id: plugin.id, message: CodexErrorFormat.localizedDescription(error))
+            publishIntegrationCatalogSession(state)
+        }
+    }
+
     func performAutomationRouteAction(_ action: CodexAutomationRouteAction) {
         if let request = action.draftRequest {
             Task { await prepareAutomationDraft(request) }

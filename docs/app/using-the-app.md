@@ -24,7 +24,10 @@ display name, path (or an explicit unknown-path label), and plugin count. Enter 
 source URL or path to register it; Upgrade and Remove call the corresponding
 app-server marketplace methods and refresh the plugin inventory after success.
 CodexCore does not scan or auto-register marketplace manifests from filesystem or
-cache guesses.
+cache guesses. Plugin detail pages load their authoritative Apps, app templates,
+MCP servers, Skills, hooks, scheduled tasks, sharing metadata, and description with
+`plugin/read`; CodexCore does not reconstruct those relationships from list summaries
+or name matching.
 
 The **Apps** inventory comes from app-server `app/list` joined with
 `app/installed` by app ID. Catalog availability and local runtime installation,

@@ -184,7 +184,7 @@ private struct MCPServerStatusRow: View {
             .disabled(isMutating)
 
             HStack(spacing: 8) {
-                Text(server.enabled ? (server.startupStatus ?? "Status unavailable") : "Disabled")
+                Text(runtimeStatusLabel)
                     .foregroundStyle(statusColor)
                 Text(server.inventorySummary).foregroundStyle(theme.colors.textSecondary)
                 if let error = server.error?.nilIfBlank {
@@ -200,8 +200,14 @@ private struct MCPServerStatusRow: View {
         .overlay(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous).stroke(theme.colors.border))
     }
 
+    private var runtimeStatusLabel: String {
+        if server.enabled == false { return "Disabled" }
+        if let startupStatus = server.startupStatus?.nilIfBlank { return startupStatus.capitalized }
+        return server.enabled == true ? "Enabled; runtime status unavailable" : "Configuration enablement unknown"
+    }
+
     private var statusImage: String {
-        guard server.enabled else { return "pause.circle" }
+        if server.enabled == false { return "pause.circle" }
         switch server.startupStatus {
         case "ready": return "checkmark.circle.fill"
         case "failed": return "exclamationmark.triangle.fill"
@@ -212,7 +218,7 @@ private struct MCPServerStatusRow: View {
     }
 
     private var statusColor: Color {
-        guard server.enabled else { return theme.colors.textTertiary }
+        if server.enabled == false { return theme.colors.textTertiary }
         switch server.startupStatus {
         case "ready": return theme.colors.success
         case "failed": return theme.colors.danger

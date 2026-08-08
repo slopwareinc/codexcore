@@ -173,6 +173,18 @@ extension CodexCoreAppModel {
         observedIntegrationCatalogSession.pluginLoadErrors
     }
 
+    var pluginReadDetails: [String: CodexPluginReadDetail] {
+        observedIntegrationCatalogSession.pluginReadDetails
+    }
+
+    var loadingPluginReadIDs: Set<String> {
+        observedIntegrationCatalogSession.loadingPluginReadIDs
+    }
+
+    var pluginReadErrors: [String: String] {
+        observedIntegrationCatalogSession.pluginReadErrors
+    }
+
     var apps: [CodexAppSummary] {
         observedIntegrationCatalogSession.apps
     }

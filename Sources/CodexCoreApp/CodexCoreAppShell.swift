@@ -341,6 +341,9 @@ struct CodexCoreAppShell: View {
                 marketplaceActionErrorMessage: model.marketplaceActionErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
                 skillLoadErrors: model.skillLoadErrors,
+                pluginReadDetails: model.pluginReadDetails,
+                loadingPluginReadIDs: model.loadingPluginReadIDs,
+                pluginReadErrors: model.pluginReadErrors,
                 launcherTarget: model.pluginLauncherTarget,
                 pendingPluginIDs: model.pendingPluginActionIDs,
                 pendingSkillIDs: model.pendingSkillActionIDs,
@@ -348,6 +351,7 @@ struct CodexCoreAppShell: View {
                 onLoad: { model.requestPluginRefresh() },
                 onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) },
+                onReadPlugin: { model.requestPluginRead($0) },
                 onOpenMCPDetails: { isMCPStatusSheetPresented = true }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
