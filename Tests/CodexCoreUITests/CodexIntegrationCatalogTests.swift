@@ -270,7 +270,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
 
         XCTAssertEqual(allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }.count, 1)
         XCTAssertEqual(
-            allDescendants(of: NSImageView.self, in: hosting)
+            allDescendants(of: NSTextField.self, in: hosting)
                 .filter { !$0.isHidden && $0.accessibilityLabel() == "Enabled" }
                 .count,
             1
@@ -622,7 +622,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(plugins[0].protocolID, "resume-from-opencode")
         XCTAssertTrue(plugins[0].isFeatured)
         XCTAssertEqual(plugins[0].displayName, "Resume OpenCode")
-        XCTAssertEqual(plugins[0].statusLabel, "Installed")
+        XCTAssertEqual(plugins[0].statusLabel, "Enabled")
         XCTAssertEqual(plugins[0].sourceLabel, "Local")
         XCTAssertEqual(plugins[0].sourceDetail, "/tmp/plugins/resume-from-opencode")
         XCTAssertEqual(plugins[0].marketplaceDisplayName, "Local marketplace")
@@ -821,6 +821,10 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         ]
         let state = CodexPluginRouteState(
             plugins: plugins,
+            apps: [
+                CodexAppSummary(id: "browser", name: "Browser", isAccessible: true),
+                CodexAppSummary(id: "chrome", name: "Chrome", isAccessible: true)
+            ],
             skills: skills,
             mcpServers: [CodexMCPServerStatus(name: "filesystem")],
             searchQuery: "browser",
@@ -1166,8 +1170,12 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "scope": .string("user"),
                             "enabled": .bool(true),
                             "dependencies": .dictionary([
-                                "playwright": .bool(true),
-                                "unused": .bool(false)
+                                "tools": .array([
+                                    .dictionary([
+                                        "type": .string("binary"),
+                                        "value": .string("playwright")
+                                    ])
+                                ])
                             ])
                         ])
                     ]),
@@ -1183,7 +1191,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(skills[0].detail, "Operate browser tabs")
         XCTAssertEqual(skills[0].defaultPrompt, "Use the browser\nInspect localhost")
         XCTAssertEqual(skills[0].scopeLabel, "Personal")
-        XCTAssertEqual(skills[0].dependencies, ["playwright"])
+        XCTAssertEqual(skills[0].dependencies, ["binary: playwright"])
 
         var session = CodexIntegrationCatalogSession()
         let activity = session.applySkillResponse(response)

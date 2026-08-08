@@ -105,7 +105,6 @@ final class CodexCoreAppModel {
     private var skillsChangedObservationTask: Task<Void, Never>?
     private var skillsChangedObservationGeneration: UInt64 = 0
     private var integrationCatalogRefreshGeneration: UInt64 = 0
-    private var didBootstrapPluginMarketplaces = false
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
     private var pendingSteerSubmissions: [CodexComposerSubmission] = []
@@ -2104,22 +2103,6 @@ final class CodexCoreAppModel {
         integrationCatalogRefreshGeneration &+= 1
         let refreshGeneration = integrationCatalogRefreshGeneration
 
-        if !didBootstrapPluginMarketplaces {
-            let sources = CodexPluginMarketplaceDiscovery.sources(codexHome: codexHome)
-            let bootstrap = await CodexPluginMarketplaceBootstrap.register(
-                sources,
-                using: codex,
-                errorMessage: CodexErrorFormat.localizedDescription
-            )
-            didBootstrapPluginMarketplaces = true
-            if !bootstrap.failures.isEmpty {
-                appendIntegrationActivity(.init(
-                    title: "Some plugin marketplaces couldn’t load",
-                    detail: bootstrap.failures.joined(separator: "\n")
-                ))
-            }
-        }
-
         var session = runtimeSession.integrationCatalogSession
         let pluginActivity = await session.refreshPlugins(
             using: codex,
@@ -3332,7 +3315,6 @@ final class CodexCoreAppModel {
         var integrationSession = runtimeSession.integrationCatalogSession
         integrationSession.reset()
         publishIntegrationCatalogSession(integrationSession)
-        didBootstrapPluginMarketplaces = false
         configurationSession.reset()
         invalidatePendingChatSelection()
         clearThreadState()

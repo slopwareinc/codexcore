@@ -100,6 +100,7 @@ public struct CodexPluginRouteView: View {
     private var routeState: CodexPluginRouteState {
         CodexPluginRouteState(
             plugins: plugins,
+            apps: apps,
             skills: skills,
             mcpServers: mcpServers,
             primaryTab: primaryTab,
@@ -173,6 +174,16 @@ public struct CodexPluginRouteView: View {
         HStack(spacing: 8) {
             toolbarNavigation
             Spacer()
+            if page == .plugins {
+                Button("Manage") {
+                    selectedPluginID = nil
+                    searchQuery = ""
+                    page = .manage
+                }
+                .buttonStyle(.plain)
+                .font(theme.fonts.caption.weight(.medium))
+                .accessibilityLabel("Manage plugins, apps, MCPs, and skills")
+            }
             createMenu
             if page == .manage || isPluginDetail {
                 Menu {
@@ -313,27 +324,29 @@ public struct CodexPluginRouteView: View {
     }
 
     private var marketplacePage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                pageTitle("Plugins", subtitle: "Work with Codex across your favorite tools")
-                searchField(placeholder: "Search plugins and skills", showsFilter: true)
-                statusMessages
-                if isLoadingPlugins && plugins.isEmpty {
-                    loadingRows
-                } else if let pluginErrorMessage, plugins.isEmpty {
-                    emptyState(title: "Couldn’t load plugins", detail: pluginErrorMessage)
-                } else if searchQuery.trimmedForPluginSearch.isEmpty {
-                    addedSection
-                    marketplaceScopeTabs
-                    marketplaceSections
-                } else {
-                    searchResults
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    pageTitle("Plugins", subtitle: "Work with Codex across your favorite tools")
+                    searchField(placeholder: "Search plugins", showsFilter: true)
+                    statusMessages
+                    if isLoadingPlugins && plugins.isEmpty {
+                        loadingRows
+                    } else if let pluginErrorMessage, plugins.isEmpty {
+                        emptyState(title: "Couldn’t load plugins", detail: pluginErrorMessage)
+                    } else if searchQuery.trimmedForPluginSearch.isEmpty {
+                        addedSection
+                        marketplaceScopeTabs
+                        marketplaceSections(availableWidth: max(0, min(geometry.size.width - 48, CodexPluginLayoutMetrics.browseContentWidth)))
+                    } else {
+                        searchResults
+                    }
                 }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 48)
+                .frame(maxWidth: CodexPluginLayoutMetrics.browseContentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 48)
-            .frame(maxWidth: CodexPluginLayoutMetrics.contentWidth, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
     }
 
@@ -341,17 +354,18 @@ public struct CodexPluginRouteView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 pageTitle("Skills", subtitle: "Extend Codex's capabilities with task-specific skills")
-                searchField(placeholder: "Search plugins and skills", showsFilter: true)
+                searchField(placeholder: "Search skills", showsFilter: false)
                 statusMessages
                 if isLoadingSkills && skills.isEmpty {
                     loadingRows
                 } else if let skillErrorMessage, skills.isEmpty {
                     emptyState(title: "Couldn’t load skills", detail: skillErrorMessage)
                 } else if routeState.visibleSkills.isEmpty {
-                    emptyState(title: "No skills found", detail: "Try another search or filter.")
+                    emptyState(title: "No skills found", detail: "Try another search.")
                 } else {
-                    skillSection("Personal", skills: personalSkills)
-                    skillSection("System", skills: systemSkills)
+                    ForEach(groupedSkills, id: \.title) { group in
+                        skillSection(group.title, skills: group.skills)
+                    }
                 }
             }
             .padding(.horizontal, 24)
@@ -362,12 +376,15 @@ public struct CodexPluginRouteView: View {
     }
 
     private var managePage: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Manage")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+                .padding(.top, 8)
+            searchField(placeholder: manageSearchPlaceholder, showsFilter: false)
+                .frame(maxWidth: .infinity)
+            ScrollView(.horizontal, showsIndicators: false) {
                 manageTabs
-                Spacer()
-                searchField(placeholder: manageSearchPlaceholder, showsFilter: false)
-                    .frame(width: 180)
             }
             statusMessages
             manageInventory
@@ -477,22 +494,22 @@ public struct CodexPluginRouteView: View {
         .accessibilityLabel("Marketplace source")
     }
 
-    @ViewBuilder private var marketplaceSections: some View {
+    @ViewBuilder private func marketplaceSections(availableWidth: CGFloat) -> some View {
         let visible = routeState.visiblePlugins
         if visible.isEmpty {
             emptyState(title: "No plugins found", detail: "Choose another marketplace section.")
         } else {
             let featured = routeState.featuredPlugins
             if !featured.isEmpty {
-                marketplaceSection("Featured", plugins: featured, collapsedLimit: 4)
+                marketplaceSection("Featured", plugins: featured, collapsedLimit: 4, availableWidth: availableWidth)
             }
             ForEach(groupedMarketplacePlugins(excluding: Set(featured.map(\.id))), id: \.title) { group in
-                marketplaceSection(group.title, plugins: group.plugins, collapsedLimit: 6)
+                marketplaceSection(group.title, plugins: group.plugins, collapsedLimit: 6, availableWidth: availableWidth)
             }
         }
     }
 
-    private func marketplaceSection(_ title: String, plugins: [CodexPluginSummary], collapsedLimit: Int) -> some View {
+    private func marketplaceSection(_ title: String, plugins: [CodexPluginSummary], collapsedLimit: Int, availableWidth: CGFloat) -> some View {
         let isExpanded = expandedMarketplaceSections.contains(title)
         let visibleCount = CodexCatalogSectionPresentation.visibleCount(
             total: plugins.count,
@@ -503,7 +520,7 @@ public struct CodexPluginRouteView: View {
         return VStack(alignment: .leading, spacing: 14) {
             Text(title).font(theme.fonts.chat.weight(.semibold))
             Divider().overlay(theme.colors.border)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 28), GridItem(.flexible())], spacing: 8) {
+            LazyVGrid(columns: CodexPluginBrowseLayoutPolicy.columns(availableWidth: availableWidth), spacing: 8) {
                 ForEach(displayedPlugins) { plugin in
                     OfficialPluginRow(
                         plugin: plugin,
@@ -554,7 +571,7 @@ public struct CodexPluginRouteView: View {
 
     private var manageTabs: some View {
         HStack(spacing: 6) {
-            ForEach(routeState.manageCounts) { count in
+            ForEach(manageCounts) { count in
                 Button {
                     manageTab = count.tab
                     searchQuery = ""
@@ -670,34 +687,37 @@ public struct CodexPluginRouteView: View {
     }
 
     @ViewBuilder private var managedAppRows: some View {
-        let visible = routeState.visiblePlugins
-        if isLoadingPlugins && visible.isEmpty {
+        let visible = visibleApps
+        if isLoadingApps && visible.isEmpty {
             loadingRows
+        } else if let appErrorMessage, visible.isEmpty {
+            emptyState(title: "Couldn’t load apps", detail: appErrorMessage)
         } else if visible.isEmpty {
-            emptyState(title: "No apps", detail: "Apps included by installed plugins appear here.")
+            emptyState(title: "No apps", detail: "Installed and available apps appear here.")
         } else {
-            ForEach(visible) { plugin in
-                Button {
-                    selectedPluginID = plugin.id
-                } label: {
-                    HStack(spacing: 12) {
-                        CodexPluginIconView(reference: plugin.icon, size: 36)
-                            .frame(width: 40, height: 40)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(plugin.displayName).font(theme.fonts.label).lineLimit(1)
-                            Text(plugin.detail).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
-                        }
-                        Spacer()
-                        Image(systemName: "checkmark")
+            ForEach(visible) { app in
+                HStack(spacing: 12) {
+                    AsyncImage(url: appLogoURL(for: app)) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        Image(systemName: "app.dashed")
                             .foregroundStyle(theme.colors.textTertiary)
-                            .accessibilityLabel("Installed")
                     }
-                    .padding(.horizontal, 10)
-                    .frame(height: CodexPluginLayoutMetrics.rowHeight)
-                    .contentShape(Rectangle())
+                    .frame(width: 36, height: 36)
+                    .background(theme.colors.surfaceElevated, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(app.name).font(theme.fonts.label).lineLimit(1)
+                        Text(appDetail(app)).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Text(CodexPluginStatusPresentation.appLabel(for: app))
+                        .font(theme.fonts.caption.weight(.medium))
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(plugin.displayName), installed app")
+                .padding(.horizontal, 10)
+                .frame(height: CodexPluginLayoutMetrics.rowHeight)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(app.name), \(CodexPluginStatusPresentation.appLabel(for: app))")
             }
         }
     }
@@ -717,8 +737,9 @@ public struct CodexPluginRouteView: View {
                         Text(server.inventorySummary).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary)
                     }
                     Spacer()
-                    Image(systemName: server.error == nil ? "checkmark" : "exclamationmark.triangle")
-                        .foregroundStyle(server.error == nil ? theme.colors.textTertiary : theme.colors.danger)
+                    Text(server.error == nil ? "Connected" : "Error")
+                        .font(theme.fonts.caption.weight(.medium))
+                        .foregroundStyle(server.error == nil ? theme.colors.textSecondary : theme.colors.danger)
                 }
                 .padding(.horizontal, 10)
                 .frame(height: CodexPluginLayoutMetrics.rowHeight)
@@ -729,6 +750,7 @@ public struct CodexPluginRouteView: View {
 
     @ViewBuilder private var statusMessages: some View {
         if let error = pluginErrorMessage { statusBanner(error, color: theme.colors.danger) }
+        if let error = appErrorMessage, page == .manage, manageTab == .apps { statusBanner(error, color: theme.colors.danger) }
         if let error = skillErrorMessage { statusBanner(error, color: theme.colors.danger) }
         ForEach(pluginLoadErrors, id: \.self) { statusBanner($0, color: theme.colors.warning) }
     }
@@ -775,12 +797,46 @@ public struct CodexPluginRouteView: View {
         return skills.first { $0.id == skillDetailID }
     }
 
-    private var personalSkills: [CodexSkillSummary] {
-        routeState.visibleSkills.filter { $0.scope?.lowercased() != "system" }
+    private var groupedSkills: [(title: String, skills: [CodexSkillSummary])] {
+        let order = ["Personal", "Repo", "Admin", "System", "Skill"]
+        let groups = Dictionary(grouping: routeState.visibleSkills, by: \.scopeLabel)
+        return groups.map { (title: $0.key, skills: $0.value) }.sorted { lhs, rhs in
+            let left = order.firstIndex(of: lhs.title) ?? order.count
+            let right = order.firstIndex(of: rhs.title) ?? order.count
+            return left == right
+                ? lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                : left < right
+        }
     }
 
-    private var systemSkills: [CodexSkillSummary] {
-        routeState.visibleSkills.filter { $0.scope?.lowercased() == "system" }
+    private var visibleApps: [CodexAppSummary] {
+        let needle = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return apps }
+        return apps.filter { app in
+            [app.name, app.description ?? "", app.runtimeName ?? "", app.pluginDisplayNames?.joined(separator: " ") ?? ""]
+                .contains { $0.localizedCaseInsensitiveContains(needle) }
+        }
+    }
+
+    private var manageCounts: [CodexPluginManageCount] {
+        [
+            .init(tab: .plugins, count: plugins.filter(\.installed).count),
+            .init(tab: .apps, count: apps.count),
+            .init(tab: .mcps, count: mcpServers.count),
+            .init(tab: .skills, count: skills.count),
+        ]
+    }
+
+    private func appLogoURL(for app: CodexAppSummary) -> URL? {
+        let prefersDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return URL(string: (prefersDark ? app.logoURLDark : app.logoURL) ?? app.logoURL ?? "")
+    }
+
+    private func appDetail(_ app: CodexAppSummary) -> String {
+        app.description?.nilIfBlank
+            ?? app.pluginDisplayNames?.joined(separator: ", ").nilIfBlank
+            ?? app.runtimeName?.nilIfBlank
+            ?? (app.isInstalled ? "Installed app" : "Available app")
     }
 
     private var isPluginDetail: Bool {
@@ -881,7 +937,7 @@ private struct OfficialPluginRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
+            if plugin.canInstall {
                 Button { onAction(.installPlugin(.init(plugin: plugin))) } label: {
                     if isPending { ProgressView().controlSize(.small) } else { Text("Add") }
                 }
@@ -905,7 +961,7 @@ private struct OfficialPluginRow: View {
                     onAction(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled))
                 }
             }
-            if plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT" {
+            if plugin.canUninstall {
                 Button("Remove", role: .destructive) { onAction(.uninstallPlugin(.init(plugin: plugin))) }
             }
             if let prompt = plugin.defaultPrompt {
@@ -945,6 +1001,9 @@ struct OfficialSkillRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            Text(isPending ? "Updating" : skill.statusLabel)
+                .font(theme.fonts.caption.weight(.medium))
+                .foregroundStyle(theme.colors.textSecondary)
             if showsToggle {
                 Toggle("", isOn: Binding(
                     get: { skill.enabled },
@@ -954,11 +1013,7 @@ struct OfficialSkillRow: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .disabled(isPending)
-                .accessibilityLabel("Toggle skill enabled state")
-            } else if skill.enabled {
-                Image(systemName: "checkmark")
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .accessibilityLabel("Enabled")
+                .accessibilityLabel("Set \(skill.displayName) enabled")
             }
         }
         .padding(.horizontal, 10)
@@ -1145,7 +1200,7 @@ private struct OfficialPluginDetailPage: View {
 
     private var detailMenu: some View {
         Menu {
-            if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
+            if plugin.canInstall {
                 Button("Add") { onAction(.installPlugin(.init(plugin: plugin))) }
             }
             if plugin.supportsEnabledToggle {
@@ -1153,7 +1208,7 @@ private struct OfficialPluginDetailPage: View {
                     onAction(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled))
                 }
             }
-            if plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT" {
+            if plugin.canUninstall {
                 Button("Remove", role: .destructive) { onAction(.uninstallPlugin(.init(plugin: plugin))) }
             }
         } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }

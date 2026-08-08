@@ -4,8 +4,47 @@ import SwiftUI
 
 enum CodexPluginLayoutMetrics {
     static let contentWidth: CGFloat = 736
+    static let browseContentWidth: CGFloat = 880
     static let rowHeight: CGFloat = 64
     static let rowSpacing: CGFloat = 8
+}
+
+enum CodexPluginBrowseLayoutPolicy {
+    static let twoColumnMinimumWidth: CGFloat = 680
+
+    static func columnCount(availableWidth: CGFloat) -> Int {
+        availableWidth >= twoColumnMinimumWidth ? 2 : 1
+    }
+
+    static func columns(availableWidth: CGFloat) -> [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: 28),
+            count: columnCount(availableWidth: availableWidth)
+        )
+    }
+}
+
+enum CodexPluginStatusPresentation {
+    static func label(for plugin: CodexPluginSummary, isPending: Bool) -> String {
+        if isPending { return "Updating" }
+        if plugin.isAdminDisabled { return "Disabled by admin" }
+        if plugin.isInstalledByAdmin { return "Installed by admin" }
+        return plugin.statusLabel
+    }
+
+    static func appLabel(for app: CodexAppSummary) -> String {
+        if app.isInstalled {
+            switch app.runtimeEnabled {
+            case true: return "Enabled"
+            case false: return "Disabled"
+            case nil: return "Installed"
+            }
+        }
+        if app.isAccessible == false { return "Unavailable" }
+        if app.isEnabled == false { return "Disabled" }
+        if app.isAccessible == true { return "Available" }
+        return "Status unknown"
+    }
 }
 
 struct CodexPluginCatalogTable: NSViewRepresentable {
@@ -160,7 +199,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
     private let detailLabel = NSTextField(labelWithString: "")
     private let actionButton = NSButton()
     private let enabledSwitch = NSSwitch()
-    private let statusImageView = NSImageView()
+    private let statusLabel = NSTextField(labelWithString: "")
     private let trailingControls = NSStackView()
     private var plugin: CodexPluginSummary?
     private var theme: CodexAgentTheme?
@@ -216,12 +255,11 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         enabledSwitch.controlSize = .small
         trailingControls.addArrangedSubview(enabledSwitch)
 
-        statusImageView.translatesAutoresizingMaskIntoConstraints = false
-        statusImageView.symbolConfiguration = .init(pointSize: 13, weight: .medium)
-        statusImageView.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Enabled")
-        statusImageView.setAccessibilityElement(true)
-        statusImageView.setAccessibilityLabel("Enabled")
-        trailingControls.addArrangedSubview(statusImageView)
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        statusLabel.alignment = .right
+        statusLabel.lineBreakMode = .byTruncatingTail
+        trailingControls.addArrangedSubview(statusLabel)
 
         NSLayoutConstraint.activate([
             chrome.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -237,8 +275,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
             labels.trailingAnchor.constraint(lessThanOrEqualTo: trailingControls.leadingAnchor, constant: -8),
             trailingControls.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -8),
             trailingControls.centerYAnchor.constraint(equalTo: chrome.centerYAnchor),
-            statusImageView.widthAnchor.constraint(equalToConstant: 28),
-            statusImageView.heightAnchor.constraint(equalToConstant: 28),
+            statusLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
         ])
     }
 
@@ -280,14 +317,15 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         enabledSwitch.isHidden = !showsEnabledSwitch
         enabledSwitch.state = plugin.enabled ? .on : .off
         enabledSwitch.isEnabled = !isPending
-        statusImageView.isHidden = !(showsToggle && !showsEnabledSwitch && plugin.installed)
-        statusImageView.contentTintColor = effectiveAppearance.codexResolve(theme.colors.textTertiary)
+        statusLabel.isHidden = !showsToggle
+        statusLabel.stringValue = CodexPluginStatusPresentation.label(for: plugin, isPending: isPending)
+        statusLabel.setAccessibilityLabel(statusLabel.stringValue)
         actionButton.isHidden = showsToggle
         actionButton.isEnabled = !isPending
         actionButton.isBordered = true
         actionButton.bezelStyle = .rounded
         if !showsToggle {
-            if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
+            if plugin.canInstall {
                 actionButton.title = "Add"
                 actionButton.image = nil
             } else {
@@ -314,7 +352,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
 
     @objc private func performPrimaryAction() {
         guard let plugin else { return }
-        if !plugin.installed && plugin.installPolicy == "AVAILABLE" {
+        if plugin.canInstall {
             onAction?(.installPlugin(.init(plugin: plugin)))
             return
         }
@@ -324,7 +362,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
                 self?.onAction?(.setPluginEnabled(.init(plugin: plugin), enabled: !plugin.enabled))
             })
         }
-        if plugin.installed && plugin.installPolicy != "INSTALLED_BY_DEFAULT" {
+        if plugin.canUninstall {
             menu.addItem(actionItem("Remove") { [weak self] in
                 self?.onAction?(.uninstallPlugin(.init(plugin: plugin)))
             })
@@ -343,6 +381,7 @@ private final class CodexPluginCatalogCell: NSTableCellView {
         titleLabel.textColor = appearance.codexResolve(theme.colors.textPrimary)
         detailLabel.textColor = appearance.codexResolve(theme.colors.textSecondary)
         iconView.contentTintColor = appearance.codexResolve(theme.colors.textTertiary)
+        statusLabel.textColor = appearance.codexResolve(theme.colors.textSecondary)
         chrome.layer?.backgroundColor = appearance.codexResolve(
             selected ? theme.colors.surfaceElevated : Color.clear
         ).cgColor
