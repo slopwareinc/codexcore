@@ -11,11 +11,14 @@ public struct CodexPluginRouteView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     public let plugins: [CodexPluginSummary]
+    public let apps: [CodexAppSummary]
     public let skills: [CodexSkillSummary]
     public let mcpServers: [CodexMCPServerStatus]
     public let isLoadingPlugins: Bool
+    public let isLoadingApps: Bool
     public let isLoadingSkills: Bool
     public let pluginErrorMessage: String?
+    public let appErrorMessage: String?
     public let skillErrorMessage: String?
     public let pluginLoadErrors: [String]
     public let launcherTarget: CodexComposerPluginLauncher?
@@ -39,11 +42,14 @@ public struct CodexPluginRouteView: View {
 
     public init(
         plugins: [CodexPluginSummary],
+        apps: [CodexAppSummary] = [],
         skills: [CodexSkillSummary],
         mcpServers: [CodexMCPServerStatus],
         isLoadingPlugins: Bool = false,
+        isLoadingApps: Bool = false,
         isLoadingSkills: Bool = false,
         pluginErrorMessage: String? = nil,
+        appErrorMessage: String? = nil,
         skillErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
         launcherTarget: CodexComposerPluginLauncher? = nil,
@@ -57,11 +63,14 @@ public struct CodexPluginRouteView: View {
         onOpenMCPDetails: @escaping () -> Void = {}
     ) {
         self.plugins = plugins
+        self.apps = apps
         self.skills = skills
         self.mcpServers = mcpServers
         self.isLoadingPlugins = isLoadingPlugins
+        self.isLoadingApps = isLoadingApps
         self.isLoadingSkills = isLoadingSkills
         self.pluginErrorMessage = pluginErrorMessage
+        self.appErrorMessage = appErrorMessage
         self.skillErrorMessage = skillErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
         self.launcherTarget = launcherTarget

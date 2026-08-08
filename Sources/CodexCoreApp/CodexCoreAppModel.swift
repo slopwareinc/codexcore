@@ -1403,9 +1403,10 @@ final class CodexCoreAppModel {
 
     func requestPluginRefresh() {
         let state = runtimeSession.integrationCatalogSession
-        guard !state.isLoadingPlugins, !state.isLoadingSkills else { return }
+        guard !state.isLoadingPlugins, !state.isLoadingApps, !state.isLoadingSkills else { return }
         var loadingState = state
         loadingState.beginPluginRefresh()
+        loadingState.beginAppRefresh()
         loadingState.beginSkillRefresh()
         publishIntegrationCatalogSession(loadingState)
         Task { await refreshPlugins() }
@@ -2125,6 +2126,11 @@ final class CodexCoreAppModel {
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
+        let appActivity = await session.refreshApps(
+            using: codex,
+            threadID: currentThreadID,
+            errorMessage: CodexErrorFormat.localizedDescription
+        )
         let skillActivity = await session.refreshSkills(
             using: codex,
             cwds: workspaceRoots,
@@ -2136,6 +2142,7 @@ final class CodexCoreAppModel {
         }
         publishIntegrationCatalogSession(session)
         appendIntegrationActivity(pluginActivity)
+        appendIntegrationActivity(appActivity)
         appendIntegrationActivity(skillActivity)
     }
 

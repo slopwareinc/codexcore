@@ -708,6 +708,7 @@ private struct PluginsRouteScene: View {
     var body: some View {
         CodexPluginRouteView(
             plugins: plugins,
+            apps: [],
             skills: skills,
             mcpServers: [CodexMCPServerStatus(name: "filesystem", displayName: "Filesystem", startupStatus: "ready")],
             initialTab: tab,

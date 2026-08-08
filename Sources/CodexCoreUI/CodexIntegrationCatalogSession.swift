@@ -19,6 +19,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public private(set) var isLoadingPlugins: Bool
     public private(set) var pluginErrorMessage: String?
     public private(set) var pluginLoadErrors: [String]
+    public private(set) var apps: [CodexAppSummary]
+    public private(set) var isLoadingApps: Bool
+    public private(set) var appErrorMessage: String?
     public private(set) var skills: [CodexSkillSummary]
     public private(set) var isLoadingSkills: Bool
     public private(set) var skillErrorMessage: String?
@@ -31,6 +34,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins: Bool = false,
         pluginErrorMessage: String? = nil,
         pluginLoadErrors: [String] = [],
+        apps: [CodexAppSummary] = [],
+        isLoadingApps: Bool = false,
+        appErrorMessage: String? = nil,
         skills: [CodexSkillSummary] = [],
         isLoadingSkills: Bool = false,
         skillErrorMessage: String? = nil
@@ -42,6 +48,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         self.isLoadingPlugins = isLoadingPlugins
         self.pluginErrorMessage = pluginErrorMessage
         self.pluginLoadErrors = pluginLoadErrors
+        self.apps = apps
+        self.isLoadingApps = isLoadingApps
+        self.appErrorMessage = appErrorMessage
         self.skills = skills
         self.isLoadingSkills = isLoadingSkills
         self.skillErrorMessage = skillErrorMessage
@@ -55,6 +64,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingPlugins = false
         pluginErrorMessage = nil
         pluginLoadErrors = []
+        apps = []
+        isLoadingApps = false
+        appErrorMessage = nil
         skills = []
         isLoadingSkills = false
         skillErrorMessage = nil
@@ -111,6 +123,9 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         pluginLoadErrors = []
         isLoadingPlugins = false
         pluginErrorMessage = message
+        apps = []
+        isLoadingApps = false
+        appErrorMessage = message
         skills = []
         isLoadingSkills = false
         skillErrorMessage = message
@@ -119,6 +134,11 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public mutating func beginPluginRefresh() {
         isLoadingPlugins = true
         pluginErrorMessage = nil
+    }
+
+    public mutating func beginAppRefresh() {
+        isLoadingApps = true
+        appErrorMessage = nil
     }
 
     public mutating func beginSkillRefresh() {
@@ -168,6 +188,58 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     }
 
     @discardableResult
+    public mutating func applyAppResponses(
+        catalog: [CodexSchemaAppInfo],
+        installed: [CodexSchemaInstalledApp]
+    ) -> CodexIntegrationCatalogActivity {
+        apps = CodexAppSummary.join(catalog: catalog, installed: installed)
+        isLoadingApps = false
+        appErrorMessage = nil
+        return CodexIntegrationCatalogActivity(title: "Loaded apps", detail: "\(apps.count) available")
+    }
+
+    @discardableResult
+    public mutating func refreshApps(
+        using codex: Codex,
+        threadID: String?,
+        errorMessage: (Error) -> String
+    ) async -> CodexIntegrationCatalogActivity {
+        beginAppRefresh()
+        do {
+            var catalog: [CodexSchemaAppInfo] = []
+            var cursor: String?
+            var observedCursors: Set<String> = []
+            repeat {
+                let response = try await codex.perform(CodexRequest.appList(.init(
+                    cursor: cursor,
+                    limit: 100,
+                    threadID: threadID
+                )))
+                catalog.append(contentsOf: response.data)
+                cursor = response.nextCursor
+                if let cursor, !observedCursors.insert(cursor).inserted {
+                    throw CodexAppInventoryError.repeatedCursor(cursor)
+                }
+            } while cursor != nil
+
+            let installed = try await codex.perform(CodexRequest.appInstalled(.init(
+                threadID: threadID
+            )))
+            return applyAppResponses(catalog: catalog, installed: installed.apps)
+        } catch {
+            return failAppRefresh(message: errorMessage(error))
+        }
+    }
+
+    @discardableResult
+    public mutating func failAppRefresh(message: String) -> CodexIntegrationCatalogActivity {
+        apps = []
+        isLoadingApps = false
+        appErrorMessage = message
+        return CodexIntegrationCatalogActivity(title: "App list unavailable", detail: message)
+    }
+
+    @discardableResult
     public mutating func failPluginRefresh(message: String) -> CodexIntegrationCatalogActivity {
         plugins = []
         pluginLoadErrors = []
@@ -209,5 +281,15 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         isLoadingSkills = false
         skillErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "Skill list unavailable", detail: message)
+    }
+}
+
+private enum CodexAppInventoryError: LocalizedError {
+    case repeatedCursor(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .repeatedCursor(let cursor): "App list returned repeated cursor \(cursor)."
+        }
     }
 }

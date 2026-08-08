@@ -169,6 +169,18 @@ extension CodexCoreAppModel {
         observedIntegrationCatalogSession.pluginLoadErrors
     }
 
+    var apps: [CodexAppSummary] {
+        observedIntegrationCatalogSession.apps
+    }
+
+    var isLoadingApps: Bool {
+        observedIntegrationCatalogSession.isLoadingApps
+    }
+
+    var appErrorMessage: String? {
+        observedIntegrationCatalogSession.appErrorMessage
+    }
+
     var skills: [CodexSkillSummary] {
         observedIntegrationCatalogSession.skills
     }

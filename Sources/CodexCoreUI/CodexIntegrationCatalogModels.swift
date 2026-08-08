@@ -206,6 +206,100 @@ public struct CodexPluginIconReference: Equatable, Hashable, Sendable {
     }
 }
 
+public struct CodexAppSummary: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var description: String?
+    public var distributionChannel: String?
+    public var installURL: String?
+    public var isAccessible: Bool?
+    public var isEnabled: Bool?
+    public var labels: [String: String]?
+    public var logoURL: String?
+    public var logoURLDark: String?
+    public var pluginDisplayNames: [String]?
+    public var isInstalled: Bool
+    public var runtimeName: String?
+    public var runtimeEnabled: Bool?
+    public var runtimeCallable: Bool?
+
+    public init(
+        id: String,
+        name: String,
+        description: String? = nil,
+        distributionChannel: String? = nil,
+        installURL: String? = nil,
+        isAccessible: Bool? = nil,
+        isEnabled: Bool? = nil,
+        labels: [String: String]? = nil,
+        logoURL: String? = nil,
+        logoURLDark: String? = nil,
+        pluginDisplayNames: [String]? = nil,
+        isInstalled: Bool = false,
+        runtimeName: String? = nil,
+        runtimeEnabled: Bool? = nil,
+        runtimeCallable: Bool? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.distributionChannel = distributionChannel
+        self.installURL = installURL
+        self.isAccessible = isAccessible
+        self.isEnabled = isEnabled
+        self.labels = labels
+        self.logoURL = logoURL
+        self.logoURLDark = logoURLDark
+        self.pluginDisplayNames = pluginDisplayNames
+        self.isInstalled = isInstalled
+        self.runtimeName = runtimeName
+        self.runtimeEnabled = runtimeEnabled
+        self.runtimeCallable = runtimeCallable
+    }
+
+    public init(catalog: CodexSchemaAppInfo, installed: CodexSchemaInstalledApp?) {
+        self.init(
+            id: catalog.id,
+            name: catalog.name,
+            description: catalog.description,
+            distributionChannel: catalog.distributionChannel,
+            installURL: catalog.installUrl,
+            isAccessible: catalog.isAccessible,
+            isEnabled: catalog.isEnabled,
+            labels: catalog.labels,
+            logoURL: catalog.logoUrl,
+            logoURLDark: catalog.logoUrlDark,
+            pluginDisplayNames: catalog.pluginDisplayNames,
+            isInstalled: installed != nil,
+            runtimeName: installed?.runtimeName,
+            runtimeEnabled: installed?.enabled,
+            runtimeCallable: installed?.callable
+        )
+    }
+
+    public static func join(
+        catalog: [CodexSchemaAppInfo],
+        installed: [CodexSchemaInstalledApp]
+    ) -> [CodexAppSummary] {
+        let installedByID = Dictionary(installed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        let catalogIDs = Set(catalog.map(\.id))
+        let catalogRecords = catalog.map { CodexAppSummary(catalog: $0, installed: installedByID[$0.id]) }
+        let installedOnlyRecords = installed
+            .filter { !catalogIDs.contains($0.id) }
+            .map { app in
+                CodexAppSummary(
+                    id: app.id,
+                    name: app.runtimeName?.nilIfBlank ?? app.id,
+                    isInstalled: true,
+                    runtimeName: app.runtimeName,
+                    runtimeEnabled: app.enabled,
+                    runtimeCallable: app.callable
+                )
+            }
+        return catalogRecords + installedOnlyRecords
+    }
+}
+
 public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var id: String
     public var protocolID: String

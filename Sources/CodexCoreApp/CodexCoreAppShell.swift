@@ -328,11 +328,14 @@ struct CodexCoreAppShell: View {
         case .plugins:
             CodexPluginRouteView(
                 plugins: model.plugins,
+                apps: model.apps,
                 skills: model.skills,
                 mcpServers: model.mcpServers,
                 isLoadingPlugins: model.isLoadingPlugins,
+                isLoadingApps: model.isLoadingApps,
                 isLoadingSkills: model.isLoadingSkills,
                 pluginErrorMessage: model.pluginErrorMessage,
+                appErrorMessage: model.appErrorMessage,
                 skillErrorMessage: model.skillErrorMessage,
                 pluginLoadErrors: model.pluginLoadErrors,
                 launcherTarget: model.pluginLauncherTarget,
