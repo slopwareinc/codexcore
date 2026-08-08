@@ -39,7 +39,6 @@ private actor AppActionProvider: CodexPluginCatalogActionProvider {
     func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome { unsupported() }
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome { unsupported() }
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome { unsupported() }
-    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome { unsupported() }
 
     func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
         invocation = "\(target.id):\(enabled)"

@@ -34,7 +34,7 @@ final class CodexMarketplaceManagementTests: XCTestCase {
         XCTAssertTrue(CodexMarketplaceSummary.marketplaces(from: .dictionary([:])).isEmpty)
     }
 
-    func testCatalogSessionAndRouteKeepMarketplaceInventoryAndAuthoritativeCount() {
+    func testCatalogSessionKeepsMarketplaceInventoryAndAuthoritativeCount() {
         var session = CodexIntegrationCatalogSession()
         session.applyPluginResponse(.dictionary([
             "marketplaces": .array([
@@ -46,13 +46,6 @@ final class CodexMarketplaceManagementTests: XCTestCase {
         ]))
 
         XCTAssertEqual(session.marketplaces, [.init(name: "registered", pluginCount: 1)])
-        let route = CodexPluginRouteState(
-            plugins: session.plugins,
-            marketplaces: session.marketplaces,
-            manageTab: .marketplace
-        )
-        XCTAssertEqual(route.manageCounts.last, .init(tab: .marketplace, count: 1))
-        XCTAssertEqual(route.visibleMarketplaces.map(\.name), ["registered"])
     }
 
     func testMarketplaceProtocolMutationsUseGeneratedParameterTypes() {

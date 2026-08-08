@@ -11,6 +11,13 @@ public struct CodexIntegrationCatalogActivity: Equatable, Sendable {
     }
 }
 
+public enum CodexIntegrationCatalogInventory: Sendable {
+    case mcpServers
+    case plugins
+    case apps
+    case skills
+}
+
 public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public private(set) var mcpServers: [CodexMCPServerStatus]
     public private(set) var isLoadingMCPServers: Bool
@@ -92,6 +99,36 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         skillLoadErrors = []
     }
 
+    public mutating func merge(
+        _ refreshed: CodexIntegrationCatalogSession,
+        inventory: CodexIntegrationCatalogInventory
+    ) {
+        switch inventory {
+        case .mcpServers:
+            mcpServers = refreshed.mcpServers
+            isLoadingMCPServers = refreshed.isLoadingMCPServers
+            mcpErrorMessage = refreshed.mcpErrorMessage
+        case .plugins:
+            plugins = refreshed.plugins
+            marketplaces = refreshed.marketplaces
+            isLoadingPlugins = refreshed.isLoadingPlugins
+            pluginErrorMessage = refreshed.pluginErrorMessage
+            pluginLoadErrors = refreshed.pluginLoadErrors
+            pluginReadDetails = refreshed.pluginReadDetails
+            loadingPluginReadIDs = refreshed.loadingPluginReadIDs
+            pluginReadErrors = refreshed.pluginReadErrors
+        case .apps:
+            apps = refreshed.apps
+            isLoadingApps = refreshed.isLoadingApps
+            appErrorMessage = refreshed.appErrorMessage
+        case .skills:
+            skills = refreshed.skills
+            isLoadingSkills = refreshed.isLoadingSkills
+            skillErrorMessage = refreshed.skillErrorMessage
+            skillLoadErrors = refreshed.skillLoadErrors
+        }
+    }
+
     public mutating func requireMCPConnection(message: String) {
         mcpServers = []
         isLoadingMCPServers = false
@@ -118,13 +155,24 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     ) async -> CodexIntegrationCatalogActivity {
         beginMCPRefresh()
         do {
-            let response = try await codex.perform(CodexRequest.mcpServerStatusList(.init(
-                detail: .full,
-                limit: 100,
-                threadID: threadID
-            )))
-            let raw = try CodexJSONValue(encoding: response)
-            return applyMCPResponse(raw)
+            var statuses: [CodexSchemaMCPServerStatus] = []
+            var cursor: String?
+            var observedCursors: Set<String> = []
+            repeat {
+                let response = try await codex.perform(CodexRequest.mcpServerStatusList(.init(
+                    cursor: cursor,
+                    detail: .full,
+                    limit: 100,
+                    threadID: threadID
+                )))
+                statuses.append(contentsOf: response.data)
+                cursor = response.nextCursor
+                if let cursor, !observedCursors.insert(cursor).inserted {
+                    throw CodexMCPInventoryError.repeatedCursor(cursor)
+                }
+            } while cursor != nil
+            let aggregate = CodexSchemaListMCPServerStatusResponse(data: statuses)
+            return applyMCPResponse(try CodexJSONValue(encoding: aggregate))
         } catch {
             return failMCPRefresh(message: errorMessage(error))
         }
@@ -132,7 +180,6 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failMCPRefresh(message: String) -> CodexIntegrationCatalogActivity {
-        mcpServers = []
         isLoadingMCPServers = false
         mcpErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "MCP status unavailable", detail: message)
@@ -199,6 +246,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         pluginReadErrors.removeValue(forKey: id)
     }
 
+    public mutating func cancelPluginRead(id: String) {
+        loadingPluginReadIDs.remove(id)
+    }
+
     public mutating func failPluginRead(id: String, message: String) {
         loadingPluginReadIDs.remove(id)
         pluginReadErrors[id] = message
@@ -208,8 +259,10 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     public mutating func applyPluginResponse(_ raw: CodexJSONValue) -> CodexIntegrationCatalogActivity {
         plugins = CodexPluginSummary.plugins(from: raw)
         let availableIDs = Set(plugins.map(\.id))
-        pluginReadDetails = pluginReadDetails.filter { availableIDs.contains($0.key) }
-        pluginReadErrors = pluginReadErrors.filter { availableIDs.contains($0.key) }
+        // List refreshes can reflect install, upgrade, or marketplace changes.
+        // Invalidate relationship snapshots so an open detail refetches plugin/read.
+        pluginReadDetails = [:]
+        pluginReadErrors = [:]
         loadingPluginReadIDs.formIntersection(availableIDs)
         marketplaces = CodexMarketplaceSummary.marketplaces(from: raw)
         pluginLoadErrors = CodexPluginSummary.loadErrorMessages(from: raw)
@@ -280,7 +333,6 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failAppRefresh(message: String) -> CodexIntegrationCatalogActivity {
-        apps = []
         isLoadingApps = false
         appErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "App list unavailable", detail: message)
@@ -288,12 +340,6 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failPluginRefresh(message: String) -> CodexIntegrationCatalogActivity {
-        plugins = []
-        marketplaces = []
-        pluginLoadErrors = []
-        pluginReadDetails = [:]
-        loadingPluginReadIDs = []
-        pluginReadErrors = [:]
         isLoadingPlugins = false
         pluginErrorMessage = message
         return CodexIntegrationCatalogActivity(title: "Plugin list unavailable", detail: message)
@@ -329,10 +375,8 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failSkillRefresh(message: String) -> CodexIntegrationCatalogActivity {
-        skills = []
         isLoadingSkills = false
         skillErrorMessage = message
-        skillLoadErrors = []
         return CodexIntegrationCatalogActivity(title: "Skill list unavailable", detail: message)
     }
 }
@@ -343,6 +387,16 @@ private enum CodexAppInventoryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .repeatedCursor(let cursor): "App list returned repeated cursor \(cursor)."
+        }
+    }
+}
+
+private enum CodexMCPInventoryError: LocalizedError {
+    case repeatedCursor(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .repeatedCursor(let cursor): "MCP status list returned repeated cursor \(cursor)."
         }
     }
 }

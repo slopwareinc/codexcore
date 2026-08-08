@@ -48,16 +48,15 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
             id: "runtime-only",
             runtimeName: "Runtime Only"
         )
-        let joined = CodexAppSummary.join(catalog: [], installed: [runtime])
+        let duplicate = CodexSchemaInstalledApp(callable: true, enabled: false, id: "runtime-only", runtimeName: "Latest Runtime")
+        let joined = CodexAppSummary.join(catalog: [], installed: [runtime, duplicate])
         XCTAssertEqual(joined.count, 1)
         XCTAssertTrue(joined[0].isInstalled)
         XCTAssertNil(joined[0].isAccessible)
         XCTAssertNil(joined[0].isEnabled)
-        XCTAssertEqual(joined[0].runtimeEnabled, true)
+        XCTAssertEqual(joined[0].runtimeEnabled, false)
+        XCTAssertEqual(joined[0].name, "Latest Runtime")
 
-        let state = CodexPluginRouteState(plugins: [], apps: joined)
-        XCTAssertEqual(state.manageCounts.first { $0.tab == .apps }?.count, 1)
-        XCTAssertEqual(state.visibleApps.map(\.id), ["runtime-only"])
     }
 
     func testSkillsRequireAuthoritativeEnabledStateAndKeepCwdIdentity() {

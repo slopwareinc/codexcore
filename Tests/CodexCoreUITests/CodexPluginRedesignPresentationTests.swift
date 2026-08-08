@@ -28,6 +28,7 @@ final class CodexPluginRedesignPresentationTests: XCTestCase {
         )
         XCTAssertEqual(CodexPluginStatusPresentation.label(for: plugin(), isPending: true), "Updating")
         XCTAssertEqual(CodexPluginStatusPresentation.label(for: plugin(installPolicy: "AVAILABLE"), isPending: false), "Available")
+        XCTAssertEqual(CodexPluginStatusPresentation.label(for: plugin(), isPending: false), "Unavailable in this context")
     }
 
     func testAppStatusPreservesRuntimeUnknownInsteadOfInventingAToggleState() {

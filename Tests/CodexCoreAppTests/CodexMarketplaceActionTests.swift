@@ -23,7 +23,7 @@ struct CodexMarketplaceActionTests {
         for _ in 0..<10 { await Task.yield() }
 
         #expect(model.pendingMarketplaceActionIDs.isEmpty)
-        #expect(model.marketplaceActionErrorMessage == "Synthetic marketplace error")
+        #expect(model.marketplaceActionErrors["team"] == "Synthetic marketplace error")
     }
 }
 
@@ -35,7 +35,6 @@ private actor MarketplaceFailureProvider: CodexPluginCatalogActionProvider {
     func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome { unsupported() }
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome { unsupported() }
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome { unsupported() }
-    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome { unsupported() }
 
     func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome {
         invocation = "upgrade:\(target.name)"

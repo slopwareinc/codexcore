@@ -1,6 +1,5 @@
 import XCTest
 import AppKit
-import SwiftUI
 @testable import CodexCore
 @testable import CodexCoreUI
 
@@ -38,324 +37,6 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(
             CodexCatalogSectionPresentation.moreLabel(names: ["One", "Two"], collapsedLimit: 1, isExpanded: true),
             "Show less"
-        )
-    }
-
-    @MainActor
-    func testPluginRouteVirtualizesLargeMarketplaceWithNSTableView() throws {
-        let plugins = (0..<2_200).map { index in
-            plugin(
-                name: "plugin-\(index)",
-                displayName: "Plugin \(index)",
-                detail: "Marketplace plugin number \(index)",
-                installed: false,
-                enabled: false,
-                installPolicy: "AVAILABLE",
-                category: "Productivity"
-            )
-        }
-        let route = CodexPluginCatalogTable(
-            plugins: plugins,
-            selectedPluginID: .constant(nil),
-            showsToggle: false,
-            pendingPluginIDs: [],
-            theme: .officialDark,
-            onAction: { _ in }
-        )
-        .frame(width: 1_000, height: 700)
-        let hosting = NSHostingView(rootView: route)
-        hosting.frame = NSRect(x: 0, y: 0, width: 1_000, height: 700)
-        let window = NSWindow(
-            contentRect: hosting.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hosting
-        hosting.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-
-        let table = try XCTUnwrap(firstDescendant(of: NSTableView.self, in: hosting))
-        XCTAssertEqual(table.numberOfRows, 2_200)
-        let realizedRows = (0..<table.numberOfRows).filter {
-            table.rowView(atRow: $0, makeIfNecessary: false) != nil
-        }
-        XCTAssertLessThan(realizedRows.count, 80, "Only viewport rows should have AppKit views")
-    }
-
-    @MainActor
-    func testOfficialPluginHeaderUsesTwoTabsInsteadOfThreeWaySegmentedControl() throws {
-        var largeTypeTheme = CodexAgentTheme.officialDark
-        largeTypeTheme.fonts.caption = .system(size: 24)
-        let route = CodexPluginRouteView(
-            plugins: [plugin(
-                name: "github",
-                displayName: "GitHub",
-                detail: "Triage pull requests",
-                installed: true,
-                enabled: true
-            )],
-            skills: [skill(name: "agents-sdk", displayName: "Agents SDK", enabled: true)],
-            mcpServers: [],
-            onRefresh: {},
-            onAction: { _ in }
-        )
-        .codexAgentTheme(largeTypeTheme)
-        .frame(width: 1_100, height: 720)
-        let hosting = NSHostingView(rootView: route)
-        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
-        let window = NSWindow(
-            contentRect: hosting.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hosting
-        hosting.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        hosting.layoutSubtreeIfNeeded()
-
-        XCTAssertNil(firstDescendant(of: NSSegmentedControl.self, in: hosting))
-    }
-
-    @MainActor
-    func testManagePageAllocatesAVisibleVirtualizedInventory() throws {
-        let route = CodexPluginRouteView(
-            plugins: [plugin(
-                name: "browser",
-                displayName: "Browser",
-                detail: "Control the in-app browser",
-                installed: true,
-                enabled: true
-            )],
-            skills: [],
-            mcpServers: [],
-            initialTab: .manage,
-            onRefresh: {},
-            onAction: { _ in }
-        )
-        .frame(width: 1_100, height: 720)
-        let hosting = NSHostingView(rootView: route)
-        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
-        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = hosting
-        settle(hosting)
-
-        let table = try XCTUnwrap(firstDescendant(of: NSTableView.self, in: hosting))
-        XCTAssertEqual(table.numberOfRows, 1)
-        XCTAssertGreaterThan(table.frame.height, 300)
-    }
-
-    @MainActor
-    func testEveryVisiblePluginAndSkillSwitchEmitsTheCanonicalToggleAction() throws {
-        let installedPlugin = plugin(
-            name: "github",
-            displayName: "GitHub",
-            detail: "Triage pull requests",
-            installed: true,
-            enabled: true
-        )
-        let personalSkill = skill(name: "writer", displayName: "Writer", enabled: false)
-        var systemSkill = skill(name: "imagegen", displayName: "Image Gen", enabled: true)
-        systemSkill.path = "/tmp/system-skills/imagegen/SKILL.md"
-        systemSkill.scope = "system"
-        let recorder = CatalogActionRecorder()
-        let route = CodexPluginCatalogTable(
-            plugins: [installedPlugin],
-            selectedPluginID: .constant(nil),
-            showsToggle: true,
-            pendingPluginIDs: [],
-            theme: .officialDark,
-            onAction: { recorder.actions.append($0) }
-        )
-        .frame(width: 1_100, height: 720)
-        let hosting = NSHostingView(rootView: route)
-        hosting.frame = NSRect(x: 0, y: 0, width: 1_100, height: 720)
-        let window = NSWindow(
-            contentRect: hosting.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hosting
-        hosting.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-
-        settle(hosting)
-
-        let pluginSwitches = allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }
-        XCTAssertEqual(pluginSwitches.count, 1, "The managed plugin row must expose an interactive switch")
-        pluginSwitches[0].performClick(nil)
-        XCTAssertEqual(
-            recorder.actions,
-            [.setPluginEnabled(.init(plugin: installedPlugin), enabled: false)]
-        )
-
-        recorder.actions.removeAll()
-        let skillRow = OfficialSkillRow(
-            skill: personalSkill,
-            icon: .init(),
-            showsToggle: true,
-            isPending: false,
-            onOpen: {},
-            onAction: { recorder.actions.append($0) }
-        )
-        .frame(width: 700, height: 62)
-        let skillHosting = NSHostingView(rootView: skillRow)
-        skillHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 62)
-        let skillWindow = NSWindow(contentRect: skillHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        skillWindow.contentView = skillHosting
-        settle(skillHosting)
-        try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: skillHosting)).performClick(nil)
-
-        let detail = OfficialSkillDetailSheet(
-            skill: systemSkill,
-            icon: .init(),
-            isPending: false,
-            onClose: {},
-            onAction: { recorder.actions.append($0) }
-        )
-        let detailHosting = NSHostingView(rootView: detail)
-        detailHosting.frame = NSRect(x: 0, y: 0, width: 720, height: 620)
-        let detailWindow = NSWindow(contentRect: detailHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        detailWindow.contentView = detailHosting
-        settle(detailHosting)
-        try XCTUnwrap(firstDescendant(of: NSSwitch.self, in: detailHosting)).performClick(nil)
-        let skillToggles = recorder.actions.compactMap { action -> (String, Bool)? in
-            guard case .setSkillEnabled(let target, let enabled) = action else { return nil }
-            return (target.path, enabled)
-        }
-        XCTAssertEqual(skillToggles.count, 2)
-        XCTAssertEqual(skillToggles.filter { $0.0 == personalSkill.path && $0.1 }.count, 1)
-        XCTAssertEqual(skillToggles.filter { $0.0 == systemSkill.path && !$0.1 }.count, 1)
-    }
-
-    @MainActor
-    func testManageUsesSwitchesForLocalPluginsAndStatusChecksForAccountPlugins() throws {
-        let local = plugin(
-            name: "browser",
-            displayName: "Browser",
-            detail: "Control the in-app browser",
-            installed: true,
-            enabled: true
-        )
-        var account = plugin(
-            name: "gmail",
-            displayName: "Gmail",
-            detail: "Read and manage Gmail",
-            installed: true,
-            enabled: true
-        )
-        account.marketplaceName = "openai-curated-remote"
-        account.sourceType = "remote"
-
-        XCTAssertTrue(local.supportsEnabledToggle)
-        XCTAssertFalse(account.supportsEnabledToggle)
-
-        let route = CodexPluginCatalogTable(
-            plugins: [local, account],
-            selectedPluginID: .constant(nil),
-            showsToggle: true,
-            pendingPluginIDs: [],
-            theme: .officialDark,
-            onAction: { _ in }
-        )
-        .frame(width: 736, height: 160)
-        let hosting = NSHostingView(rootView: route)
-        hosting.frame = NSRect(x: 0, y: 0, width: 736, height: 160)
-        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = hosting
-        settle(hosting)
-
-        XCTAssertEqual(allDescendants(of: NSSwitch.self, in: hosting).filter { !$0.isHidden }.count, 1)
-        XCTAssertEqual(
-            allDescendants(of: NSTextField.self, in: hosting)
-                .filter { !$0.isHidden && $0.accessibilityLabel() == "Enabled" }
-                .count,
-            1
-        )
-    }
-
-    @MainActor
-    func testPluginAddEmitsInstallAndPendingControlsCannotBeClickedTwice() throws {
-        let available = plugin(
-            name: "linear",
-            displayName: "Linear",
-            detail: "Plan and build products",
-            installed: false,
-            enabled: false,
-            installPolicy: "AVAILABLE"
-        )
-        let recorder = CatalogActionRecorder()
-        let active = CodexPluginCatalogTable(
-            plugins: [available],
-            selectedPluginID: .constant(nil),
-            showsToggle: false,
-            pendingPluginIDs: [],
-            theme: .officialDark,
-            onAction: { recorder.actions.append($0) }
-        )
-        .frame(width: 700, height: 100)
-        let activeHosting = NSHostingView(rootView: active)
-        activeHosting.frame = NSRect(x: 0, y: 0, width: 700, height: 100)
-        let activeWindow = NSWindow(contentRect: activeHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        activeWindow.contentView = activeHosting
-        settle(activeHosting)
-
-        let add = try XCTUnwrap(allDescendants(of: NSButton.self, in: activeHosting).first { $0.title == "Add" })
-        XCTAssertTrue(add.isEnabled)
-        add.performClick(nil)
-        XCTAssertEqual(recorder.actions, [.installPlugin(.init(plugin: available))])
-
-        let pending = CodexPluginCatalogTable(
-            plugins: [available],
-            selectedPluginID: .constant(nil),
-            showsToggle: false,
-            pendingPluginIDs: [available.protocolID],
-            theme: .officialDark,
-            onAction: { recorder.actions.append($0) }
-        )
-        .frame(width: 700, height: 100)
-        let pendingHosting = NSHostingView(rootView: pending)
-        pendingHosting.frame = activeHosting.frame
-        let pendingWindow = NSWindow(contentRect: pendingHosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        pendingWindow.contentView = pendingHosting
-        settle(pendingHosting)
-
-        let pendingAdd = try XCTUnwrap(allDescendants(of: NSButton.self, in: pendingHosting).first { $0.title == "Add" })
-        XCTAssertFalse(pendingAdd.isEnabled)
-        pendingAdd.performClick(nil)
-        XCTAssertEqual(recorder.actions.count, 1)
-    }
-
-    func testPluginMarketplaceDiscoveryLoadsValidManifestsAndDeduplicatesNames() throws {
-        let temporary = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: temporary) }
-
-        let curated = temporary.appendingPathComponent("curated", isDirectory: true)
-        let serverManagedDuplicate = temporary.appendingPathComponent("duplicate", isDirectory: true)
-        let bundled = temporary.appendingPathComponent("bundled", isDirectory: true)
-        let bundledDuplicate = temporary.appendingPathComponent("bundled-duplicate", isDirectory: true)
-        let invalid = temporary.appendingPathComponent("invalid", isDirectory: true)
-        try writeMarketplace(named: "openai-curated", at: curated)
-        try writeMarketplace(named: "openai-curated", at: serverManagedDuplicate)
-        try writeMarketplace(named: "openai-bundled", at: bundled)
-        try writeMarketplace(named: "openai-bundled", at: bundledDuplicate)
-        try FileManager.default.createDirectory(
-            at: invalid.appendingPathComponent(".agents/plugins", isDirectory: true),
-            withIntermediateDirectories: true
-        )
-        try Data("not json".utf8).write(to: invalid.appendingPathComponent(".agents/plugins/marketplace.json"))
-
-        XCTAssertEqual(
-            CodexPluginMarketplaceDiscovery.sources(
-                in: [curated, serverManagedDuplicate, invalid, bundled, bundledDuplicate]
-            ),
-            [
-                CodexPluginMarketplaceSource(name: "openai-bundled", path: bundled.path),
-            ]
         )
     }
 
@@ -751,7 +432,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
 
         let failedMCP = session.failMCPRefresh(message: "server unavailable")
         XCTAssertEqual(failedMCP.title, "MCP status unavailable")
-        XCTAssertEqual(session.mcpServers, [])
+        XCTAssertEqual(session.mcpServers.map(\.displayName), ["Filesystem"])
         XCTAssertEqual(session.mcpErrorMessage, "server unavailable")
 
         session.requirePluginConnection(message: "Connect first")
@@ -778,83 +459,34 @@ final class CodexIntegrationCatalogTests: XCTestCase {
 
         let failedPlugins = session.failPluginRefresh(message: "bad marketplace")
         XCTAssertEqual(failedPlugins.title, "Plugin list unavailable")
-        XCTAssertEqual(session.plugins, [])
-        XCTAssertEqual(session.pluginLoadErrors, [])
+        XCTAssertEqual(session.plugins.map(\.displayName), ["Resume OpenCode"])
+        XCTAssertEqual(session.pluginLoadErrors, ["/tmp/bad-marketplace.json: invalid manifest"])
         XCTAssertEqual(session.pluginErrorMessage, "bad marketplace")
     }
 
-    func testPluginRouteStateBuildsMarketplaceManageCountsAndBrowserDetail() throws {
-        let plugins = [
-            plugin(
-                name: "browser",
-                displayName: "Browser",
-                detail: "Control the in-app browser with Codex",
-                installed: true,
-                enabled: true,
-                category: "Tools",
-                developer: "OpenAI",
-                version: "26.616.81150",
-                prompt: "Open the browser and inspect the current page.",
-                capabilities: ["apps", "skills"],
-                website: "https://openai.com",
-                privacy: "https://openai.com/privacy",
-                terms: "https://openai.com/terms"
-            ),
-            plugin(
-                name: "chrome",
-                displayName: "Chrome",
-                detail: "Control Chrome with Codex",
-                installed: true,
-                enabled: true,
-                category: "Browser",
-                capabilities: ["apps"]
-            ),
-            plugin(
-                name: "github",
-                displayName: "GitHub",
-                detail: "Triage PRs and issues",
-                installed: false,
-                enabled: false,
-                installPolicy: "AVAILABLE",
-                category: "Code",
-                capabilities: ["skills"]
-            )
-        ]
-        let skills = [
-            skill(name: "browser:control", displayName: "Control Browser", enabled: true),
-            skill(name: "disabled-skill", displayName: "Disabled Skill", enabled: false)
-        ]
-        let state = CodexPluginRouteState(
-            plugins: plugins,
-            apps: [
-                CodexAppSummary(id: "browser", name: "Browser", isAccessible: true),
-                CodexAppSummary(id: "chrome", name: "Chrome", isAccessible: true)
-            ],
-            skills: skills,
-            mcpServers: [CodexMCPServerStatus(name: "filesystem")],
-            searchQuery: "browser",
-            selectedPluginID: plugins[0].id
+    func testCatalogRefreshMergesOnlyTheInventoryThatFinished() {
+        let originalPlugin = plugin(
+            name: "github",
+            displayName: "GitHub",
+            detail: "Repositories",
+            installed: true,
+            enabled: true
         )
+        let refreshedPlugin = plugin(
+            name: "linear",
+            displayName: "Linear",
+            detail: "Projects",
+            installed: true,
+            enabled: true
+        )
+        let originalSkill = skill(name: "writer", displayName: "Writer", enabled: true)
+        var current = CodexIntegrationCatalogSession(plugins: [originalPlugin], skills: [originalSkill])
+        let refreshed = CodexIntegrationCatalogSession(plugins: [refreshedPlugin])
 
-        XCTAssertEqual(state.visiblePlugins.map(\.displayName), ["Browser", "Chrome"])
-        XCTAssertEqual(state.manageCounts.map { "\($0.tab.title):\($0.count)" }, [
-            "Plugins:2",
-            "Apps:2",
-            "MCPs:1",
-            "Skills:2",
-            "Marketplace:0"
-        ])
-        XCTAssertEqual(state.categoryCards.first?.title, "Browser")
+        current.merge(refreshed, inventory: .plugins)
 
-        let detail = try XCTUnwrap(state.selectedDetail)
-        XCTAssertEqual(detail.title, "Browser")
-        XCTAssertEqual(detail.prompt, "Open the browser and inspect the current page.")
-        XCTAssertTrue(detail.capabilities.contains("apps"))
-        XCTAssertTrue(detail.metadata.contains("Developer: OpenAI"))
-        XCTAssertTrue(detail.metadata.contains("Category: Tools"))
-        XCTAssertTrue(detail.metadata.contains("Version: 26.616.81150"))
-        XCTAssertTrue(detail.legalLinks.contains("Website: https://openai.com"))
-        XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Open the browser and inspect the current page."))
+        XCTAssertEqual(current.plugins.map(\.displayName), ["Linear"])
+        XCTAssertEqual(current.skills.map(\.displayName), ["Writer"])
     }
 
     func testCatalogSessionOptimisticallyTogglesAndRestoresPluginsAndSkillsByCanonicalIdentity() throws {
@@ -919,14 +551,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             termsOfServiceURL: "https://openai.com/terms",
             capabilities: ["Interactive", "Read", "Write"]
         )
-        let state = CodexPluginRouteState(
-            plugins: [browser],
-            primaryTab: .manage,
-            manageTab: .plugins,
-            launcherTarget: .browser
-        )
-
-        let detail = try XCTUnwrap(state.selectedDetail)
+        let detail = CodexPluginRouteDetail(plugin: browser)
 
         XCTAssertEqual(detail.title, "Browser")
         XCTAssertEqual(detail.detail, "Control the in-app browser with Codex")
@@ -942,12 +567,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
     }
 
     func testComputerUseLauncherFallsBackToInstallAndPermissionBoundary() throws {
-        let state = CodexPluginRouteState(
-            plugins: [],
-            launcherTarget: .computerUse
-        )
-
-        let detail = try XCTUnwrap(state.selectedDetail)
+        let detail = CodexComposerPluginLauncher.computerUse.fallbackDetail
 
         XCTAssertEqual(detail.title, "Computer Use")
         XCTAssertEqual(detail.detail, "Control Mac apps")
@@ -962,12 +582,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
 
     func testArtifactLauncherFallsBackToNonCodeBoundaryCard() throws {
         let target = CodexComposerPluginLauncher.artifact(.documents)
-        let state = CodexPluginRouteState(
-            plugins: [],
-            launcherTarget: target
-        )
-
-        let detail = try XCTUnwrap(state.selectedDetail)
+        let detail = target.fallbackDetail
 
         XCTAssertEqual(detail.title, "Documents")
         XCTAssertEqual(detail.statusLabel, "Artifact boundary")
@@ -975,7 +590,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertTrue(detail.description.contains("does not invoke artifact generation"))
     }
 
-    func testPluginRouteStateBuildsSkillsDetailAndFilters() throws {
+    func testSkillRouteDetailUsesAuthoritativeSkillState() {
         let enabled = skill(
             name: "browser:control",
             displayName: "Control Browser",
@@ -984,108 +599,13 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             enabled: true,
             prompt: "Use the browser to inspect localhost."
         )
-        let disabled = skill(
-            name: "writer",
-            displayName: "Writer",
-            detail: "Draft content",
-            enabled: false
-        )
-        let state = CodexPluginRouteState(
-            plugins: [],
-            skills: [enabled, disabled],
-            primaryTab: .skills,
-            searchQuery: "browser",
-            selectedSkillID: enabled.id
-        )
-
-        XCTAssertEqual(state.visibleSkills.map(\.displayName), ["Control Browser"])
-        let detail = try XCTUnwrap(state.selectedDetail)
+        let detail = CodexPluginRouteDetail(skill: enabled)
         XCTAssertEqual(detail.title, "Control Browser")
         XCTAssertEqual(detail.statusLabel, "Enabled")
         XCTAssertEqual(detail.prompt, "Use the browser to inspect localhost.")
         XCTAssertEqual(detail.primaryAction, .setSkillEnabled(CodexSkillActionTarget(skill: enabled), enabled: false))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Use the browser to inspect localhost."))
         XCTAssertFalse(detail.canUninstall)
-    }
-
-    func testPluginRouteFiltersAndMCPManagementRemainSeparate() throws {
-        let openAI = CodexPluginSummary(
-            id: "openai:browser",
-            protocolID: "browser@openai-bundled",
-            name: "browser",
-            displayName: "Browser",
-            marketplaceName: "openai-bundled",
-            developerName: "OpenAI",
-            installed: true,
-            enabled: true,
-            capabilities: ["apps"]
-        )
-        let personal = CodexPluginSummary(
-            id: "personal:writer",
-            protocolID: "writer@personal",
-            name: "writer",
-            displayName: "Writer",
-            marketplaceName: "personal",
-            sourceType: "local"
-        )
-        let server = CodexMCPServerStatus(
-            name: "filesystem",
-            displayName: "Filesystem",
-            authStatus: "unsupported",
-            startupStatus: "ready",
-            tools: [.init(name: "read_file")]
-        )
-
-        let openAIState = CodexPluginRouteState(
-            plugins: [openAI, personal],
-            mcpServers: [server],
-            filter: .openAI
-        )
-        XCTAssertEqual(openAIState.visiblePlugins.map(\.displayName), ["Browser"])
-        XCTAssertEqual(openAIState.featuredPlugins.map(\.displayName), ["Browser"])
-
-        let mcpState = CodexPluginRouteState(
-            plugins: [openAI, personal],
-            mcpServers: [server],
-            primaryTab: .manage,
-            manageTab: .mcps
-        )
-        XCTAssertEqual(mcpState.manageCounts.first { $0.tab == .mcps }?.count, 1)
-        XCTAssertEqual(mcpState.visibleMCPServers.map(\.displayName), ["Filesystem"])
-        XCTAssertEqual(try XCTUnwrap(mcpState.selectedDetail).title, "Filesystem")
-    }
-
-    func testPluginCatalogActionsAreMockable() async {
-        let available = plugin(
-            name: "github",
-            displayName: "GitHub",
-            detail: "Triage PRs and issues",
-            installed: false,
-            enabled: false,
-            installPolicy: "AVAILABLE"
-        )
-        let target = CodexPluginActionTarget(plugin: available)
-        let provider = MockPluginCatalogActionProvider()
-
-        let install = await CodexPluginCatalogActionSession.perform(.installPlugin(target), provider: provider)
-        XCTAssertEqual(install.activity.title, "Installed GitHub")
-        XCTAssertTrue(install.shouldRefresh)
-
-        let toggle = await CodexPluginCatalogActionSession.perform(.setPluginEnabled(target, enabled: true), provider: provider)
-        XCTAssertEqual(toggle.activity.detail, "enabled GitHub")
-
-        let tryInChat = await CodexPluginCatalogActionSession.perform(.tryInChat(prompt: "Use GitHub"), provider: provider)
-        XCTAssertEqual(tryInChat.draftPrompt, "Use GitHub")
-        XCTAssertFalse(tryInChat.shouldRefresh)
-
-        let personalSkill = skill(name: "writer", displayName: "Writer", enabled: true)
-        let uninstallSkill = await CodexPluginCatalogActionSession.perform(
-            .uninstallSkill(.init(skill: personalSkill)),
-            provider: provider
-        )
-        XCTAssertEqual(uninstallSkill.activity.title, "Uninstalled Writer")
-        XCTAssertTrue(uninstallSkill.shouldRefresh)
-
     }
 
     func testPluginProtocolMutationsUseServerIdentityAndExplicitControlPlaneSeams() throws {
@@ -1286,80 +806,6 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(CodexIntegrationControlPlaneRequest.mcpReload.operationID, "config/mcpServer/reload")
     }
 
-}
-
-private func writeMarketplace(named name: String, at root: URL) throws {
-    let directory = root.appendingPathComponent(".agents/plugins", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let data = try JSONSerialization.data(withJSONObject: ["name": name, "plugins": []])
-    try data.write(to: directory.appendingPathComponent("marketplace.json"))
-}
-
-@MainActor
-private func firstDescendant<T: NSView>(of type: T.Type, in root: NSView) -> T? {
-    if let match = root as? T { return match }
-    for subview in root.subviews {
-        if let match = firstDescendant(of: type, in: subview) { return match }
-    }
-    return nil
-}
-
-@MainActor
-private func allDescendants<T: NSView>(of type: T.Type, in root: NSView) -> [T] {
-    var matches: [T] = []
-    if let root = root as? T { matches.append(root) }
-    for subview in root.subviews {
-        matches.append(contentsOf: allDescendants(of: type, in: subview))
-    }
-    return matches
-}
-
-@MainActor
-private func settle(_ hosting: NSView) {
-    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-    hosting.layoutSubtreeIfNeeded()
-}
-
-@MainActor
-private final class CatalogActionRecorder {
-    var actions: [CodexPluginRouteAction] = []
-}
-
-private struct MockPluginCatalogActionProvider: CodexPluginCatalogActionProvider {
-    func installPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
-        CodexPluginActionOutcome(
-            activity: CodexIntegrationCatalogActivity(title: "Installed \(target.displayName)", detail: target.name),
-            shouldRefresh: true
-        )
-    }
-
-    func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
-        CodexPluginActionOutcome(
-            activity: CodexIntegrationCatalogActivity(title: "Uninstalled \(target.displayName)", detail: target.name),
-            shouldRefresh: true
-        )
-    }
-
-    func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
-        CodexPluginActionOutcome(
-            activity: CodexIntegrationCatalogActivity(title: "Updated \(target.displayName)", detail: "\(enabled ? "enabled" : "disabled") \(target.displayName)"),
-            shouldRefresh: true
-        )
-    }
-
-    func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
-        CodexPluginActionOutcome(
-            activity: CodexIntegrationCatalogActivity(title: "Updated \(target.displayName)", detail: "\(enabled ? "enabled" : "disabled") \(target.displayName)"),
-            shouldRefresh: true
-        )
-    }
-
-    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
-        CodexPluginActionOutcome(
-            activity: CodexIntegrationCatalogActivity(title: "Uninstalled \(target.displayName)", detail: target.path),
-            shouldRefresh: true
-        )
-    }
 }
 
 private func plugin(

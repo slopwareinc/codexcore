@@ -13,6 +13,8 @@ struct CodexAppInventoryTests {
                 id: "github",
                 isAccessible: nil,
                 isEnabled: false,
+                logoUrl: "https://cdn.example.com/github.png",
+                logoUrlDark: "https://cdn.example.com/github-dark.png",
                 name: "GitHub"
             ),
             CodexSchemaAppInfo(id: "slack", isAccessible: true, name: "Slack")
@@ -30,6 +32,8 @@ struct CodexAppInventoryTests {
         #expect(session.apps[0].isInstalled)
         #expect(session.apps[0].runtimeEnabled == true)
         #expect(session.apps[0].runtimeCallable == true)
+        #expect(session.apps[0].logoURL == "https://cdn.example.com/github.png")
+        #expect(session.apps[0].logoURLDark == "https://cdn.example.com/github-dark.png")
         #expect(session.apps[1].isEnabled == nil)
         #expect(!session.apps[1].isInstalled)
         #expect(session.apps[1].runtimeEnabled == nil)

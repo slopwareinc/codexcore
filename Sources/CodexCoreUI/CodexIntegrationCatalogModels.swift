@@ -288,8 +288,9 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
         let installedByID = Dictionary(installed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let catalogIDs = Set(catalog.map(\.id))
         let catalogRecords = catalog.map { CodexAppSummary(catalog: $0, installed: installedByID[$0.id]) }
-        let installedOnlyRecords = installed
+        let installedOnlyRecords = installedByID.values
             .filter { !catalogIDs.contains($0.id) }
+            .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
             .map { app in
                 CodexAppSummary(
                     id: app.id,
@@ -966,26 +967,11 @@ public struct CodexPluginManageCount: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct CodexPluginCategoryCard: Identifiable, Equatable, Sendable {
-    public var title: String
-    public var count: Int
-    public var detail: String
-
-    public var id: String { title }
-
-    public init(title: String, count: Int, detail: String) {
-        self.title = title
-        self.count = count
-        self.detail = detail
-    }
-}
-
 public enum CodexPluginRouteAction: Equatable, Sendable {
     case installPlugin(CodexPluginActionTarget)
     case uninstallPlugin(CodexPluginActionTarget)
     case setPluginEnabled(CodexPluginActionTarget, enabled: Bool)
     case setSkillEnabled(CodexSkillActionTarget, enabled: Bool)
-    case uninstallSkill(CodexSkillActionTarget)
     case setAppEnabled(CodexAppActionTarget, enabled: Bool)
     case addMarketplace(source: String)
     case upgradeMarketplace(CodexMarketplaceActionTarget)
@@ -1067,7 +1053,6 @@ public protocol CodexPluginCatalogActionProvider: Sendable {
     func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
-    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome
     func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func addMarketplace(source: String) async -> CodexPluginActionOutcome
     func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
@@ -1174,47 +1159,7 @@ public enum CodexPluginProtocolMutation {
         CodexSchemaMarketplaceRemoveParams(marketplaceName: target.name)
     }
 
-    @available(*, deprecated, message: "Codex does not expose a skill-uninstall operation; do not substitute filesystem deletion.")
-    public static func skillUninstallParams(for target: CodexSkillActionTarget) -> CodexSchemaFSRemoveParams {
-        let directory = URL(fileURLWithPath: target.path).deletingLastPathComponent().path
-        return CodexSchemaFSRemoveParams(
-            path: CodexAppServerSchemaValue(.string(directory)),
-            recursive: true
-        )
-    }
-}
 
-public enum CodexPluginCatalogActionSession {
-    public static func perform(
-        _ action: CodexPluginRouteAction,
-        provider: any CodexPluginCatalogActionProvider
-    ) async -> CodexPluginActionOutcome {
-        switch action {
-        case .installPlugin(let target):
-            return await provider.installPlugin(target)
-        case .uninstallPlugin(let target):
-            return await provider.uninstallPlugin(target)
-        case .setPluginEnabled(let target, let enabled):
-            return await provider.setPluginEnabled(target, enabled: enabled)
-        case .setSkillEnabled(let target, let enabled):
-            return await provider.setSkillEnabled(target, enabled: enabled)
-        case .uninstallSkill(let target):
-            return await provider.uninstallSkill(target)
-        case .setAppEnabled(let target, let enabled):
-            return await provider.setAppEnabled(target, enabled: enabled)
-        case .addMarketplace(let source):
-            return await provider.addMarketplace(source: source)
-        case .upgradeMarketplace(let target):
-            return await provider.upgradeMarketplace(target)
-        case .removeMarketplace(let target):
-            return await provider.removeMarketplace(target)
-        case .tryInChat(let prompt):
-            return CodexPluginActionOutcome(
-                activity: CodexIntegrationCatalogActivity(title: "Prepared plugin prompt", detail: prompt),
-                draftPrompt: prompt
-            )
-        }
-    }
 }
 
 /// Protocol-backed plugin and skill mutations. MCP management intentionally stays
@@ -1285,15 +1230,6 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
         }
     }
 
-    public func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome {
-        CodexPluginActionOutcome(
-            activity: .init(
-                title: "Skill removal unavailable",
-                detail: "Codex does not expose a generated skill-uninstall operation. Remove \(target.displayName) with its owning package or filesystem workflow."
-            ),
-            didSucceed: false
-        )
-    }
 
     public func addMarketplace(source: String) async -> CodexPluginActionOutcome {
         do {
@@ -1529,230 +1465,5 @@ public struct CodexPluginRouteDetail: Equatable, Sendable {
             isEnabled: false,
             boundaryActionTitle: boundaryActionTitle
         )
-    }
-}
-
-public struct CodexPluginRouteState: Equatable, Sendable {
-    public var plugins: [CodexPluginSummary]
-    public var marketplaces: [CodexMarketplaceSummary]
-    public var apps: [CodexAppSummary]
-    public var skills: [CodexSkillSummary]
-    public var mcpServers: [CodexMCPServerStatus]
-    public var primaryTab: CodexPluginRoutePrimaryTab
-    public var manageTab: CodexPluginManageTab
-    public var searchQuery: String
-    public var filter: CodexPluginCatalogFilter
-    public var selectedPluginID: String?
-    public var selectedSkillID: String?
-    public var launcherTarget: CodexComposerPluginLauncher?
-
-    public init(
-        plugins: [CodexPluginSummary],
-        marketplaces: [CodexMarketplaceSummary] = [],
-        apps: [CodexAppSummary] = [],
-        skills: [CodexSkillSummary] = [],
-        mcpServers: [CodexMCPServerStatus] = [],
-        primaryTab: CodexPluginRoutePrimaryTab = .marketplace,
-        manageTab: CodexPluginManageTab = .plugins,
-        searchQuery: String = "",
-        filter: CodexPluginCatalogFilter = .all,
-        selectedPluginID: String? = nil,
-        selectedSkillID: String? = nil,
-        launcherTarget: CodexComposerPluginLauncher? = nil
-    ) {
-        self.plugins = plugins
-        self.marketplaces = marketplaces
-        self.apps = apps
-        self.skills = skills
-        self.mcpServers = mcpServers
-        self.primaryTab = primaryTab
-        self.manageTab = manageTab
-        self.searchQuery = searchQuery
-        self.filter = filter
-        self.selectedPluginID = selectedPluginID
-        self.selectedSkillID = selectedSkillID
-        self.launcherTarget = launcherTarget
-    }
-
-    public var manageCounts: [CodexPluginManageCount] {
-        [
-            CodexPluginManageCount(tab: .plugins, count: plugins.filter(\.installed).count),
-            CodexPluginManageCount(tab: .apps, count: managedApps.count),
-            CodexPluginManageCount(tab: .mcps, count: mcpServers.count),
-            CodexPluginManageCount(tab: .skills, count: skills.count),
-            CodexPluginManageCount(tab: .marketplace, count: marketplaces.count)
-        ]
-    }
-
-    public var categoryCards: [CodexPluginCategoryCard] {
-        let buckets = Dictionary(grouping: marketplacePlugins) { plugin in
-            plugin.category?.nilIfBlank ?? plugin.sourceLabel
-        }
-        return buckets.map { title, plugins in
-            CodexPluginCategoryCard(
-                title: title,
-                count: plugins.count,
-                detail: plugins.map(\.displayName).prefix(3).joined(separator: ", ")
-            )
-        }
-        .sorted { lhs, rhs in
-            if lhs.count != rhs.count { return lhs.count > rhs.count }
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-        }
-    }
-
-    public var featuredPlugins: [CodexPluginSummary] {
-        let featured = marketplacePlugins.filter(\.isFeatured)
-        return filtered(featured.isEmpty ? Array(marketplacePlugins.prefix(2)) : featured)
-    }
-
-    public var visiblePlugins: [CodexPluginSummary] {
-        filtered(pluginsForCurrentTab)
-    }
-
-    public var visibleApps: [CodexAppSummary] {
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return managedApps }
-        return managedApps.filter { app in
-            [
-                app.name,
-                app.description ?? "",
-                app.runtimeName ?? "",
-                app.distributionChannel ?? "",
-                app.pluginDisplayNames?.joined(separator: " ") ?? ""
-            ].contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    public var visibleSkills: [CodexSkillSummary] {
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return skills }
-        return skills.filter { skill in
-            [skill.name, skill.displayName, skill.detail, skill.description, skill.path, skill.scopeLabel]
-                .contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    public var visibleMCPServers: [CodexMCPServerStatus] {
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return mcpServers }
-        return mcpServers.filter { server in
-            [server.name, server.displayName, server.detail ?? "", server.inventorySummary]
-                .contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    public var visibleMarketplaces: [CodexMarketplaceSummary] {
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return marketplaces }
-        return marketplaces.filter { marketplace in
-            [marketplace.name, marketplace.displayName, marketplace.path ?? ""]
-                .contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    public var selectedDetail: CodexPluginRouteDetail? {
-        if primaryTab == .skills {
-            let skill = skills.first { $0.id == selectedSkillID } ?? visibleSkills.first ?? skills.first
-            return skill.map(CodexPluginRouteDetail.init(skill:))
-        }
-        if primaryTab == .manage, manageTab == .mcps {
-            return visibleMCPServers.first.map(CodexPluginRouteDetail.init(mcpServer:))
-        }
-        if let selectedPluginID,
-           let plugin = plugins.first(where: { $0.id == selectedPluginID }) {
-            return CodexPluginRouteDetail(plugin: plugin)
-        }
-        if let launcherTarget,
-           let plugin = matchedPlugin(for: launcherTarget) {
-            return CodexPluginRouteDetail(plugin: plugin)
-        }
-        let plugin = visiblePlugins.first
-            ?? plugins.first { $0.displayName.localizedCaseInsensitiveContains("Browser") }
-            ?? plugins.first
-        return plugin.map(CodexPluginRouteDetail.init(plugin:)) ?? launcherTarget?.fallbackDetail
-    }
-
-    private var managedApps: [CodexAppSummary] {
-        apps.filter { $0.isAccessible == true || $0.isInstalled }
-    }
-
-    private var marketplacePlugins: [CodexPluginSummary] {
-        plugins
-    }
-
-    private var pluginsForCurrentTab: [CodexPluginSummary] {
-        switch primaryTab {
-        case .marketplace:
-            return marketplacePlugins
-        case .skills:
-            return []
-        case .manage:
-            switch manageTab {
-            case .plugins:
-                return plugins.filter(\.installed)
-            case .apps:
-                return []
-            case .mcps:
-                return []
-            case .skills, .marketplace:
-                return []
-            }
-        }
-    }
-
-    private var normalizedSearch: String {
-        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func filtered(_ plugins: [CodexPluginSummary]) -> [CodexPluginSummary] {
-        // Marketplace source filters do not apply to the installed inventory.
-        // Leaking "By OpenAI" into Manage produced non-zero tab counts with an
-        // empty list for local and workspace plugins.
-        let plugins = primaryTab == .marketplace ? plugins.filter(matchesFilter) : plugins
-        let needle = normalizedSearch
-        guard !needle.isEmpty else { return plugins }
-        return plugins.filter { plugin in
-            [
-                plugin.name,
-                plugin.displayName,
-                plugin.detail,
-                plugin.marketplaceDisplayName,
-                plugin.category ?? "",
-                plugin.developerName ?? "",
-                plugin.capabilities.joined(separator: " "),
-                plugin.keywords.joined(separator: " ")
-            ].contains { $0.localizedCaseInsensitiveContains(needle) }
-        }
-    }
-
-    private func matchesFilter(_ plugin: CodexPluginSummary) -> Bool {
-        switch filter {
-        case .all:
-            return true
-        case .openAI:
-            return plugin.developerName?.localizedCaseInsensitiveContains("OpenAI") == true
-                || plugin.marketplaceName.localizedCaseInsensitiveContains("openai")
-        case .workspace:
-            return plugin.sourceType == "local" && plugin.sourceDetail?.contains("/.codex/") != true
-        case .personal:
-            return plugin.sourceType == "local" || plugin.marketplaceName.localizedCaseInsensitiveContains("personal")
-        }
-    }
-
-    private func matchedPlugin(for target: CodexComposerPluginLauncher) -> CodexPluginSummary? {
-        let preferred = target.preferredPluginNames.map { $0.lowercased() }
-        return plugins.first { plugin in
-            let candidates = [
-                plugin.name.lowercased(),
-                plugin.displayName.lowercased(),
-                plugin.id.lowercased()
-            ]
-            return preferred.contains { preferredName in
-                candidates.contains { candidate in
-                    candidate == preferredName || candidate.contains(preferredName)
-                }
-            }
-        }
     }
 }
