@@ -286,6 +286,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var footerCopyTurnIsVisibleForTesting: Bool {
         footerActionControlsInstalled && !footerCopyTurnButton.isHidden
     }
+    var footerTimestampIsVisibleForTesting: Bool { !footerTimestampLabel.isHidden }
+    var footerTimestampForTesting: String { footerTimestampLabel.stringValue }
     var footerCopyItemTitleForTesting: String { footerActionControlsInstalled ? footerCopyItemButton.title : "" }
     var footerCopyItemToolTipForTesting: String? { footerActionControlsInstalled ? footerCopyItemButton.toolTip : nil }
     var footerActionControlsInstalledForTesting: Bool { footerActionControlsInstalled }
@@ -1306,7 +1308,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         item: CodexTranscriptRenderItem,
         theme: CodexTranscriptAppKitTheme
     ) {
-        footerTimestampLabel.isHidden = false
+        footerTimestampLabel.isHidden = footer.timestamp.isEmpty || !isHovered
         footerTimestampLabel.stringValue = footer.timestamp
         footerTimestampLabel.font = theme.microFont
         footerTimestampLabel.textColor = theme.textTertiary
@@ -1370,6 +1372,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     }
 
     private func updateFooterChromeVisibility() {
+        footerTimestampLabel.isHidden = item?.footer?.timestamp.isEmpty != false || !isHovered
         guard footerActionControlsInstalled else { return }
         guard let footer = item?.footer else {
             footerCopyItemButton.isHidden = true

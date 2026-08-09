@@ -1623,16 +1623,19 @@ struct CodexTranscriptAppKitIntegrationTests {
     }
 
     @Test func timestampFooterRestoresHoverTurnActions() async throws {
+        let sentAt = Date(timeIntervalSince1970: 100)
         let projector = CodexTranscriptRenderProjector()
         let presentation = CodexThreadUIPresentation(
             threadID: "thread",
             transcript: .init(turns: [.init(
                 id: "turn",
                 userMessage: .init(id: "user", text: "Question"),
-                finalAnswer: .init(id: "final", text: "Answer", isStreaming: false),
+                finalAnswer: .init(id: "final", text: "Answer", isStreaming: false, sentAt: sentAt),
                 status: .done(durationMs: 10)
             )]),
-            presentedAtByTurnID: ["turn": Date(timeIntervalSince1970: 100)]
+            // Deliberately differs from the message time: hydration/presentation
+            // time must never leak into the visible transcript timestamp.
+            presentedAtByTurnID: ["turn": Date(timeIntervalSince1970: 500)]
         )
         let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         let snapshot = try await projector.project(presentation: presentation, availableWidth: 860, theme: theme)
@@ -1654,9 +1657,12 @@ struct CodexTranscriptAppKitIntegrationTests {
             selectionChanged: { _, _ in }
         )
 
+        #expect(!cell.footerTimestampIsVisibleForTesting)
+        #expect(cell.footerTimestampForTesting == sentAt.formatted(date: .omitted, time: .shortened))
         #expect(!cell.footerCopyTurnIsVisibleForTesting)
         #expect(!cell.footerActionControlsInstalledForTesting)
         cell.setHoveredForTesting(true)
+        #expect(cell.footerTimestampIsVisibleForTesting)
         #expect(cell.footerActionControlsInstalledForTesting)
         #expect(cell.footerCopyTurnIsVisibleForTesting)
         #expect(cell.footerCopyItemTitleForTesting.isEmpty)
@@ -1664,6 +1670,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         cell.copyTurnForTesting()
         #expect(clipboard.lastValue == footer.copyTurnText)
         #expect(cell.footerCopyTurnAccessibilityDescriptionForTesting == "Copied")
+        cell.setHoveredForTesting(false)
+        #expect(!cell.footerTimestampIsVisibleForTesting)
     }
 
     @Test func completedFinalAnswerUsesOneNativeSurfaceForContiguousSelection() async throws {

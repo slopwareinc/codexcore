@@ -546,6 +546,30 @@ public struct CodexPluginIconReference: Equatable, Hashable, Sendable {
     }
 }
 
+public struct CodexPluginReadDetail: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var description: String?
+    public var appNames: [String]
+    public var appTemplateNames: [String]
+    public var mcpServerNames: [String]
+    public var skillNames: [String]
+    public var hookNames: [String]
+    public var scheduledTaskNames: [String]
+    public var shareURL: String?
+
+    public init(id: String, detail: CodexSchemaPluginDetail) {
+        self.id = id
+        self.description = detail.description?.nilIfBlank
+        self.appNames = detail.apps.map(\.name)
+        self.appTemplateNames = detail.appTemplates.map(\.name)
+        self.mcpServerNames = detail.mcpServers
+        self.skillNames = detail.skills.map { $0.interface?.displayName?.nilIfBlank ?? $0.name }
+        self.hookNames = detail.hooks.map { "\($0.eventName.rawValue): \($0.key)" }
+        self.scheduledTaskNames = detail.scheduledTasks?.map(\.name) ?? []
+        self.shareURL = detail.shareUrl?.nilIfBlank
+    }
+}
+
 public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var id: String
     public var protocolID: String
@@ -591,7 +615,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         installed: Bool = false,
         enabled: Bool = false,
         installPolicy: String = "NOT_AVAILABLE",
-        availability: String = "AVAILABLE",
+        availability: String? = nil,
         authPolicy: String = "ON_USE",
         sourceType: String? = nil,
         sourceDetail: String? = nil,
@@ -620,7 +644,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.installed = installed
         self.enabled = enabled
         self.installPolicy = installPolicy
-        self.availability = availability
+        self.availability = availability ?? "AVAILABLE"
         self.authPolicy = authPolicy
         self.sourceType = sourceType
         self.sourceDetail = sourceDetail
@@ -729,12 +753,34 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         }
     }
 
+    public var isAdminDisabled: Bool { availability == "DISABLED_BY_ADMIN" }
+    public var disabledReason: String? { isAdminDisabled ? "Access is turned off by your admin." : nil }
+
+    public var isInstalledByAdmin: Bool {
+        sourceType?.lowercased() == "remote" && installed && installPolicy == "INSTALLED_BY_DEFAULT"
+    }
+
+    public var canInstall: Bool { !installed && installPolicy == "AVAILABLE" && !isAdminDisabled }
+    public var canUninstall: Bool { installed && !isInstalledByAdmin && !isAdminDisabled }
+
     public var statusLabel: String {
+        if isAdminDisabled { return "Disabled by admin" }
         if installed, enabled { return "Installed" }
         if installed { return "Installed, disabled" }
         if installPolicy == "AVAILABLE" { return "Available" }
         if installPolicy == "INSTALLED_BY_DEFAULT" { return "Default" }
         return "Unavailable"
+    }
+
+    public var stateLabels: [String] {
+        var labels = installed ? ["Installed"] : []
+        labels.append(statusLabel)
+        if isInstalledByAdmin, !labels.contains("Installed by admin") {
+            labels.append("Installed by admin")
+        } else if sourceType?.lowercased() == "remote" {
+            labels.append("Remote")
+        }
+        return labels
     }
 
     public var sourceLabel: String {
@@ -759,9 +805,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     /// Manage mode treats enabled state as distinct from installation state for
     /// every installed plugin, including curated and account-backed plugins.
-    public var supportsEnabledToggle: Bool {
-        installed
-    }
+    public var supportsEnabledToggle: Bool { installed && !isAdminDisabled }
 
     public struct MarketplaceContext: Equatable, Sendable {
         public var name: String
@@ -868,6 +912,19 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
 public struct CodexAppSummary: Identifiable, Equatable, Sendable {
     public var id: String
+    public var name: String
+    public var description: String?
+    public var distributionChannel: String?
+    public var installURL: String?
+    public var isAccessible: Bool?
+    public var isEnabled: Bool?
+    public var labels: [String: String]?
+    public var logoURL: String?
+    public var logoURLDark: String?
+    public var pluginDisplayNames: [String]?
+    public var isInstalled: Bool
+    public var runtimeEnabled: Bool?
+    public var runtimeCallable: Bool?
     public var displayName: String
     public var detail: String
     public var developerName: String?
@@ -889,6 +946,19 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
         icon: CodexPluginIconReference = .init()
     ) {
         self.id = id
+        self.name = displayName
+        self.description = detail
+        self.distributionChannel = nil
+        self.installURL = nil
+        self.isAccessible = true
+        self.isEnabled = enabled
+        self.labels = nil
+        self.logoURL = icon.logo
+        self.logoURLDark = icon.logoDark
+        self.pluginDisplayNames = nil
+        self.isInstalled = true
+        self.runtimeEnabled = enabled
+        self.runtimeCallable = callable
         self.displayName = displayName
         self.detail = detail
         self.developerName = developerName
@@ -897,6 +967,86 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
         self.callable = callable
         self.runtimeName = runtimeName
         self.icon = icon
+    }
+
+    public init(
+        id: String,
+        name: String,
+        description: String? = nil,
+        distributionChannel: String? = nil,
+        installURL: String? = nil,
+        isAccessible: Bool? = nil,
+        isEnabled: Bool? = nil,
+        labels: [String: String]? = nil,
+        logoURL: String? = nil,
+        logoURLDark: String? = nil,
+        pluginDisplayNames: [String]? = nil,
+        isInstalled: Bool = false,
+        runtimeName: String? = nil,
+        runtimeEnabled: Bool? = nil,
+        runtimeCallable: Bool? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.distributionChannel = distributionChannel
+        self.installURL = installURL
+        self.isAccessible = isAccessible
+        self.isEnabled = isEnabled
+        self.labels = labels
+        self.logoURL = logoURL
+        self.logoURLDark = logoURLDark
+        self.pluginDisplayNames = pluginDisplayNames
+        self.isInstalled = isInstalled
+        self.runtimeName = runtimeName
+        self.runtimeEnabled = runtimeEnabled
+        self.runtimeCallable = runtimeCallable
+        self.displayName = name
+        self.detail = description?.nilIfBlank ?? "App"
+        self.developerName = nil
+        self.category = nil
+        self.enabled = runtimeEnabled ?? isEnabled ?? true
+        self.callable = runtimeCallable ?? true
+        self.icon = .init(logo: logoURL, logoDark: logoURLDark)
+    }
+
+    public init(catalog: CodexSchemaAppInfo, installed: CodexSchemaInstalledApp?) {
+        self.init(
+            id: catalog.id,
+            name: catalog.name,
+            description: catalog.description,
+            distributionChannel: catalog.distributionChannel,
+            installURL: catalog.installUrl,
+            isAccessible: catalog.isAccessible,
+            isEnabled: catalog.isEnabled,
+            labels: catalog.labels,
+            logoURL: catalog.logoUrl,
+            logoURLDark: catalog.logoUrlDark,
+            pluginDisplayNames: catalog.pluginDisplayNames,
+            isInstalled: installed != nil,
+            runtimeName: installed?.runtimeName,
+            runtimeEnabled: installed?.enabled,
+            runtimeCallable: installed?.callable
+        )
+    }
+
+    public static func join(catalog: [CodexSchemaAppInfo], installed: [CodexSchemaInstalledApp]) -> [CodexAppSummary] {
+        let installedByID = Dictionary(installed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        let catalogIDs = Set(catalog.map(\.id))
+        return catalog.map { CodexAppSummary(catalog: $0, installed: installedByID[$0.id]) }
+            + installedByID.values
+                .filter { !catalogIDs.contains($0.id) }
+                .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+                .map { app in
+                    CodexAppSummary(
+                        id: app.id,
+                        name: app.runtimeName?.nilIfBlank ?? app.id,
+                        isInstalled: true,
+                        runtimeName: app.runtimeName,
+                        runtimeEnabled: app.enabled,
+                        runtimeCallable: app.callable
+                    )
+                }
     }
 
     /// The official surface treats accessible entries from `app/list` as the
@@ -986,6 +1136,7 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     public var detail: String
     public var description: String
     public var path: String
+    public var cwd: String?
     public var scope: String?
     public var enabled: Bool
     public var defaultPrompt: String?
@@ -996,7 +1147,10 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     public var remoteMarketplaceName: String?
     public var remotePluginID: String?
 
-    public var id: String { path }
+    public var iconSmall: String? { icon.logo }
+    public var iconLarge: String? { icon.logoDark ?? icon.logo }
+
+    public var id: String { "\(cwd ?? "")\0\(path)" }
 
     public init(
         name: String,
@@ -1004,6 +1158,7 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         detail: String? = nil,
         description: String = "",
         path: String,
+        cwd: String? = nil,
         scope: String? = nil,
         enabled: Bool = true,
         defaultPrompt: String? = nil,
@@ -1019,6 +1174,7 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         self.detail = detail?.nilIfBlank ?? description.nilIfBlank ?? "Skill"
         self.description = description
         self.path = path
+        self.cwd = cwd
         self.scope = scope
         self.enabled = enabled
         self.defaultPrompt = defaultPrompt
@@ -1030,10 +1186,11 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         self.remotePluginID = remotePluginID
     }
 
-    public init?(raw value: CodexJSONValue) {
+    public init?(raw value: CodexJSONValue, cwd: String? = nil) {
         guard case .dictionary(let object) = value,
               let name = Self.string(in: object, keys: ["name"])?.nilIfBlank,
-              let path = Self.string(in: object, keys: ["path"])?.nilIfBlank else {
+              let path = Self.string(in: object, keys: ["path"])?.nilIfBlank,
+              let enabled = CodexJSONCoercion.bool(in: object, key: "enabled") else {
             return nil
         }
         let interface = Self.dictionary(in: object, key: "interface")
@@ -1045,8 +1202,9 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
             detail: interface.flatMap { Self.string(in: $0, keys: ["shortDescription"]) } ?? Self.string(in: object, keys: ["shortDescription"]),
             description: Self.string(in: object, keys: ["description"]) ?? "",
             path: path,
+            cwd: cwd,
             scope: Self.string(in: object, keys: ["scope"]),
-            enabled: CodexJSONCoercion.bool(in: object, key: "enabled") ?? true,
+            enabled: enabled,
             defaultPrompt: interface.flatMap { Self.prompt(from: $0["defaultPrompt"]) },
             dependencies: Self.dependencies(from: object["dependencies"]),
             allowedTools: Self.stringList(from: object["allowed-tools"] ?? object["allowed_tools"] ?? object["allowedTools"]),
@@ -1071,9 +1229,10 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
                   case .array(let skills)? = entryObject["skills"] else {
                 continue
             }
+            let cwd = Self.string(in: entryObject, keys: ["cwd"])
             for value in skills {
-                guard let summary = CodexSkillSummary(raw: value),
-                      seen.insert(summary.path).inserted else {
+                guard let summary = CodexSkillSummary(raw: value, cwd: cwd),
+                      seen.insert(summary.id).inserted else {
                     continue
                 }
                 summaries.append(summary)
@@ -1082,6 +1241,22 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
         return summaries.sorted { lhs, rhs in
             if lhs.enabled != rhs.enabled { return lhs.enabled && !rhs.enabled }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    public static func loadErrorMessages(from response: CodexJSONValue) -> [String] {
+        guard case .dictionary(let object) = response,
+              case .array(let entries)? = object["data"] else { return [] }
+        return entries.flatMap { entry -> [String] in
+            guard case .dictionary(let fields) = entry,
+                  case .array(let errors)? = fields["errors"] else { return [] }
+            let cwd = Self.string(in: fields, keys: ["cwd"])
+            return errors.compactMap { error in
+                guard case .dictionary(let details) = error,
+                      let message = Self.string(in: details, keys: ["message"])?.nilIfBlank else { return nil }
+                let path = Self.string(in: details, keys: ["path"])?.nilIfBlank ?? cwd?.nilIfBlank
+                return path.map { "\($0): \(message)" } ?? message
+            }
         }
     }
 
@@ -1267,8 +1442,31 @@ public enum CodexPluginRouteAction: Equatable, Sendable {
     case uninstallPlugin(CodexPluginActionTarget)
     case setPluginEnabled(CodexPluginActionTarget, enabled: Bool)
     case setSkillEnabled(CodexSkillActionTarget, enabled: Bool)
-    case uninstallSkill(CodexSkillActionTarget)
+    case setAppEnabled(CodexAppActionTarget, enabled: Bool)
+    case addMarketplace(source: String)
+    case upgradeMarketplace(CodexMarketplaceActionTarget)
+    case removeMarketplace(CodexMarketplaceActionTarget)
     case tryInChat(prompt: String)
+}
+
+public struct CodexAppActionTarget: Equatable, Sendable {
+    public var id: String
+    public var name: String
+
+    public init(app: CodexAppSummary) {
+        self.id = app.id
+        self.name = app.displayName
+    }
+}
+
+public struct CodexMarketplaceActionTarget: Equatable, Sendable {
+    public var name: String
+    public var displayName: String
+
+    public init(marketplace: CodexMarketplaceSummary) {
+        self.name = marketplace.name
+        self.displayName = marketplace.displayName
+    }
 }
 
 public struct CodexPluginActionTarget: Equatable, Sendable {
@@ -1325,12 +1523,88 @@ public protocol CodexPluginCatalogActionProvider: Sendable {
     func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome
     func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
     func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
-    func uninstallSkill(_ target: CodexSkillActionTarget) async -> CodexPluginActionOutcome
+    func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome
+    func addMarketplace(source: String) async -> CodexPluginActionOutcome
+    func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
+    func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome
+}
+
+public extension CodexPluginCatalogActionProvider {
+    func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
+        .init(activity: .init(title: "App action unsupported", detail: "This provider does not implement local app execution settings."), didSucceed: false)
+    }
+    func addMarketplace(source: String) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+    func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+    func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome { unsupportedMarketplaceMutation() }
+
+    private func unsupportedMarketplaceMutation() -> CodexPluginActionOutcome {
+        .init(activity: .init(title: "Marketplace action unsupported", detail: "This provider does not implement marketplace management."), didSucceed: false)
+    }
 }
 
 /// Pure request construction keeps the plugin control plane inspectable and
 /// testable without coupling UI state to generated protocol representations.
 public enum CodexPluginProtocolMutation {
+    public struct ConfigWriteTarget: Equatable, Sendable {
+        public var filePath: String
+        public var expectedVersion: String
+
+        public init(filePath: String, expectedVersion: String) {
+            self.filePath = filePath
+            self.expectedVersion = expectedVersion
+        }
+    }
+
+    public static func userConfigTarget(from response: CodexSchemaConfigReadResponse) -> ConfigWriteTarget? {
+        response.layers?.compactMap { layer in
+            guard case .dictionary(let source) = layer.name.rawValue,
+                  source["type"] == .string("user"),
+                  case .string(let filePath) = source["file"] else { return nil }
+            return .init(filePath: filePath, expectedVersion: layer.version)
+        }.last
+    }
+    public static func configuredPluginEnabled(from response: CodexSchemaConfigReadResponse) -> [String: Bool] {
+        guard let layer = response.layers?.last(where: {
+            $0.name.rawValue.objectValue?["type"] == .string("user")
+        }), let plugins = layer.config.objectValue?["plugins"]?.objectValue else { return [:] }
+        return plugins.reduce(into: [:]) { result, entry in
+            guard case .bool(let enabled) = entry.value.objectValue?["enabled"] else { return }
+            result[entry.key] = enabled
+        }
+    }
+
+    public static func readParams(for plugin: CodexPluginSummary) -> CodexSchemaPluginReadParams {
+        CodexSchemaPluginReadParams(
+            marketplacePath: plugin.marketplacePath.map { CodexAppServerSchemaValue(.string($0)) },
+            pluginName: plugin.name,
+            remoteMarketplaceName: plugin.marketplacePath == nil ? plugin.marketplaceName : nil
+        )
+    }
+
+    public static func appEnabledParams(
+        for target: CodexAppActionTarget,
+        enabled: Bool,
+        configTarget: ConfigWriteTarget? = nil
+    ) -> CodexSchemaConfigBatchWriteParams {
+        CodexSchemaConfigBatchWriteParams(
+            edits: [.init(keyPath: "apps.\(target.id).enabled", mergeStrategy: .upsert, value: .bool(enabled))],
+            expectedVersion: configTarget?.expectedVersion,
+            filePath: configTarget?.filePath,
+            reloadUserConfig: true
+        )
+    }
+
+    public static func marketplaceAddParams(source: String) -> CodexSchemaMarketplaceAddParams {
+        .init(source: source)
+    }
+
+    public static func marketplaceUpgradeParams(for target: CodexMarketplaceActionTarget) -> CodexSchemaMarketplaceUpgradeParams {
+        .init(marketplaceName: target.name)
+    }
+
+    public static func marketplaceRemoveParams(for target: CodexMarketplaceActionTarget) -> CodexSchemaMarketplaceRemoveParams {
+        .init(marketplaceName: target.name)
+    }
     public static func installParams(for target: CodexPluginActionTarget) -> CodexSchemaPluginInstallParams {
         CodexSchemaPluginInstallParams(
             marketplacePath: target.marketplacePath.map { CodexAppServerSchemaValue(.string($0)) },
@@ -1345,7 +1619,8 @@ public enum CodexPluginProtocolMutation {
 
     public static func pluginEnabledParams(
         for target: CodexPluginActionTarget,
-        enabled: Bool
+        enabled: Bool,
+        configTarget: ConfigWriteTarget? = nil
     ) -> CodexSchemaConfigBatchWriteParams {
         CodexSchemaConfigBatchWriteParams(
             edits: [
@@ -1355,6 +1630,8 @@ public enum CodexPluginProtocolMutation {
                     value: .bool(enabled)
                 )
             ],
+            expectedVersion: configTarget?.expectedVersion,
+            filePath: configTarget?.filePath,
             reloadUserConfig: true
         )
     }
@@ -1398,8 +1675,14 @@ public enum CodexPluginCatalogActionSession {
             return await provider.setPluginEnabled(target, enabled: enabled)
         case .setSkillEnabled(let target, let enabled):
             return await provider.setSkillEnabled(target, enabled: enabled)
-        case .uninstallSkill(let target):
-            return await provider.uninstallSkill(target)
+        case .setAppEnabled(let target, let enabled):
+            return await provider.setAppEnabled(target, enabled: enabled)
+        case .addMarketplace(let source):
+            return await provider.addMarketplace(source: source)
+        case .upgradeMarketplace(let target):
+            return await provider.upgradeMarketplace(target)
+        case .removeMarketplace(let target):
+            return await provider.removeMarketplace(target)
         case .tryInChat(let prompt):
             return CodexPluginActionOutcome(
                 activity: CodexIntegrationCatalogActivity(title: "Prepared plugin prompt", detail: prompt),
@@ -1438,8 +1721,13 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
 
     public func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
         do {
+            let config = try await codex.configRead(.init(includeLayers: true))
             _ = try await codex.configBatchWrite(
-                CodexPluginProtocolMutation.pluginEnabledParams(for: target, enabled: enabled)
+                CodexPluginProtocolMutation.pluginEnabledParams(
+                    for: target,
+                    enabled: enabled,
+                    configTarget: CodexPluginProtocolMutation.userConfigTarget(from: config)
+                )
             )
             return success(
                 "Updated \(target.displayName)",
@@ -1461,6 +1749,50 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
             )
         } catch {
             return failure("Couldn’t update \(target.displayName)", error: error)
+        }
+    }
+
+    public func setAppEnabled(_ target: CodexAppActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
+        do {
+            let config = try await codex.configRead(.init(includeLayers: true))
+            _ = try await codex.configBatchWrite(CodexPluginProtocolMutation.appEnabledParams(
+                for: target,
+                enabled: enabled,
+                configTarget: CodexPluginProtocolMutation.userConfigTarget(from: config)
+            ))
+            return success("Updated \(target.name)", detail: enabled ? "Enabled local execution" : "Disabled local execution")
+        } catch {
+            return failure("Couldn’t update \(target.name)", error: error)
+        }
+    }
+
+    public func addMarketplace(source: String) async -> CodexPluginActionOutcome {
+        do {
+            let response = try await codex.marketplaceAdd(.init(source: source))
+            return success(response.alreadyAdded ? "Marketplace already registered" : "Added marketplace", detail: response.marketplaceName)
+        } catch {
+            return failure("Couldn’t add marketplace", error: error)
+        }
+    }
+
+    public func upgradeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome {
+        do {
+            let response = try await codex.marketplaceUpgrade(.init(marketplaceName: target.name))
+            if let error = response.errors.first(where: { $0.marketplaceName == target.name }) {
+                return .init(activity: .init(title: "Couldn’t upgrade \(target.displayName)", detail: error.message), didSucceed: false)
+            }
+            return success("Upgraded \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t upgrade \(target.displayName)", error: error)
+        }
+    }
+
+    public func removeMarketplace(_ target: CodexMarketplaceActionTarget) async -> CodexPluginActionOutcome {
+        do {
+            _ = try await codex.marketplaceRemove(.init(marketplaceName: target.name))
+            return success("Removed \(target.displayName)", detail: target.name)
+        } catch {
+            return failure("Couldn’t remove \(target.displayName)", error: error)
         }
     }
 

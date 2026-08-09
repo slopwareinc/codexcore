@@ -595,7 +595,6 @@ actor CodexTranscriptRenderProjector {
                     user,
                     sectionID: sectionID,
                     contentWidth: contentWidth,
-                    presentedAt: presentedAt,
                     turnIsStreaming: turnIsStreaming,
                     hidesTimestamp: turn.presentationStyle == .realtimeVoice,
                     theme: theme,
@@ -648,7 +647,6 @@ actor CodexTranscriptRenderProjector {
                             user,
                             sectionID: sectionID,
                             contentWidth: contentWidth,
-                            presentedAt: presentedAt,
                             turnIsStreaming: turnIsStreaming,
                             hidesTimestamp: turn.presentationStyle == .realtimeVoice,
                             theme: theme,
@@ -944,7 +942,6 @@ actor CodexTranscriptRenderProjector {
                         user,
                         sectionID: sectionID,
                         contentWidth: contentWidth,
-                        presentedAt: presentedAt,
                         turnIsStreaming: turnIsStreaming,
                         hidesTimestamp: turn.presentationStyle == .realtimeVoice,
                         theme: theme,
@@ -1011,7 +1008,7 @@ actor CodexTranscriptRenderProjector {
                 if turn.presentationStyle != .realtimeVoice {
                     append(timestampDraft(
                         id: "\(sectionID):final-timestamp",
-                        date: presentedAt,
+                        date: answer.sentAt,
                         trailing: false,
                         kind: .finalAnswer,
                         isTurnStreaming: turnIsStreaming,
@@ -1503,20 +1500,20 @@ private extension CodexTranscriptRenderProjector {
 
     func timestampDraft(
         id: String,
-        date: Date,
+        date: Date?,
         trailing: Bool,
         kind: CodexTranscriptFooterRender.Kind,
         isTurnStreaming: Bool,
         copyText: String
     ) -> ItemDraft {
-        let label = date.formatted(date: .omitted, time: .shortened)
+        let label = date?.formatted(date: .omitted, time: .shortened) ?? ""
         return ItemDraft(
             id: id,
             fingerprint: "timestamp:\(label):streaming:\(isTurnStreaming)",
             textRole: .timestamp,
             footer: .init(kind: kind, timestamp: label, isTurnStreaming: isTurnStreaming),
             copyText: copyText,
-            accessibilityLabel: "Presented at \(label)",
+            accessibilityLabel: label.isEmpty ? "Message actions" : "Presented at \(label)",
             isTrailingAligned: trailing,
             maxWidthKind: trailing ? .user : .card,
             fixedHeight: CodexTranscriptColumnMetrics.footerHeight
@@ -1527,7 +1524,6 @@ private extension CodexTranscriptRenderProjector {
         _ user: CodexUserMessageV2,
         sectionID: String,
         contentWidth: CGFloat,
-        presentedAt: Date,
         turnIsStreaming: Bool,
         hidesTimestamp: Bool = false,
         theme: CodexTranscriptAppKitTheme,
@@ -1673,7 +1669,7 @@ private extension CodexTranscriptRenderProjector {
         if !hidesTimestamp {
             drafts.append(timestampDraft(
                 id: "\(sectionID):user-timestamp:\(user.id)",
-                date: presentedAt,
+                date: user.sentAt,
                 trailing: true,
                 kind: .user,
                 isTurnStreaming: turnIsStreaming,

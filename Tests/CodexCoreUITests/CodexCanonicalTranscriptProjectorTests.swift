@@ -672,6 +672,45 @@ struct CodexCanonicalTranscriptProjectorTests {
         )
     }
 
+    @Test func hydratedMessageTimesComeFromServerTurnBoundaries() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let user = item(threadID, turnID, "user", .userMessage, [
+            "content": CodexJSONValue.array([
+                CodexJSONValue.dictionary([
+                    "type": CodexJSONValue.string("text"),
+                    "text": CodexJSONValue.string("Question")
+                ])
+            ])
+        ])
+        let answer = item(threadID, turnID, "answer", .agentMessage, [
+            "phase": .string("final_answer"), "text": .string("Answer")
+        ])
+        let canonicalTurn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .completed,
+            startedAt: ProtocolSeconds(100),
+            completedAt: ProtocolSeconds(200),
+            itemOrder: [user.key.itemID, answer.key.itemID],
+            itemsCoverage: .full,
+            itemsConsistency: .authoritative
+        )
+
+        let transcript = CodexCanonicalTranscriptProjector().rebuild(
+            snapshot: state(
+                revision: 1,
+                threadID: threadID,
+                turns: [canonicalTurn],
+                items: [user, answer]
+            ),
+            threadID: threadID
+        ).presentation.transcript
+        let projected = try #require(transcript.turns.first)
+
+        #expect(projected.userMessage?.sentAt == Date(timeIntervalSince1970: 100))
+        #expect(projected.finalAnswer?.sentAt == Date(timeIntervalSince1970: 200))
+    }
+
     @Test func liveCompactionExtensionAndHydratedItemProjectIdentically() {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

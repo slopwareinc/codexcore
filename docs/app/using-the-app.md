@@ -17,6 +17,40 @@ the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to
 select, or Escape to close.
 
+### Plugin marketplaces
+
+Plugins → Manage includes a **Marketplace** tab backed only by marketplace entries
+returned from `plugin/list`. It shows each registered marketplace’s reported name,
+display name, path (or an explicit unknown-path label), and plugin count. Enter a
+source URL or path to register it; Upgrade and Remove call the corresponding
+app-server marketplace methods and refresh the plugin inventory after success.
+CodexCore does not scan or auto-register marketplace manifests from filesystem or
+cache guesses. Plugin detail pages load their authoritative Apps, app templates,
+MCP servers, Skills, hooks, scheduled tasks, sharing metadata, and description with
+`plugin/read`; CodexCore does not reconstruct those relationships from list summaries
+or name matching.
+
+The **Apps** inventory comes from app-server `app/list` joined with
+`app/installed` by app ID. Catalog availability and local runtime installation,
+enablement, and callability stay separate; missing state is shown as unknown rather
+than inferred from plugin capability strings. A Manage toggle appears only for an
+installed app with reported runtime enablement and writes only
+`apps.<appId>.enabled`; it does not claim to connect, install, authorize, or disconnect
+the account-owned app.
+
+Skills are shown as `(working directory, path)` occurrences with their reported
+scope, enabled state, dependencies, and list errors. Codex currently has no
+generated skill-uninstall operation, so CodexCore does not substitute recursive
+filesystem deletion; removal remains with the skill's owning package or filesystem
+workflow.
+
+MCP runtime health is shown separately from configuration ownership. Adding a new
+server supports the current config schema, including stdio environment pass-through,
+working directories, environment-backed HTTP headers, tool allow/deny lists, and
+timeouts. Existing runtime status rows stay configuration-read-only until complete
+config origin/version metadata is available, preventing a status-only row from
+overwriting fields it never loaded.
+
 ## Automations
 
 Automations are stored locally under the active Codex home in
