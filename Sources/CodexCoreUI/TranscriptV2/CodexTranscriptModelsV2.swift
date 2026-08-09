@@ -70,6 +70,9 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
     /// Independent Codex task that sent this message, when present.
     public var delegationSource: CodexThreadReferenceV2?
     public var isOptimistic: Bool
+    /// Server-backed presentation time. Nil means the protocol supplied no
+    /// trustworthy time; renderers must not substitute the hydration clock.
+    public var sentAt: Date?
     public init(
         id: String,
         clientID: String? = nil,
@@ -78,7 +81,8 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         referencedFiles: [CodexReferencedFile] = [],
         responseAnnotations: [CodexResponseAnnotationContent] = [],
         delegationSource: CodexThreadReferenceV2? = nil,
-        isOptimistic: Bool = false
+        isOptimistic: Bool = false,
+        sentAt: Date? = nil
     ) {
         self.id = id
         self.clientID = clientID
@@ -88,6 +92,7 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         self.responseAnnotations = responseAnnotations
         self.delegationSource = delegationSource
         self.isOptimistic = isOptimistic
+        self.sentAt = sentAt
     }
 
     public var displayText: String {
@@ -114,8 +119,9 @@ public struct CodexAssistantTextV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var text: String
     public var isStreaming: Bool
-    public init(id: String, text: String = "", isStreaming: Bool = true) {
-        self.id = id; self.text = text; self.isStreaming = isStreaming
+    public var sentAt: Date?
+    public init(id: String, text: String = "", isStreaming: Bool = true, sentAt: Date? = nil) {
+        self.id = id; self.text = text; self.isStreaming = isStreaming; self.sentAt = sentAt
     }
 }
 

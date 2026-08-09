@@ -225,7 +225,12 @@ private extension CodexCanonicalTranscriptProjector {
             }
             switch item.kind {
             case .userMessage:
-                guard let message = userMessage(item) else { continue }
+                let isInitialMessage = turn.userMessage == nil
+                guard let message = userMessage(
+                    item,
+                    sentAt: item.startedAt.map(Self.date)
+                        ?? (isInitialMessage ? canonical?.startedAt.map(Self.date) : nil)
+                ) else { continue }
                 if turn.userMessage == nil {
                     turn.userMessage = message
                 } else {
@@ -241,7 +246,12 @@ private extension CodexCanonicalTranscriptProjector {
             case .hookPrompt:
                 break
             case .agentMessage:
-                appendAgent(item, completed: completed, to: &turn)
+                appendAgent(
+                    item,
+                    completed: completed,
+                    sentAt: item.startedAt.map(Self.date) ?? canonical?.completedAt.map(Self.date),
+                    to: &turn
+                )
             case .plan:
                 appendPlan(item, completed: completed, to: &turn)
             case .reasoning:
@@ -422,7 +432,15 @@ private extension CodexCanonicalTranscriptProjector {
         }
     }
 
-    func userMessage(_ item: CanonicalItem) -> CodexUserMessageV2? {
+    static func date(_ value: ProtocolMilliseconds) -> Date {
+        Date(timeIntervalSince1970: TimeInterval(value.rawValue) / 1_000)
+    }
+
+    static func date(_ value: ProtocolSeconds) -> Date {
+        Date(timeIntervalSince1970: TimeInterval(value.rawValue))
+    }
+
+    func userMessage(_ item: CanonicalItem, sentAt: Date?) -> CodexUserMessageV2? {
         let clientID = item.clientUserMessageID?.rawValue ?? item.payload.string("clientId")
         let rawText = item.payload.textContent
         guard !isRealtimeDelegationEnvelope(rawText) else { return nil }
@@ -439,7 +457,8 @@ private extension CodexCanonicalTranscriptProjector {
             delegationSource: delegation.map {
                 CodexThreadReferenceV2(hostID: "local", threadID: $0.sourceThreadID.rawValue)
             },
-            isOptimistic: false
+            isOptimistic: false,
+            sentAt: sentAt
         )
     }
 
@@ -503,12 +522,22 @@ private extension CodexCanonicalTranscriptProjector {
         steeredMessage = nil
     }
 
-    func appendAgent(_ item: CanonicalItem, completed: Bool, to turn: inout CodexTurnV2) {
+    func appendAgent(
+        _ item: CanonicalItem,
+        completed: Bool,
+        sentAt: Date?,
+        to turn: inout CodexTurnV2
+    ) {
         let id = item.key.itemID.rawValue
         let text = completed
             ? (item.payload.string("text") ?? "")
             : (item.payload.string("text") ?? "") + item.liveOverlay.agentMessage.joined()
-        let message = CodexAssistantTextV2(id: id, text: text, isStreaming: !completed)
+        let message = CodexAssistantTextV2(
+            id: id,
+            text: text,
+            isStreaming: !completed,
+            sentAt: sentAt
+        )
         switch item.payload.string("phase") {
         case "commentary":
             closeWorkGroup(&turn)

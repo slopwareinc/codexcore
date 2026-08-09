@@ -8,19 +8,22 @@ public struct CodexMarketplaceSummary: Identifiable, Equatable, Sendable {
     public var path: String?
     public var localVersion: String?
     public var availableVersion: String?
+    public var pluginCount: Int
 
     public init(
         name: String,
-        displayName: String,
+        displayName: String? = nil,
         path: String? = nil,
         localVersion: String? = nil,
-        availableVersion: String? = nil
+        availableVersion: String? = nil,
+        pluginCount: Int = 0
     ) {
         self.name = name
-        self.displayName = displayName
+        self.displayName = displayName?.nilIfBlank ?? name
         self.path = path
         self.localVersion = localVersion
         self.availableVersion = availableVersion
+        self.pluginCount = pluginCount
     }
 
     public var hasKnownUpdate: Bool {
@@ -38,7 +41,8 @@ public struct CodexMarketplaceSummary: Identifiable, Equatable, Sendable {
                 displayName: first.marketplaceDisplayName,
                 path: first.marketplacePath,
                 localVersion: local,
-                availableVersion: available
+                availableVersion: available,
+                pluginCount: plugins.count
             )
         }.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
@@ -54,15 +58,23 @@ public struct CodexMarketplaceSummary: Identifiable, Equatable, Sendable {
             let interface: [String: CodexJSONValue]
             if case .dictionary(let value)? = marketplace["interface"] { interface = value }
             else { interface = [:] }
+            let pluginCount: Int
+            if case .array(let plugins)? = marketplace["plugins"] { pluginCount = plugins.count }
+            else { pluginCount = 0 }
             return CodexMarketplaceSummary(
                 name: name,
                 displayName: CodexJSONCoercion.flatString(from: interface["displayName"])?.nilIfBlank ?? name,
                 path: CodexJSONCoercion.flatString(from: marketplace["path"])?.nilIfBlank,
                 localVersion: CodexJSONCoercion.flatString(from: marketplace["localVersion"])?.nilIfBlank,
-                availableVersion: CodexJSONCoercion.flatString(from: marketplace["availableVersion"])?.nilIfBlank
+                availableVersion: CodexJSONCoercion.flatString(from: marketplace["availableVersion"])?.nilIfBlank,
+                pluginCount: pluginCount
             )
         }
         .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    public static func marketplaces(from response: CodexJSONValue) -> [CodexMarketplaceSummary] {
+        summaries(from: response)
     }
 }
 
