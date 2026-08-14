@@ -456,7 +456,6 @@ public extension CodexSession {
     func forkThread(
         _ params: CodexSchemaThreadForkParams
     ) async throws -> CodexThreadLease {
-        try await validateForkHistoryMode(threadID: ThreadID(params.threadID))
         let request = CodexRequest.threadFork(params)
         let call = try await performCall(
             method: request.method,

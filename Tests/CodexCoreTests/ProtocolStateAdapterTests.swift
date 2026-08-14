@@ -72,6 +72,8 @@ final class ProtocolStateAdapterTests: XCTestCase {
                 "modelProvider": "openai",
                 "name": "Fixture thread",
                 "preview": "hello",
+                "section": {"id": "section-1", "name": "In progress"},
+                "sectionEnteredAt": 1700000001,
                 "sessionId": "session-1",
                 "source": "cli",
                 "status": {
@@ -114,6 +116,8 @@ final class ProtocolStateAdapterTests: XCTestCase {
         XCTAssertEqual(thread.metadata.name, "Fixture thread")
         XCTAssertEqual(thread.metadata.canAcceptDirectInput, false)
         XCTAssertEqual(thread.metadata.cwd, .string("/tmp/project"))
+        XCTAssertEqual(thread.metadata.section, .init(id: "section-1", name: "In progress"))
+        XCTAssertEqual(thread.metadata.sectionEnteredAt, ProtocolSeconds(1_700_000_001))
         XCTAssertEqual(thread.history.mode, .paginated)
         XCTAssertEqual(thread.isLoaded, true)
         XCTAssertEqual(thread.consistency, .authoritative)
@@ -122,6 +126,8 @@ final class ProtocolStateAdapterTests: XCTestCase {
             .dictionary(["version": .int(2)])
         )
         XCTAssertNil(thread.metadata.extensions["canAcceptDirectInput"])
+        XCTAssertNil(thread.metadata.extensions["section"])
+        XCTAssertNil(thread.metadata.extensions["sectionEnteredAt"])
         guard case .active(let flags) = thread.status else {
             return XCTFail("Expected active thread status")
         }

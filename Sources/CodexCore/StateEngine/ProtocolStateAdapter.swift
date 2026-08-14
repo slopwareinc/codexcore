@@ -819,6 +819,8 @@ private extension ProtocolStateAdapter {
         metadata.path = value.path
         metadata.preview = value.preview
         metadata.recencyAt = value.recencyAt.map { ProtocolSeconds(Int64($0)) }
+        metadata.section = value.section
+        metadata.sectionEnteredAt = value.sectionEnteredAt.map { ProtocolSeconds(Int64($0)) }
         metadata.sessionID = value.sessionID
         metadata.source = value.source.rawValue
         metadata.threadSource = value.threadSource?.rawValue
@@ -1082,7 +1084,7 @@ private extension ProtocolStateAdapter {
     static let threadWireFields: Set<String> = [
         "agentNickname", "agentRole", "canAcceptDirectInput", "cliVersion", "createdAt", "cwd", "ephemeral",
         "extra", "forkedFromId", "gitInfo", "historyMode", "id", "modelProvider",
-        "name", "parentThreadId", "path", "preview", "recencyAt", "sessionId",
+        "name", "parentThreadId", "path", "preview", "recencyAt", "section", "sectionEnteredAt", "sessionId",
         "source", "status", "threadSource", "turns", "updatedAt",
     ]
 

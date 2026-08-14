@@ -589,6 +589,9 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var enabled: Bool
     public var installPolicy: String
     public var availability: String?
+    public var protocolDisabledReason: String?
+    public var eligiblePlanTypes: [String]
+    public var installedAt: TimeInterval?
     public var authPolicy: String
     public var sourceType: String?
     public var sourceDetail: String?
@@ -619,6 +622,9 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         enabled: Bool = false,
         installPolicy: String = "NOT_AVAILABLE",
         availability: String? = nil,
+        protocolDisabledReason: String? = nil,
+        eligiblePlanTypes: [String] = [],
+        installedAt: TimeInterval? = nil,
         authPolicy: String = "ON_USE",
         sourceType: String? = nil,
         sourceDetail: String? = nil,
@@ -648,6 +654,9 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.enabled = enabled
         self.installPolicy = installPolicy
         self.availability = availability
+        self.protocolDisabledReason = protocolDisabledReason
+        self.eligiblePlanTypes = eligiblePlanTypes
+        self.installedAt = installedAt
         self.authPolicy = authPolicy
         self.sourceType = sourceType
         self.sourceDetail = sourceDetail
@@ -693,6 +702,9 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             enabled: enabled,
             installPolicy: installPolicy,
             availability: Self.string(in: object, keys: ["availability"]),
+            protocolDisabledReason: Self.string(in: object, keys: ["disabledReason"]),
+            eligiblePlanTypes: Self.stringArray(from: object["eligiblePlanTypes"]),
+            installedAt: object["installedAt"].flatMap(CodexJSONCoercion.flatString(from:)).flatMap(TimeInterval.init),
             authPolicy: authPolicy,
             sourceType: Self.string(in: source, keys: ["type"]),
             sourceDetail: Self.sourceDetail(from: source),
@@ -760,18 +772,35 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         }
     }
 
-    public var isAdminDisabled: Bool { availability == "DISABLED_BY_ADMIN" }
-    public var disabledReason: String? { isAdminDisabled ? "Access is turned off by your admin." : nil }
+    public var isAdminDisabled: Bool {
+        availability == "DISABLED_BY_ADMIN" || protocolDisabledReason == "disabled_by_admin"
+    }
+
+    public var disabledReason: String? {
+        switch protocolDisabledReason {
+        case "disabled_by_admin": return "Access is turned off by your admin."
+        case "plan_not_eligible": return "This plugin is not available on your plan."
+        case "required_app_unavailable": return "A required app is unavailable."
+        case "unknown": return "This plugin is unavailable."
+        case .some(let value): return value.replacingOccurrences(of: "_", with: " ").capitalized
+        case nil: return isAdminDisabled ? "Access is turned off by your admin." : nil
+        }
+    }
+
+    public var isProtocolDisabled: Bool { disabledReason != nil }
 
     public var isInstalledByAdmin: Bool {
         sourceType?.lowercased() == "remote" && installed && installPolicy == "INSTALLED_BY_DEFAULT"
     }
 
-    public var canInstall: Bool { !installed && installPolicy == "AVAILABLE" && !isAdminDisabled }
-    public var canUninstall: Bool { installed && !isInstalledByAdmin && !isAdminDisabled }
+    public var canInstall: Bool { !installed && installPolicy == "AVAILABLE" && !isProtocolDisabled }
+    public var canUninstall: Bool { installed && !isInstalledByAdmin && !isProtocolDisabled }
 
     public var statusLabel: String {
         if isAdminDisabled { return "Disabled by admin" }
+        if protocolDisabledReason == "plan_not_eligible" { return "Unavailable on your plan" }
+        if protocolDisabledReason == "required_app_unavailable" { return "Required app unavailable" }
+        if isProtocolDisabled { return "Unavailable" }
         if installed, enabled { return "Enabled" }
         if installed { return "Disabled" }
         if installPolicy == "AVAILABLE" { return "Available" }
@@ -812,7 +841,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     /// Manage mode treats enabled state as distinct from installation state for
     /// every installed plugin, including curated and account-backed plugins.
-    public var supportsEnabledToggle: Bool { installed && !isAdminDisabled }
+    public var supportsEnabledToggle: Bool { installed && !isProtocolDisabled }
 
     public struct MarketplaceContext: Equatable, Sendable {
         public var name: String

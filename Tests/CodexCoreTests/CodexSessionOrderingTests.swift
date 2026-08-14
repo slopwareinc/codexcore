@@ -379,7 +379,10 @@ final class CodexSessionOrderingTests: XCTestCase {
         let recordedResumes = await transport.requestObjectParams(method: "thread/resume")
         let params = try XCTUnwrap(recordedResumes.last)
         XCTAssertEqual(params["excludeTurns"], .bool(true))
-        XCTAssertNil(params["initialTurnsPage"])
+        XCTAssertEqual(
+            params["initialTurnsPage"],
+            .dictionary(["limit": .int(5)])
+        )
         try await transport.respondToLatestRequest(
             method: "thread/resume",
             result: Self.historyResumeResult
@@ -432,7 +435,7 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
-    func testForkRejectsPaginatedThreadBeforeSendingUnsupportedRPC() async throws {
+    func testForkUsesGA147ServerSupportWithoutLegacyHistoryProbe() async throws {
         let transport = ControllableCodexFrameTransport()
         let session = CodexSession(
             transport: transport,
@@ -447,30 +450,15 @@ final class CodexSessionOrderingTests: XCTestCase {
             try await session.forkThread(requestedParams)
         }
         try await waitUntil {
-            await transport.requestWriteCount(method: "thread/read") == 1
+            await transport.requestWriteCount(method: "thread/fork") == 1
         }
-        try await transport.respondToLatestRequest(
-            method: "thread/read",
-            result: Self.paginatedThreadMetadataResult
-        )
-
-        do {
-            _ = try await fork.value
-            XCTFail("Expected paginated fork to be rejected")
-        } catch let error as CodexSessionError {
-            guard case .unsupportedThreadOperation(
-                let threadID,
-                let method,
-                let historyMode
-            ) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-            XCTAssertEqual(threadID, Self.threadID)
-            XCTAssertEqual(method, "thread/fork")
-            XCTAssertEqual(historyMode, .paginated)
-        }
+        let reads = await transport.requestWriteCount(method: "thread/read")
         let forkCount = await transport.requestWriteCount(method: "thread/fork")
-        XCTAssertEqual(forkCount, 0)
+        XCTAssertEqual(reads, 0)
+        XCTAssertEqual(forkCount, 1)
+
+        fork.cancel()
+        _ = try? await fork.value
 
         await session.stop()
     }

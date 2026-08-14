@@ -228,6 +228,8 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
     public var path: String?
     public var preview: String?
     public var recencyAt: ProtocolSeconds?
+    public var section: CodexSchemaThreadSection?
+    public var sectionEnteredAt: ProtocolSeconds?
     public var sessionID: String?
     public var source: CodexJSONValue?
     public var threadSource: CodexJSONValue?
@@ -251,6 +253,8 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
         path: String? = nil,
         preview: String? = nil,
         recencyAt: ProtocolSeconds? = nil,
+        section: CodexSchemaThreadSection? = nil,
+        sectionEnteredAt: ProtocolSeconds? = nil,
         sessionID: String? = nil,
         source: CodexJSONValue? = nil,
         threadSource: CodexJSONValue? = nil,
@@ -273,6 +277,8 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
         self.path = path
         self.preview = preview
         self.recencyAt = recencyAt
+        self.section = section
+        self.sectionEnteredAt = sectionEnteredAt
         self.sessionID = sessionID
         self.source = source
         self.threadSource = threadSource

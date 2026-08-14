@@ -301,7 +301,8 @@ private extension CodexCanonicalTranscriptProjector {
                     let image = CodexGeneratedImageV2(
                         id: item.key.itemID.rawValue,
                         source: source,
-                        revisedPrompt: item.payload.string("revisedPrompt")
+                        revisedPrompt: item.payload.string("revisedPrompt"),
+                        hasTransparentBackground: item.payload.bool("transparentBackground")
                     )
                     if let index = turn.generatedImages.firstIndex(where: { $0.id == image.id }) {
                         turn.generatedImages[index] = image
@@ -706,7 +707,8 @@ private extension CodexCanonicalTranscriptProjector {
                 durationMs: itemDuration(item),
                 errorFirstLine: state == .failed ? mcpError(item.payload) : nil,
                 arguments: item.payload["arguments"],
-                result: item.payload["result"]
+                result: item.payload["result"],
+                readOnlyHint: item.payload.bool("readOnlyHint")
             ))]
         case .webSearch:
             guard let query = item.payload.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),

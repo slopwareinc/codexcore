@@ -669,6 +669,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
     public var id: String
     public var displayName: String
     public var modelIdentifier: String?
+    public var specialty: String?
     public var detail: String?
     public var isDefault: Bool
     public var defaultReasoning: CodexReasoningSelection?
@@ -682,6 +683,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         id: String,
         displayName: String,
         modelIdentifier: String? = nil,
+        specialty: String? = nil,
         detail: String? = nil,
         isDefault: Bool = false,
         defaultReasoning: CodexReasoningSelection? = nil,
@@ -709,6 +711,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         self.id = id
         self.displayName = displayName
         self.modelIdentifier = modelIdentifier
+        self.specialty = specialty
         self.detail = detail
         self.isDefault = isDefault
         self.defaultReasoning = defaultReasoning
@@ -723,6 +726,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         lhs.id == rhs.id
             && lhs.displayName == rhs.displayName
             && lhs.modelIdentifier == rhs.modelIdentifier
+            && lhs.specialty == rhs.specialty
             && lhs.detail == rhs.detail
             && lhs.isDefault == rhs.isDefault
             && lhs.defaultReasoning == rhs.defaultReasoning
@@ -784,6 +788,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
                 id: model.id,
                 displayName: model.displayName,
                 modelIdentifier: model.model,
+                specialty: model.modelSpecialty,
                 detail: model.description,
                 isDefault: model.isDefault,
                 defaultReasoning: reasoningSelection(

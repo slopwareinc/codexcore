@@ -260,6 +260,7 @@ struct CodexCanonicalTranscriptProjectorTests {
             "server": .string("future-server"),
             "tool": .string("future-tool"),
             "status": .string("awaitingPolicy"),
+            "readOnlyHint": .bool(true),
         ])
         let projected = try #require(
             CodexCanonicalTranscriptProjector().rebuild(
@@ -287,6 +288,7 @@ struct CodexCanonicalTranscriptProjectorTests {
         }
         if case .mcpToolCall(let tool) = rows[1] {
             #expect(tool.status == .unknown("awaitingPolicy"))
+            #expect(tool.readOnlyHint == true)
         } else {
             Issue.record("Expected unknown MCP row")
         }
@@ -478,6 +480,7 @@ struct CodexCanonicalTranscriptProjectorTests {
             "savedPath": .string("/tmp/generated.png"),
             "result": .string("fallback-base64"),
             "revisedPrompt": .string("A precise native developer workspace"),
+            "transparentBackground": .bool(true),
         ])
         let snapshot = state(
             revision: 1,
@@ -496,7 +499,8 @@ struct CodexCanonicalTranscriptProjectorTests {
             .init(
                 id: "generation",
                 source: "/tmp/generated.png",
-                revisedPrompt: "A precise native developer workspace"
+                revisedPrompt: "A precise native developer workspace",
+                hasTransparentBackground: true
             )
         ])
         #expect(projected.narrative.flatMap(\.workRows).contains { $0.id == "generation" })
