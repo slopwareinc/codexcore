@@ -1,6 +1,7 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 root := justfile_directory()
+build_jobs := env_var_or_default("CODEXCORE_BUILD_JOBS", "4")
 
 default:
     @just run
@@ -39,14 +40,17 @@ kill:
     fi
 
 build:
-    swift build --target CodexCoreApp
+    swift build --jobs "{{build_jobs}}" --target CodexCoreApp
+
+test *ARGS:
+    swift test --jobs "{{build_jobs}}" {{ARGS}}
 
 # Render component scenes to build/gallery for visual review.
 # Every theme family, both appearances. Liquid Glass renders as its opaque
 # fallback: the window server composites real glass from behind the window, so
 # it cannot be captured offscreen.
 gallery *ARGS:
-    swift run codex-ui-gallery --out "{{root}}/build/gallery" {{ARGS}}
+    swift run --jobs "{{build_jobs}}" codex-ui-gallery --out "{{root}}/build/gallery" {{ARGS}}
 
 # Assemble a registered, ad-hoc signed macOS application bundle.
 package:
@@ -61,14 +65,14 @@ run-app: kill package
 
 # Kill any running instance, rebuild, and launch the CodexCore app.
 run: kill build
-    swift run codex-core-app
+    swift run --skip-build codex-core-app
 
 # Alias for `run`.
 rerun: run
 
 # Kill and launch without rebuilding (when you only changed runtime data).
 run-fast: kill
-    swift run codex-core-app
+    swift run --skip-build codex-core-app
 
 # Profile the running app's real transcript. Override with TRACE_DURATION=30s if needed.
 trace:

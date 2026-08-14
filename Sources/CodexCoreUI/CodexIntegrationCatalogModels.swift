@@ -47,7 +47,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     public var version: String?
     public var detail: String?
     public var authStatus: String
-    public var enabled: Bool
+    public var enabled: Bool?
     public var startupState: CodexSchemaMCPServerStartupState?
     public var error: String?
     public var failureReason: CodexSchemaMCPServerStartupFailureReason?
@@ -66,7 +66,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         version: String? = nil,
         detail: String? = nil,
         authStatus: String = "unknown",
-        enabled: Bool = true,
+        enabled: Bool? = true,
         startupStatus: String? = nil,
         error: String? = nil,
         failureReason: CodexSchemaMCPServerStartupFailureReason? = nil,
@@ -96,7 +96,10 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
 
     public init?(raw value: CodexJSONValue) {
         guard case .dictionary(let object) = value,
-              let name = Self.string(in: object, keys: ["name", "id", "serverName"])?.nilIfBlank else {
+              let name = Self.string(in: object, keys: ["name", "id", "serverName"])?.nilIfBlank,
+              object["tools"] != nil,
+              object["resources"] != nil,
+              object["resourceTemplates"] != nil else {
             return nil
         }
 
@@ -114,7 +117,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             version: version,
             detail: detail,
             authStatus: Self.string(in: object, keys: ["authStatus", "auth", "authentication"]) ?? "unknown",
-            enabled: CodexJSONCoercion.bool(in: object, key: "enabled") ?? true,
+            enabled: CodexJSONCoercion.bool(in: object, key: "enabled"),
             startupStatus: Self.string(in: object, keys: ["status", "startupStatus", "state"]),
             error: Self.string(in: object, keys: ["error"]),
             failureReason: Self.string(in: object, keys: ["failureReason"])
@@ -585,7 +588,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var installed: Bool
     public var enabled: Bool
     public var installPolicy: String
-    public var availability: String
+    public var availability: String?
     public var authPolicy: String
     public var sourceType: String?
     public var sourceDetail: String?
@@ -644,7 +647,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
         self.installed = installed
         self.enabled = enabled
         self.installPolicy = installPolicy
-        self.availability = availability ?? "AVAILABLE"
+        self.availability = availability
         self.authPolicy = authPolicy
         self.sourceType = sourceType
         self.sourceDetail = sourceDetail
@@ -662,7 +665,11 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     public init?(raw value: CodexJSONValue, marketplace: MarketplaceContext) {
         guard case .dictionary(let object) = value,
-              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank else {
+              let name = Self.string(in: object, keys: ["name"])?.nilIfBlank,
+              let installed = Self.bool(from: object["installed"]),
+              let enabled = Self.bool(from: object["enabled"]),
+              let installPolicy = Self.string(in: object, keys: ["installPolicy"]),
+              let authPolicy = Self.string(in: object, keys: ["authPolicy"]) else {
             return nil
         }
 
@@ -682,11 +689,11 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             marketplacePath: marketplace.path,
             category: Self.string(in: interface, keys: ["category"]),
             developerName: Self.string(in: interface, keys: ["developerName"]),
-            installed: Self.bool(from: object["installed"]) ?? false,
-            enabled: Self.bool(from: object["enabled"]) ?? false,
-            installPolicy: Self.string(in: object, keys: ["installPolicy"]) ?? "NOT_AVAILABLE",
-            availability: Self.string(in: object, keys: ["availability"]) ?? "AVAILABLE",
-            authPolicy: Self.string(in: object, keys: ["authPolicy"]) ?? "ON_USE",
+            installed: installed,
+            enabled: enabled,
+            installPolicy: installPolicy,
+            availability: Self.string(in: object, keys: ["availability"]),
+            authPolicy: authPolicy,
             sourceType: Self.string(in: source, keys: ["type"]),
             sourceDetail: Self.sourceDetail(from: source),
             localVersion: Self.string(in: object, keys: ["localVersion"]),
@@ -765,8 +772,8 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     public var statusLabel: String {
         if isAdminDisabled { return "Disabled by admin" }
-        if installed, enabled { return "Installed" }
-        if installed { return "Installed, disabled" }
+        if installed, enabled { return "Enabled" }
+        if installed { return "Disabled" }
         if installPolicy == "AVAILABLE" { return "Available" }
         if installPolicy == "INSTALLED_BY_DEFAULT" { return "Default" }
         return "Unavailable"
@@ -837,12 +844,7 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
                 displayName: string(in: interface, keys: ["displayName"]),
                 path: string(in: marketplace, keys: ["path"])
             )
-            let plugins: [CodexJSONValue]
-            if case .array(let values)? = marketplace["plugins"] {
-                plugins = values
-            } else {
-                plugins = []
-            }
+            guard case .array(let plugins)? = marketplace["plugins"] else { return nil }
             return (context, plugins)
         }
     }
@@ -1304,10 +1306,22 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
 
     private static func dependencies(from value: CodexJSONValue?) -> [String] {
         guard case .dictionary(let object)? = value else { return [] }
-        return object.compactMap { key, value in
-            guard bool(from: value) ?? false else { return nil }
+        var dependencies: [String] = []
+        if case .array(let tools)? = object["tools"] {
+            dependencies += tools.compactMap { tool in
+                guard case .dictionary(let fields) = tool,
+                      let type = string(in: fields, keys: ["type"]),
+                      let value = string(in: fields, keys: ["value"]) else {
+                    return nil
+                }
+                return "\(type): \(value)"
+            }
+        }
+        dependencies += object.compactMap { key, value in
+            guard key != "tools", bool(from: value) ?? false else { return nil }
             return key
-        }.sorted()
+        }
+        return dependencies.sorted()
     }
 
     private static func stringList(from value: CodexJSONValue?) -> [String] {
@@ -1556,11 +1570,11 @@ public enum CodexPluginProtocolMutation {
     }
 
     public static func userConfigTarget(from response: CodexSchemaConfigReadResponse) -> ConfigWriteTarget? {
-        response.layers?.compactMap { layer in
+        response.layers?.compactMap { layer -> ConfigWriteTarget? in
             guard case .dictionary(let source) = layer.name.rawValue,
                   source["type"] == .string("user"),
                   case .string(let filePath) = source["file"] else { return nil }
-            return .init(filePath: filePath, expectedVersion: layer.version)
+            return ConfigWriteTarget(filePath: filePath, expectedVersion: layer.version)
         }.last
     }
     public static func configuredPluginEnabled(from response: CodexSchemaConfigReadResponse) -> [String: Bool] {

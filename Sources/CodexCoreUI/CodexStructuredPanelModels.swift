@@ -170,7 +170,7 @@ public struct CodexMCPStatusPanelServerRow: Identifiable, Equatable, Sendable {
         self.init(
             name: server.name,
             displayName: server.displayName,
-            enabledLabel: server.enabled ? "Enabled" : "Disabled",
+            enabledLabel: server.enabled.map { $0 ? "Enabled" : "Disabled" } ?? "Configuration unknown",
             authLabel: server.authStatusLabel,
             startupLabel: server.error?.nilIfBlank ?? server.startupStatus?.nilIfBlank ?? "ready",
             inventorySummary: server.inventorySummary

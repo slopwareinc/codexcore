@@ -4,6 +4,12 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 configuration="debug"
+build_jobs="${CODEXCORE_BUILD_JOBS:-4}"
+
+if [[ ! "${build_jobs}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "CODEXCORE_BUILD_JOBS must be a positive integer." >&2
+    exit 64
+fi
 
 if [[ "${1:-}" == "--release" ]]; then
     configuration="release"
@@ -26,7 +32,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-swift build --package-path "${repo_root}" --configuration "${configuration}" --product codex-core-app
+swift build --package-path "${repo_root}" --configuration "${configuration}" --jobs "${build_jobs}" --product codex-core-app
 bin_dir="$(swift build --package-path "${repo_root}" --configuration "${configuration}" --show-bin-path)"
 
 rm -rf "${app_dir}"
@@ -40,7 +46,9 @@ if [[ ! -d "${sparkle_framework}" ]]; then
     echo "error: SwiftPM did not place Sparkle.framework beside codex-core-app" >&2
     exit 1
 fi
+codesign --verify --deep --strict "${sparkle_framework}"
 cp -R "${sparkle_framework}" "${frameworks_dir}/Sparkle.framework"
+codesign --verify --deep --strict "${frameworks_dir}/Sparkle.framework"
 
 build_number="${CODEXCORE_BUILD_NUMBER:-$(git -C "${repo_root}" rev-list --count HEAD)}"
 if [[ ! "${build_number}" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
@@ -99,20 +107,8 @@ if [[ "${signing_identity}" == "-" ]]; then
     timestamp_option="--timestamp=none"
 fi
 
-while IFS= read -r -d '' nested_executable; do
-    if file -b "${nested_executable}" | grep -q 'Mach-O'; then
-        codesign --force --options runtime "${timestamp_option}" --sign "${signing_identity}" "${nested_executable}"
-    fi
-done < <(find "${frameworks_dir}" -type f -perm -111 -print0)
-
-while IFS= read -r -d '' nested_code; do
-    codesign --force --options runtime "${timestamp_option}" --sign "${signing_identity}" "${nested_code}"
-done < <(
-    find -d "${frameworks_dir}" \
-        \( -name '*.xpc' -o -name '*.app' -o -name '*.framework' \) \
-        -print0
-)
-
+# Sparkle is a pre-signed binary framework. Re-signing its executables and
+# nested bundles independently invalidates the framework's resource seal.
 codesign \
     --force \
     --options runtime \
@@ -121,14 +117,7 @@ codesign \
     --sign "${signing_identity}" \
     "${app_dir}"
 
-while IFS= read -r -d '' nested_code; do
-    codesign --verify --strict "${nested_code}"
-done < <(
-    find -d "${frameworks_dir}" \
-        \( -name '*.xpc' -o -name '*.app' -o -name '*.framework' \) \
-        -print0
-)
-codesign --verify --strict "${app_dir}"
+codesign --verify --deep --strict "${app_dir}"
 
 short_version="$(plutil -extract CFBundleShortVersionString raw "${contents_dir}/Info.plist")"
 archive_path="${repo_root}/build/CodexCore-${short_version}-${build_number}.zip"
@@ -137,6 +126,13 @@ create_archive() {
     rm -f "${archive_path}"
     ditto -c -k --keepParent "${app_dir}" "${archive_path}"
 }
+
+validate_archive() (
+    extraction_dir="$(mktemp -d)"
+    trap 'rm -rf "${extraction_dir}"' EXIT
+    ditto -x -k "${archive_path}" "${extraction_dir}"
+    codesign --verify --deep --strict "${extraction_dir}/CodexCore.app"
+)
 
 create_archive
 
@@ -153,6 +149,8 @@ if [[ -n "${notary_profile}" ]]; then
 else
     echo "Skipping notarization: CODEXCORE_NOTARY_KEYCHAIN_PROFILE is not set"
 fi
+
+validate_archive
 
 appcast_dir="${CODEXCORE_APPCAST_DIRECTORY:-}"
 if [[ -n "${appcast_dir}" ]]; then

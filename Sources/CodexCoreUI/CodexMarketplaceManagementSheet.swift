@@ -58,9 +58,8 @@ public struct CodexMarketplaceSummary: Identifiable, Equatable, Sendable {
             let interface: [String: CodexJSONValue]
             if case .dictionary(let value)? = marketplace["interface"] { interface = value }
             else { interface = [:] }
-            let pluginCount: Int
-            if case .array(let plugins)? = marketplace["plugins"] { pluginCount = plugins.count }
-            else { pluginCount = 0 }
+            guard case .array(let plugins)? = marketplace["plugins"] else { return nil }
+            let pluginCount = plugins.count
             return CodexMarketplaceSummary(
                 name: name,
                 displayName: CodexJSONCoercion.flatString(from: interface["displayName"])?.nilIfBlank ?? name,

@@ -2,7 +2,7 @@
 
 Native Swift infrastructure for the Codex app-server: a Swift SDK, a reusable SwiftUI workspace, and a native macOS reference app.
 
-> **Status:** CodexCore `0.9.0` targets macOS 26+, Swift 6.2, and `codex-cli 0.145.0` or newer. Protocol types are generated from `codex-cli 0.146.0-alpha.9.2`; fields added after the `0.145.0` floor are optional on the wire, so a GA runtime in that range keeps working. CodexCore opts into experimental app-server capabilities.
+> **Status:** CodexCore `0.10.0` targets macOS 26+, Swift 6.2, and `codex-cli 0.145.0` or newer. Protocol types are generated from `codex-cli 0.146.0-alpha.9.2`; fields added after the `0.145.0` floor are optional on the wire, so a GA runtime in that range keeps working. CodexCore opts into experimental app-server capabilities.
 
 ![CodexCore native macOS workspace](docs/assets/screenshots/hero-workspace.png)
 
@@ -45,7 +45,7 @@ The result is also self-demonstrating: CodexCore hosts Codex workflows, while Co
 git clone https://github.com/slopwareinc/codexcore.git
 cd codexcore
 codex --version       # checks only the PATH candidate; it must print codex-cli 0.145.0 or newer
-swift run codex-core-app
+swift run --jobs 4 codex-core-app
 ```
 
 For a normal Finder/Dock application with bundle metadata and the CodexCore icon:
@@ -71,7 +71,7 @@ See [requirements](docs/getting-started/requirements.md) and [authentication](do
 dependencies: [
     .package(
         url: "https://github.com/slopwareinc/codexcore.git",
-        exact: "0.145.0+codexcore.0.9.0"
+        exact: "0.145.0+codexcore.0.10.0"
     )
 ]
 ```
@@ -150,8 +150,8 @@ Read the [architecture overview](docs/architecture/overview.md) for invariants a
 ## Development
 
 ```bash
-swift build --target CodexCoreApp
-swift test
+swift build --jobs 4 --target CodexCoreApp
+swift test --jobs 4
 python3 -m unittest discover Tools/tests
 ```
 

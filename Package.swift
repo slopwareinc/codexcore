@@ -119,9 +119,19 @@ let package = Package(
         ),
         .testTarget(
             name: "CodexCoreAppTests",
-            dependencies: ["CodexCore", "CodexCoreUI", "CodexCoreApp"],
+            dependencies: [
+                "CodexCore",
+                "CodexCoreUI",
+                "CodexCoreApp",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Tests/CodexCoreAppTests",
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)],
+            linkerSettings: [
+                // SwiftPM places binary frameworks beside test bundles but only
+                // adds PackageFrameworks to their runtime search paths.
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."]),
+            ]
         )
     ],
     swiftLanguageModes: [.v6]

@@ -17,8 +17,8 @@ Prerequisites are macOS 26+, Swift 6.2/Xcode, Git, Python 3, Bash, and the exact
 ## Commands
 
 ```bash
-swift build --target CodexCoreApp
-swift test
+swift build --jobs 4 --target CodexCoreApp
+swift test --jobs 4
 just run
 just run-app
 ./scripts/package-app.sh --release
@@ -26,7 +26,12 @@ python3 -m unittest discover Tools/tests
 git diff --check
 ```
 
-There is currently no repository CI; contributors must run the relevant validation locally. `Tools/check_drift.sh` without `CODEX_BINARY` downloads the pinned GA runtime and therefore needs network access; set `CODEX_BINARY=/absolute/path/to/codex` for a local binary.
+Local `just` recipes cap SwiftPM at four concurrent build jobs to avoid saturating
+developer laptops. Set `CODEXCORE_BUILD_JOBS=2` for a cooler build or raise it
+explicitly when wall-clock speed matters. CI invokes SwiftPM directly and controls
+its own concurrency.
+
+Repository CI runs the default build and test suite, but contributors should still run the relevant validation locally. `Tools/check_drift.sh` without `CODEX_BINARY` downloads the pinned GA runtime and therefore needs network access; set `CODEX_BINARY=/absolute/path/to/codex` for a local binary.
 
 SDK/session/protocol tests belong in `Tests/CodexCoreTests`. Presentation and fixture tests belong in `Tests/CodexCoreUITests`.
 

@@ -10,8 +10,8 @@ The reference app demonstrates the SDK and reusable UI. It is not required by li
 git clone https://github.com/slopwareinc/codexcore.git
 cd codexcore
 codex --version  # verifies only the PATH candidate
-swift build --target CodexCoreApp
-swift run codex-core-app
+swift build --jobs 4 --target CodexCoreApp
+swift run --skip-build codex-core-app
 ```
 
 With `just` installed:
