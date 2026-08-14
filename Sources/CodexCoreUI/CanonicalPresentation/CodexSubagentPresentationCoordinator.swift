@@ -58,6 +58,7 @@ public final class CodexSubagentPresentationCoordinator {
     @ObservationIgnored private var parentObservationTask: Task<Void, Never>?
     @ObservationIgnored private var indexObservationTask: Task<Void, Never>?
     @ObservationIgnored private var descendantDiscoveryTask: Task<Void, Never>?
+    @ObservationIgnored private var childMetadataTasks: [ThreadID: Task<Void, Never>] = [:]
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var nextSelectionID: UInt64 = 0
     @ObservationIgnored var nextProjectionID: UInt64 = 0
@@ -126,6 +127,7 @@ public final class CodexSubagentPresentationCoordinator {
         parentObservationTask?.cancel()
         indexObservationTask?.cancel()
         descendantDiscoveryTask?.cancel()
+        for task in childMetadataTasks.values { task.cancel() }
         selectedProjection?.observationTask?.cancel()
         selectedProjection?.projectionTask?.cancel()
         if let lease = selectedProjection?.lease {
@@ -298,6 +300,39 @@ private extension CodexSubagentPresentationCoordinator {
         }
     }
 
+    func refreshMissingChildMetadata(parentThreadID: ThreadID, generation: UInt64) {
+        let desired = desiredChildIDs
+        for threadID in Array(childMetadataTasks.keys) where !desired.contains(threadID) {
+            childMetadataTasks.removeValue(forKey: threadID)?.cancel()
+        }
+        for threadID in desired where childMetadataTasks[threadID] == nil {
+            guard store.agent(threadID: threadID.rawValue)?.nickname == nil else { continue }
+            let codex = self.codex
+            childMetadataTasks[threadID] = Task(priority: .background) { [weak self] in
+                defer {
+                    if self?.generation == generation {
+                        self?.childMetadataTasks.removeValue(forKey: threadID)
+                    }
+                }
+                do {
+                    _ = try await codex.perform(CodexRequest.threadRead(.init(
+                        includeTurns: false,
+                        threadID: threadID.rawValue
+                    )))
+                } catch {
+                    return
+                }
+                guard let self, isCurrent(generation, parentThreadID: parentThreadID) else {
+                    return
+                }
+                applyThreadIndex(
+                    await codex.session.threadIndexSnapshot(),
+                    parentThreadID: parentThreadID
+                )
+            }
+        }
+    }
+
     func applyParentSnapshot(
         _ snapshot: CanonicalStateSnapshot,
         parentThreadID: ThreadID
@@ -312,6 +347,7 @@ private extension CodexSubagentPresentationCoordinator {
         parentDiscoveredIDs = Set(discoveries.map { ThreadID($0.threadID) })
         diagnostics.parentSnapshotCount += 1
         reconcileChildren()
+        refreshMissingChildMetadata(parentThreadID: parentThreadID, generation: generation)
         reconcileSelectedLifecycle(from: previousStatus)
         refreshMapperAndPublish()
     }
@@ -328,6 +364,7 @@ private extension CodexSubagentPresentationCoordinator {
         removedIndexedChildIDs = seenIndexedChildIDs.subtracting(indexedChildIDs)
         diagnostics.indexSnapshotCount += 1
         reconcileChildren()
+        refreshMissingChildMetadata(parentThreadID: parentThreadID, generation: generation)
         reconcileSelectedLifecycle(from: previousStatus)
         refreshMapperAndPublish()
     }
@@ -392,6 +429,8 @@ extension CodexSubagentPresentationCoordinator {
         indexObservationTask = nil
         descendantDiscoveryTask?.cancel()
         descendantDiscoveryTask = nil
+        for task in childMetadataTasks.values { task.cancel() }
+        childMetadataTasks.removeAll(keepingCapacity: false)
     }
 
     func isCurrent(_ generation: UInt64, parentThreadID: ThreadID) -> Bool {
