@@ -57,6 +57,7 @@ public final class CodexSubagentPresentationCoordinator {
     @ObservationIgnored var selectedProjection: CodexSelectedSubagentProjection?
     @ObservationIgnored private var parentObservationTask: Task<Void, Never>?
     @ObservationIgnored private var indexObservationTask: Task<Void, Never>?
+    @ObservationIgnored private var descendantDiscoveryTask: Task<Void, Never>?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var nextSelectionID: UInt64 = 0
     @ObservationIgnored var nextProjectionID: UInt64 = 0
@@ -124,6 +125,7 @@ public final class CodexSubagentPresentationCoordinator {
     isolated deinit {
         parentObservationTask?.cancel()
         indexObservationTask?.cancel()
+        descendantDiscoveryTask?.cancel()
         selectedProjection?.observationTask?.cancel()
         selectedProjection?.projectionTask?.cancel()
         if let lease = selectedProjection?.lease {
@@ -150,6 +152,7 @@ public final class CodexSubagentPresentationCoordinator {
         }
         startParentObservation(threadID: threadID, generation: generation)
         startIndexObservation(parentThreadID: threadID, generation: generation)
+        startDescendantDiscovery(parentThreadID: threadID, generation: generation)
     }
 
     /// Deterministically releases every child lease and stops observing.
@@ -272,6 +275,29 @@ private extension CodexSubagentPresentationCoordinator {
         }
     }
 
+    func startDescendantDiscovery(parentThreadID: ThreadID, generation: UInt64) {
+        let codex = self.codex
+        descendantDiscoveryTask = Task(priority: .background) { [weak self] in
+            do {
+                _ = try await codex.perform(CodexRequest.threadList(.init(
+                    ancestorThreadID: parentThreadID.rawValue,
+                    limit: 200,
+                    sourceKinds: [.subAgentThreadSpawn],
+                    useStateDBOnly: false
+                )))
+            } catch {
+                return
+            }
+            guard let self, isCurrent(generation, parentThreadID: parentThreadID) else {
+                return
+            }
+            applyThreadIndex(
+                await codex.session.threadIndexSnapshot(),
+                parentThreadID: parentThreadID
+            )
+        }
+    }
+
     func applyParentSnapshot(
         _ snapshot: CanonicalStateSnapshot,
         parentThreadID: ThreadID
@@ -364,6 +390,8 @@ extension CodexSubagentPresentationCoordinator {
         parentObservationTask = nil
         indexObservationTask?.cancel()
         indexObservationTask = nil
+        descendantDiscoveryTask?.cancel()
+        descendantDiscoveryTask = nil
     }
 
     func isCurrent(_ generation: UInt64, parentThreadID: ThreadID) -> Bool {

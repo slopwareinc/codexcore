@@ -6,6 +6,35 @@ import Testing
 
 @MainActor
 struct CodexSubagentPresentationCoordinatorTests {
+    @Test func descendantNamesHydrateWithoutSelectingTheirTranscripts() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("codexcore-subagent-names-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let transport = CoordinatorTestTransport(
+            homePath: homeURL.path,
+            providesDescendantMetadata: true
+        )
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: CodexHome(path: homeURL.path))
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+
+        coordinator.selectParent("parent")
+        try await eventually {
+            coordinator.agents.first?.nickname == "Scout"
+        }
+
+        #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 0)
+        let params = try #require(await transport.descendantListParams())
+        #expect(params["ancestorThreadId"] == .string("parent"))
+        #expect(params["sourceKinds"] == .array([.string("subAgentThreadSpawn")]))
+        #expect(params["useStateDbOnly"] == .bool(false))
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
     @Test func selectedChildOmitsInheritedParentTurnsFromItsTranscript() async throws {
         let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent(
@@ -500,18 +529,22 @@ private enum CoordinatorTestError: Error {
 private actor CoordinatorTestTransport: CodexFrameTransport {
     private let homePath: String
     private let includesInheritedParentTurn: Bool
+    private let providesDescendantMetadata: Bool
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var openCount = 0
     private(set) var resumeCount = 0
     private(set) var unsubscribeCount = 0
     private var resumedIDs: [String] = []
+    private var lastDescendantListParams: [String: CodexJSONValue]?
 
     init(
         homePath: String,
-        includesInheritedParentTurn: Bool = false
+        includesInheritedParentTurn: Bool = false,
+        providesDescendantMetadata: Bool = false
     ) {
         self.homePath = homePath
         self.includesInheritedParentTurn = includesInheritedParentTurn
+        self.providesDescendantMetadata = providesDescendantMetadata
     }
 
     func open() async throws -> AsyncThrowingStream<Data, Error> {
@@ -540,6 +573,14 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
         case "thread/read":
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
             result = Self.threadMetadataResult(threadID: threadID)
+        case "thread/list":
+            lastDescendantListParams = object.objectParams
+            result = .dictionary([
+                "data": .array(providesDescendantMetadata
+                    ? [Self.threadMetadata(threadID: "child")]
+                    : []),
+                "nextCursor": .null,
+            ])
         case "thread/resume":
             resumeCount += 1
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
@@ -574,6 +615,10 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
 
     func resumedThreadIDs() -> [String] {
         resumedIDs
+    }
+
+    func descendantListParams() -> [String: CodexJSONValue]? {
+        lastDescendantListParams
     }
 
     func sendParentDiscovery(childIDs: [String] = ["child"]) {
@@ -643,8 +688,11 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
     }
 
     private static func threadMetadataResult(threadID: String) -> CodexJSONValue {
-        return .dictionary([
-            "thread": .dictionary([
+        .dictionary(["thread": threadMetadata(threadID: threadID)])
+    }
+
+    private static func threadMetadata(threadID: String) -> CodexJSONValue {
+        .dictionary([
                 "agentNickname": .string("Scout"),
                 "agentRole": .string("explorer"),
                 "cliVersion": .string("0.145.0-alpha.20"),
@@ -662,7 +710,6 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 "status": .dictionary(["type": .string("active"), "activeFlags": .array([])]),
                 "turns": .array([]),
                 "updatedAt": .int(1_700_000_001),
-            ]),
         ])
     }
 
