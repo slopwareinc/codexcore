@@ -1234,12 +1234,22 @@ private extension ProtocolStateAdapter {
 
         case .threadResume:
             let value: CodexSchemaThreadResumeResponse = try decodeResponse(context, result)
+            guard let rawHistoryMode = value.thread.historyMode?.rawValue else {
+                throw ProtocolStateAdapterError.malformedResponse(
+                    method: context.method.rawValue,
+                    message: "thread omitted experimental historyMode"
+                )
+            }
+            let historyMode = CanonicalHistoryMode(rawValue: rawHistoryMode)
+            let resumeItemPolicy: CanonicalItemCollectionMergePolicy = historyMode == .legacy
+                ? .authoritativeReplacement
+                : context.itemCollectionPolicy
 
             var mutations = try threadMutations(
                 value.thread,
                 rawThread: result.object(at: "thread"),
                 isLoaded: true,
-                itemPolicy: context.itemCollectionPolicy
+                itemPolicy: resumeItemPolicy
             )
             let threadID = ThreadID(value.thread.id)
             mutations.append(.threadSettingsReplaced(
@@ -1253,13 +1263,6 @@ private extension ProtocolStateAdapter {
                 )
             ))
             let initialPage = value.initialTurnsPage
-            guard let rawHistoryMode = value.thread.historyMode?.rawValue else {
-                throw ProtocolStateAdapterError.malformedResponse(
-                    method: context.method.rawValue,
-                    message: "thread omitted experimental historyMode"
-                )
-            }
-            let historyMode = CanonicalHistoryMode(rawValue: rawHistoryMode)
             let isPaginated = historyMode == .paginated
             let history = CanonicalHistoryState(
                 mode: historyMode,
