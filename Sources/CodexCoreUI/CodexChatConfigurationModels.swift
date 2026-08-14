@@ -21,7 +21,6 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     case readOnly
     case askForApproval
     case approveForMe
-    case guardianSubagent
     case fullAccess
     case custom
 
@@ -32,7 +31,6 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         case .readOnly: return "Read only"
         case .askForApproval: return "Ask for approval"
         case .approveForMe: return "Approve for me"
-        case .guardianSubagent: return "Guardian subagent"
         case .fullAccess: return "Full access"
         case .custom: return "Custom (config.toml)"
         }
@@ -46,8 +44,6 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
             return "always ask to edit external files and use the internet"
         case .approveForMe:
             return "only ask for potentially unsafe actions"
-        case .guardianSubagent:
-            return "have a guardian subagent review potentially unsafe actions"
         case .fullAccess:
             return "unrestricted internet and files"
         case .custom:
@@ -59,7 +55,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         switch self {
         case .readOnly:
             return .denyAll
-        case .askForApproval, .approveForMe, .guardianSubagent, .fullAccess, .custom:
+        case .askForApproval, .approveForMe, .fullAccess, .custom:
             return .autoReview
         }
     }
@@ -68,7 +64,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         switch self {
         case .readOnly:
             return .readOnly
-        case .askForApproval, .approveForMe, .guardianSubagent, .custom:
+        case .askForApproval, .approveForMe, .custom:
             return .workspaceWrite
         case .fullAccess:
             return .fullAccess
@@ -78,7 +74,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     public var permissionProfileID: String? {
         switch self {
         case .readOnly: return ":read-only"
-        case .askForApproval, .approveForMe, .guardianSubagent: return ":workspace"
+        case .askForApproval, .approveForMe: return ":workspace"
         case .fullAccess: return ":danger-full-access"
         case .custom: return nil
         }
@@ -117,14 +113,6 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
                 ),
                 approvalsReviewer: .autoReview
             )
-        case .guardianSubagent:
-            return CodexPermissionProfileWireConfiguration(
-                permissions: permissionProfileID,
-                approvalPolicy: CodexSchemaAskForApproval(
-                    .string("on-request")
-                ),
-                approvalsReviewer: .guardianSubagent
-            )
         case .fullAccess:
             return CodexPermissionProfileWireConfiguration(
                 permissions: permissionProfileID,
@@ -139,12 +127,9 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
     }
 
     public static let defaultOptions: [CodexApprovalSelection] = [
-        .readOnly,
         .askForApproval,
         .approveForMe,
-        .guardianSubagent,
-        .fullAccess,
-        .custom
+        .fullAccess
     ]
 
     public static func options(
@@ -157,19 +142,14 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         let ids = Set(profiles.lazy.filter(\.allowed).map(\.id))
         var options: [CodexApprovalSelection] = []
 
-        if ids.contains(":read-only") || ids.contains("read-only") {
-            options.append(.readOnly)
-        }
         if ids.contains(":workspace") || ids.contains("workspace") || ids.contains("workspace-write") {
-            options.append(contentsOf: [.askForApproval, .approveForMe, .guardianSubagent])
+            options.append(contentsOf: [.askForApproval, .approveForMe])
         }
         if ids.contains(":danger-full-access") || ids.contains("danger-full-access") {
             options.append(.fullAccess)
         }
 
-        options.append(.custom)
-        let fallback = options.isEmpty ? defaultOptions : options
-        return requirements?.narrowApprovalOptions(fallback) ?? fallback
+        return requirements?.narrowApprovalOptions(options) ?? options
     }
 
     package static func selection(
@@ -182,8 +162,7 @@ public enum CodexApprovalSelection: String, CaseIterable, Identifiable, Equatabl
         case ":workspace", "workspace", "workspace-write":
             switch approvalsReviewer {
             case .user: return .askForApproval
-            case .autoReview: return .approveForMe
-            case .guardianSubagent: return .guardianSubagent
+            case .autoReview, .guardianSubagent: return .approveForMe
             case .unrecognized: return .custom
             }
         case ":danger-full-access", "danger-full-access":
@@ -436,6 +415,10 @@ public struct CodexManagedPolicyRequirements: Equatable, Sendable {
 
     private func allows(_ value: CodexSchemaApprovalsReviewer?) -> Bool {
         guard let value else { return !allowedReviewers.isAdminLocked }
+        if value == .autoReview,
+           allowedReviewers.allowedValues?.contains("guardian_subagent") == true {
+            return true
+        }
         return allowedReviewers.allows(value.rawValue)
     }
 

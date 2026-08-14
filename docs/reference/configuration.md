@@ -39,23 +39,22 @@ Model identity, service tier, and reasoning effort are independent app-server se
 
 ## Composer permission profiles
 
-The reference app sends the selected app-server permission profile through the
-generated `permissions` field when starting a thread, forking, or starting a
-turn. Read only, workspace, and full access use the corresponding built-in
-profile IDs and the official approval-policy/reviewer tuple. Sandbox fields stay
-unset because the profile remains authoritative.
+The composer exposes the same three choices as Codex Desktop: Ask for approval,
+Approve for me, and Full access. The reference app sends the selected app-server
+permission profile through the generated `permissions` field when starting a
+thread, forking, or starting a turn. Sandbox fields stay unset because the
+profile remains authoritative. The legacy `guardian_subagent` reviewer hydrates
+as Approve for me.
 
 Resuming an existing thread does not send ambient composer permissions. The
 resume response hydrates the composer from that thread’s active profile without
 replacing the safe new-thread selection. Leaving the thread restores that
 selection, and Voice-created threads use it rather than inheriting the active
 thread’s profile.
-Custom omits profile, approval, reviewer, and sandbox overrides so the
-authoritative `config.toml` values apply for a new or config-backed thread. Once
-an active thread has an explicit profile, Custom is unavailable because omitting
-`permissions` does not reset the thread to config defaults. Preparing a turn or
-fork does not change this UI state; a successful main-thread turn or an
-authoritative fork response performs the transition.
+Read-only and custom profiles remain representable when an existing task or
+managed installation reports them, but they are not selectable composer modes.
+Preparing a turn or fork does not change the active UI state; a successful
+main-thread turn or an authoritative fork response performs the transition.
 
 Selecting Full access from either the composer or Settings requires an explicit
 destructive confirmation. Follow-up issue #175 tracks richer persistent warning
