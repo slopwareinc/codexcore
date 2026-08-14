@@ -435,7 +435,6 @@ public struct CodexChatWorkspaceView: View {
                 responseAnnotations: responseAnnotations,
                 onUpsertResponseAnnotation: upsertResponseAnnotation,
                 onRemoveResponseAnnotation: removeResponseAnnotation,
-                onResponseSelectionAction: handleResponseSelectionAction,
                 onOpenSubagent: openPanelTab,
                 onOpenThread: onOpenThread,
                 onOpenReviewRequest: reviewPanelAction,
@@ -608,17 +607,6 @@ public struct CodexChatWorkspaceView: View {
 
     private func removeResponseAnnotation(_ id: String) {
         responseAnnotations.removeAll { $0.id == id }
-    }
-
-    private func handleResponseSelectionAction(_ action: CodexResponseSelectionAction) {
-        switch action {
-        case .moreDetails(let selectedText):
-            sideChatDraft = "Tell me more about this\n\n\(selectedText)"
-        case .askInSideChat(let selectedText):
-            sideChatDraft = selectedText
-        }
-        workspaceChatActions.openSideChat?()
-        if case .moreDetails = action { onSendSideChatMessage() }
     }
 
     private var panelTabs: [CodexAgentPanelTab] {

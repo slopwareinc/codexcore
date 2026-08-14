@@ -77,60 +77,13 @@ final class CodexResponseSelectionActionPanel: NSPanel {
 
 struct CodexResponseSelectionActionView: View {
     @Environment(\.codexAgentTheme) private var theme
-
-    let onAddToChat: () -> Void
-    let onMoreDetails: (() -> Void)?
-    let onAskInSideChat: (() -> Void)?
-
-    var body: some View {
-        HStack(spacing: 0) {
-            selectionAction("Add to chat", action: onAddToChat)
-            if let onMoreDetails {
-                divider
-                selectionAction("More details", action: onMoreDetails)
-            }
-            if let onAskInSideChat {
-                divider
-                selectionAction("Ask in side chat", action: onAskInSideChat)
-            }
-        }
-        .fixedSize()
-        .background(
-            theme.colors.surfaceElevated.opacity(0.96),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.colors.border.opacity(0.7), lineWidth: 1)
-        }
-        .shadow(color: theme.colors.shadow.opacity(0.28), radius: 10, y: 5)
-    }
-
-    private func selectionAction(
-        _ title: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        CodexResponseSelectionActionButton(title: title, action: action)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(theme.colors.border.opacity(0.7))
-            .frame(width: 1, height: 30)
-    }
-}
-
-private struct CodexResponseSelectionActionButton: View {
-    @Environment(\.codexAgentTheme) private var theme
     @State private var isHovered = false
 
-    let title: String
-    let action: () -> Void
+    let onAddToChat: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Text(title)
+        Button(action: onAddToChat) {
+            Text("Add to chat")
                 .font(theme.fonts.caption.weight(.medium))
                 .foregroundStyle(theme.colors.textPrimary)
                 .padding(.horizontal, 9)
@@ -142,7 +95,18 @@ private struct CodexResponseSelectionActionButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .accessibilityLabel(title)
+        .accessibilityLabel("Add selected response text to chat")
+        .fixedSize()
+        .background(
+            theme.colors.surfaceElevated.opacity(0.96),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.7), lineWidth: 1)
+        }
+        .shadow(color: theme.colors.shadow.opacity(0.28), radius: 10, y: 5)
     }
 }
 

@@ -207,13 +207,10 @@ remain unchanged across the transition:
 
 The transcript groups user input, agent work, tool calls, subagents, approvals, plans, diffs, and final answers into canonical turns. Expanded heavy details are materialized on demand.
 
-Selecting text in a completed assistant response opens the same compact action
-strip as Codex Desktop. **Add to chat** attaches the excerpt to the current
-composer; confirm the optional comment editor—an empty comment is valid—to create
-the attachment. **More details** immediately asks the ephemeral side chat to
-explain the selection, while **Ask in side chat** opens that side chat with the
-selection staged for a custom question. Each confirmed annotation keeps a
-numbered marker in the response; you can edit or remove individual annotations
+Selecting text in a completed assistant response opens a compact **Add to chat**
+action. It attaches the excerpt to the current composer; confirm the optional
+comment editor—an empty comment is valid—to create the attachment. Each confirmed
+annotation keeps a numbered marker in the response; you can edit or remove it
 from the composer attachment, or remove the attachment as a whole. Annotation
 source locations remain local presentation state. On send, Codex receives the
 numbered selections and comments as hidden context while the visible user

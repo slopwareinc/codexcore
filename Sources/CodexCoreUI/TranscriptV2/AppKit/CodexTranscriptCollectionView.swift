@@ -117,7 +117,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var responseAnnotations: [CodexResponseTextAnnotation]
     var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void
     var onRemoveResponseAnnotation: (String) -> Void
-    var onResponseSelectionAction: ((CodexResponseSelectionAction) -> Void)?
     var productToolRenderer: CodexProductToolRendererV2?
     var onOpenSubagent: (String) -> Void
     var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
@@ -149,7 +148,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             responseAnnotations: responseAnnotations,
             onUpsertResponseAnnotation: onUpsertResponseAnnotation,
             onRemoveResponseAnnotation: onRemoveResponseAnnotation,
-            onResponseSelectionAction: onResponseSelectionAction,
             swiftUITheme: swiftUITheme,
             colorScheme: colorScheme,
             clipboardService: clipboardService,
@@ -206,7 +204,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var responseAnnotations: [CodexResponseTextAnnotation] = []
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
         private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
-        private var onResponseSelectionAction: ((CodexResponseSelectionAction) -> Void)?
         private var onOpenSubagent: (String) -> Void = { _ in }
         private var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
         private var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
@@ -305,7 +302,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             responseAnnotations: [CodexResponseTextAnnotation] = [],
             onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
             onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
-            onResponseSelectionAction: ((CodexResponseSelectionAction) -> Void)? = nil,
             swiftUITheme: CodexAgentTheme,
             colorScheme: ColorScheme,
             clipboardService: any CodexClipboardService,
@@ -354,7 +350,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.responseAnnotations = responseAnnotations
             self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
             self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
-            self.onResponseSelectionAction = onResponseSelectionAction
             self.onOpenSubagent = onOpenSubagent
             self.onOpenThread = onOpenThread
             self.onOpenReview = onOpenReview
@@ -542,7 +537,6 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 responseAnnotations: responseAnnotations,
                 upsertResponseAnnotation: onUpsertResponseAnnotation,
                 removeResponseAnnotation: onRemoveResponseAnnotation,
-                responseSelectionAction: onResponseSelectionAction,
                 selectionChanged: { [weak self] id, selecting in self?.selectionChanged(id: id, selecting: selecting) },
                 preferredHeightChanged: { [weak self] id, revision, height in
                     self?.preferredHeightChanged(id: id, revision: revision, height: height)

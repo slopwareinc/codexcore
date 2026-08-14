@@ -272,7 +272,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var contextFileReference: CodexResolvedTranscriptFileReference?
     private var upsertResponseAnnotation: ((CodexResponseTextAnnotation) -> Void)?
     private var removeResponseAnnotation: ((String) -> Void)?
-    private var responseSelectionAction: ((CodexResponseSelectionAction) -> Void)?
     private var selectionChanged: ((CodexTranscriptRenderItemID, Bool) -> Void)?
     private var preferredHeightChanged: ((CodexTranscriptRenderItemID, Int, CGFloat) -> Void)?
     private var lastReportedPreferredHeight: CGFloat?
@@ -354,8 +353,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         responseAnnotationEditorPanel != nil && responseAnnotationEditorIsCreating
     }
     func addSelectionToChatForTesting() { addSelectionToChat() }
-    func requestMoreDetailsForTesting() { requestMoreDetailsForSelection() }
-    func askInSideChatForTesting() { askInSideChatForSelection() }
     func saveResponseAnnotationCommentForTesting(_ comment: String) {
         guard let id = responseAnnotationEditorID else { return }
         saveResponseAnnotation(id: id, note: comment)
@@ -467,15 +464,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
 
     private func responseSelectionActionView() -> AnyView {
         AnyView(
-            CodexResponseSelectionActionView(
-                onAddToChat: { [weak self] in self?.addSelectionToChat() },
-                onMoreDetails: responseSelectionAction == nil
-                    ? nil
-                    : { [weak self] in self?.requestMoreDetailsForSelection() },
-                onAskInSideChat: responseSelectionAction == nil
-                    ? nil
-                    : { [weak self] in self?.askInSideChatForSelection() }
-            )
+            CodexResponseSelectionActionView { [weak self] in
+                self?.addSelectionToChat()
+            }
             .codexAgentTheme(swiftUITheme)
         )
     }
@@ -678,7 +669,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         responseAnnotations: [CodexResponseTextAnnotation] = [],
         upsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
         removeResponseAnnotation: @escaping (String) -> Void = { _ in },
-        responseSelectionAction: ((CodexResponseSelectionAction) -> Void)? = nil,
         selectionChanged: @escaping (CodexTranscriptRenderItemID, Bool) -> Void,
         preferredHeightChanged: @escaping (CodexTranscriptRenderItemID, Int, CGFloat) -> Void = { _, _, _ in }
     ) {
@@ -702,7 +692,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.responseAnnotations = responseAnnotations
         self.upsertResponseAnnotation = upsertResponseAnnotation
         self.removeResponseAnnotation = removeResponseAnnotation
-        self.responseSelectionAction = responseSelectionAction
         self.selectionChanged = selectionChanged
         self.preferredHeightChanged = preferredHeightChanged
         hostedView?.removeFromSuperview()
@@ -1915,18 +1904,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         pendingResponseAnnotation = annotation
         closeResponseSelectionAction()
         showResponseAnnotationEditor(annotation, isCreating: true)
-    }
-
-    private func requestMoreDetailsForSelection() {
-        guard let text = selectedResponseText()?.text else { return }
-        dismissResponseSelectionAction()
-        responseSelectionAction?(.moreDetails(text))
-    }
-
-    private func askInSideChatForSelection() {
-        guard let text = selectedResponseText()?.text else { return }
-        dismissResponseSelectionAction()
-        responseSelectionAction?(.askInSideChat(text))
     }
 
     private func selectedResponseText() -> (range: NSRange, text: String)? {

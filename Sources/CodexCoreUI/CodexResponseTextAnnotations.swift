@@ -54,12 +54,6 @@ public struct CodexResponseTextAnnotation: Identifiable, Equatable, Sendable {
     }
 }
 
-/// A follow-up initiated from text selected in a completed response.
-public enum CodexResponseSelectionAction: Equatable, Sendable {
-    case moreDetails(String)
-    case askInSideChat(String)
-}
-
 /// Encodes composer-only context while preserving a clean user-visible request.
 enum CodexComposerPromptCodec {
     struct Decoded: Equatable, Sendable {
