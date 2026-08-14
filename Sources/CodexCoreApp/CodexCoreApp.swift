@@ -57,7 +57,6 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private let clipboardService: any CodexClipboardService = CodexAppKitClipboardService()
     private let preferenceStore: any CodexStringListPreferenceStore = CodexUserDefaultsStringListPreferenceStore()
-    private let appUpdater = CodexAppUpdater()
     private lazy var model = CodexCoreAppModel(
         clipboardService: clipboardService,
         preferenceStore: preferenceStore
@@ -308,8 +307,6 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         aboutItem.target = NSApplication.shared
         appMenu.addItem(aboutItem)
-        appMenu.addItem(.separator())
-        appMenu.addItem(appUpdater.checkForUpdatesMenuItem)
         appMenu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settingsItem.target = self
