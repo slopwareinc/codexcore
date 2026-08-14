@@ -220,7 +220,10 @@ public struct CodexSubagentStoreV2: Sendable {
             agent.collaborationLifecycle = node.lifecycle ?? agent.collaborationLifecycle
             agent.statusMessage = node.errorMessage ?? node.resultMessage ?? agent.statusMessage
             if let lifecycle = node.lifecycle {
-                agent.status = Self.status(from: lifecycle, message: agent.statusMessage)
+                let status = Self.status(from: lifecycle, message: agent.statusMessage)
+                if Self.shouldApplyDiscoveryStatus(status, over: agent.status) {
+                    agent.status = status
+                }
             }
             agentsByID[discovery.threadID] = agent
         }
@@ -292,7 +295,7 @@ public struct CodexSubagentStoreV2: Sendable {
             let discovery = CodexSubagentDiscoveryV2(
                 threadID: id,
                 parentThreadID: parentThreadID.rawValue,
-                agentPath: summary.path,
+                agentPath: summary.agentPath,
                 prompt: discoveriesByID[id]?.prompt
             )
             _ = register(discovery)
@@ -302,11 +305,14 @@ public struct CodexSubagentStoreV2: Sendable {
                 nickname: summary.agentNickname,
                 role: summary.agentRole,
                 prompt: nil,
-                agentPath: summary.path,
+                agentPath: summary.agentPath,
                 parentThreadID: parentThreadID.rawValue
             )
             if let status = Self.status(from: summary),
-               !Self.isClosed(agentsByID[id]?.status) {
+               Self.shouldApplyIndexStatus(
+                   summary,
+                   over: agentsByID[id]?.status
+               ) {
                 agentsByID[id]?.status = status
             }
         }
@@ -361,15 +367,19 @@ public struct CodexSubagentStoreV2: Sendable {
             _ = register(.init(
                 threadID: id,
                 parentThreadID: summary.metadata.parentThreadID?.rawValue,
-                agentPath: summary.metadata.path
+                agentPath: summary.metadata.agentPathFromSource
             ))
         }
         guard var agent = agentsByID[id] else { return nil }
         let previous = agent
 
-        agent.nickname = summary.metadata.agentNickname ?? agent.nickname
-        agent.role = summary.metadata.agentRole ?? agent.role
-        agent.agentPath = summary.metadata.path ?? agent.agentPath
+        agent.nickname = summary.metadata.agentNickname
+            ?? summary.metadata.agentNicknameFromSource
+            ?? agent.nickname
+        agent.role = summary.metadata.agentRole
+            ?? summary.metadata.agentRoleFromSource
+            ?? agent.role
+        agent.agentPath = summary.metadata.agentPathFromSource ?? agent.agentPath
         agent.parentThreadID =
             summary.metadata.parentThreadID?.rawValue ?? agent.parentThreadID
         agent.depth = agent.agentPath.map(Self.depth) ?? agent.depth
@@ -550,7 +560,10 @@ private extension CodexSubagentStoreV2 {
             let message = state.string("message")
             agentsByID[id]?.collaborationLifecycle = lifecycle
             agentsByID[id]?.statusMessage = message
-            agentsByID[id]?.status = Self.status(from: lifecycle, message: message)
+            let status = Self.status(from: lifecycle, message: message)
+            if Self.shouldApplyDiscoveryStatus(status, over: agentsByID[id]?.status) {
+                agentsByID[id]?.status = status
+            }
         }
     }
 
@@ -580,15 +593,13 @@ private extension CodexSubagentStoreV2 {
     static func status(
         from summary: CanonicalThreadIndexSummary
     ) -> CodexSubagentLiveStatusV2? {
-        if summary.status.isActive || summary.latestTurnStatus == .inProgress {
-            return .working(since: nil)
-        }
         switch summary.latestTurnStatus {
         case .completed: return .completed(durationMs: nil)
         case .failed: return .failed(message: "Subagent failed")
         case .interrupted: return .failed(message: "Subagent interrupted")
         case .inProgress: return .working(since: nil)
-        case .unknown, nil: return nil
+        case .unknown, nil:
+            return summary.status.isActive ? .working(since: nil) : nil
         }
     }
 
@@ -621,6 +632,38 @@ private extension CodexSubagentStoreV2 {
     static func isClosed(_ status: CodexSubagentLiveStatusV2?) -> Bool {
         guard case .closed? = status else { return false }
         return true
+    }
+
+    static func isTerminal(_ status: CodexSubagentLiveStatusV2?) -> Bool {
+        switch status {
+        case .completed?, .closed?, .failed?: true
+        case .pending?, .working?, nil: false
+        }
+    }
+
+    /// Parent collaboration payloads and graph nodes are discovery fallbacks.
+    /// Once an exact child/index view reaches a terminal state, those broader
+    /// sources cannot move it backwards. Explicit closure remains terminal.
+    static func shouldApplyDiscoveryStatus(
+        _ incoming: CodexSubagentLiveStatusV2,
+        over current: CodexSubagentLiveStatusV2?
+    ) -> Bool {
+        guard isTerminal(current) else { return true }
+        guard case .closed = incoming else { return false }
+        return true
+    }
+
+    /// A concrete latest-turn status is authoritative, including a new
+    /// in-progress turn that resumes a completed child. Thread activity alone
+    /// is only a fallback and cannot downgrade an existing terminal result.
+    static func shouldApplyIndexStatus(
+        _ summary: CanonicalThreadIndexSummary,
+        over current: CodexSubagentLiveStatusV2?
+    ) -> Bool {
+        switch summary.latestTurnStatus {
+        case .completed?, .failed?, .interrupted?, .inProgress?: true
+        case .unknown?, nil: !isTerminal(current)
+        }
     }
 }
 

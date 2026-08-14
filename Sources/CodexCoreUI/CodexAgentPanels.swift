@@ -814,7 +814,6 @@ public struct CodexAgentSidePanel: View {
     private let mountedBrowserSessions: [CodexBrowserSession]
     private let mountedFilesSessions: [CodexFilesSession]
     private let mountedFilePreviewSessions: [CodexFilePreviewSession]
-    private let modelOptions: [CodexModelSelection]
     private let workspaceURL: URL?
     private let selectedReviewFilePath: String?
     private let isSideChatSending: Bool
@@ -882,7 +881,6 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
-        self.modelOptions = modelOptions
         self.workspaceURL = workspaceURL
         self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
@@ -950,7 +948,6 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
-        self.modelOptions = modelOptions
         self.workspaceURL = workspaceURL
         self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
@@ -1054,7 +1051,6 @@ public struct CodexAgentSidePanel: View {
                         onSendSideChatMessage: onSendSideChatMessage,
                         onInterruptSideChatMessage: onInterruptSideChatMessage,
                         onStartReview: onStartReview,
-                        modelOptions: modelOptions,
                         workspaceURL: workspaceURL,
                         selectedReviewFilePath: selectedReviewFilePath
                     )
@@ -1541,13 +1537,8 @@ private struct CodexAgentPanelContent: View {
     let onSendSideChatMessage: () -> Void
     let onInterruptSideChatMessage: () -> Void
     let onStartReview: (CodexReviewTarget) -> Void
-    let modelOptions: [CodexModelSelection]
     let workspaceURL: URL?
     let selectedReviewFilePath: String?
-    @State private var agentDraft = ""
-    @State private var agentApproval = CodexApprovalSelection.askForApproval
-    @State private var agentModel = CodexModelSelection.appServerDefault
-    @State private var agentReasoning = CodexReasoningSelection.medium
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1561,13 +1552,7 @@ private struct CodexAgentPanelContent: View {
                     empty: "Side chat is ready for a focused branch of the parent conversation."
                 )
             case .subagent(let subagent):
-                transcriptPanel(
-                    transcript: subagent.transcript,
-                    transcriptID: subagent.id,
-                    empty: subagent.emptyTranscriptMessage
-                ) {
-                    subagentHeader(subagent)
-                }
+                subagentTranscriptPanel(subagent)
             case .review(let session):
                 if let workspaceURL {
                     CodexGitReviewWorkbenchHost(
@@ -1586,21 +1571,6 @@ private struct CodexAgentPanelContent: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
         }
-    }
-
-    private var parentChatPill: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "arrow.up.left")
-                .font(theme.fonts.caption)
-            Text("Parent chat")
-                .font(theme.fonts.caption.weight(.semibold))
-        }
-        .foregroundStyle(theme.colors.textSecondary)
-        .padding(.horizontal, 11)
-        .frame(height: 32)
-        .background(theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity), in: Capsule())
-        .overlay(Capsule().stroke(theme.colors.border, lineWidth: 1))
-        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private func subagentHeader(_ subagent: CodexSubagentState) -> some View {
@@ -1643,7 +1613,6 @@ private struct CodexAgentPanelContent: View {
     ) -> some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                parentChatPill
                 header()
             }
             .padding(.horizontal, 16)
@@ -1660,10 +1629,26 @@ private struct CodexAgentPanelContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private func subagentTranscriptPanel(_ subagent: CodexSubagentState) -> some View {
+        VStack(spacing: 0) {
+            subagentHeader(subagent)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
+
+            CodexTranscriptViewV2(
+                transcript: subagent.transcript,
+                bottomContentInset: 16
+            ) {
+                emptyText(subagent.emptyTranscriptMessage)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func reviewPanel(_ session: CodexGitReviewSession) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                parentChatPill
                 CodexGitReviewPanel(session: session)
             }
             .padding(.horizontal, 16)
@@ -1697,20 +1682,7 @@ private struct CodexAgentPanelContent: View {
                 onInterrupt: onInterruptSideChatMessage
             )
         case .subagent:
-            CodexComposerBar(
-                draft: $agentDraft,
-                placeholder: "Ask this agent...",
-                isCompact: true,
-                approvalSelection: $agentApproval,
-                approvalOptions: CodexApprovalSelection.defaultOptions,
-                modelSelection: $agentModel,
-                modelOptions: modelOptions,
-                reasoningSelection: $agentReasoning,
-                isSending: false,
-                canSend: false,
-                onSend: {},
-                onInterrupt: {}
-            )
+            EmptyView()
         case .review:
             EmptyView()
         }

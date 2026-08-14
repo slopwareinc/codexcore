@@ -60,6 +60,8 @@ public final class CodexSubagentPresentationCoordinator {
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var nextSelectionID: UInt64 = 0
     @ObservationIgnored var nextProjectionID: UInt64 = 0
+    @ObservationIgnored private var publishedProjectionThreadID: ThreadID?
+    @ObservationIgnored private var publishedProjectionRevision: StateRevision?
 
     public convenience init(codex: Codex) {
         self.init(
@@ -321,8 +323,8 @@ extension CodexSubagentPresentationCoordinator {
     }
 
     func publish(_ projectedAgents: [CodexSubagentV2]? = nil) {
-        agents = projectedAgents ?? self.projectedAgents()
-        panelSubagents = mapper.subagents.map { subagent in
+        let nextAgents = projectedAgents ?? self.projectedAgents()
+        let nextPanelSubagents = mapper.subagents.map { subagent in
             var subagent = subagent
             if subagent.id == selectedProjection?.threadID.rawValue,
                selectedProjection?.isSuppressed == true {
@@ -330,7 +332,19 @@ extension CodexSubagentPresentationCoordinator {
             }
             return subagent
         }
-        lifecycleEvents = mapper.lifecycleEvents
+        let nextLifecycleEvents = mapper.lifecycleEvents
+        let nextProjectionThreadID = selectedProjection?.threadID
+        let nextProjectionRevision = selectedProjection?.presentation?.sourceRevision
+        guard panelSubagents != nextPanelSubagents
+                || lifecycleEvents != nextLifecycleEvents
+                || publishedProjectionThreadID != nextProjectionThreadID
+                || publishedProjectionRevision != nextProjectionRevision
+        else { return }
+        agents = nextAgents
+        panelSubagents = nextPanelSubagents
+        lifecycleEvents = nextLifecycleEvents
+        publishedProjectionThreadID = nextProjectionThreadID
+        publishedProjectionRevision = nextProjectionRevision
         changeRevision &+= 1
     }
 

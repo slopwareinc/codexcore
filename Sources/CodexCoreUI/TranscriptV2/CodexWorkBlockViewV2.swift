@@ -76,7 +76,8 @@ public struct CodexWorkBlockViewV2: View {
                             .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
                     }
                     conversationBody(showsNarrative: true)
-                    if let liveTail, !liveTail.isEmpty {
+                    if Self.shouldRenderLiveTail(narrative: narrative, liveTail: liveTail),
+                       let liveTail, !liveTail.isEmpty {
                         CodexLiveTailV2(text: liveTail)
                             .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
                     }
@@ -142,6 +143,20 @@ public struct CodexWorkBlockViewV2: View {
             if case .prose = $0 { return true }
             return false
         }) > 1
+    }
+
+    /// The work header already renders the generic `Thinking` fallback. Keep a
+    /// second row only when the surrounding work changes that header to
+    /// `Working`, or when the server provides a more specific live update.
+    nonisolated static func shouldRenderLiveTail(
+        narrative: [CodexNarrativeEntry],
+        liveTail: String?
+    ) -> Bool {
+        guard let liveTail = liveTail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !liveTail.isEmpty
+        else { return false }
+        return liveTail != "Thinking"
+            || showsWorkingDuration(narrative: narrative, liveTail: liveTail)
     }
 
     @ViewBuilder

@@ -362,8 +362,10 @@ public enum CodexThreadGraphProjector {
             let graphKey = key(threadID)
             var node = nodes[graphKey]!
             node.agentNickname = thread.metadata.agentNickname
+                ?? thread.metadata.agentNicknameFromSource
             node.agentRole = thread.metadata.agentRole
-            node.agentPath = thread.metadata.path
+                ?? thread.metadata.agentRoleFromSource
+            node.agentPath = thread.metadata.agentPathFromSource
             node.cwd = thread.metadata.cwd
             node.ephemeral = thread.metadata.ephemeral
             node.archived = thread.isArchived
