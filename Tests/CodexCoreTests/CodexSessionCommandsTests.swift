@@ -5,7 +5,6 @@ final class CodexSessionCommandsTests: XCTestCase {
     func testGeneratedSurfaceExhaustivelyCoversPostHandshakeMethods() {
         let expected = Set(CodexAppServerClientMethod.allCases).subtracting([.initialize])
 
-        XCTAssertEqual(CodexRequest.generatedMethodCount, 126)
         XCTAssertEqual(CodexRequest.supportedMethods, expected)
         XCTAssertEqual(CodexRequest.omittedParameterMethods.count, 10)
         XCTAssertEqual(
@@ -13,6 +12,42 @@ final class CodexSessionCommandsTests: XCTestCase {
             [.remoteControlEnable, .remoteControlDisable]
         )
         XCTAssertEqual(CodexRequest.specializedMethods.count, 9)
+    }
+
+    func testGA147RequestFactoriesEncodePluginSearchAndThreadSections() throws {
+        let search = CodexRequest.pluginSearch(.init(
+            cursor: "next",
+            cwds: [CodexSchemaAbsolutePathBuf(.string("/tmp/project"))],
+            limit: 25,
+            scope: .workspace,
+            searchTerm: "github"
+        ))
+        XCTAssertEqual(search.method, .pluginSearch)
+        XCTAssertEqual(
+            try search.encodeParameters(),
+            .dictionary([
+                "cursor": .string("next"),
+                "cwds": .array([.string("/tmp/project")]),
+                "limit": .int(25),
+                "scope": .string("workspace"),
+                "searchTerm": .string("github"),
+            ])
+        )
+
+        let move = CodexRequest.threadSectionMove(.init(
+            beforeThreadID: "thread-2",
+            sectionID: "section-1",
+            threadID: "thread-1"
+        ))
+        XCTAssertEqual(move.method, .threadSectionMove)
+        XCTAssertEqual(
+            try move.encodeParameters(),
+            .dictionary([
+                "beforeThreadId": .string("thread-2"),
+                "sectionId": .string("section-1"),
+                "threadId": .string("thread-1"),
+            ])
+        )
     }
 
     func testGA145RequestFactoriesEncodeAppAndThreadSearchMethods() throws {

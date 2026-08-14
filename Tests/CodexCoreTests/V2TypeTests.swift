@@ -45,9 +45,17 @@ final class V2TypeTests: XCTestCase {
         XCTAssertEqual(startObject["permissions"], CodexJSONValue.string("workspace"))
         XCTAssertEqual(startObject["runtimeWorkspaceRoots"], CodexJSONValue.array([.string("/tmp/project")]))
 
-        let list = ThreadListParams(ancestorThreadId: "ancestor", parentThreadId: nil)
+        let list = ThreadListParams(
+            sectionId: "section-1",
+            sortKey: .sectionPosition,
+            ancestorThreadId: "ancestor",
+            parentThreadId: nil
+        )
         let listValue = try CodexJSONValue(encoding: list)
-        XCTAssertEqual(try XCTUnwrap(listValue.objectValue)["ancestorThreadId"], CodexJSONValue.string("ancestor"))
+        let listObject = try XCTUnwrap(listValue.objectValue)
+        XCTAssertEqual(listObject["ancestorThreadId"], .string("ancestor"))
+        XCTAssertEqual(listObject["sectionId"], .string("section-1"))
+        XCTAssertEqual(listObject["sortKey"], .string("section_position"))
 
         let turn = TurnStartParams(
             threadId: "thread-1",

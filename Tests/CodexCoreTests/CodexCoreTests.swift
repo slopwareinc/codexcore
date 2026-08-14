@@ -184,7 +184,7 @@ final class CodexCoreTests: XCTestCase {
 
     func testPinnedRuntimeVersionParserAcceptsPatchDifferenceWithWarning() throws {
         let warning = try Codex.validatePinnedRuntimeVersionOutput(
-            "codex-cli 0.145.1",
+            "codex-cli 0.147.1",
             executablePath: "/test/codex"
         )
 
@@ -193,7 +193,7 @@ final class CodexCoreTests: XCTestCase {
             CodexRuntimeVersionWarning(
                 path: "/test/codex",
                 expected: CodexPinnedRuntime.descriptor,
-                actual: "codex-cli 0.145.1"
+                actual: "codex-cli 0.147.1"
             )
         )
     }
@@ -219,11 +219,10 @@ final class CodexCoreTests: XCTestCase {
         }
     }
 
-    /// A runtime newer than the schema dump is supported: additions are optional
-    /// on the wire, so it degrades to a warning rather than refusing to launch.
+    /// A newer patch in the pinned stable line degrades to a warning.
     func testPinnedRuntimeVersionParserAcceptsRuntimeAboveGeneratedPin() throws {
         let warning = try Codex.validatePinnedRuntimeVersionOutput(
-            "codex-cli 0.147.0",
+            "codex-cli 0.147.1",
             executablePath: "/test/codex"
         )
 
@@ -232,7 +231,7 @@ final class CodexCoreTests: XCTestCase {
             CodexRuntimeVersionWarning(
                 path: "/test/codex",
                 expected: CodexPinnedRuntime.descriptor,
-                actual: "codex-cli 0.147.0"
+                actual: "codex-cli 0.147.1"
             )
         )
     }
@@ -246,6 +245,18 @@ final class CodexCoreTests: XCTestCase {
                 return XCTFail("Unexpected error: \(error)")
             }
             XCTAssertTrue(error.localizedDescription.contains("major version"))
+        }
+    }
+
+    func testPinnedRuntimeVersionParserRejectsNewerMinorUntilRegenerated() {
+        XCTAssertThrowsError(try Codex.validatePinnedRuntimeVersionOutput(
+            "codex-cli 0.148.0",
+            executablePath: "/test/codex"
+        )) { error in
+            guard case CodexSDKError.runtimeVersionMismatch = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(error.localizedDescription.contains("runtime version"))
         }
     }
 

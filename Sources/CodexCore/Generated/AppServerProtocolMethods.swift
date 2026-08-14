@@ -16,6 +16,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadGoalGet = "thread/goal/get"
     case threadGoalClear = "thread/goal/clear"
     case threadMetadataUpdate = "thread/metadata/update"
+    case threadSectionMove = "thread/section/move"
     case threadSettingsUpdate = "thread/settings/update"
     case threadMemoryModeSet = "thread/memoryMode/set"
     case memoryReset = "memory/reset"
@@ -28,6 +29,10 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadBackgroundTerminalsTerminate = "thread/backgroundTerminals/terminate"
     case threadRollback = "thread/rollback"
     case threadList = "thread/list"
+    case threadSectionList = "threadSection/list"
+    case threadSectionCreate = "threadSection/create"
+    case threadSectionUpdate = "threadSection/update"
+    case threadSectionDelete = "threadSection/delete"
     case threadSearch = "thread/search"
     case threadSearchOccurrences = "thread/searchOccurrences"
     case threadLoadedList = "thread/loaded/list"
@@ -42,6 +47,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case marketplaceRemove = "marketplace/remove"
     case marketplaceUpgrade = "marketplace/upgrade"
     case pluginList = "plugin/list"
+    case pluginSearch = "plugin/search"
     case pluginInstalled = "plugin/installed"
     case pluginRead = "plugin/read"
     case pluginSkillRead = "plugin/skill/read"
@@ -216,7 +222,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 127
+    public static let clientMethodCount = 133
     public static let notificationMethodCount = 70
     public static let serverRequestMethodCount = 11
 }
