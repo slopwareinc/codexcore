@@ -61,6 +61,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let responseAnnotations: [CodexResponseTextAnnotation]
     private let onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void
     private let onRemoveResponseAnnotation: (String) -> Void
+    private let onResponseSelectionAction: ((CodexResponseSelectionAction) -> Void)?
     private let onOpenSubagent: (String) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
     private let onOpenReview: (() -> Void)?
@@ -85,6 +86,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         responseAnnotations: [CodexResponseTextAnnotation] = [],
         onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
         onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
+        onResponseSelectionAction: ((CodexResponseSelectionAction) -> Void)? = nil,
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
         onOpenReview: (() -> Void)? = nil,
@@ -107,6 +109,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.responseAnnotations = responseAnnotations
         self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
         self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
+        self.onResponseSelectionAction = onResponseSelectionAction
         self.onOpenSubagent = onOpenSubagent
         self.onOpenThread = onOpenThread
         self.onOpenReview = onOpenReview
@@ -134,6 +137,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         responseAnnotations: [CodexResponseTextAnnotation] = [],
         onUpsertResponseAnnotation: @escaping (CodexResponseTextAnnotation) -> Void = { _ in },
         onRemoveResponseAnnotation: @escaping (String) -> Void = { _ in },
+        onResponseSelectionAction: ((CodexResponseSelectionAction) -> Void)? = nil,
         onOpenSubagent: @escaping (String) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
         onOpenReview: (() -> Void)? = nil,
@@ -156,6 +160,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.responseAnnotations = responseAnnotations
         self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
         self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
+        self.onResponseSelectionAction = onResponseSelectionAction
         self.onOpenSubagent = onOpenSubagent
         self.onOpenThread = onOpenThread
         self.onOpenReview = onOpenReview
@@ -189,6 +194,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 responseAnnotations: responseAnnotations,
                 onUpsertResponseAnnotation: onUpsertResponseAnnotation,
                 onRemoveResponseAnnotation: onRemoveResponseAnnotation,
+                onResponseSelectionAction: onResponseSelectionAction,
                 productToolRenderer: productToolRenderer,
                 onOpenSubagent: onOpenSubagent,
                 onOpenThread: onOpenThread,

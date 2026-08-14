@@ -83,6 +83,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         window.contentView = cell.view
         defer { window.close() }
         var captured: [CodexResponseTextAnnotation] = []
+        var selectionActions: [CodexResponseSelectionAction] = []
         cell.configure(
             item: item,
             appKitTheme: .init(.officialDark, colorScheme: .dark),
@@ -94,6 +95,7 @@ struct CodexTranscriptAppKitIntegrationTests {
             editUserMessage: { _ in },
             forkChat: nil,
             upsertResponseAnnotation: { captured.append($0) },
+            responseSelectionAction: { selectionActions.append($0) },
             selectionChanged: { _, _ in }
         )
         cell.view.layoutSubtreeIfNeeded()
@@ -107,7 +109,28 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(cell.addSelectionToChatIsVisibleForTesting)
         cell.view.layoutSubtreeIfNeeded()
-        #expect(cell.addSelectionToChatSizeForTesting == NSSize(width: 102, height: 32))
+        let actionSize = try #require(cell.addSelectionToChatSizeForTesting)
+        #expect(actionSize.height == 30)
+        #expect(actionSize.width > 250 && actionSize.width < 340)
+        let actionFrame = try #require(cell.responseSelectionActionFrameForTesting)
+        let selectionFrame = try #require(cell.selectedTextFrameForTesting)
+        #expect(!actionFrame.intersects(selectionFrame))
+
+        cell.requestMoreDetailsForTesting()
+        #expect(selectionActions == [.moreDetails("response")])
+        #expect(textView.selectedRange().length == 0)
+
+        textView.setSelectedRange(range)
+        cell.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
+        cell.askInSideChatForTesting()
+        #expect(selectionActions == [.moreDetails("response"), .askInSideChat("response")])
+
+        textView.setSelectedRange(range)
+        cell.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
         cell.addSelectionToChatForTesting()
 
         #expect(captured.isEmpty)

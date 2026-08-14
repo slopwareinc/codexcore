@@ -69,21 +69,80 @@ final class CodexResponseAnnotationEditorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+@MainActor
+final class CodexResponseSelectionActionPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 struct CodexResponseSelectionActionView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let onAddToChat: () -> Void
+    let onMoreDetails: (() -> Void)?
+    let onAskInSideChat: (() -> Void)?
 
     var body: some View {
-        Button(action: onAddToChat) {
-            Text("Add to chat")
+        HStack(spacing: 0) {
+            selectionAction("Add to chat", action: onAddToChat)
+            if let onMoreDetails {
+                divider
+                selectionAction("More details", action: onMoreDetails)
+            }
+            if let onAskInSideChat {
+                divider
+                selectionAction("Ask in side chat", action: onAskInSideChat)
+            }
+        }
+        .fixedSize()
+        .background(
+            theme.colors.surfaceElevated.opacity(0.96),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.7), lineWidth: 1)
+        }
+        .shadow(color: theme.colors.shadow.opacity(0.28), radius: 10, y: 5)
+    }
+
+    private func selectionAction(
+        _ title: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        CodexResponseSelectionActionButton(title: title, action: action)
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(theme.colors.border.opacity(0.7))
+            .frame(width: 1, height: 30)
+    }
+}
+
+private struct CodexResponseSelectionActionButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
+
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
                 .font(theme.fonts.caption.weight(.medium))
                 .foregroundStyle(theme.colors.textPrimary)
-                .padding(.horizontal, 12)
-                .frame(height: 32)
+                .padding(.horizontal, 9)
+                .frame(height: 30)
+                .background(
+                    isHovered ? theme.colors.hover.opacity(theme.effects.hoverOpacity) : .clear
+                )
+                .contentShape(Rectangle())
         }
-        .codexGlassButtonStyle()
-        .accessibilityLabel("Add selected response text to chat")
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel(title)
     }
 }
 
