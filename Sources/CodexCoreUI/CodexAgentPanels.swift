@@ -1632,7 +1632,8 @@ private struct CodexAgentPanelContent: View {
     private func subagentTranscriptPanel(_ subagent: CodexSubagentState) -> some View {
         VStack(spacing: 0) {
             subagentHeader(subagent)
-                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
                 .padding(.top, 14)
                 .padding(.bottom, 8)
 
