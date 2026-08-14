@@ -17,6 +17,7 @@ struct CodexSubagentCanonicalPresentationTests {
                     parent: root,
                     children: [grandchild],
                     depth: 1,
+                    kind: .collabChild,
                     lifecycle: .running,
                     agentNickname: "Scout"
                 ),
@@ -24,6 +25,7 @@ struct CodexSubagentCanonicalPresentationTests {
                     key: grandchild,
                     parent: child,
                     depth: 2,
+                    kind: .collabChild,
                     lifecycle: .notFound,
                     errorMessage: "agent vanished"
                 ),
@@ -50,6 +52,48 @@ struct CodexSubagentCanonicalPresentationTests {
             return
         }
         #expect(message == "agent vanished")
+    }
+
+    @Test func graphProjectionDoesNotPresentOrdinaryForksAsSubagents() {
+        let root = CodexThreadGraphKey(hostID: "host-a", threadID: "root")
+        let fork = CodexThreadGraphKey(hostID: "host-a", threadID: "fork")
+        let forkAgent = CodexThreadGraphKey(hostID: "host-a", threadID: "fork-agent")
+        let child = CodexThreadGraphKey(hostID: "host-a", threadID: "child")
+        let graph = CodexThreadGraphSnapshot(
+            revision: StateRevision(4),
+            nodes: [
+                root: .init(key: root, children: [fork, child], depth: 0),
+                fork: .init(
+                    key: fork,
+                    parent: root,
+                    children: [forkAgent],
+                    depth: 1,
+                    kind: .fork
+                ),
+                forkAgent: .init(
+                    key: forkAgent,
+                    parent: fork,
+                    depth: 2,
+                    kind: .collabChild
+                ),
+                child: .init(
+                    key: child,
+                    parent: root,
+                    depth: 1,
+                    kind: .collabChild
+                ),
+            ],
+            edges: [],
+            actions: [],
+            roots: [root]
+        )
+        var store = CodexSubagentStoreV2()
+
+        let discoveries = store.applyGraphSnapshot(graph, root: root)
+
+        #expect(discoveries.map(\.threadID) == ["child"])
+        #expect(store.agent(threadID: "fork") == nil)
+        #expect(store.agent(threadID: "fork-agent") == nil)
     }
 
     @Test func parentDiscoveryIsAStableReplacementSet() throws {
@@ -163,6 +207,7 @@ struct CodexSubagentCanonicalPresentationTests {
                     child: .init(
                         key: child,
                         parent: root,
+                        kind: .collabChild,
                         lifecycle: .running
                     ),
                 ],

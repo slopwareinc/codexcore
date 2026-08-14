@@ -64,7 +64,7 @@ private extension CodexAgentStateMapper {
 
         let graph = CodexThreadGraphProjector.project(snapshot, hostID: "local")
         let root = CodexThreadGraphKey(hostID: "local", threadID: parentThreadID)
-        let threadIDs = [parentThreadID] + graph.descendants(of: root).map(\.threadID)
+        let threadIDs = [parentThreadID] + graph.subagentDescendants(of: root).map(\.threadID)
         for threadID in threadIDs {
             for turn in snapshot.turns(in: threadID) {
                 for item in snapshot.items(in: turn.key) {

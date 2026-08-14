@@ -98,6 +98,26 @@ public struct CodexSubagentDiscoveryV2: Sendable, Equatable {
     }
 }
 
+extension CodexThreadGraphSnapshot {
+    func subagentDescendants(of root: CodexThreadGraphKey) -> [CodexThreadGraphKey] {
+        var pending = nodes[root]?.children ?? []
+        var seen: Set<CodexThreadGraphKey> = [root]
+        var result: [CodexThreadGraphKey] = []
+        var index = 0
+        while index < pending.count {
+            let key = pending[index]
+            index += 1
+            guard seen.insert(key).inserted,
+                  let node = nodes[key],
+                  node.kind == .collabChild
+            else { continue }
+            result.append(key)
+            pending.append(contentsOf: node.children)
+        }
+        return result
+    }
+}
+
 /// The small child-thread slice needed by MainActor lifecycle presentation.
 ///
 /// The latest turn follows canonical `turnOrder` exactly and is resolved with
@@ -199,9 +219,8 @@ public struct CodexSubagentStoreV2: Sendable {
         _ graph: CodexThreadGraphSnapshot,
         root: CodexThreadGraphKey
     ) -> [CodexSubagentDiscoveryV2] {
-        let descendants = graph.descendants(of: root)
         var discoveries: [CodexSubagentDiscoveryV2] = []
-        for key in descendants {
+        for key in graph.subagentDescendants(of: root) {
             guard let node = graph.nodes[key] else { continue }
             let discovery = CodexSubagentDiscoveryV2(
                 threadID: key.threadID.rawValue,
