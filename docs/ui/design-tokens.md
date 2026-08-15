@@ -33,9 +33,10 @@ Rules the roles enforce, and that reviews should check:
 - **Never add a stroke or a shadow to a glass surface.** Glass draws its own edge
   highlight and its own shadow. Hand-drawn copies are what make glass read as an
   imitation of itself.
-- **Tint means emphasis, not dimming.** Pass a tint only to carry meaning
-  (selection, a status color). Tinting with a surface color to darken glass turns
-  it into smoked plastic; pick a different `role` instead.
+- **Call-site tint means emphasis, not dimming.** Pass a tint only to carry
+  meaning (selection, a status color). The `.chrome` role centrally applies a
+  dark-appearance tint so wallpaper cannot wash sidebars into a mid-tone panel;
+  callers must not reproduce that treatment themselves.
 - **Interactivity belongs to controls.** `.control` and `.chip` are interactive;
   `.controlGroup` and other containers are not, or the whole group flexes when
   any child is pressed.

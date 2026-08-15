@@ -63,6 +63,12 @@ public enum CodexGlassRole: Sendable, Hashable, CaseIterable {
         }
     }
 
+    /// Dark window chrome needs a controlled tint so desktop wallpaper does
+    /// not wash a sidebar back into a mid-tone material.
+    var usesDarkAppearanceTint: Bool {
+        self == .chrome
+    }
+
     /// Elevation the opaque fallback simulates, as a fraction of the theme's
     /// surface opacity. Chrome sits lowest, sheets highest.
     var fallbackElevation: Double {
@@ -110,6 +116,7 @@ public extension View {
 private struct CodexGlassModifier<S: Shape>: ViewModifier {
     @Environment(\.codexAgentTheme) private var theme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
 
     let shape: S
     let role: CodexGlassRole
@@ -120,7 +127,7 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
             // Real glass draws its own highlight and shadow. Nothing is layered
             // over or under it here, deliberately.
             content.glassEffect(
-                codexGlassConfiguration(role: role, tint: tint),
+                codexGlassConfiguration(role: role, tint: effectiveTint),
                 in: shape
             )
         } else {
@@ -135,6 +142,12 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
                     y: role.fallbackCastsShadow ? theme.effects.shadow.y : 0
                 )
         }
+    }
+
+    private var effectiveTint: Color? {
+        if let tint { return tint }
+        guard role.usesDarkAppearanceTint, colorScheme == .dark else { return nil }
+        return theme.colors.surfaceSunken.opacity(0.55)
     }
 
     /// An opaque stand-in. A material underlay would be invisible behind this

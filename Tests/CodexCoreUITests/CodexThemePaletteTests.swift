@@ -243,6 +243,13 @@ struct CodexThemePaletteTests {
         }
     }
 
+    @Test
+    func onlyWindowChromeUsesTheAutomaticDarkTint() {
+        for role in CodexGlassRole.allCases {
+            #expect(role.usesDarkAppearanceTint == (role == .chrome))
+        }
+    }
+
     // MARK: - Contrast helpers (WCAG 2.1 relative luminance)
 
     private func opacity(of value: UInt32) -> Double {
