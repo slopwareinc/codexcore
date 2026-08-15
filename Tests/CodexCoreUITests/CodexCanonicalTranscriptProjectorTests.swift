@@ -84,6 +84,37 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(rows.contains { $0.id == "image" })
     }
 
+    @Test func pendingSubmissionHidesServerPlaceholderAboveOptimisticUser() throws {
+        let threadID: ThreadID = "thread"
+        let serverTurnID: TurnID = "server-turn"
+        let intent = SubmissionIntent(
+            id: "client-message",
+            threadID: threadID,
+            input: [.string("hello")],
+            localOrdinal: 0
+        )
+        let snapshot = state(
+            revision: 2,
+            threadID: threadID,
+            turns: [turn(
+                serverTurnID,
+                threadID: threadID,
+                status: .inProgress,
+                revision: 2
+            )],
+            items: [],
+            intents: [intent.id: intent]
+        )
+
+        let turns = CodexCanonicalTranscriptProjector()
+            .rebuild(snapshot: snapshot, threadID: threadID)
+            .presentation.transcript.turns
+
+        #expect(turns.count == 1)
+        #expect(turns.first?.id == "local-client-message")
+        #expect(turns.first?.userMessage?.text == "hello")
+    }
+
     @Test func realtimeDelegationEnvelopeIsNeverRenderedAsUserContent() throws {
         let threadID: ThreadID = "thread"
         let handoffTurnID: TurnID = "handoff"

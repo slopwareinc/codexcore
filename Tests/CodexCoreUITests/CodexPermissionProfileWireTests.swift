@@ -23,12 +23,6 @@ final class CodexPermissionProfileWireTests: XCTestCase {
             approvalsReviewer: "auto_review"
         )
         assertWireConfiguration(
-            .guardianSubagent,
-            permissions: ":workspace",
-            approvalPolicy: "on-request",
-            approvalsReviewer: "guardian_subagent"
-        )
-        assertWireConfiguration(
             .fullAccess,
             permissions: ":danger-full-access",
             approvalPolicy: "never",
@@ -48,7 +42,6 @@ final class CodexPermissionProfileWireTests: XCTestCase {
             (.readOnly, "untrusted", "user"),
             (.askForApproval, "on-request", "user"),
             (.approveForMe, "on-request", "auto_review"),
-            (.guardianSubagent, "on-request", "guardian_subagent"),
             (.fullAccess, "never", "user"),
         ]
         for expectation in expectations {
@@ -145,7 +138,7 @@ final class CodexPermissionProfileWireTests: XCTestCase {
         try assertEncodedWireFields(resume, permissions: nil)
     }
 
-    func testActiveExplicitProfileHydratesSelectionAndDisablesCustomUntilThreadClears() {
+    func testActiveConfigurationsNeverExposeCustomAsChoice() {
         var session = CodexChatConfigurationSession(approvalSelection: .custom)
         _ = session.applyPermissionProfileResponse(.dictionary([
             "data": .array([
@@ -162,10 +155,13 @@ final class CodexPermissionProfileWireTests: XCTestCase {
         ))
 
         XCTAssertEqual(session.approvalSelection, .approveForMe)
-        XCTAssertFalse(session.approvalOptions.contains(.custom))
+        XCTAssertEqual(
+            session.approvalOptions,
+            [.askForApproval, .approveForMe, .fullAccess]
+        )
 
         session.clearActiveThreadPermissionConfiguration()
-        XCTAssertTrue(session.approvalOptions.contains(.custom))
+        XCTAssertFalse(session.approvalOptions.contains(.custom))
 
         session.applyActiveThreadPermissionConfiguration(.init(
             profileID: nil,
@@ -173,7 +169,7 @@ final class CodexPermissionProfileWireTests: XCTestCase {
             approvalsReviewer: .user
         ))
         XCTAssertEqual(session.approvalSelection, .custom)
-        XCTAssertTrue(session.approvalOptions.contains(.custom))
+        XCTAssertFalse(session.approvalOptions.contains(.custom))
     }
 
     func testUnknownActiveProfileCannotLeakThePreviousThreadSelection() {
@@ -191,7 +187,8 @@ final class CodexPermissionProfileWireTests: XCTestCase {
         XCTAssertFalse(session.approvalOptions.contains(.custom))
 
         session.clearActiveThreadPermissionConfiguration()
-        XCTAssertTrue(session.approvalOptions.contains(.custom))
+        XCTAssertEqual(session.approvalSelection, .fullAccess)
+        XCTAssertFalse(session.approvalOptions.contains(.custom))
     }
 
     func testHydratedFullAccessDoesNotBecomeMainOrVoiceNewThreadAmbientSelection() throws {
@@ -251,7 +248,7 @@ final class CodexPermissionProfileWireTests: XCTestCase {
         // Parameter construction is the only state reached by a failed RPC,
         // and a fork transition belongs to its response rather than its source.
         XCTAssertEqual(session.approvalSelection, .custom)
-        XCTAssertTrue(session.approvalOptions.contains(.custom))
+        XCTAssertFalse(session.approvalOptions.contains(.custom))
 
         // A successful main turn commits the exact configuration it sent.
         session.markPermissionProfileActive(configuration)
@@ -266,7 +263,7 @@ final class CodexPermissionProfileWireTests: XCTestCase {
                 profile(":workspace", allowed: false),
             ])
         ]))
-        XCTAssertEqual(session.approvalOptions, [.custom])
+        XCTAssertTrue(session.approvalOptions.isEmpty)
 
         session.applyActiveThreadPermissionConfiguration(.init(
             profileID: ":workspace",
@@ -299,9 +296,9 @@ final class CodexPermissionProfileWireTests: XCTestCase {
         XCTAssertEqual(
             CodexPermissionSelectionDecision.resolve(
                 current: .fullAccess,
-                requested: .readOnly
+                requested: .askForApproval
             ),
-            .apply(.readOnly)
+            .apply(.askForApproval)
         )
     }
 

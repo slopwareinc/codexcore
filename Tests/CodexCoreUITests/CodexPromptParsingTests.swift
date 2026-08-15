@@ -34,11 +34,11 @@ final class CodexPromptParsingTests: XCTestCase {
         XCTAssertEqual(profiles.map(\.allowed), [true, false, true])
         XCTAssertEqual(
             CodexApprovalSelection.options(from: profiles),
-            [.readOnly, .fullAccess, .custom]
+            [.fullAccess]
         )
         XCTAssertEqual(
             CodexApprovalSelection.options(from: []),
-            CodexApprovalSelection.defaultOptions
+            [.askForApproval, .approveForMe, .fullAccess]
         )
     }
 

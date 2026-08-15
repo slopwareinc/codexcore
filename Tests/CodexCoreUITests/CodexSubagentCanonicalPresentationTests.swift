@@ -17,6 +17,7 @@ struct CodexSubagentCanonicalPresentationTests {
                     parent: root,
                     children: [grandchild],
                     depth: 1,
+                    kind: .collabChild,
                     lifecycle: .running,
                     agentNickname: "Scout"
                 ),
@@ -24,6 +25,7 @@ struct CodexSubagentCanonicalPresentationTests {
                     key: grandchild,
                     parent: child,
                     depth: 2,
+                    kind: .collabChild,
                     lifecycle: .notFound,
                     errorMessage: "agent vanished"
                 ),
@@ -50,6 +52,48 @@ struct CodexSubagentCanonicalPresentationTests {
             return
         }
         #expect(message == "agent vanished")
+    }
+
+    @Test func graphProjectionDoesNotPresentOrdinaryForksAsSubagents() {
+        let root = CodexThreadGraphKey(hostID: "host-a", threadID: "root")
+        let fork = CodexThreadGraphKey(hostID: "host-a", threadID: "fork")
+        let forkAgent = CodexThreadGraphKey(hostID: "host-a", threadID: "fork-agent")
+        let child = CodexThreadGraphKey(hostID: "host-a", threadID: "child")
+        let graph = CodexThreadGraphSnapshot(
+            revision: StateRevision(4),
+            nodes: [
+                root: .init(key: root, children: [fork, child], depth: 0),
+                fork: .init(
+                    key: fork,
+                    parent: root,
+                    children: [forkAgent],
+                    depth: 1,
+                    kind: .fork
+                ),
+                forkAgent: .init(
+                    key: forkAgent,
+                    parent: fork,
+                    depth: 2,
+                    kind: .collabChild
+                ),
+                child: .init(
+                    key: child,
+                    parent: root,
+                    depth: 1,
+                    kind: .collabChild
+                ),
+            ],
+            edges: [],
+            actions: [],
+            roots: [root]
+        )
+        var store = CodexSubagentStoreV2()
+
+        let discoveries = store.applyGraphSnapshot(graph, root: root)
+
+        #expect(discoveries.map(\.threadID) == ["child"])
+        #expect(store.agent(threadID: "fork") == nil)
+        #expect(store.agent(threadID: "fork-agent") == nil)
     }
 
     @Test func parentDiscoveryIsAStableReplacementSet() throws {
@@ -88,6 +132,136 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(child.role == "explorer")
         #expect(child.agentPath == "/root/scout")
         #expect(child.transcript.turns.isEmpty)
+    }
+
+    @Test func sourceMetadataKeepsAgentPathSeparateFromRolloutPath() {
+        let metadata = CanonicalThreadMetadata(
+            agentNickname: "Rawls",
+            path: "/tmp/rollout-2026-08-07.jsonl",
+            source: .dictionary([
+                "subagent": .dictionary([
+                    "thread_spawn": .dictionary([
+                        "agent_path": .string("/root/tiny_test"),
+                        "agent_nickname": .string("Rawls"),
+                        "agent_role": .string("explorer"),
+                    ])
+                ])
+            ])
+        )
+
+        #expect(metadata.agentPathFromSource == "/root/tiny_test")
+        #expect(metadata.agentNicknameFromSource == "Rawls")
+        #expect(metadata.agentRoleFromSource == "explorer")
+        #expect(metadata.path == "/tmp/rollout-2026-08-07.jsonl")
+    }
+
+    @Test func terminalIndexTurnWinsOverActiveThreadStatus() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(3),
+                threads: [indexChild(latestTurnStatus: .completed)]
+            ),
+            parentThreadID: "parent"
+        )
+
+        let child = try #require(store.agent(threadID: "child"))
+        #expect(child.status == .completed(durationMs: nil))
+    }
+
+    @Test func staleParentLifecycleCannotDowngradeCompletedChild() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(3),
+                threads: [indexChild(latestTurnStatus: .completed)]
+            ),
+            parentThreadID: "parent"
+        )
+
+        _ = store.applyParentSnapshot(
+            parentSnapshot(agentStatus: "running"),
+            parentThreadID: "parent"
+        )
+
+        let child = try #require(store.agent(threadID: "child"))
+        #expect(child.status == .completed(durationMs: nil))
+    }
+
+    @Test func staleGraphLifecycleCannotDowngradeCompletedChild() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(3),
+                threads: [indexChild(latestTurnStatus: .completed)]
+            ),
+            parentThreadID: "parent"
+        )
+        let root = CodexThreadGraphKey(hostID: "local", threadID: "parent")
+        let child = CodexThreadGraphKey(hostID: "local", threadID: "child")
+        _ = store.applyGraphSnapshot(
+            .init(
+                revision: StateRevision(4),
+                nodes: [
+                    root: .init(key: root, children: [child]),
+                    child: .init(
+                        key: child,
+                        parent: root,
+                        kind: .collabChild,
+                        lifecycle: .running
+                    ),
+                ],
+                edges: [],
+                actions: [],
+                roots: [root]
+            ),
+            root: root
+        )
+
+        let projected = try #require(store.agent(threadID: "child"))
+        #expect(projected.status == .completed(durationMs: nil))
+    }
+
+    @Test func incompleteActiveIndexCannotDowngradeCompletedChild() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(3),
+                threads: [indexChild(latestTurnStatus: .completed)]
+            ),
+            parentThreadID: "parent"
+        )
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(4),
+                threads: [indexChild(latestTurnStatus: nil)]
+            ),
+            parentThreadID: "parent"
+        )
+
+        let child = try #require(store.agent(threadID: "child"))
+        #expect(child.status == .completed(durationMs: nil))
+    }
+
+    @Test func explicitInProgressIndexCanResumeCompletedChild() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(3),
+                threads: [indexChild(latestTurnStatus: .completed)]
+            ),
+            parentThreadID: "parent"
+        )
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(4),
+                threads: [indexChild(latestTurnStatus: .inProgress)]
+            ),
+            parentThreadID: "parent"
+        )
+
+        let child = try #require(store.agent(threadID: "child"))
+        #expect(child.status == .working(since: nil))
     }
 
     @Test func childSnapshotProjectsNonEmptyTranscriptAndExactStatus() throws {
@@ -215,6 +389,8 @@ struct CodexSubagentCanonicalPresentationTests {
         )
         #expect(firstRefreshChanged)
         let firstID = try #require(mapper.lifecycleEvents.first?.id)
+        #expect(mapper.lifecycleEvents.first?.title == "Created Scout")
+        #expect(mapper.lifecycleEvents.first?.agentNames == ["Scout"])
         #expect(mapper.subagents.first?.id == "child")
         #expect(mapper.subagents.first?.transcript.turns.first?.finalAnswer?.text == "Found it")
 
@@ -406,7 +582,10 @@ private extension CodexSubagentCanonicalPresentationTests {
         )
     }
 
-    func parentSnapshot(close: Bool = false) -> CanonicalStateSnapshot {
+    func parentSnapshot(
+        close: Bool = false,
+        agentStatus: String? = nil
+    ) -> CanonicalStateSnapshot {
         let threadID: ThreadID = "parent"
         let turnID: TurnID = "parent-turn"
         let itemID: ItemID = close ? "close" : "spawn"
@@ -420,7 +599,9 @@ private extension CodexSubagentCanonicalPresentationTests {
                 "status": .string("completed"),
                 "receiverThreadIds": .array([.string("child")]),
                 "prompt": close ? .null : .string("Inspect the repository"),
-                "agentsStates": .dictionary([:]),
+                "agentsStates": .dictionary(agentStatus.map {
+                    ["child": .dictionary(["status": .string($0)])]
+                } ?? [:]),
             ],
             authority: .completed,
             completedAt: ProtocolMilliseconds(1_700_000_000_000),
@@ -488,7 +669,14 @@ private extension CodexSubagentCanonicalPresentationTests {
             agentRole: "explorer",
             createdAt: ProtocolSeconds(1_700_000_000),
             parentThreadID: "parent",
-            path: "/root/scout",
+            path: "/tmp/rollout-child.jsonl",
+            source: .dictionary([
+                "subagent": .dictionary([
+                    "thread_spawn": .dictionary([
+                        "agent_path": .string("/root/scout")
+                    ])
+                ])
+            ]),
             updatedAt: ProtocolSeconds(1_700_000_002)
         )
         return CanonicalStateSnapshot(
@@ -509,13 +697,15 @@ private extension CodexSubagentCanonicalPresentationTests {
         )
     }
 
-    func indexChild() -> CanonicalThreadIndexSummary {
+    func indexChild(
+        latestTurnStatus: CanonicalTurnStatus? = .inProgress
+    ) -> CanonicalThreadIndexSummary {
         CanonicalThreadIndexSummary(
             id: "child",
             order: 1,
             status: .active(flags: []),
             latestTurnID: "child-turn",
-            latestTurnStatus: .inProgress,
+            latestTurnStatus: latestTurnStatus,
             isArchived: false,
             isLoaded: true,
             name: nil,
@@ -524,7 +714,8 @@ private extension CodexSubagentCanonicalPresentationTests {
             parentThreadID: "parent",
             agentNickname: "Scout",
             agentRole: "explorer",
-            path: "/root/scout",
+            agentPath: "/root/scout",
+            path: "/tmp/rollout-child.jsonl",
             updatedAt: ProtocolSeconds(1_700_000_000),
             lastChangedRevision: StateRevision(2),
             attentionRevision: StateRevision(2),

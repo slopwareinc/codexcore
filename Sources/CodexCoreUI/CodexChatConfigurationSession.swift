@@ -364,15 +364,13 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
     }
 
     private mutating func reconcileApprovalOptions() {
-        approvalOptions = activeThreadHasExplicitPermissionProfile
-            ? catalogApprovalOptions.filter { $0 != .custom }
-            : catalogApprovalOptions
+        approvalOptions = catalogApprovalOptions
     }
 
     private static func safeFallbackApprovalSelection(
         in options: [CodexApprovalSelection]
     ) -> CodexApprovalSelection {
-        [.askForApproval, .readOnly, .approveForMe, .guardianSubagent, .custom]
+        [.askForApproval, .readOnly, .approveForMe, .custom]
             .first(where: { options.contains($0) })
             ?? .custom
     }

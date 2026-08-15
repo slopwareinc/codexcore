@@ -287,6 +287,41 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
     }
 }
 
+public extension CanonicalThreadMetadata {
+    /// Collaboration identity is nested in `thread.source`; `path` is the
+    /// persisted rollout JSONL and must never be presented as an agent path.
+    var agentPathFromSource: String? {
+        collaborationSource?["agent_path"]?.stringValue
+            ?? collaborationSource?["agentPath"]?.stringValue
+    }
+
+    var agentNicknameFromSource: String? {
+        collaborationSource?["agent_nickname"]?.stringValue
+            ?? collaborationSource?["agentNickname"]?.stringValue
+    }
+
+    var agentRoleFromSource: String? {
+        collaborationSource?["agent_role"]?.stringValue
+            ?? collaborationSource?["agentRole"]?.stringValue
+    }
+
+    private var collaborationSource: [String: CodexJSONValue]? {
+        guard case .dictionary(let source) = source else { return nil }
+        let subagent = source["subagent"] ?? source["subAgent"]
+        guard case .dictionary(let subagent) = subagent else { return nil }
+        let spawn = subagent["thread_spawn"] ?? subagent["threadSpawn"]
+        guard case .dictionary(let spawn) = spawn else { return nil }
+        return spawn
+    }
+}
+
+private extension CodexJSONValue {
+    var stringValue: String? {
+        guard case .string(let value) = self else { return nil }
+        return value
+    }
+}
+
 public enum CanonicalThreadGoalStatus: Sendable, Equatable, Codable {
     case active
     case paused

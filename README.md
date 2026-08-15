@@ -45,7 +45,7 @@ The result is also self-demonstrating: CodexCore hosts Codex workflows, while Co
 git clone https://github.com/slopwareinc/codexcore.git
 cd codexcore
 codex --version       # checks only the PATH candidate; it must print codex-cli 0.147.0 or newer
-swift run --jobs 4 codex-core-app
+swift run codex-core-app
 ```
 
 For a normal Finder/Dock application with bundle metadata and the CodexCore icon:
@@ -150,8 +150,8 @@ Read the [architecture overview](docs/architecture/overview.md) for invariants a
 ## Development
 
 ```bash
-swift build --jobs 4 --target CodexCoreApp
-swift test --jobs 4
+swift build --target CodexCoreApp
+swift test
 python3 -m unittest discover Tools/tests
 ```
 
