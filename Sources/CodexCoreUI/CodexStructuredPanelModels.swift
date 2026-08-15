@@ -62,18 +62,6 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         )
     }
 
-    private var encodedMetadata: [String] {
-        [
-            "session=\(sessionID)",
-            "connection=\(connectionLabel)",
-            "contextUsed=\(contextUsedLabel)",
-            "contextLeft=\(contextLeftLabel)",
-            "contextFraction=\(contextFraction)"
-        ] + rateLimitRows.map { row in
-            "rate=\(row.title)|\(row.usedPercent.map(String.init) ?? "")|\(row.resetLabel)"
-        }
-    }
-
     private static func contextUsage(from summary: String?) -> (usedLabel: String, leftLabel: String, fraction: Double) {
         guard let summary,
               let match = summary.firstMatch(of: #/(\d+)\s*/\s*(\d+)\s+tokens/#),
@@ -129,23 +117,6 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         return description.prefix(1).uppercased() + description.dropFirst()
     }
 
-    private static func keyValue(_ metadata: String) -> (String, String)? {
-        let pieces = metadata.split(separator: "=", maxSplits: 1).map(String.init)
-        guard pieces.count == 2, pieces[0] != "rate" else { return nil }
-        return (pieces[0], pieces[1])
-    }
-
-    private static func rateRow(_ metadata: String) -> CodexStatusPanelRateLimitRow? {
-        guard metadata.hasPrefix("rate=") else { return nil }
-        let payload = String(metadata.dropFirst(5))
-        let pieces = payload.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-        guard pieces.count == 3 else { return nil }
-        return CodexStatusPanelRateLimitRow(
-            title: pieces[0],
-            usedPercent: Int(pieces[1]),
-            resetLabel: pieces[2]
-        )
-    }
 }
 
 public struct CodexMCPStatusPanelServerRow: Identifiable, Equatable, Sendable {
@@ -203,32 +174,6 @@ public struct CodexMCPStatusPanelModel: Equatable, Sendable {
         }
     }
 
-    private var encodedMetadata: [String] {
-        ["detail=\(detail)"] + rows.map { row in
-            "server=\(row.name)|\(row.displayName)|\(row.enabledLabel)|\(row.authLabel)|\(row.startupLabel)|\(row.inventorySummary)"
-        }
-    }
-
-    private static func keyValue(_ metadata: String) -> (String, String)? {
-        let pieces = metadata.split(separator: "=", maxSplits: 1).map(String.init)
-        guard pieces.count == 2, pieces[0] != "server" else { return nil }
-        return (pieces[0], pieces[1])
-    }
-
-    private static func serverRow(_ metadata: String) -> CodexMCPStatusPanelServerRow? {
-        guard metadata.hasPrefix("server=") else { return nil }
-        let payload = String(metadata.dropFirst(7))
-        let pieces = payload.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-        guard pieces.count == 6 else { return nil }
-        return CodexMCPStatusPanelServerRow(
-            name: pieces[0],
-            displayName: pieces[1],
-            enabledLabel: pieces[2],
-            authLabel: pieces[3],
-            startupLabel: pieces[4],
-            inventorySummary: pieces[5]
-        )
-    }
 }
 
 public struct CodexStructuredPanelDismissalState: Equatable, Sendable {

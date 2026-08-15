@@ -143,16 +143,6 @@ final class CodexCoreAppModel {
     private var automationSchedulerTask: Task<Void, Never>?
     private var automationRunTasks: [String: Task<Void, Never>] = [:]
     private var automationThreadLeases: [String: CodexThreadLease] = [:]
-    private var terminalSession: CodexCommandExecSession?
-    private var terminalOutputTask: Task<Void, Never>?
-    private var terminalCompletionTask: Task<Void, Never>?
-
-    var isBottomTerminalVisible = false
-    var bottomTerminalHeight: CGFloat = 280
-    var bottomTerminalText = ""
-    var bottomTerminalStatus = "Idle"
-    var isBottomTerminalRunning = false
-
     private let clipboardService: any CodexClipboardService
     private let pluginCatalogActionProviderOverride: (any CodexPluginCatalogActionProvider)?
     let preferenceStore: any CodexStringListPreferenceStore
@@ -344,7 +334,6 @@ final class CodexCoreAppModel {
         stopAutomationScheduler()
         dictationSession.abort()
         await voiceSession.stop()
-        await stopBottomTerminalSession()
         for task in automationRunTasks.values { task.cancel() }
         automationRunTasks.removeAll()
         for lease in automationThreadLeases.values { await lease.close() }
@@ -1784,14 +1773,6 @@ final class CodexCoreAppModel {
         )
     }
 
-    func renameSidebarProject(_ workspacePath: String, displayName: String) {
-        sidebarNavigationSession.renameProject(workspacePath, displayName: displayName)
-        CodexProjectAliasStorage.saveProjectAliases(
-            sidebarNavigationSession.projectAliases,
-            to: preferenceStore
-        )
-    }
-
     func updateSidebarProject(
         _ project: CodexProjectSummary,
         displayName: String,
@@ -2461,27 +2442,6 @@ final class CodexCoreAppModel {
                 activity: .init(title: "Prepared plugin prompt", detail: prompt),
                 draftPrompt: prompt
             )
-        }
-    }
-
-    func performPluginControlPlaneAction(_ request: CodexIntegrationControlPlaneRequest) {
-        Task {
-            let response = await performIntegrationControlPlaneRequest(request)
-            if case .mcpOAuthLogin = request,
-               case .dictionary(let object)? = response,
-               case .string(let authorizationURL)? = object["authorizationUrl"],
-               let url = URL(string: authorizationURL) {
-                NSWorkspace.shared.open(url)
-            }
-
-            switch request.permissionBoundary {
-            case .pluginMutation, .skillConfigurationWrite, .configurationWrite:
-                await refreshPlugins()
-            case .externalAuthentication:
-                await refreshMCPServers()
-            case .externalResourceRead, .externalToolExecution, nil:
-                break
-            }
         }
     }
 
@@ -3454,7 +3414,6 @@ final class CodexCoreAppModel {
     }
 
     private func resetSessionState() async {
-        await stopBottomTerminalSession()
         endAllProcessActivities()
         await runtimeSession.disconnect()
         promptRuntime.disconnect()
@@ -3540,103 +3499,4 @@ final class CodexCoreAppModel {
         threadListSession = session
     }
 
-    // MARK: - Bottom Terminal Panel
-
-    func toggleBottomTerminalPanel() {
-        isBottomTerminalVisible.toggle()
-    }
-
-    func setBottomTerminalHeight(_ height: CGFloat, maxHeight: CGFloat) {
-        let minHeight: CGFloat = 140
-        let clampedMax = max(minHeight, maxHeight)
-        bottomTerminalHeight = min(max(height, minHeight), clampedMax)
-    }
-
-    func clearBottomTerminalOutput() {
-        bottomTerminalText = ""
-    }
-
-    func openBottomTerminalDemo() async {
-        guard let codex else {
-            appendActivity(.notice, title: "Terminal unavailable", detail: "Connect to Codex before opening terminal output.")
-            return
-        }
-
-        await stopBottomTerminalSession()
-
-        isBottomTerminalVisible = true
-        bottomTerminalText = ""
-        bottomTerminalStatus = "Starting command session..."
-        isBottomTerminalRunning = true
-
-        do {
-            let session = try await codex.session.startCommandExec(.init(
-                command: ["echo", "Codex terminal demo"],
-                cwd: workspacePath,
-                processID: UUID().uuidString,
-                tty: false
-            ))
-            terminalSession = session
-            bottomTerminalStatus = "Running in \(workspacePath)"
-
-            terminalOutputTask = Task { [weak self] in
-                for await delta in session.outputStream {
-                    await CodexMainActorProjection.run {
-                        self?.appendTerminalDelta(delta)
-                    }
-                }
-            }
-
-            terminalCompletionTask = Task { [weak self] in
-                do {
-                    let result = try await session.wait()
-                    await CodexMainActorProjection.run {
-                        self?.finishBottomTerminalSession(result: result)
-                    }
-                } catch {
-                    await CodexMainActorProjection.run {
-                        self?.isBottomTerminalRunning = false
-                        self?.bottomTerminalStatus = "Session failed: \(CodexErrorFormat.localizedDescription(error))"
-                    }
-                }
-            }
-        } catch {
-            isBottomTerminalRunning = false
-            bottomTerminalStatus = "Failed to start session: \(friendlyError(error))"
-        }
-    }
-
-    private func stopBottomTerminalSession() async {
-        terminalOutputTask?.cancel()
-        terminalCompletionTask?.cancel()
-        terminalOutputTask = nil
-        terminalCompletionTask = nil
-        if let session = terminalSession, !(await session.hasCompleted) {
-            try? await session.terminate()
-        }
-        terminalSession = nil
-        isBottomTerminalRunning = false
-    }
-
-    private func appendTerminalDelta(_ delta: PTYDelta) {
-        let chunk = String(decoding: delta.data, as: UTF8.self)
-        let prefix = delta.stream == .stderr ? "stderr: " : ""
-        if !chunk.isEmpty {
-            bottomTerminalText += "\(prefix)\(chunk)"
-        }
-        if delta.capReached {
-            bottomTerminalText += "\n[output cap reached]\n"
-        }
-    }
-
-    private func finishBottomTerminalSession(result: CodexCommandExecResult) {
-        terminalSession = nil
-        terminalOutputTask = nil
-        terminalCompletionTask = nil
-        isBottomTerminalRunning = false
-        bottomTerminalStatus = "Exited \(result.exitCode)"
-        if bottomTerminalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            bottomTerminalText = "Command finished with exit code \(result.exitCode).\n"
-        }
-    }
 }

@@ -98,7 +98,7 @@ Codex facade/runtime configuration
    |  `- ~/.codexcore environment + stdio framing
    |- ClientRequestBroker
    |- CanonicalReplica
-   |- ThreadRuntimeRegistry
+   |- ThreadLeaseRegistry
    |- InteractionInbox
    |- operation-specific trackers
    `- ObservationHub
@@ -141,7 +141,7 @@ operation lifecycle.
 - connection epoch, local diagnostic ordinal, initialization, and shutdown;
 - request/response correlation through `ClientRequestBroker`;
 - protocol adaptation and `CanonicalReplica` reduction;
-- thread subscription and hydration intent through `ThreadRuntimeRegistry`;
+- thread subscription and hydration intent through `ThreadLeaseRegistry`;
 - currently pending server interactions through `InteractionInbox`;
 - the few operation-specific trackers whose protocols have real multi-message
   lifecycles; and
@@ -196,10 +196,10 @@ when its own fields, its item order, an item, or a submission intent affecting t
 changes. This gives projectors a cheap invalidation key without retaining a journal of
 past change sets.
 
-### Thread runtime registry
+### Thread lease registry
 
-`ThreadRuntimeRegistry` owns control-plane state for each locally interesting thread;
-the canonical graph remains the data-plane truth. A `ThreadRuntime` contains:
+`ThreadLeaseRegistry` owns retention and subscription leases for each locally interesting thread;
+the canonical graph remains the data-plane truth. Each lease record tracks:
 
 ```text
 retainers          why local consumers still need the thread
