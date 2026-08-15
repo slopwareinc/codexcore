@@ -323,8 +323,10 @@ public struct CodexThreadGraphSnapshot: Sendable, Equatable {
         var seen: Set<CodexThreadGraphKey> = [root]
         var queue = nodes[root]?.children ?? []
         var result: [CodexThreadGraphKey] = []
-        while !queue.isEmpty {
-            let next = queue.removeFirst()
+        var queueIndex = 0
+        while queueIndex < queue.count {
+            let next = queue[queueIndex]
+            queueIndex += 1
             guard seen.insert(next).inserted else { continue }
             result.append(next)
             queue.append(contentsOf: nodes[next]?.children ?? [])
@@ -536,8 +538,10 @@ public enum CodexThreadGraphProjector {
         }
         var queue = roots.map { ($0, 0) }
         var visited: Set<CodexThreadGraphKey> = []
-        while !queue.isEmpty {
-            let (next, depth) = queue.removeFirst()
+        var queueIndex = 0
+        while queueIndex < queue.count {
+            let (next, depth) = queue[queueIndex]
+            queueIndex += 1
             guard visited.insert(next).inserted else { continue }
             nodes[next]?.depth = depth
             queue.append(contentsOf: (nodes[next]?.children ?? []).map { ($0, depth + 1) })

@@ -238,6 +238,14 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var findHitLimit = false
         private(set) var diagnostics = CodexTranscriptCollectionDiagnostics()
 
+        private struct TranscriptLayoutIndex {
+            var itemMinYByID: [CodexTranscriptRenderItemID: CGFloat]
+            var itemHeight: CGFloat
+            var turnGaps: CGFloat
+        }
+
+        private var cachedTranscriptLayoutIndex: TranscriptLayoutIndex?
+
         private struct CanonicalProjectionIdentity: Equatable {
             var threadID: ThreadID
             var sourceRevision: StateRevision
@@ -725,6 +733,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 forceReconfigureAll = false
             }
             currentSnapshot = projected
+            cachedTranscriptLayoutIndex = nil
             if !findQuery.isEmpty { rebuildFindMatches(preservingActiveItem: true) }
             diagnostics.insertedItemCount += nextIDs.subtracting(previousIDs).count
             diagnostics.deletedItemCount += previousIDs.subtracting(nextIDs).count
@@ -835,6 +844,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             hostedPreferredHeightByID[id] = (revision, height)
             item.measuredHeight = height
             currentSnapshot?.itemsByID[id] = item
+            cachedTranscriptLayoutIndex = nil
             guard let indexPath = dataSource?.indexPath(for: id), let container else { return }
             invalidateLayoutMetrics(at: [indexPath], in: container)
             updateShortTranscriptTopInset()
@@ -902,18 +912,14 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         private func updateShortTranscriptTopInset() {
             guard let container, let snapshot = currentSnapshot else { return }
-            let itemHeight = snapshot.orderedItemIDs.reduce(CGFloat.zero) { partial, id in
-                partial + (snapshot.itemsByID[id]?.measuredHeight ?? 0)
-            }
-            let turnGaps = CGFloat(max(0, snapshot.sectionIDs.count - 1))
-                * CodexTranscriptColumnMetrics.turnGap
+            let layoutIndex = transcriptLayoutIndex(for: snapshot)
             let visibleHeight = max(
                 0,
                 container.scrollView.contentView.bounds.height
                     - container.scrollView.contentInsets.top
                     - container.scrollView.contentInsets.bottom
             )
-            let desired = max(0, visibleHeight - itemHeight - turnGaps)
+            let desired = max(0, visibleHeight - layoutIndex.itemHeight - layoutIndex.turnGaps)
             guard abs(desired - shortTranscriptTopInset) > 0.5 else { return }
             shortTranscriptTopInset = desired
             let context = NSCollectionViewFlowLayoutInvalidationContext()
@@ -927,27 +933,52 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             _ snapshot: CodexTranscriptRenderSnapshot? = nil
         ) -> CGFloat {
             guard let snapshot = snapshot ?? currentSnapshot else { return 0 }
-            let itemHeight = snapshot.orderedItemIDs.reduce(CGFloat.zero) { partial, id in
-                partial + (snapshot.itemsByID[id]?.measuredHeight ?? 0)
-            }
-            let turnGaps = CGFloat(max(0, snapshot.sectionIDs.count - 1))
-                * CodexTranscriptColumnMetrics.turnGap
-            return shortTranscriptTopInset + itemHeight + turnGaps
+            let layoutIndex = transcriptLayoutIndex(for: snapshot)
+            return shortTranscriptTopInset + layoutIndex.itemHeight + layoutIndex.turnGaps
         }
 
         private func projectedMinY(
             for targetID: CodexTranscriptRenderItemID,
             in snapshot: CodexTranscriptRenderSnapshot
         ) -> CGFloat? {
-            var y = shortTranscriptTopInset
+            guard let minY = transcriptLayoutIndex(for: snapshot).itemMinYByID[targetID] else {
+                return nil
+            }
+            return shortTranscriptTopInset + minY
+        }
+
+        private func transcriptLayoutIndex(
+            for snapshot: CodexTranscriptRenderSnapshot
+        ) -> TranscriptLayoutIndex {
+            if let cachedTranscriptLayoutIndex,
+               currentSnapshot?.threadID == snapshot.threadID {
+                return cachedTranscriptLayoutIndex
+            }
+
+            let turnGaps = CGFloat(max(0, snapshot.sectionIDs.count - 1))
+                * CodexTranscriptColumnMetrics.turnGap
+            var itemMinYByID: [CodexTranscriptRenderItemID: CGFloat] = [:]
+            itemMinYByID.reserveCapacity(snapshot.itemsByID.count)
+            var currentY: CGFloat = 0
+            var itemHeight: CGFloat = 0
             for (sectionIndex, sectionID) in snapshot.sectionIDs.enumerated() {
-                if sectionIndex > 0 { y += CodexTranscriptColumnMetrics.turnGap }
+                if sectionIndex > 0 { currentY += CodexTranscriptColumnMetrics.turnGap }
                 for id in snapshot.itemIDsBySection[sectionID] ?? [] {
-                    if id == targetID { return y }
-                    y += snapshot.itemsByID[id]?.measuredHeight ?? 0
+                    itemMinYByID[id] = currentY
+                    let height = snapshot.itemsByID[id]?.measuredHeight ?? 0
+                    currentY += height
+                    itemHeight += height
                 }
             }
-            return nil
+            let index = TranscriptLayoutIndex(
+                itemMinYByID: itemMinYByID,
+                itemHeight: itemHeight,
+                turnGaps: turnGaps
+            )
+            if currentSnapshot?.threadID == snapshot.threadID {
+                cachedTranscriptLayoutIndex = index
+            }
+            return index
         }
 
         private func perform(_ action: CodexTranscriptRenderAction) {

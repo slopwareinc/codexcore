@@ -169,10 +169,10 @@ final class AssistantRenderBlockParser {
                 continue
             }
 
-            if bytes[cursor] == 92 && !isEscaped(text, index: cursor) { // '\\'
+            if bytes[cursor] == 92 && !isEscaped(bytes, index: cursor) { // '\\'
                 let remaining = bytes[cursor...]
                 if remaining.starts(with: [92, 91]) { // "\\["
-                    if let closeStart = findClosingMathDelimiter(text, start: cursor + 2, delimiter: [92, 93], allowNewlines: true) { // "\\]"
+                    if let closeStart = findClosingMathDelimiter(bytes, start: cursor + 2, delimiter: [92, 93], allowNewlines: true) { // "\\]"
                         let startIdx = text.index(text.startIndex, offsetBy: cursor + 2)
                         let endIdx = text.index(text.startIndex, offsetBy: closeStart)
                         let latex = String(text[startIdx..<endIdx])
@@ -183,7 +183,7 @@ final class AssistantRenderBlockParser {
                         }
                     }
                 } else if remaining.starts(with: [92, 40]) { // "\\("
-                    if let closeStart = findClosingMathDelimiter(text, start: cursor + 2, delimiter: [92, 41], allowNewlines: false) { // "\\)"
+                    if let closeStart = findClosingMathDelimiter(bytes, start: cursor + 2, delimiter: [92, 41], allowNewlines: false) { // "\\)"
                         let startIdx = text.index(text.startIndex, offsetBy: cursor + 2)
                         let endIdx = text.index(text.startIndex, offsetBy: closeStart)
                         let latex = String(text[startIdx..<endIdx])
@@ -196,9 +196,9 @@ final class AssistantRenderBlockParser {
                 }
             }
 
-            if bytes[cursor] == 36 && !isEscaped(text, index: cursor) { // '$'
+            if bytes[cursor] == 36 && !isEscaped(bytes, index: cursor) { // '$'
                 if cursor + 1 < bytes.count && bytes[cursor + 1] == 36 { // "$$"
-                    if let closeStart = findClosingMathDelimiter(text, start: cursor + 2, delimiter: [36, 36], allowNewlines: true) {
+                    if let closeStart = findClosingMathDelimiter(bytes, start: cursor + 2, delimiter: [36, 36], allowNewlines: true) {
                         let startIdx = text.index(text.startIndex, offsetBy: cursor + 2)
                         let endIdx = text.index(text.startIndex, offsetBy: closeStart)
                         let latex = String(text[startIdx..<endIdx])
@@ -216,7 +216,7 @@ final class AssistantRenderBlockParser {
                         if bytes[search] == 10 { // '\n'
                             break
                         }
-                        if bytes[search] == 36 && !isEscaped(text, index: search) && (search == cursor + 1 || bytes[search - 1] != 36) {
+                        if bytes[search] == 36 && !isEscaped(bytes, index: search) && (search == cursor + 1 || bytes[search - 1] != 36) {
                             let previous = bytes[search - 1]
                             let nextIsDigit = (search + 1 < bytes.count) && Character(UnicodeScalar(bytes[search + 1])).isNumber
 
@@ -245,8 +245,7 @@ final class AssistantRenderBlockParser {
         return spans
     }
 
-    private func findClosingMathDelimiter(_ text: String, start: Int, delimiter: [UInt8], allowNewlines: Bool) -> Int? {
-        let bytes = Array(text.utf8)
+    private func findClosingMathDelimiter(_ bytes: [UInt8], start: Int, delimiter: [UInt8], allowNewlines: Bool) -> Int? {
         var cursor = start
 
         while cursor + delimiter.count <= bytes.count {
@@ -254,7 +253,7 @@ final class AssistantRenderBlockParser {
                 return nil
             }
 
-            if bytes[cursor..<(cursor + delimiter.count)] == delimiter[...] && !isEscaped(text, index: cursor) {
+            if bytes[cursor..<(cursor + delimiter.count)] == delimiter[...] && !isEscaped(bytes, index: cursor) {
                 return cursor
             }
             cursor += 1
@@ -266,9 +265,8 @@ final class AssistantRenderBlockParser {
         ranges.contains(where: { start < $0.1 && end > $0.0 })
     }
 
-    private func isEscaped(_ text: String, index: Int) -> Bool {
+    private func isEscaped(_ bytes: [UInt8], index: Int) -> Bool {
         if index == 0 { return false }
-        let bytes = Array(text.utf8)
         var slashCount = 0
         var cursor = index
         while cursor > 0 {
