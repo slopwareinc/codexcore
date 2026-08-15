@@ -239,6 +239,18 @@ public enum CodexAgentDisplayStatusV2: Sendable, Equatable {
     case closed
 }
 
+extension CodexAgentDisplayStatusV2 {
+    var transcriptLabel: String {
+        switch self {
+        case .starting: "Starting"
+        case .working: "Running"
+        case .done: "Done"
+        case .failed: "Failed"
+        case .closed: "Closed"
+        }
+    }
+}
+
 public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var command: String; public var label: String
     public var action: CodexWorkCategoryV2; public var status: CodexWorkItemStatusV2

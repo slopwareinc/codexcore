@@ -360,7 +360,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     var agentChipCountForTesting: Int { agentChipHosts.count }
     var agentChipHostCreationCountForTesting: Int { agentChipHostCreationCount }
     var agentChipTitlesForTesting: [String] {
-        configuredAgentChips.map { "\($0.label) · \(Self.agentStatusTitle($0.status).lowercased())" }
+        configuredAgentChips.map { "\($0.label) · \($0.status.transcriptLabel.lowercased())" }
     }
     var agentPillsUseGlassForTesting: Bool { !agentChipHosts.isEmpty }
     var workRowStatusForTesting: String { chipControlsInstalled ? chipStatusLabel.stringValue : "" }
@@ -1647,7 +1647,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     ) {
         let isAttachment = chip.threadID == nil && chip.taskSummary != nil
         host.setAccessibilityLabel(
-            isAttachment ? chip.label : "\(chip.label), \(Self.agentStatusTitle(chip.status))"
+            isAttachment ? chip.label : "\(chip.label), \(chip.status.transcriptLabel)"
         )
     }
 
@@ -1664,7 +1664,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         var x: CGFloat = 0
         var y = contentFrame.height - height
         for (chip, host) in zip(chips, agentChipHosts) {
-            let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(Self.agentStatusTitle(chip.status).lowercased())"
+            let title = chip.threadID == nil
+                ? chip.label
+                : "\(chip.label) · \(chip.status.transcriptLabel.lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: theme.captionFont]).width)
             let isImage = chip.attachmentKind == .image
             let width = isImage
@@ -1685,16 +1687,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         agentChipHosts.removeAll(keepingCapacity: true)
         configuredAgentChips.removeAll(keepingCapacity: true)
         agentChipContainer.isHidden = true
-    }
-
-    private static func agentStatusTitle(_ status: CodexAgentDisplayStatusV2) -> String {
-        switch status {
-        case .starting: "Starting"
-        case .working: "Working"
-        case .done: "Done"
-        case .failed: "Failed"
-        case .closed: "Closed"
-        }
     }
 
     private func setAgentPreviewHover(_ hovered: Bool, index: Int) {
@@ -2653,13 +2645,7 @@ private struct CodexTranscriptAgentPill: View {
     }
 
     private var statusTitle: String {
-        switch chip.status {
-        case .starting: "Starting"
-        case .working: "Working"
-        case .done: "Done"
-        case .failed: "Failed"
-        case .closed: "Closed"
-        }
+        chip.status.transcriptLabel
     }
 
     private var statusColor: Color {
@@ -2773,13 +2759,7 @@ private struct CodexTranscriptAgentHoverPreview: View {
     }
 
     private var statusTitle: String {
-        switch chip.status {
-        case .starting: "Starting"
-        case .working: "Working"
-        case .done: "Done"
-        case .failed: "Failed"
-        case .closed: "Closed"
-        }
+        chip.status.transcriptLabel
     }
 
     private var statusColor: Color {

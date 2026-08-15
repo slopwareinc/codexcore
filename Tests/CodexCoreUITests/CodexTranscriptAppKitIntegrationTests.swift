@@ -761,7 +761,8 @@ struct CodexTranscriptAppKitIntegrationTests {
                 threadID: "thread", transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
                 expandedRowIDs: ["agents"],
-                agentDisplayNameByThreadID: ["thread-2": "Ramanujan"]
+                agentDisplayNameByThreadID: ["thread-2": "Ramanujan"],
+                agentDisplayStatusByThreadID: ["thread-1": .working]
             ),
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
@@ -788,7 +789,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         cell.view.layoutSubtreeIfNeeded()
         #expect(cell.agentChipCountForTesting == 5)
         #expect(cell.agentChipHostCreationCountForTesting == 5)
-        #expect(cell.agentChipTitlesForTesting[1] == "Ramanujan · working")
+        #expect(cell.agentChipTitlesForTesting[0] == "Agent 1 · running")
+        #expect(cell.agentChipTitlesForTesting[1] == "Ramanujan · running")
         #expect(cell.agentPillsUseGlassForTesting)
         let preview = try #require(cell.agentPreviewForTesting(at: 1))
         #expect(preview.taskSummary == "Inspect transcript rendering")
@@ -801,6 +803,77 @@ struct CodexTranscriptAppKitIntegrationTests {
             forkChat: nil, selectionChanged: { _, _ in }
         )
         #expect(cell.agentChipHostCreationCountForTesting == 5)
+    }
+
+    @Test func liveSubagentStatusReprojectsPillWithoutOpeningAgent() async throws {
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "agents", rows: [
+                .collabAgent(.init(
+                    id: "agent:child",
+                    action: .created,
+                    agentNames: ["Child"],
+                    agentThreadIDs: ["child"],
+                    instructions: nil,
+                    status: .completed,
+                    displayStatus: .done
+                )),
+            ]))],
+            status: .working(since: 1)
+        )
+        var presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [turn]),
+            expandedWorkTurnIDs: [turn.id],
+            expandedRowIDs: ["agents"],
+            agentDisplayStatusByThreadID: ["child": .working]
+        )
+        let renderUpdate = CodexCanonicalTranscriptRenderUpdate(
+            threadID: ThreadID("thread"),
+            sourceRevision: StateRevision(1),
+            requestSourceRevision: 0,
+            turnOrder: nil,
+            upsertedTurns: [],
+            removedTurnIDs: [],
+            dirtyTurnIDs: [],
+            pendingRequests: [],
+            isFullRebuild: false
+        )
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 500)
+        )
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        coordinator.attach(to: container)
+        defer { coordinator.detach() }
+
+        func update() {
+            coordinator.update(
+                presentation: presentation,
+                renderUpdate: renderUpdate,
+                presentationStore: nil,
+                bottomContentInset: 0,
+                contentHorizontalOffset: 0,
+                swiftUITheme: .officialDark,
+                colorScheme: .dark,
+                clipboardService: CodexNoopClipboardService(),
+                productToolRenderer: nil,
+                onOpenSubagent: { _ in },
+                onEditUserMessage: { _ in },
+                onForkChat: nil
+            )
+        }
+
+        update()
+        await coordinator.waitForProjectionForTesting()
+        let pillID = try #require(coordinator.renderedItemIDsForTesting.first {
+            coordinator.renderedItemForTesting($0)?.agentChips.isEmpty == false
+        })
+        #expect(coordinator.renderedItemForTesting(pillID)?.agentChips.first?.status == .working)
+
+        presentation.agentDisplayStatusByThreadID["child"] = .done
+        update()
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.renderedItemForTesting(pillID)?.agentChips.first?.status == .done)
     }
 
     @Test func attachmentThumbnailsDownsampleOffMainActor() async throws {

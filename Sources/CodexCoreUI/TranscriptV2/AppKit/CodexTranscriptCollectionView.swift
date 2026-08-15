@@ -246,6 +246,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             var expandedRowIDs: Set<String>
             var selectedDiffFileIndexByRowID: [String: Int]
             var agentDisplayNameByThreadID: [String: String]
+            var agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2]
             var pendingApprovals: [CodexApprovalPrompt]
         }
 
@@ -385,6 +386,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     expandedRowIDs: presentation.expandedRowIDs,
                     selectedDiffFileIndexByRowID: presentation.selectedDiffFileIndexByRowID,
                     agentDisplayNameByThreadID: presentation.agentDisplayNameByThreadID,
+                    agentDisplayStatusByThreadID: presentation.agentDisplayStatusByThreadID,
                     pendingApprovals: presentation.pendingApprovals
                 )
             }
