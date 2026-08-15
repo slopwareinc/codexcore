@@ -557,6 +557,7 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 struct CodexCoreAppRootView: View {
     @Bindable var model: CodexCoreAppModel
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openURL) private var openURL
     @State private var didStartInitialConnection = false
 
@@ -582,6 +583,18 @@ struct CodexCoreAppRootView: View {
         .tint(model.theme.colors.accent)
         // Themes render in both appearances, so the mode is what pins one.
         .preferredColorScheme(model.appearanceSettings.appearanceMode.preferredColorScheme)
+        .onAppear {
+            CodexThemedAppIcon.apply(
+                settings: model.appearanceSettings,
+                colorScheme: colorScheme
+            )
+        }
+        .onChange(of: model.appearanceSettings) { _, settings in
+            CodexThemedAppIcon.apply(settings: settings, colorScheme: colorScheme)
+        }
+        .onChange(of: colorScheme) { _, scheme in
+            CodexThemedAppIcon.apply(settings: model.appearanceSettings, colorScheme: scheme)
+        }
         .task {
             guard !didStartInitialConnection else { return }
             didStartInitialConnection = true

@@ -16,7 +16,8 @@ app_dir="${repo_root}/build/CodexCore.app"
 contents_dir="${app_dir}/Contents"
 macos_dir="${contents_dir}/MacOS"
 resources_dir="${contents_dir}/Resources"
-icon_source="${repo_root}/Sources/CodexCoreApp/Resources/AppIcon.svg"
+icon_source="${repo_root}/Sources/CodexCoreApp/Resources/AppIconDefault.png"
+themed_icon_master="${repo_root}/Sources/CodexCoreApp/Resources/CodexAppIconMaster.png"
 iconset_dir="$(mktemp -d)/AppIcon.iconset"
 entitlements_path="${repo_root}/CodexCore.entitlements"
 
@@ -32,7 +33,7 @@ rm -rf "${app_dir}"
 mkdir -p "${macos_dir}" "${resources_dir}" "${iconset_dir}"
 cp "${bin_dir}/codex-core-app" "${macos_dir}/CodexCore"
 cp "${repo_root}/Sources/CodexCoreApp/Info.plist" "${contents_dir}/Info.plist"
-cp "${icon_source}" "${resources_dir}/AppIcon.svg"
+cp "${themed_icon_master}" "${resources_dir}/CodexAppIconMaster.png"
 
 build_number="${CODEXCORE_BUILD_NUMBER:-$(git -C "${repo_root}" rev-list --count HEAD)}"
 if [[ ! "${build_number}" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
