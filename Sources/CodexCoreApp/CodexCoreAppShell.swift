@@ -354,7 +354,6 @@ struct CodexCoreAppShell: View {
                 modelOptions: model.modelOptions,
                 reasoningSelection: $model.reasoningSelection,
                 isBottomPanelVisible: .constant(false),
-                gitSettings: $model.gitSettings,
                 newThreadHistoryMode: $model.newThreadHistoryMode,
                 mcpServers: model.mcpServers,
                 isLoadingMCPServers: model.isLoadingMCPServers,
@@ -387,11 +386,8 @@ struct CodexCoreAppShell: View {
 
         return CodexChatWorkspaceView(
                 presentationStore: model.runtimeSession.presentationStore,
-                lifecycleEvents: model.lifecycleEvents,
                 sideChat: model.sideChat,
                 subagents: model.subagents,
-                activities: model.activities,
-                connectionState: model.connectionState,
                 workspacePath: model.workspacePath,
                 chatTitle: model.currentChatTitle,
                 currentThreadID: model.currentThreadID,
@@ -471,7 +467,6 @@ struct CodexCoreAppShell: View {
                 onFilesDropped: { [threadID = model.currentThreadID] urls in
                     model.addReferencedFileURLs(urls, to: threadID)
                 },
-                onCloseTranscriptMessage: { model.dismissTranscriptMessage($0) },
                 onSelectSubagentTranscript: {
                     model.runtimeSession.selectSubagentTranscript($0)
                 },
@@ -550,7 +545,6 @@ struct CodexCoreAppShell: View {
                 model.workspacePanelState.selectedTabID = tabID
                 model.workspacePanelState.isAgentPanelOpen = true
             } else {
-                model.appendPaletteNotice(title: "Review panel", detail: "Review opens when the current chat has changes.")
             }
         case .openMCPDetails:
             isMCPStatusSheetPresented = true

@@ -175,19 +175,3 @@ public struct CodexMCPStatusPanelModel: Equatable, Sendable {
     }
 
 }
-
-public struct CodexStructuredPanelDismissalState: Equatable, Sendable {
-    public private(set) var dismissedMessageIDs: Set<UUID>
-
-    public init(dismissedMessageIDs: Set<UUID> = []) {
-        self.dismissedMessageIDs = dismissedMessageIDs
-    }
-
-    public mutating func dismiss(messageID: UUID) {
-        dismissedMessageIDs.insert(messageID)
-    }
-
-    public func isVisible(messageID: UUID) -> Bool {
-        !dismissedMessageIDs.contains(messageID)
-    }
-}

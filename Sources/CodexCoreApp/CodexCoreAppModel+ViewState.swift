@@ -56,10 +56,6 @@ extension CodexCoreAppModel {
         workspacePanel.mountedToolStates
     }
 
-    var lifecycleEvents: [CodexAgentLifecycleEvent] {
-        runtimeSession.lifecycleEvents
-    }
-
     var sideChat: CodexSideChatState? {
         runtimeSession.sideChat
     }
@@ -210,10 +206,6 @@ extension CodexCoreAppModel {
 
     var interactivePrompts: [CodexInteractivePrompt] {
         promptRuntime.interactivePrompts
-    }
-
-    var activities: [Activity] {
-        activityLog.activities
     }
 
     var isSending: Bool {
