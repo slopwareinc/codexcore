@@ -2,7 +2,7 @@
 
 Native Swift infrastructure for the Codex app-server: a Swift SDK, a reusable SwiftUI workspace, and a native macOS reference app.
 
-> **Status:** CodexCore `0.9.0` targets macOS 26+, Swift 6.2, and `codex-cli 0.145.0` or newer. Protocol types are generated from `codex-cli 0.146.0-alpha.9.2`; fields added after the `0.145.0` floor are optional on the wire, so a GA runtime in that range keeps working. CodexCore opts into experimental app-server capabilities.
+> **Status:** CodexCore `0.10.0` targets macOS 26+, Swift 6.2, and `codex-cli 0.147.0` or newer. Protocol types are generated from stable `codex-cli 0.147.0`. CodexCore opts into experimental app-server capabilities.
 
 ![CodexCore native macOS workspace](docs/assets/screenshots/hero-workspace.png)
 
@@ -14,7 +14,7 @@ Codex was used to:
 
 - reverse-engineer and model the Codex app-server protocol as a typed Swift API;
 - design and implement the SDK, reusable SwiftUI layer, and native macOS reference app;
-- migrate the runtime to `codex-cli 0.145.0`, generate and validate protocol types, and maintain concurrency invariants;
+- migrate the runtime across stable Codex CLI releases, generate and validate protocol types, and maintain concurrency invariants;
 - run tests, delegate audits to subagents, package the app, capture product screenshots, and rebuild the documentation.
 
 The result is also self-demonstrating: CodexCore hosts Codex workflows, while Codex itself is used to develop and verify CodexCore.
@@ -44,7 +44,7 @@ The result is also self-demonstrating: CodexCore hosts Codex workflows, while Co
 ```bash
 git clone https://github.com/slopwareinc/codexcore.git
 cd codexcore
-codex --version       # checks only the PATH candidate; it must print codex-cli 0.145.0 or newer
+codex --version       # checks only the PATH candidate; it must print codex-cli 0.147.0 or newer
 swift run codex-core-app
 ```
 
@@ -58,8 +58,8 @@ open build/CodexCore.app
 The packager uses hardened-runtime signing and an installed Developer ID or
 Apple Development identity when available, preserving macOS privacy grants
 across local rebuilds. It falls back to ad-hoc signing when no identity exists.
-Developer ID notarization and signed Sparkle appcast generation are opt-in;
-see the [packaging and release guide](docs/getting-started/run-the-app.md#updates-notarization-and-appcasts).
+Developer ID notarization is opt-in; see the
+[packaging and release guide](docs/getting-started/run-the-app.md#notarization).
 
 On first launch, sign in with ChatGPT or an API key, choose a workspace, and start a task. CodexCore stores credentials and configuration in `~/.codexcore`; it does not reuse `~/.codex` implicitly.
 
@@ -71,7 +71,7 @@ See [requirements](docs/getting-started/requirements.md) and [authentication](do
 dependencies: [
     .package(
         url: "https://github.com/slopwareinc/codexcore.git",
-        exact: "0.145.0+codexcore.0.9.0"
+        exact: "0.147.0+codexcore.0.10.0"
     )
 ]
 ```

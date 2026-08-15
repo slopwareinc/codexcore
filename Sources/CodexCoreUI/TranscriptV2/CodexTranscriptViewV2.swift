@@ -70,6 +70,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onForkChat: (() -> Void)?
     private let pendingApprovals: [CodexApprovalPrompt]
     private let agentDisplayNameByThreadID: [String: String]
+    private let agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2]
     private let onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     @State private var fallbackPresentedAt = Date()
     @State private var projectionError: String?
@@ -93,6 +94,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
+        agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2] = [:],
         pendingApprovals: [CodexApprovalPrompt] = [],
         onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
         @ViewBuilder emptyState: () -> EmptyState
@@ -115,6 +117,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onRetryTurn = onRetryTurn
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
+        self.agentDisplayStatusByThreadID = agentDisplayStatusByThreadID
         self.pendingApprovals = pendingApprovals
         self.onResolveApproval = onResolveApproval
         self.emptyState = emptyState()
@@ -142,6 +145,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
+        agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2] = [:],
         pendingApprovals: [CodexApprovalPrompt] = [],
         onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
         @ViewBuilder emptyState: () -> EmptyState
@@ -164,6 +168,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onRetryTurn = onRetryTurn
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
+        self.agentDisplayStatusByThreadID = agentDisplayStatusByThreadID
         self.pendingApprovals = pendingApprovals
         self.onResolveApproval = onResolveApproval
         self.emptyState = emptyState()
@@ -262,6 +267,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 $0.threadId == presentation.threadID
             }
             presentation.agentDisplayNameByThreadID = agentDisplayNameByThreadID
+            presentation.agentDisplayStatusByThreadID = agentDisplayStatusByThreadID
             appendSupplementalTurns(to: &presentation)
             return presentation
         }
@@ -269,6 +275,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
             threadID: threadID,
             transcript: transcript,
             agentDisplayNameByThreadID: agentDisplayNameByThreadID,
+            agentDisplayStatusByThreadID: agentDisplayStatusByThreadID,
             presentedAtByTurnID: Dictionary(uniqueKeysWithValues: transcript.turns.map { ($0.id, fallbackPresentedAt) }),
             pendingApprovals: pendingApprovals
         )

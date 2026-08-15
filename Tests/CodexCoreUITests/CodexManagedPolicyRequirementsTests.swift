@@ -43,11 +43,11 @@ final class CodexManagedPolicyRequirementsTests: XCTestCase {
         ]
         XCTAssertEqual(
             CodexApprovalSelection.options(from: profiles, requirements: requirements),
-            [.readOnly]
+            []
         )
         XCTAssertEqual(
             requirements.defaultApprovalSelection(in: CodexApprovalSelection.defaultOptions),
-            .readOnly
+            nil
         )
         XCTAssertEqual(
             requirements.narrowSandboxModes(CodexSchemaSandboxMode.allCases),
@@ -65,7 +65,7 @@ final class CodexManagedPolicyRequirementsTests: XCTestCase {
         XCTAssertTrue(requirements.noticeDetail.localizedCaseInsensitiveContains("restricted"))
     }
 
-    func testGuardianReviewerIsSelectableWhenPolicyAllowsIt() {
+    func testLegacyGuardianReviewerHydratesAsApproveForMe() {
         let requirements = CodexManagedPolicyRequirements(
             allowedApprovalPolicies: ["on-request"],
             allowedSandboxModes: ["workspace-write"],
@@ -75,14 +75,14 @@ final class CodexManagedPolicyRequirementsTests: XCTestCase {
 
         XCTAssertEqual(
             CodexApprovalSelection.options(from: profiles, requirements: requirements),
-            [.guardianSubagent]
+            [.approveForMe]
         )
         XCTAssertEqual(
             CodexApprovalSelection.selection(
                 profileID: ":workspace",
                 approvalsReviewer: .guardianSubagent
             ),
-            .guardianSubagent
+            .approveForMe
         )
     }
 
@@ -94,8 +94,8 @@ final class CodexManagedPolicyRequirementsTests: XCTestCase {
             allowedSandboxModes: [.readOnly]
         ))
 
-        XCTAssertEqual(session.approvalOptions, [.readOnly])
-        XCTAssertEqual(session.approvalSelection, .readOnly)
+        XCTAssertTrue(session.approvalOptions.isEmpty)
+        XCTAssertEqual(session.approvalSelection, .custom)
         XCTAssertTrue(session.managedPolicyRequirements?.isManaged == true)
     }
 

@@ -49,7 +49,8 @@ enum CodexPluginStatusPresentation {
 
 enum CodexMCPManageStatusPresentation {
     static func configurationLabel(for server: CodexMCPServerStatus) -> String {
-        server.enabled ? "Configuration enabled" : "Configuration disabled"
+        server.enabled.map { $0 ? "Configuration enabled" : "Configuration disabled" }
+            ?? "Configuration unknown"
     }
 
     static func runtimeLabel(for server: CodexMCPServerStatus) -> String {

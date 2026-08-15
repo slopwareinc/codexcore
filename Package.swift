@@ -29,7 +29,6 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2"),
         .package(url: "https://github.com/Lakr233/libghostty-spm.git", from: "1.2.9"),
         // Syntax highlighting for the Files preview pane. SwiftTreeSitter drives the
         // parse/query, and each grammar package below ships its own tree-sitter parser
@@ -92,10 +91,10 @@ let package = Package(
             dependencies: [
                 "CodexCore",
                 "CodexCoreUI",
-                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/CodexCoreApp",
-            exclude: ["Info.plist", "Resources"],
+            exclude: ["Info.plist", "Resources/AppIconDefault.png"],
+            resources: [.process("Resources/CodexAppIconMaster.png")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
@@ -119,7 +118,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CodexCoreAppTests",
-            dependencies: ["CodexCore", "CodexCoreUI", "CodexCoreApp"],
+            dependencies: [
+                "CodexCore",
+                "CodexCoreUI",
+                "CodexCoreApp",
+            ],
             path: "Tests/CodexCoreAppTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )

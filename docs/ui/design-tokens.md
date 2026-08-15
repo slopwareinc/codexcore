@@ -33,9 +33,10 @@ Rules the roles enforce, and that reviews should check:
 - **Never add a stroke or a shadow to a glass surface.** Glass draws its own edge
   highlight and its own shadow. Hand-drawn copies are what make glass read as an
   imitation of itself.
-- **Tint means emphasis, not dimming.** Pass a tint only to carry meaning
-  (selection, a status color). Tinting with a surface color to darken glass turns
-  it into smoked plastic; pick a different `role` instead.
+- **Call-site tint means emphasis, not dimming.** Pass a tint only to carry
+  meaning (selection, a status color). The `.chrome` role centrally applies a
+  dark-appearance tint so wallpaper cannot wash sidebars into a mid-tone panel;
+  callers must not reproduce that treatment themselves.
 - **Interactivity belongs to controls.** `.control` and `.chip` are interactive;
   `.controlGroup` and other containers are not, or the whole group flexes when
   any child is pressed.
@@ -94,6 +95,10 @@ A theme is a **hue family**, not an appearance. Each of the eight families
 `slate` again as Paper) defines every color role as a `CodexColorPair` with a
 light and a dark value. `CodexAppearanceMode` — system, light, dark — chooses
 which side is used, independently of the family.
+
+Dark canvases stay near black while retaining the family's hue. `surfaceSunken`
+is the recessed chrome level (including the sidebar), `surface` is the content
+level, and `surfaceElevated` is reserved for controls and panels above content.
 
 Color values are `0xRRGGBB`, or `0xAARRGGBB` where a role needs alpha.
 

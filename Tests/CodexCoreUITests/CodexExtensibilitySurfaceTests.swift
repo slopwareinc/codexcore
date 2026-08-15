@@ -84,6 +84,8 @@ final class CodexExtensibilitySurfaceTests: XCTestCase {
             "name": .string("schema-server"),
             "enabled": .bool(true),
             "status": .string("degraded"),
+            "resources": .array([]),
+            "resourceTemplates": .array([]),
             "tools": .dictionary([
                 "search": .dictionary([
                     "name": .string("search"),
@@ -120,7 +122,7 @@ final class CodexExtensibilitySurfaceTests: XCTestCase {
         )))
         XCTAssertEqual(session.mcpServers[0].startupState, .failed)
         XCTAssertEqual(session.mcpServers[0].failureReason, .reauthenticationRequired)
-        XCTAssertTrue(session.mcpServers[0].enabled)
+        XCTAssertEqual(session.mcpServers[0].enabled, true)
         XCTAssertEqual(CodexMCPStatusPanelServerRow(server: session.mcpServers[0]).enabledLabel, "Enabled")
     }
 

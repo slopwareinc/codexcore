@@ -113,7 +113,8 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
         )
         XCTAssertEqual(
             CodexWorkspaceSummaryContext(workspacePath: linked.path).environmentModeTitle,
-            "Worktree"
+            "Local",
+            "The render-safe summary uses path heuristics; the sidebar performs the Git metadata probe"
         )
         XCTAssertEqual(
             CodexProjectSidebarEnvironmentLabel.title(workspacePath: linked.path),

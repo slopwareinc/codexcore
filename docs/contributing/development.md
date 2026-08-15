@@ -26,7 +26,7 @@ python3 -m unittest discover Tools/tests
 git diff --check
 ```
 
-There is currently no repository CI; contributors must run the relevant validation locally. `Tools/check_drift.sh` without `CODEX_BINARY` downloads the pinned GA runtime and therefore needs network access; set `CODEX_BINARY=/absolute/path/to/codex` for a local binary.
+Repository CI runs the default build and test suite, but contributors should still run the relevant validation locally. `Tools/check_drift.sh` without `CODEX_BINARY` downloads the pinned GA runtime and therefore needs network access; set `CODEX_BINARY=/absolute/path/to/codex` for a local binary.
 
 SDK/session/protocol tests belong in `Tests/CodexCoreTests`. Presentation and fixture tests belong in `Tests/CodexCoreUITests`.
 
@@ -38,9 +38,9 @@ Run the app against a representative long transcript before `just trace`. Preser
 
 1. Complete the exact-runtime upgrade and local verification matrix.
 2. Update `Tools/UPSTREAM_VERSION`, compatibility docs, and the CodexCore version.
-3. Generate the release bundle with a Developer ID identity, injected Sparkle feed/public key, and a monotonically increasing `CODEXCORE_BUILD_NUMBER` if the Git commit count is not suitable.
-4. Enable notarization and appcast generation using the credential/profile variables documented in [Run the reference app](../getting-started/run-the-app.md), then publish the generated archive and appcast together.
+3. Generate the release bundle with a Developer ID identity and a monotonically increasing `CODEXCORE_BUILD_NUMBER` if the Git commit count is not suitable.
+4. Enable notarization using the credential/profile variables documented in [Run the reference app](../getting-started/run-the-app.md), then publish the validated archive.
 5. Merge the issue-linked PR from a dedicated `codex/…` branch.
 6. Tag the merge as `v<codex-cli>+codexcore.<version>` and publish release notes covering compatibility and limitations.
 
-The non-credentialed packaging path and code signature are locally verifiable. A release operator with access to the Apple notary profile and Sparkle private key must verify notarization acceptance, stapling, update signatures, and a real update installation before publishing.
+The non-credentialed packaging path and code signature are locally verifiable. A release operator with access to the Apple notary profile must verify notarization acceptance and stapling before publishing.

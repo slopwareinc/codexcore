@@ -41,6 +41,9 @@ kill:
 build:
     swift build --target CodexCoreApp
 
+test *ARGS:
+    swift test {{ARGS}}
+
 # Render component scenes to build/gallery for visual review.
 # Every theme family, both appearances. Liquid Glass renders as its opaque
 # fallback: the window server composites real glass from behind the window, so
@@ -61,14 +64,14 @@ run-app: kill package
 
 # Kill any running instance, rebuild, and launch the CodexCore app.
 run: kill build
-    swift run codex-core-app
+    swift run --skip-build codex-core-app
 
 # Alias for `run`.
 rerun: run
 
 # Kill and launch without rebuilding (when you only changed runtime data).
 run-fast: kill
-    swift run codex-core-app
+    swift run --skip-build codex-core-app
 
 # Profile the running app's real transcript. Override with TRACE_DURATION=30s if needed.
 trace:

@@ -217,6 +217,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var projectionTask: Task<Void, Never>?
         private var projectionGeneration: UInt64 = 0
         private var reflowDebounceTask: Task<Void, Never>?
+        private var reflowDebounceGeneration: UInt64 = 0
         private var scrollRestorationTask: Task<Void, Never>?
         private var selectedItemIDs: Set<CodexTranscriptRenderItemID> = []
         private var isRestoringScroll = false
@@ -246,6 +247,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             var expandedRowIDs: Set<String>
             var selectedDiffFileIndexByRowID: [String: Int]
             var agentDisplayNameByThreadID: [String: String]
+            var agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2]
             var pendingApprovals: [CodexApprovalPrompt]
         }
 
@@ -385,6 +387,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     expandedRowIDs: presentation.expandedRowIDs,
                     selectedDiffFileIndexByRowID: presentation.selectedDiffFileIndexByRowID,
                     agentDisplayNameByThreadID: presentation.agentDisplayNameByThreadID,
+                    agentDisplayStatusByThreadID: presentation.agentDisplayStatusByThreadID,
                     pendingApprovals: presentation.pendingApprovals
                 )
             }
@@ -411,8 +414,20 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         }
 
         func waitForProjectionForTesting() async {
-            await reflowDebounceTask?.value
-            await projectionTask?.value
+            // Layout can enqueue the debounced width reflow while the current
+            // projection is finishing. Wait until neither generation changes
+            // across a complete reflow + projection pass.
+            for _ in 0..<8 {
+                container?.layoutSubtreeIfNeeded()
+                let observedReflowGeneration = reflowDebounceGeneration
+                await reflowDebounceTask?.value
+                let observedProjectionGeneration = projectionGeneration
+                await projectionTask?.value
+                await Task.yield()
+                guard observedReflowGeneration == reflowDebounceGeneration,
+                      observedProjectionGeneration == projectionGeneration else { continue }
+                return
+            }
         }
 
         var renderedItemIDsForTesting: [CodexTranscriptRenderItemID] {
@@ -1023,6 +1038,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             // cells stretch at their cached measurements immediately, while the
             // full re-measure/projection waits until the width settles.
             reflowDebounceTask?.cancel()
+            reflowDebounceGeneration &+= 1
             reflowDebounceTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(90))
                 guard !Task.isCancelled, let self else { return }

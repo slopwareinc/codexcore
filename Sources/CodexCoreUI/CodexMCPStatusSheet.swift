@@ -129,7 +129,7 @@ public struct CodexMCPStatusSheet: View {
     private func configurationStub(for server: CodexMCPServerStatus) -> CodexMCPServerConfiguration {
         .init(
             name: server.name,
-            enabled: server.enabled,
+            enabled: server.enabled ?? true,
             enabledTools: server.enabledTools,
             disabledTools: server.disabledTools,
             defaultToolsApprovalMode: server.defaultToolsApprovalMode,
@@ -262,10 +262,10 @@ private struct MCPServerStatusRow: View {
                 } else {
                     Text(server.authStatusLabel).foregroundStyle(theme.colors.textSecondary)
                 }
-                Toggle("", isOn: Binding(get: { server.enabled }, set: { onSetEnabled($0) }))
+                Toggle("", isOn: Binding(get: { server.enabled ?? true }, set: { onSetEnabled($0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .help(server.enabled ? "Disable server" : "Enable server")
+                    .help((server.enabled ?? true) ? "Disable server" : "Enable server")
                 Menu {
                     Button("Edit", action: onEdit)
                     Button("Remove", role: .destructive, action: onRemove)
@@ -276,7 +276,7 @@ private struct MCPServerStatusRow: View {
             .disabled(isMutating || !canManage)
 
             HStack(spacing: 8) {
-                Text(server.enabled ? (server.startupState?.rawValue ?? "Status unavailable") : "Disabled")
+                Text((server.enabled ?? true) ? (server.startupState?.rawValue ?? "Status unavailable") : "Disabled")
                     .foregroundStyle(statusColor)
                 Text(server.inventorySummary).foregroundStyle(theme.colors.textSecondary)
                 if let failure = server.failureReason {
@@ -317,7 +317,7 @@ private struct MCPServerStatusRow: View {
     }
 
     private var statusImage: String {
-        guard server.enabled else { return "pause.circle" }
+        guard server.enabled ?? true else { return "pause.circle" }
         switch server.startupState {
         case .ready: return "checkmark.circle.fill"
         case .failed: return "exclamationmark.triangle.fill"
@@ -328,7 +328,7 @@ private struct MCPServerStatusRow: View {
     }
 
     private var statusColor: Color {
-        guard server.enabled else { return theme.colors.textTertiary }
+        guard server.enabled ?? true else { return theme.colors.textTertiary }
         switch server.startupState {
         case .ready: return theme.colors.success
         case .failed: return theme.colors.danger

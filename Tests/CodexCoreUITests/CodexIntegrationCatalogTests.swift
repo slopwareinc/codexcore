@@ -44,12 +44,16 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(CodexSlashCommand.observedCommands.map(\.title), [
             "Compact",
             "Fast",
+            "Feedback",
             "Fork",
             "Goal",
+            "Init",
             "MCP",
             "Model",
+            "New chat",
             "Plan mode",
             "Reasoning",
+            "Review",
             "Side",
             "Status"
         ])
@@ -242,6 +246,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "id": .string("resume-from-opencode"),
                             "installPolicy": .string("INSTALLED_BY_DEFAULT"),
                             "installed": .bool(true),
+                            "installedAt": .int(1_723_000_000),
+                            "eligiblePlanTypes": .array([.string("pro"), .string("business")]),
                             "name": .string("resume-from-opencode"),
                             "source": .dictionary([
                                 "type": .string("local"),
@@ -271,6 +277,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "id": .string("example-remote"),
                             "installPolicy": .string("AVAILABLE"),
                             "installed": .bool(false),
+                            "disabledReason": .string("plan_not_eligible"),
                             "name": .string("example-remote"),
                             "source": .dictionary([
                                 "type": .string("remote")
@@ -316,8 +323,11 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         )
         XCTAssertEqual(CodexPluginRouteDetail(plugin: plugins[0]).icon, plugins[0].icon)
         XCTAssertEqual(plugins[0].capabilities, ["skills", "prompts"])
+        XCTAssertEqual(plugins[0].eligiblePlanTypes, ["pro", "business"])
+        XCTAssertEqual(plugins[0].installedAt, 1_723_000_000)
         XCTAssertEqual(plugins[0].detail, "Resume a previous OpenCode session")
-        XCTAssertEqual(plugins[1].statusLabel, "Available")
+        XCTAssertEqual(plugins[1].statusLabel, "Unavailable on your plan")
+        XCTAssertFalse(plugins[1].canInstall)
         XCTAssertEqual(plugins[1].sourceLabel, "Remote")
         XCTAssertEqual(
             CodexPluginSummary.loadErrorMessages(from: response),
@@ -356,13 +366,15 @@ final class CodexIntegrationCatalogTests: XCTestCase {
     }
 
     @MainActor
-    func testPluginImageRepositoryLoadsPublishedLocalAssetSynchronously() throws {
+    func testPluginImageRepositoryLoadsAndCachesPublishedLocalAssetOffMain() async throws {
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-plugin-icon-\(UUID().uuidString).tiff")
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
         let symbol = try XCTUnwrap(NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil))
         try XCTUnwrap(symbol.tiffRepresentation).write(to: temporaryURL)
 
+        let loadedImage = await CodexPluginImageRepository.image(for: temporaryURL)
+        XCTAssertNotNil(loadedImage)
         XCTAssertNotNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
     }
 
@@ -605,7 +617,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(detail.prompt, "Use the browser to inspect localhost.")
         XCTAssertEqual(detail.primaryAction, .setSkillEnabled(CodexSkillActionTarget(skill: enabled), enabled: false))
         XCTAssertEqual(detail.tryInChatAction, .tryInChat(prompt: "Use the browser to inspect localhost."))
-        XCTAssertFalse(detail.canUninstall)
+        XCTAssertTrue(detail.canUninstall)
     }
 
     func testPluginProtocolMutationsUseServerIdentityAndExplicitControlPlaneSeams() throws {
@@ -793,7 +805,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         }
         XCTAssertEqual(save.operationID, "config/value/write")
         XCTAssertEqual(params.keyPath, "mcp_servers.filesystem")
-        XCTAssertEqual(params.mergeStrategy, .upsert)
+        XCTAssertEqual(params.mergeStrategy, .replace)
         XCTAssertEqual(params.value, .dictionary([
             "enabled": .bool(true),
             "command": .string("npx"),
@@ -807,8 +819,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             "cwd": .string("/workspace"),
             "enabled_tools": .array([.string("read_file")]),
             "disabled_tools": .array([.string("delete_file")]),
-            "startup_timeout_sec": .int(10),
-            "tool_timeout_sec": .int(60)
+            "startup_timeout_sec": .double(10),
+            "tool_timeout_sec": .double(60)
         ]))
 
         let toggle = try CodexMCPProtocolMutation.setEnabled(name: "filesystem", enabled: false)

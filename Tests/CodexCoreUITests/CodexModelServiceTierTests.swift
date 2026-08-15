@@ -21,6 +21,7 @@ final class CodexModelServiceTierTests: XCTestCase {
 
         XCTAssertEqual(options.count, 1)
         XCTAssertEqual(options[0].modelIdentifier, "gpt-5.6-sol")
+        XCTAssertEqual(options[0].specialty, "coding")
         XCTAssertEqual(options[0].serviceTiers.map(\.id), ["priority", "ultrafast"])
         XCTAssertEqual(options[0].defaultServiceTierID, "priority")
         XCTAssertEqual(options[0].supportedReasoning, [.low, .maximum, .ultra])
@@ -371,6 +372,7 @@ final class CodexModelServiceTierTests: XCTestCase {
             id: id,
             isDefault: true,
             model: model ?? id,
+            modelSpecialty: "coding",
             serviceTiers: tiers,
             supportedReasoningEfforts: efforts.map {
                 CodexSchemaReasoningEffortOption(

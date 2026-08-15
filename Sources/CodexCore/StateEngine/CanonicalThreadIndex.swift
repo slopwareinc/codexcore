@@ -20,6 +20,7 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
     public let parentThreadID: ThreadID?
     public let agentNickname: String?
     public let agentRole: String?
+    public let agentPath: String?
     public let path: String?
     public let updatedAt: ProtocolSeconds?
     public let lastChangedRevision: StateRevision
@@ -41,6 +42,7 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
         parentThreadID: ThreadID?,
         agentNickname: String?,
         agentRole: String?,
+        agentPath: String? = nil,
         path: String?,
         updatedAt: ProtocolSeconds?,
         lastChangedRevision: StateRevision,
@@ -61,6 +63,7 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
         self.parentThreadID = parentThreadID
         self.agentNickname = agentNickname
         self.agentRole = agentRole
+        self.agentPath = agentPath
         self.path = path
         self.updatedAt = updatedAt
         self.lastChangedRevision = lastChangedRevision
@@ -153,8 +156,11 @@ extension CanonicalStateGraph {
                 preview: thread.metadata.preview,
                 cwd: thread.metadata.cwd,
                 parentThreadID: thread.metadata.parentThreadID,
-                agentNickname: thread.metadata.agentNickname,
-                agentRole: thread.metadata.agentRole,
+                agentNickname: thread.metadata.agentNickname
+                    ?? thread.metadata.agentNicknameFromSource,
+                agentRole: thread.metadata.agentRole
+                    ?? thread.metadata.agentRoleFromSource,
+                agentPath: thread.metadata.agentPathFromSource,
                 path: thread.metadata.path,
                 updatedAt: thread.metadata.updatedAt,
                 lastChangedRevision: thread.lastChangedRevision,

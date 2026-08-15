@@ -71,11 +71,21 @@ extension CodexCanonicalTranscriptProjector {
         var result: [TurnID] = []
         var seen: Set<TurnID> = []
         if let thread = snapshot.threads[threadID] {
+            let hasUnboundSubmission = intents.contains { $0.expectedTurnID == nil }
             for turnID in thread.turnOrder {
                 try checkpoint()
-                guard snapshot.turns[
-                    TurnKey(threadID: threadID, turnID: turnID)
-                ] != nil else { continue }
+                let key = TurnKey(threadID: threadID, turnID: turnID)
+                guard let turn = snapshot.turns[key] else { continue }
+
+                // `turn/started` can precede its user-message item. During that
+                // handshake, the local intent owns the visible provisional turn;
+                // showing the empty server turn first flashes Thinking above the
+                // optimistic user bubble.
+                if hasUnboundSubmission,
+                   !turn.status.isTerminal,
+                   !containsUserMessage(turn, snapshot: snapshot) {
+                    continue
+                }
                 if seen.insert(turnID).inserted {
                     result.append(turnID)
                 }
@@ -89,6 +99,19 @@ extension CodexCanonicalTranscriptProjector {
             }
         }
         return result
+    }
+
+    func containsUserMessage(
+        _ turn: CanonicalTurn,
+        snapshot: CanonicalStateSnapshot
+    ) -> Bool {
+        turn.itemOrder.contains { itemID in
+            snapshot.items[ItemKey(
+                threadID: turn.key.threadID,
+                turnID: turn.key.turnID,
+                itemID: itemID
+            )]?.kind == .userMessage
+        }
     }
 
     func provisionalTurnID(_ intentID: SubmissionIntentID) -> TurnID {

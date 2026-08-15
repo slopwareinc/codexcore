@@ -6,6 +6,35 @@ import Testing
 
 @MainActor
 struct CodexSubagentPresentationCoordinatorTests {
+    @Test func newlyDiscoveredChildNameHydratesWithoutSelectingItsTranscript() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("codexcore-subagent-names-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+        let transport = CoordinatorTestTransport(homePath: homeURL.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: CodexHome(path: homeURL.path))
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+
+        coordinator.selectParent("parent")
+        try await eventually { await transport.descendantListParams() != nil }
+        await transport.sendParentDiscovery()
+        try await eventually {
+            coordinator.agents.first?.nickname == "Scout"
+        }
+
+        #expect(coordinator.diagnostics.childLeaseAcquisitionCount == 0)
+        #expect(await transport.reads() == 1)
+        let params = try #require(await transport.descendantListParams())
+        #expect(params["ancestorThreadId"] == .string("parent"))
+        #expect(params["sourceKinds"] == .array([.string("subAgentThreadSpawn")]))
+        #expect(params["useStateDbOnly"] == .bool(false))
+
+        await coordinator.disconnect()
+        await codex.close()
+    }
+
     @Test func selectedChildOmitsInheritedParentTurnsFromItsTranscript() async throws {
         let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent(
@@ -130,24 +159,15 @@ struct CodexSubagentPresentationCoordinatorTests {
         coordinator.selectParent("parent")
 
         await transport.sendParentDiscovery()
-        try await eventually { coordinator.agents.count == 1 }
-        #expect(coordinator.agents.first?.nickname == nil)
-        // `subAgentActivity(kind: started)` is an exact running lifecycle
-        // signal even before the child thread metadata is hydrated.
+        try await eventually {
+            coordinator.agents.first?.nickname == "Scout"
+        }
         #expect(coordinator.agents.first?.status == .working(since: nil))
         coordinator.selectTranscript("child")
-        let revisionBeforeChildMetadata = coordinator.changeRevision
         try await eventually { gate.invocationCount == 1 }
         #expect(gate.firstProjectionWasOnMainThread == false)
-        try await eventually {
-            guard let agent = coordinator.agents.first,
-                  case .working = agent.status
-            else { return false }
-            return agent.nickname == "Scout"
-                && agent.transcript.turns.isEmpty
-                && coordinator.diagnostics.childProjectionCount == 0
-                && coordinator.changeRevision > revisionBeforeChildMetadata
-        }
+        #expect(coordinator.agents.first?.transcript.turns.isEmpty == true)
+        #expect(coordinator.diagnostics.childProjectionCount == 0)
 
         coordinator.selectParent(nil)
         gate.releaseFirstProjection()
@@ -503,8 +523,10 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var openCount = 0
     private(set) var resumeCount = 0
+    private(set) var readCount = 0
     private(set) var unsubscribeCount = 0
     private var resumedIDs: [String] = []
+    private var lastDescendantListParams: [String: CodexJSONValue]?
 
     init(
         homePath: String,
@@ -538,8 +560,15 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 "userAgent": .string("codex/0.145.0-alpha.20"),
             ])
         case "thread/read":
+            readCount += 1
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
             result = Self.threadMetadataResult(threadID: threadID)
+        case "thread/list":
+            lastDescendantListParams = object.objectParams
+            result = .dictionary([
+                "data": .array([]),
+                "nextCursor": .null,
+            ])
         case "thread/resume":
             resumeCount += 1
             let threadID = object.objectParams?["threadId"]?.flatString ?? "child"
@@ -575,6 +604,12 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
     func resumedThreadIDs() -> [String] {
         resumedIDs
     }
+
+    func descendantListParams() -> [String: CodexJSONValue]? {
+        lastDescendantListParams
+    }
+
+    func reads() -> Int { readCount }
 
     func sendParentDiscovery(childIDs: [String] = ["child"]) {
         sendNotification(
@@ -643,8 +678,11 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
     }
 
     private static func threadMetadataResult(threadID: String) -> CodexJSONValue {
-        return .dictionary([
-            "thread": .dictionary([
+        .dictionary(["thread": threadMetadata(threadID: threadID)])
+    }
+
+    private static func threadMetadata(threadID: String) -> CodexJSONValue {
+        .dictionary([
                 "agentNickname": .string("Scout"),
                 "agentRole": .string("explorer"),
                 "cliVersion": .string("0.145.0-alpha.20"),
@@ -662,7 +700,6 @@ private actor CoordinatorTestTransport: CodexFrameTransport {
                 "status": .dictionary(["type": .string("active"), "activeFlags": .array([])]),
                 "turns": .array([]),
                 "updatedAt": .int(1_700_000_001),
-            ]),
         ])
     }
 

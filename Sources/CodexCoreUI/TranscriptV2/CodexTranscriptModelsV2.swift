@@ -132,11 +132,18 @@ public struct CodexGeneratedImageV2: Identifiable, Sendable, Equatable {
     /// A local path, file/data/HTTP URL, or raw base64 image payload.
     public var source: String
     public var revisedPrompt: String?
+    public var hasTransparentBackground: Bool?
 
-    public init(id: String, source: String, revisedPrompt: String? = nil) {
+    public init(
+        id: String,
+        source: String,
+        revisedPrompt: String? = nil,
+        hasTransparentBackground: Bool? = nil
+    ) {
         self.id = id
         self.source = source
         self.revisedPrompt = revisedPrompt
+        self.hasTransparentBackground = hasTransparentBackground
     }
 }
 
@@ -232,6 +239,18 @@ public enum CodexAgentDisplayStatusV2: Sendable, Equatable {
     case closed
 }
 
+extension CodexAgentDisplayStatusV2 {
+    var transcriptLabel: String {
+        switch self {
+        case .starting: "Starting"
+        case .working: "Running"
+        case .done: "Done"
+        case .failed: "Failed"
+        case .closed: "Closed"
+        }
+    }
+}
+
 public struct CodexCommandRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var command: String; public var label: String
     public var action: CodexWorkCategoryV2; public var status: CodexWorkItemStatusV2
@@ -262,6 +281,7 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var appName: String; public var server: String; public var tool: String
     public var status: CodexWorkItemStatusV2; public var durationMs: Int?; public var errorFirstLine: String?
     public var arguments: CodexJSONValue?; public var result: CodexJSONValue?
+    public var readOnlyHint: Bool?
 }
 public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2

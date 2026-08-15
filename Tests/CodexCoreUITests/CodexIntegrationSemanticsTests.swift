@@ -41,6 +41,26 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
         XCTAssertEqual(plugin.statusLabel, "Disabled")
     }
 
+    func testGA147PluginEligibilityDisablesActionsWithoutInventingAdminPolicy() {
+        let plugin = CodexPluginSummary(
+            id: "plan-gated",
+            name: "plan-gated",
+            marketplaceName: "remote",
+            installed: false,
+            installPolicy: "AVAILABLE",
+            protocolDisabledReason: "plan_not_eligible",
+            eligiblePlanTypes: ["pro", "business"],
+            installedAt: 1_723_000_000
+        )
+
+        XCTAssertFalse(plugin.isAdminDisabled)
+        XCTAssertTrue(plugin.isProtocolDisabled)
+        XCTAssertFalse(plugin.canInstall)
+        XCTAssertEqual(plugin.statusLabel, "Unavailable on your plan")
+        XCTAssertEqual(plugin.eligiblePlanTypes, ["pro", "business"])
+        XCTAssertEqual(plugin.installedAt, 1_723_000_000)
+    }
+
     func testInstalledOnlyAppsRemainVisibleWithoutInventedCatalogState() {
         let runtime = CodexSchemaInstalledApp(
             callable: false,

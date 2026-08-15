@@ -228,6 +228,8 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
     public var path: String?
     public var preview: String?
     public var recencyAt: ProtocolSeconds?
+    public var section: CodexSchemaThreadSection?
+    public var sectionEnteredAt: ProtocolSeconds?
     public var sessionID: String?
     public var source: CodexJSONValue?
     public var threadSource: CodexJSONValue?
@@ -251,6 +253,8 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
         path: String? = nil,
         preview: String? = nil,
         recencyAt: ProtocolSeconds? = nil,
+        section: CodexSchemaThreadSection? = nil,
+        sectionEnteredAt: ProtocolSeconds? = nil,
         sessionID: String? = nil,
         source: CodexJSONValue? = nil,
         threadSource: CodexJSONValue? = nil,
@@ -273,11 +277,48 @@ public struct CanonicalThreadMetadata: Sendable, Equatable {
         self.path = path
         self.preview = preview
         self.recencyAt = recencyAt
+        self.section = section
+        self.sectionEnteredAt = sectionEnteredAt
         self.sessionID = sessionID
         self.source = source
         self.threadSource = threadSource
         self.updatedAt = updatedAt
         self.extensions = extensions
+    }
+}
+
+public extension CanonicalThreadMetadata {
+    /// Collaboration identity is nested in `thread.source`; `path` is the
+    /// persisted rollout JSONL and must never be presented as an agent path.
+    var agentPathFromSource: String? {
+        collaborationSource?["agent_path"]?.stringValue
+            ?? collaborationSource?["agentPath"]?.stringValue
+    }
+
+    var agentNicknameFromSource: String? {
+        collaborationSource?["agent_nickname"]?.stringValue
+            ?? collaborationSource?["agentNickname"]?.stringValue
+    }
+
+    var agentRoleFromSource: String? {
+        collaborationSource?["agent_role"]?.stringValue
+            ?? collaborationSource?["agentRole"]?.stringValue
+    }
+
+    private var collaborationSource: [String: CodexJSONValue]? {
+        guard case .dictionary(let source) = source else { return nil }
+        let subagent = source["subagent"] ?? source["subAgent"]
+        guard case .dictionary(let subagent) = subagent else { return nil }
+        let spawn = subagent["thread_spawn"] ?? subagent["threadSpawn"]
+        guard case .dictionary(let spawn) = spawn else { return nil }
+        return spawn
+    }
+}
+
+private extension CodexJSONValue {
+    var stringValue: String? {
+        guard case .string(let value) = self else { return nil }
+        return value
     }
 }
 

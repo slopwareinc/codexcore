@@ -72,6 +72,8 @@ final class ProtocolStateAdapterTests: XCTestCase {
                 "modelProvider": "openai",
                 "name": "Fixture thread",
                 "preview": "hello",
+                "section": {"id": "section-1", "name": "In progress"},
+                "sectionEnteredAt": 1700000001,
                 "sessionId": "session-1",
                 "source": "cli",
                 "status": {
@@ -114,6 +116,8 @@ final class ProtocolStateAdapterTests: XCTestCase {
         XCTAssertEqual(thread.metadata.name, "Fixture thread")
         XCTAssertEqual(thread.metadata.canAcceptDirectInput, false)
         XCTAssertEqual(thread.metadata.cwd, .string("/tmp/project"))
+        XCTAssertEqual(thread.metadata.section, .init(id: "section-1", name: "In progress"))
+        XCTAssertEqual(thread.metadata.sectionEnteredAt, ProtocolSeconds(1_700_000_001))
         XCTAssertEqual(thread.history.mode, .paginated)
         XCTAssertEqual(thread.isLoaded, true)
         XCTAssertEqual(thread.consistency, .authoritative)
@@ -122,6 +126,8 @@ final class ProtocolStateAdapterTests: XCTestCase {
             .dictionary(["version": .int(2)])
         )
         XCTAssertNil(thread.metadata.extensions["canAcceptDirectInput"])
+        XCTAssertNil(thread.metadata.extensions["section"])
+        XCTAssertNil(thread.metadata.extensions["sectionEnteredAt"])
         guard case .active(let flags) = thread.status else {
             return XCTFail("Expected active thread status")
         }
@@ -606,6 +612,63 @@ final class ProtocolStateAdapterTests: XCTestCase {
         XCTAssertNil(history.resumeCut?.itemsBackwardsCursor)
     }
 
+    func testLegacyResumeAuthoritativelyReplacesDifferentlyIdentifiedLiveItems() throws {
+        let context = ProtocolResponseContext(
+            method: .threadResume,
+            requestParams: ["threadId": .string("thread-1")],
+            connectionEpoch: 1,
+            itemCollectionPolicy: .mergePreservingExistingOrder
+        )
+        let result = try valueFixture(
+            legacyResumeResponseJSON(userItemID: "item-1")
+        )
+
+        let adaptation = try adapter.adaptResponse(context, result: result)
+        let turnMutation = try XCTUnwrap(adaptation.mutations.first { mutation in
+            guard case .turnSnapshot = mutation else { return false }
+            return true
+        })
+        guard case .turnSnapshot(let turn, let resumedItems, let policy) = turnMutation else {
+            return XCTFail("Expected resumed turn snapshot")
+        }
+        XCTAssertEqual(policy, .authoritativeReplacement)
+        XCTAssertEqual(turn.itemsCoverage, .full)
+
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let turnKey = TurnKey(threadID: "thread-1", turnID: "turn-1")
+        let liveKey = ItemKey(threadID: "thread-1", turnID: "turn-1", itemID: "msg-live")
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(
+                key: turnKey,
+                status: .inProgress,
+                itemOrder: [liveKey.itemID],
+                itemsCoverage: .summary,
+                itemsConsistency: .partial
+            ),
+            items: [CanonicalItem(
+                key: liveKey,
+                kind: .userMessage,
+                payload: ["content": .array([.dictionary([
+                    "type": .string("text"),
+                    "text": .string("Reply exactly: Agent 5 complete."),
+                ])])]
+            )],
+            itemPolicy: .mergePreservingExistingOrder
+        ), to: &graph)
+        _ = reducer.apply(adaptation.mutations, to: &graph)
+
+        XCTAssertNil(graph.items[liveKey])
+        XCTAssertEqual(graph.turns[turnKey]?.itemOrder, resumedItems.map(\.key.itemID))
+        XCTAssertEqual(
+            graph.turns[turnKey]?.itemOrder.filter { itemID in
+                graph.items[ItemKey(threadID: "thread-1", turnID: "turn-1", itemID: itemID)]?.kind
+                    == .userMessage
+            }.count,
+            1
+        )
+    }
+
     func testSettingsAndMemoryResponsesPatchWhileNotificationReplaces() throws {
         let settingsResponse = try adapter.adaptResponse(
             ProtocolResponseContext(
@@ -900,6 +963,51 @@ final class ProtocolStateAdapterTests: XCTestCase {
             "nextCursor": "older-page"
           },
           "turnsBackwardsCursor": "turn-head"\#(itemsCursor)
+        }
+        """#
+    }
+
+    private func legacyResumeResponseJSON(userItemID: String) -> String {
+        #"""
+        {
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "cwd": "/tmp/project",
+          "model": "gpt-test",
+          "modelProvider": "openai",
+          "sandbox": {"type": "readOnly"},
+          "thread": {
+            "cliVersion": "0.147.0",
+            "createdAt": 1,
+            "cwd": "/tmp/project",
+            "ephemeral": false,
+            "historyMode": "legacy",
+            "id": "thread-1",
+            "modelProvider": "openai",
+            "preview": "Reply exactly: Agent 5 complete.",
+            "sessionId": "thread-1",
+            "source": "cli",
+            "status": {"type": "idle"},
+            "turns": [{
+              "id": "turn-1",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "\#(userItemID)",
+                  "content": [{"type": "text", "text": "Reply exactly: Agent 5 complete."}]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "item-2",
+                  "text": "Agent 5 complete.",
+                  "phase": "final_answer"
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed"
+            }],
+            "updatedAt": 2
+          }
         }
         """#
     }

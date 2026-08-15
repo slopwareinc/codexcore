@@ -5,19 +5,18 @@
 ## Status
 
 This document defines the server-informed target runtime for the protocol pinned to
-`codex-cli 0.145.0`. CodexCore opts into the app-server's experimental API surface, so
+`codex-cli 0.147.0`. CodexCore opts into the app-server's experimental API surface, so
 protocol evolution is handled by regenerating the wire layer and updating its drift
 tests, not by preserving a second compatibility runtime.
 
 The implementation is currently transitioning toward this shape. Separate history and
 lease coordinators remain migration artifacts rather than target module boundaries.
 
-Codex 0.145.0 exposes both `legacy` and `paginated` thread-history modes, and they are active
+Codex 0.147.0 exposes both `legacy` and `paginated` thread-history modes, and they are active
 protocol contracts rather than a source-compatibility concern. CodexCore cannot yet make
 `paginated` the universal product default while preserving the pinned server's features:
-0.145.0 rejects `thread/rollback` and `thread/read(includeTurns: true)` for paginated
-threads. GA adds compatibility hydration for older clients that resume paginated threads
-with full turns, but it does not close those remaining operation gaps. Until the server
+0.147.0 still rejects `thread/rollback` for paginated threads, although full reads and
+forks are supported. Until the server
 reaches full parity, CodexCore creates legacy threads by
 default and treats paginated history as an explicit per-thread experiment. The session
 selects behavior from the thread's declared history mode. It must never send a paginated

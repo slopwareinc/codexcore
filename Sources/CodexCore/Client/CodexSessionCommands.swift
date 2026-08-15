@@ -154,6 +154,13 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func threadSectionMove(
+        _ params: CodexSchemaThreadSectionMoveParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadSectionMoveResponse> {
+        .required(method: .threadSectionMove, params: params)
+    }
+}
+extension CodexRequest {
     public static func threadSettingsUpdate(
         _ params: CodexSchemaThreadSettingsUpdateParams
     ) -> CodexAppServerRequest<CodexSchemaThreadSettingsUpdateResponse> {
@@ -233,6 +240,34 @@ extension CodexRequest {
         _ params: CodexSchemaThreadListParams
     ) -> CodexAppServerRequest<CodexSchemaThreadListResponse> {
         .required(method: .threadList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadSectionList(
+        _ params: CodexSchemaThreadSectionListParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadSectionListResponse> {
+        .required(method: .threadSectionList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadSectionCreate(
+        _ params: CodexSchemaThreadSectionCreateParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadSectionCreateResponse> {
+        .required(method: .threadSectionCreate, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadSectionUpdate(
+        _ params: CodexSchemaThreadSectionUpdateParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadSectionUpdateResponse> {
+        .required(method: .threadSectionUpdate, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadSectionDelete(
+        _ params: CodexSchemaThreadSectionDeleteParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadSectionDeleteResponse> {
+        .required(method: .threadSectionDelete, params: params)
     }
 }
 extension CodexRequest {
@@ -331,6 +366,13 @@ extension CodexRequest {
         _ params: CodexSchemaPluginListParams
     ) -> CodexAppServerRequest<CodexSchemaPluginListResponse> {
         .required(method: .pluginList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func pluginSearch(
+        _ params: CodexSchemaPluginSearchParams
+    ) -> CodexAppServerRequest<CodexSchemaPluginSearchResponse> {
+        .required(method: .pluginSearch, params: params)
     }
 }
 extension CodexRequest {
@@ -929,7 +971,7 @@ extension CodexRequest {
     }
 }
 public extension CodexRequest {
-    static let generatedMethodCount = 126
+    static let generatedMethodCount = 132
     static let supportedMethods: Set<CodexAppServerClientMethod> = [
         .threadStart,
         .threadResume,
@@ -944,6 +986,7 @@ public extension CodexRequest {
         .threadGoalGet,
         .threadGoalClear,
         .threadMetadataUpdate,
+        .threadSectionMove,
         .threadSettingsUpdate,
         .threadMemoryModeSet,
         .memoryReset,
@@ -956,6 +999,10 @@ public extension CodexRequest {
         .threadBackgroundTerminalsTerminate,
         .threadRollback,
         .threadList,
+        .threadSectionList,
+        .threadSectionCreate,
+        .threadSectionUpdate,
+        .threadSectionDelete,
         .threadSearch,
         .threadSearchOccurrences,
         .threadLoadedList,
@@ -970,6 +1017,7 @@ public extension CodexRequest {
         .marketplaceRemove,
         .marketplaceUpgrade,
         .pluginList,
+        .pluginSearch,
         .pluginInstalled,
         .pluginRead,
         .pluginSkillRead,

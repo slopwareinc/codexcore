@@ -201,6 +201,8 @@ public enum SortDirection: String, Codable, Sendable, Equatable {
 public enum ThreadSortKey: String, Codable, Sendable, Equatable {
     case createdAt = "created_at"
     case updatedAt = "updated_at"
+    case recencyAt = "recency_at"
+    case sectionPosition = "section_position"
 }
 
 public enum ThreadSource: String, Codable, Sendable, Equatable {
@@ -470,6 +472,7 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
     public var modelProviders: [String]?
     public var parentThreadId: String?
     public var searchTerm: String?
+    public var sectionId: String?
     public var sortDirection: SortDirection?
     public var sortKey: ThreadSortKey?
     public var sourceKinds: [ThreadSourceKind]?
@@ -484,6 +487,7 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
         case modelProviders
         case parentThreadId
         case searchTerm
+        case sectionId
         case sortDirection
         case sortKey
         case sourceKinds
@@ -497,6 +501,7 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
         limit: Int? = nil,
         modelProviders: [String]? = nil,
         searchTerm: String? = nil,
+        sectionId: String? = nil,
         sortDirection: SortDirection? = nil,
         sortKey: ThreadSortKey? = nil,
         sourceKinds: [ThreadSourceKind]? = nil,
@@ -512,6 +517,7 @@ public struct ThreadListParams: Codable, Sendable, Equatable {
         self.modelProviders = modelProviders
         self.parentThreadId = parentThreadId
         self.searchTerm = searchTerm
+        self.sectionId = sectionId
         self.sortDirection = sortDirection
         self.sortKey = sortKey
         self.sourceKinds = sourceKinds
@@ -1022,24 +1028,6 @@ public struct TurnDiffUpdatedNotification: Codable, Sendable, Equatable {
         self.threadId = threadId
         self.turnId = turnId
         self.diff = diff
-    }
-}
-
-public struct AccountLoginCompletedNotification: Codable, Sendable, Equatable {
-    public var loginId: String
-    public var raw: [String: CodexJSONValue]
-
-    public init(from decoder: Decoder) throws {
-        let object = try [String: CodexJSONValue](from: decoder)
-        guard case .string(let loginId)? = object["loginId"] else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "loginId missing"))
-        }
-        self.loginId = loginId
-        self.raw = object
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        try raw.encode(to: encoder)
     }
 }
 
