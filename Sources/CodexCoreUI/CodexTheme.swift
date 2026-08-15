@@ -1165,18 +1165,20 @@ public enum CodexAppearanceMode: String, CaseIterable, Codable, Identifiable, Se
 /// A soft Codex chat backdrop that adapts to light and dark appearances.
 public struct CodexBackdrop: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     public init() {}
 
     public var body: some View {
+        let glowOpacity = theme.effects.glowOpacity * (colorScheme == .dark ? 0.55 : 1)
         ZStack {
             theme.colors.canvas
             RadialGradient(
-                colors: [theme.colors.accent.opacity(theme.effects.glowOpacity), .clear],
+                colors: [theme.colors.accent.opacity(glowOpacity), .clear],
                 center: .topTrailing, startRadius: 1, endRadius: 720
             )
             RadialGradient(
-                colors: [theme.colors.accent.opacity(theme.effects.glowOpacity * 0.5), .clear],
+                colors: [theme.colors.accent.opacity(glowOpacity * 0.5), .clear],
                 center: .bottomLeading, startRadius: 1, endRadius: 640
             )
         }

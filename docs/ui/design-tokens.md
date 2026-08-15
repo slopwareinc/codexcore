@@ -95,6 +95,10 @@ A theme is a **hue family**, not an appearance. Each of the eight families
 light and a dark value. `CodexAppearanceMode` — system, light, dark — chooses
 which side is used, independently of the family.
 
+Dark canvases stay near black while retaining the family's hue. `surfaceSunken`
+is the recessed chrome level (including the sidebar), `surface` is the content
+level, and `surfaceElevated` is reserved for controls and panels above content.
+
 Color values are `0xRRGGBB`, or `0xAARRGGBB` where a role needs alpha.
 
 Accent roles are distinct on purpose:

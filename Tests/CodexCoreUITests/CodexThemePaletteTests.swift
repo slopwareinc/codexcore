@@ -38,6 +38,23 @@ struct CodexThemePaletteTests {
     }
 
     @Test
+    func darkPalettesUseADeepCanvasAndOrderedSurfaceHierarchy() {
+        for preset in CodexAgentThemePreset.allCases {
+            let palette = preset.palette
+            let canvas = relativeLuminance(palette.canvas.dark)
+            let sunken = relativeLuminance(palette.surfaceSunken.dark)
+            let surface = relativeLuminance(palette.surface.dark)
+            let elevated = relativeLuminance(palette.surfaceElevated.dark)
+
+            #expect(canvas < 0.005, "\(preset.displayName) dark canvas is too lifted")
+            if preset != .highContrast {
+                #expect(sunken <= surface, "\(preset.displayName) sunken surface is brighter than its surface")
+                #expect(surface <= elevated, "\(preset.displayName) surface is brighter than its elevated surface")
+            }
+        }
+    }
+
+    @Test
     func bodyTextClearsContrastFloorOnCanvasInBothAppearances() {
         for preset in CodexAgentThemePreset.allCases {
             for scheme in [ColorScheme.light, .dark] {
