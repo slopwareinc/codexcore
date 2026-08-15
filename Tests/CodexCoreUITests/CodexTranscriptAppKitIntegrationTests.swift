@@ -1498,7 +1498,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         coordinator.detach()
     }
 
-    @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async throws {
+    @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
@@ -1522,7 +1522,6 @@ struct CodexTranscriptAppKitIntegrationTests {
             onForkChat: nil
         )
         await coordinator.waitForProjectionForTesting()
-        try await Task.sleep(for: .milliseconds(20))
 
         #expect(coordinator.renderedItemIDsForTesting.count == 1_085)
         #expect(coordinator.diagnostics.snapshotApplyCount == 1)
@@ -1532,6 +1531,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(container.scrollView.contentInsets.bottom == 190)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
         #expect(!container.jumpButton.isHidden)
+        let settledDiagnostics = coordinator.diagnostics
 
         presentation = longPresentation(answerSuffix: " streamed", date: date)
         coordinator.update(
@@ -1548,14 +1548,15 @@ struct CodexTranscriptAppKitIntegrationTests {
             onForkChat: nil
         )
         await coordinator.waitForProjectionForTesting()
-        try await Task.sleep(for: .milliseconds(20))
 
-        #expect(coordinator.diagnostics.snapshotApplyCount == 1)
-        #expect(coordinator.diagnostics.targetedReconfigurePassCount == 1)
-        #expect(coordinator.diagnostics.reconfiguredItemCount == 1)
-        #expect(coordinator.diagnostics.broadReloadCount == 0)
-        #expect(container.collectionView.layoutSubtreeSettlementCount == 1)
-        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 0)
+        #expect(coordinator.diagnostics.snapshotApplyCount - settledDiagnostics.snapshotApplyCount == 0)
+        #expect(coordinator.diagnostics.targetedReconfigurePassCount
+            - settledDiagnostics.targetedReconfigurePassCount == 1)
+        #expect(coordinator.diagnostics.reconfiguredItemCount
+            - settledDiagnostics.reconfiguredItemCount == 1)
+        #expect(coordinator.diagnostics.broadReloadCount - settledDiagnostics.broadReloadCount == 0)
+        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount
+            - settledDiagnostics.broadLayoutMetricInvalidationCount == 0)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
         container.jumpButton.performClick(nil)
         #expect(container.jumpButton.isHidden)

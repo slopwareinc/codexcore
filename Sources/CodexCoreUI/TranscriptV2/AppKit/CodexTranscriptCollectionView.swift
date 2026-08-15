@@ -418,6 +418,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             // projection is finishing. Wait until neither generation changes
             // across a complete reflow + projection pass.
             for _ in 0..<8 {
+                container?.layoutSubtreeIfNeeded()
                 let observedReflowGeneration = reflowDebounceGeneration
                 await reflowDebounceTask?.value
                 let observedProjectionGeneration = projectionGeneration
