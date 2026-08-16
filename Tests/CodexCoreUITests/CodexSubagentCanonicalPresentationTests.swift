@@ -227,6 +227,18 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(mapper.lifecycleEvents.first?.id == firstID)
     }
 
+    @Test func mapperPrioritizesFailedAgentStatusWithoutBuildingStatusArray() throws {
+        var mapper = CodexAgentStateMapper()
+        _ = mapper.applyCanonicalSnapshot(
+            parentSnapshot(agentStatuses: ["shutdown", "errored"]),
+            parentThreadID: "parent",
+            projectedChildren: []
+        )
+
+        let event = try #require(mapper.lifecycleEvents.first)
+        #expect(event.status == .failed)
+    }
+
     @Test func closeAgentRemainsClosedAfterChildRefresh() throws {
         var store = CodexSubagentStoreV2()
         _ = store.applyParentSnapshot(closedParentSnapshot(), parentThreadID: "parent")
@@ -406,10 +418,16 @@ private extension CodexSubagentCanonicalPresentationTests {
         )
     }
 
-    func parentSnapshot(close: Bool = false) -> CanonicalStateSnapshot {
+    func parentSnapshot(
+        close: Bool = false,
+        agentStatuses: [String] = []
+    ) -> CanonicalStateSnapshot {
         let threadID: ThreadID = "parent"
         let turnID: TurnID = "parent-turn"
         let itemID: ItemID = close ? "close" : "spawn"
+        let agentStates = Dictionary(uniqueKeysWithValues: agentStatuses.enumerated().map { index, status in
+            ("agent-\(index)", CodexJSONValue.dictionary(["status": .string(status)]))
+        })
         let item = CanonicalItem(
             key: .init(threadID: threadID, turnID: turnID, itemID: itemID),
             kind: .collabAgentToolCall,
@@ -420,7 +438,7 @@ private extension CodexSubagentCanonicalPresentationTests {
                 "status": .string("completed"),
                 "receiverThreadIds": .array([.string("child")]),
                 "prompt": close ? .null : .string("Inspect the repository"),
-                "agentsStates": .dictionary([:]),
+                "agentsStates": .dictionary(agentStates),
             ],
             authority: .completed,
             completedAt: ProtocolMilliseconds(1_700_000_000_000),
