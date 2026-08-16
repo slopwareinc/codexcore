@@ -269,6 +269,17 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(session.referencedFiles, [document])
     }
 
+    func testComposerFileReferenceDeduplicationKeepsFirstOccurrenceOrder() {
+        let first = CodexReferencedFile(path: "/tmp/readme.md", displayName: "first", kind: .file)
+        let replacement = CodexReferencedFile(path: "/tmp/readme.md", displayName: "replacement", kind: .file)
+        let second = CodexReferencedFile(path: "/tmp/notes.md", kind: .file)
+        var session = CodexComposerStateSession(activeThreadID: "thread-a")
+
+        session.setReferencedFiles([first, replacement, second], for: "thread-a")
+
+        XCTAssertEqual(session.referencedFiles, [first, second])
+    }
+
     func testClearingTransientThreadStatePreservesUnsentFileReferencesLikeDraftText() {
         let document = CodexReferencedFile(path: "/tmp/readme.md", kind: .file)
         var session = CodexComposerStateSession(draft: "Unsent", activeThreadID: nil)

@@ -241,9 +241,11 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
     public mutating func setReferencedFiles(_ files: [CodexReferencedFile], for threadID: String?) {
         let key = Self.draftKey(for: threadID)
-        let deduplicated = files.reduce(into: [CodexReferencedFile]()) { result, file in
-            guard !result.contains(where: { $0.path == file.path }) else { return }
-            result.append(file)
+        var seenPaths = Set<String>(minimumCapacity: files.count)
+        var deduplicated: [CodexReferencedFile] = []
+        deduplicated.reserveCapacity(files.count)
+        for file in files where seenPaths.insert(file.path).inserted {
+            deduplicated.append(file)
         }
         if deduplicated.isEmpty {
             referencedFilesByThreadID.removeValue(forKey: key)
