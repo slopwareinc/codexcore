@@ -200,6 +200,57 @@ struct CodexCanonicalSubmissionProjectionTests {
         #expect(reconciled.turns.first?.steeredMessages.first?.clientID == intentID.rawValue)
     }
 
+    @Test func echoedAndPendingIntentsShareTurnGroupingWithoutLosingRevisionCoverage() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let echoedID: SubmissionIntentID = "echoed"
+        let pendingID: SubmissionIntentID = "pending"
+        let echoed = SubmissionIntent(
+            id: echoedID,
+            threadID: threadID,
+            expectedTurnID: turnID,
+            input: [.dictionary(["type": .string("text"), "text": .string("Already sent")])],
+            localOrdinal: 1,
+            lastChangedRevision: StateRevision(9)
+        )
+        let pending = SubmissionIntent(
+            id: pendingID,
+            threadID: threadID,
+            expectedTurnID: turnID,
+            input: [.dictionary(["type": .string("text"), "text": .string("Continue")])],
+            localOrdinal: 2,
+            lastChangedRevision: StateRevision(4)
+        )
+        let serverUser = CanonicalItem(
+            key: .init(threadID: threadID, turnID: turnID, itemID: "server-user"),
+            kind: .userMessage,
+            payload: [
+                "content": .array([.dictionary([
+                    "type": .string("text"),
+                    "text": .string("Already sent"),
+                ])]),
+            ],
+            authority: .completed,
+            clientUserMessageID: echoedID,
+            lastChangedRevision: StateRevision(3)
+        )
+        let result = CodexCanonicalTranscriptProjector().rebuild(
+            snapshot: state(
+                revision: 9,
+                threadID: threadID,
+                turns: [turn(turnID, threadID: threadID, itemIDs: ["server-user"], revision: 3)],
+                items: [serverUser],
+                intents: [echoedID: echoed, pendingID: pending]
+            ),
+            threadID: threadID
+        )
+
+        let projected = try #require(result.presentation.transcript.turns.first)
+        #expect(projected.userMessage?.clientID == echoedID.rawValue)
+        #expect(projected.steeredMessages.compactMap(\.clientID) == [pendingID.rawValue])
+        #expect(result.presentation.sourceTurnRevisions[turnID] == StateRevision(9))
+    }
+
     @Test func fileReferenceContextIsHiddenFromOptimisticAndCanonicalUserBubbles() throws {
         let threadID: ThreadID = "thread"
         let rawPrompt = CodexFileReferencePromptCodec.encode(
