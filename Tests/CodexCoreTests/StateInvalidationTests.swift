@@ -57,6 +57,30 @@ final class StateInvalidationTests: XCTestCase {
         XCTAssertEqual(invalidation.itemKeys, [item])
     }
 
+    func testCanonicalBatchDeduplicatesMixedDescendantEntities() {
+        let item = ItemKey(threadID: "thread", turnID: "turn", itemID: "item")
+        let batch = CanonicalStateChangeBatch(
+            baseRevision: .zero,
+            revision: StateRevision(2),
+            changes: [
+                .itemDeltaAppended(item),
+                .itemCompleted(item),
+                .turnCompleted(item.turnKey),
+                .threadUpdated(item.threadID),
+                .accountUpdated,
+                .accountUpdated,
+            ]
+        )
+
+        let invalidation = StateInvalidation(batch)
+
+        XCTAssertEqual(invalidation.revision, StateRevision(2))
+        XCTAssertEqual(invalidation.fields, [.account, .thread, .turnStatus, .itemContent, .itemLifecycle])
+        XCTAssertEqual(invalidation.threadIDs, [item.threadID])
+        XCTAssertEqual(invalidation.turnKeys, [item.turnKey])
+        XCTAssertEqual(invalidation.itemKeys, [item])
+    }
+
     func testDestructiveThreadRollbackInvalidatesTurnStructure() {
         let thread: ThreadID = "thread"
         let invalidation = StateInvalidation(CanonicalStateChangeBatch(

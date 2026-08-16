@@ -1519,7 +1519,9 @@ private extension CanonicalStateReducer {
     }
 }
 
-private extension CanonicalStateChange {
+// Kept module-visible so StateObservation can derive all invalidation indexes
+// in one pass without duplicating this change-to-entity mapping.
+extension CanonicalStateChange {
     var threadID: ThreadID? {
         switch self {
         case .threadInserted(let id), .threadUpdated(let id), .threadTurnsReplaced(let id),

@@ -119,14 +119,31 @@ struct StateInvalidation: Sendable, Hashable {
     }
 
     init(_ batch: CanonicalStateChangeBatch) {
+        // Derive all invalidation indexes in one walk. This is on the committed
+        // transaction hot path, and the three batch accessors otherwise each
+        // allocate and scan the same change list independently.
+        var fields = StateFieldMask()
+        var threadIDs: Set<ThreadID> = []
+        var turnKeys: Set<TurnKey> = []
+        var itemKeys: Set<ItemKey> = []
+        for change in batch.changes {
+            fields.formUnion(change.observationFields)
+            if let threadID = change.threadID {
+                threadIDs.insert(threadID)
+            }
+            if let turnKey = change.turnKey {
+                turnKeys.insert(turnKey)
+            }
+            if let itemKey = change.itemKey {
+                itemKeys.insert(itemKey)
+            }
+        }
         self.init(
             revision: batch.revision,
-            fields: batch.changes.reduce(into: StateFieldMask()) { fields, change in
-                fields.formUnion(change.observationFields)
-            },
-            threadIDs: batch.affectedThreadIDs,
-            turnKeys: batch.affectedTurnKeys,
-            itemKeys: batch.affectedItemKeys
+            fields: fields,
+            threadIDs: threadIDs,
+            turnKeys: turnKeys,
+            itemKeys: itemKeys
         )
     }
 
