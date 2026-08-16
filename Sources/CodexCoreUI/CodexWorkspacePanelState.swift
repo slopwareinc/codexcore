@@ -58,7 +58,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
         guard openSubagentTabID == id else { return }
         openSubagentTabID = nil
         if selectedTabID == id {
-            selectedTabID = firstAvailableTabID(fallbackTabIDs.filter { $0 != id })
+            selectedTabID = firstAvailableTabID(fallbackTabIDs, excluding: id)
         }
     }
 
@@ -158,11 +158,14 @@ public final class CodexWorkspacePanelState: ObservableObject {
         isAgentPanelOpen = false
     }
 
-    private func firstAvailableTabID(_ fallbackTabIDs: [String]) -> String? {
+    private func firstAvailableTabID(
+        _ fallbackTabIDs: [String],
+        excluding excludedID: String? = nil
+    ) -> String? {
         terminalSessions.first?.id
             ?? browserSessions.first?.id
             ?? filesSession?.id
             ?? filePreviewSessions.first?.id
-            ?? fallbackTabIDs.first
+            ?? fallbackTabIDs.first { $0 != excludedID }
     }
 }

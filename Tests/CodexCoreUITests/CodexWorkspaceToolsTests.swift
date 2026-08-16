@@ -163,6 +163,20 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testClosingSelectedSubagentSkipsItsFallbackIDWithoutChangingOrder() {
+        let panel = CodexWorkspacePanelState()
+        panel.openSubagent(id: "agent-a")
+
+        panel.closeSubagent(
+            id: "agent-a",
+            fallbackTabIDs: ["agent-a", "review", "plan"]
+        )
+
+        XCTAssertNil(panel.openSubagentTabID)
+        XCTAssertEqual(panel.selectedTabID, "review")
+    }
+
+    @MainActor
     func testPlanAndReviewUseDistinctWorkspaceTabs() {
         let panel = CodexWorkspacePanelState()
         let plan = CodexPlanSummary(
