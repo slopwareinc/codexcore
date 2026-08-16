@@ -1033,8 +1033,15 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
     }
 
     public static func join(catalog: [CodexSchemaAppInfo], installed: [CodexSchemaInstalledApp]) -> [CodexAppSummary] {
-        let installedByID = Dictionary(installed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
-        let catalogIDs = Set(catalog.map(\.id))
+        var installedByID = Dictionary<String, CodexSchemaInstalledApp>(minimumCapacity: installed.count)
+        for app in installed {
+            // Keep the existing last-record-wins behavior for duplicate runtime IDs.
+            installedByID[app.id] = app
+        }
+        var catalogIDs = Set<String>(minimumCapacity: catalog.count)
+        for app in catalog {
+            catalogIDs.insert(app.id)
+        }
         return catalog.map { CodexAppSummary(catalog: $0, installed: installedByID[$0.id]) }
             + installedByID.values
                 .filter { !catalogIDs.contains($0.id) }

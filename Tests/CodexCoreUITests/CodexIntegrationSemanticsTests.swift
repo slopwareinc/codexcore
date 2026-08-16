@@ -59,6 +59,21 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
 
     }
 
+    func testCatalogAppsUseLatestDuplicateRuntimeMetadata() {
+        let catalog = [CodexSchemaAppInfo(id: "github", isAccessible: true, name: "GitHub")]
+        let installed = [
+            CodexSchemaInstalledApp(callable: false, enabled: true, id: "github", runtimeName: "Old Runtime"),
+            CodexSchemaInstalledApp(callable: true, enabled: false, id: "github", runtimeName: "Latest Runtime"),
+        ]
+
+        let joined = CodexAppSummary.join(catalog: catalog, installed: installed)
+
+        XCTAssertEqual(joined.map(\.id), ["github"])
+        XCTAssertEqual(joined[0].runtimeName, "Latest Runtime")
+        XCTAssertEqual(joined[0].runtimeEnabled, false)
+        XCTAssertEqual(joined[0].runtimeCallable, true)
+    }
+
     func testSkillsRequireAuthoritativeEnabledStateAndKeepCwdIdentity() {
         let missingEnabled: CodexJSONValue = .dictionary([
             "name": .string("deploy"),
