@@ -148,13 +148,14 @@ struct StateInvalidation: Sendable, Hashable {
                 itemKeys.insert(itemKey)
             }
         }
-        self.init(
-            revision: batch.revision,
-            fields: fields,
-            threadIDs: threadIDs,
-            turnKeys: turnKeys,
-            itemKeys: itemKeys
-        )
+        // The change-to-entity mapping above inserts each descendant's thread
+        // and turn key in the same walk, so the indexes are already normalized.
+        // Assign directly to avoid scanning the resulting sets a second time.
+        self.revision = batch.revision
+        self.fields = fields
+        self.threadIDs = threadIDs
+        self.turnKeys = turnKeys
+        self.itemKeys = itemKeys
     }
 
     func affects(_ scope: StateObservationScope) -> Bool {
