@@ -1085,6 +1085,7 @@ private extension CanonicalStateReducer {
             mergeItem(
                 item,
                 preservingCompleted: isHistoryPage,
+                orderAlreadyEnsured: true,
                 revision: revision,
                 graph: &graph,
                 changes: &changes
@@ -1159,6 +1160,7 @@ private extension CanonicalStateReducer {
     mutating func mergeItem(
         _ incoming: CanonicalItem,
         preservingCompleted: Bool = false,
+        orderAlreadyEnsured: Bool = false,
         revision: StateRevision,
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
@@ -1176,14 +1178,23 @@ private extension CanonicalStateReducer {
             completeItem(
                 incoming,
                 authoritativePayload: incoming.consistency == .authoritative,
+                orderAlreadyEnsured: orderAlreadyEnsured,
                 revision: revision,
                 graph: &graph,
                 changes: &changes
             )
         case .started:
-            startItem(incoming, revision: revision, graph: &graph, changes: &changes)
+            startItem(
+                incoming,
+                orderAlreadyEnsured: orderAlreadyEnsured,
+                revision: revision,
+                graph: &graph,
+                changes: &changes
+            )
         case .placeholder:
-            ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+            if !orderAlreadyEnsured {
+                ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+            }
             guard var current = graph.items[incoming.key] else {
                 var inserted = incoming
                 inserted.lastChangedRevision = revision
@@ -1207,11 +1218,14 @@ private extension CanonicalStateReducer {
 
     mutating func startItem(
         _ incoming: CanonicalItem,
+        orderAlreadyEnsured: Bool = false,
         revision: StateRevision,
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
     ) {
-        ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        if !orderAlreadyEnsured {
+            ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        }
 
         if var current = graph.items[incoming.key] {
             if current.authority == .completed {
@@ -1288,6 +1302,7 @@ private extension CanonicalStateReducer {
     mutating func completeItem(
         _ incoming: CanonicalItem,
         authoritativePayload: Bool,
+        orderAlreadyEnsured: Bool = false,
         revision: StateRevision,
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
@@ -1298,7 +1313,9 @@ private extension CanonicalStateReducer {
             graph: &graph,
             changes: &changes
         )
-        ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        if !orderAlreadyEnsured {
+            ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        }
         let previous = graph.items[incoming.key]
         var completed = incoming
         completed.authority = .completed

@@ -282,6 +282,31 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(graph.turns[first.turnKey]?.itemOrder, [first.itemID, second.itemID])
     }
 
+    func testLargeTurnSnapshotPreservesExistingAndIncomingItemOrder() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let turnKey = TurnKey(threadID: "thread", turnID: "large-turn")
+        let itemIDs = (0..<2_048).map { ItemID("item-\($0)") }
+        let initialIDs = Array(itemIDs.prefix(128))
+
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(key: turnKey, itemOrder: initialIDs),
+            items: initialIDs.map { item(ItemKey(threadID: turnKey.threadID, turnID: turnKey.turnID, itemID: $0)) },
+            itemPolicy: .mergePreservingExistingOrder
+        ), to: &graph)
+
+        let incomingIDs = itemIDs.reversed()
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(key: turnKey, itemOrder: Array(incomingIDs)),
+            items: itemIDs.map { item(ItemKey(threadID: turnKey.threadID, turnID: turnKey.turnID, itemID: $0)) },
+            itemPolicy: .mergePreservingExistingOrder
+        ), to: &graph)
+
+        let expectedOrder = initialIDs + incomingIDs.filter { !initialIDs.contains($0) }
+        XCTAssertEqual(graph.turns[turnKey]?.itemOrder, expectedOrder)
+        XCTAssertEqual(graph.items.count, itemIDs.count)
+    }
+
     func testItemOnlyDeltaBumpsItsAggregateTurnRevisionWithoutTouchingOtherTurns() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()
