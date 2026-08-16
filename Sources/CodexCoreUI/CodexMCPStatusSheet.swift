@@ -372,6 +372,30 @@ private struct MCPToolRow: View {
     }
 }
 
+enum CodexMCPConfigurationText {
+    static func values(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline).compactMap { String($0).nilIfBlank }
+    }
+
+    static func dictionary(_ text: String) -> [String: String] {
+        let entries = text.split(whereSeparator: \.isNewline).lazy.compactMap { rawLine -> (String, String)? in
+            guard let line = String(rawLine).nilIfBlank,
+                  let separator = line.firstIndex(of: "="),
+                  separator != line.startIndex,
+                  separator != line.index(before: line.endIndex) else { return nil }
+            return (
+                String(line[..<separator]),
+                String(line[line.index(after: separator)...])
+            )
+        }
+        return Dictionary(uniqueKeysWithValues: entries)
+    }
+
+    static func lines(_ values: [String: String]) -> String {
+        values.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+    }
+}
+
 private struct CodexMCPServerEditor: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var draft: CodexMCPServerConfiguration
@@ -394,10 +418,10 @@ private struct CodexMCPServerEditor: View {
     ) {
         _draft = State(initialValue: configuration)
         _arguments = State(initialValue: configuration.arguments.joined(separator: "\n"))
-        _environment = State(initialValue: Self.lines(configuration.environment))
+        _environment = State(initialValue: CodexMCPConfigurationText.lines(configuration.environment))
         _passthrough = State(initialValue: configuration.environmentPassthrough.joined(separator: "\n"))
-        _headers = State(initialValue: Self.lines(configuration.httpHeaders))
-        _environmentHeaders = State(initialValue: Self.lines(configuration.environmentHTTPHeaders))
+        _headers = State(initialValue: CodexMCPConfigurationText.lines(configuration.httpHeaders))
+        _environmentHeaders = State(initialValue: CodexMCPConfigurationText.lines(configuration.environmentHTTPHeaders))
         _enabledTools = State(initialValue: configuration.enabledTools?.joined(separator: "\n") ?? "")
         _disabledTools = State(initialValue: configuration.disabledTools.joined(separator: "\n"))
         _toolApprovals = State(initialValue: configuration.toolApprovalModes
@@ -455,15 +479,15 @@ private struct CodexMCPServerEditor: View {
 
     private var finalizedDraft: CodexMCPServerConfiguration {
         var result = draft
-        result.arguments = Self.values(arguments)
-        result.environment = Self.dictionary(environment)
-        result.environmentPassthrough = Self.values(passthrough)
-        result.httpHeaders = Self.dictionary(headers)
-        result.environmentHTTPHeaders = Self.dictionary(environmentHeaders)
-        let allowed = Self.values(enabledTools)
+        result.arguments = CodexMCPConfigurationText.values(arguments)
+        result.environment = CodexMCPConfigurationText.dictionary(environment)
+        result.environmentPassthrough = CodexMCPConfigurationText.values(passthrough)
+        result.httpHeaders = CodexMCPConfigurationText.dictionary(headers)
+        result.environmentHTTPHeaders = CodexMCPConfigurationText.dictionary(environmentHeaders)
+        let allowed = CodexMCPConfigurationText.values(enabledTools)
         result.enabledTools = allowed.isEmpty ? nil : allowed
-        result.disabledTools = Self.values(disabledTools)
-        result.toolApprovalModes = Self.dictionary(toolApprovals).reduce(into: [:]) { modes, entry in
+        result.disabledTools = CodexMCPConfigurationText.values(disabledTools)
+        result.toolApprovalModes = CodexMCPConfigurationText.dictionary(toolApprovals).reduce(into: [:]) { modes, entry in
             if let mode = CodexMCPToolApprovalMode(rawValue: entry.value) { modes[entry.key] = mode }
         }
         return result
@@ -474,20 +498,6 @@ private struct CodexMCPServerEditor: View {
         return validName && (draft.transport == .stdio ? !draft.command.isEmpty : URL(string: draft.url)?.scheme != nil)
     }
 
-    private static func values(_ text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline).map(String.init).compactMap(\.nilIfBlank)
-    }
-
-    private static func dictionary(_ text: String) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: values(text).compactMap { line in
-            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
-            return parts.count == 2 ? (parts[0], parts[1]) : nil
-        })
-    }
-
-    private static func lines(_ values: [String: String]) -> String {
-        values.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
-    }
 }
 
 private extension Binding where Value == String {
