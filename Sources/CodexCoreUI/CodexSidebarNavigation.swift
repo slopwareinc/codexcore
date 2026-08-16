@@ -479,12 +479,24 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             }
         let orderedProjects = orderedProjects(visibleProjects)
         let pinnedProjectIDSet = Set(pinnedProjectIDs)
+        var chatsByWorkspacePath: [String: [CodexThreadSummary]] = [:]
+        chatsByWorkspacePath.reserveCapacity(projectChats.count)
+        for chat in projectChats {
+            let path = CodexProjectSummary.normalizedPath(
+                chat.workspacePath ?? normalizedCurrent
+            )
+            chatsByWorkspacePath[path, default: []].append(chat)
+        }
 
         let projectGroups = orderedProjects.map { project in
-            let sortedChats = projectChats
-                .filter { chat in
-                    project.contains(workspacePath: chat.workspacePath ?? normalizedCurrent)
-                }
+            var chatsForProject: [CodexThreadSummary] = []
+            var seenPaths: Set<String> = []
+            for sourceFolder in project.sourceFolders {
+                let path = CodexProjectSummary.normalizedPath(sourceFolder)
+                guard seenPaths.insert(path).inserted else { continue }
+                chatsForProject.append(contentsOf: chatsByWorkspacePath[path] ?? [])
+            }
+            let sortedChats = chatsForProject
                 .sorted { lhs, rhs in
                     let leftPinned = pinnedIDSet.contains(lhs.id)
                     let rightPinned = pinnedIDSet.contains(rhs.id)
