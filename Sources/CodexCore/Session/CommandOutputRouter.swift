@@ -132,14 +132,22 @@ struct CodexCommandOutputRouter {
 
     @discardableResult
     mutating func disconnect(connectionEpoch: UInt64) -> Int {
-        let keys = entries.keys.filter { $0.connectionEpoch == connectionEpoch }
-        for key in keys {
-            entries.removeValue(forKey: key)?.continuation.finish(
-                throwing: CodexCommandOutputRouterError.disconnected(
-                    connectionEpoch: connectionEpoch
+        var disconnectedCount = 0
+        var index = entries.startIndex
+        while index != entries.endIndex {
+            let nextIndex = entries.index(after: index)
+            let key = entries[index].key
+            if key.connectionEpoch == connectionEpoch {
+                let entry = entries.remove(at: index).value
+                disconnectedCount += 1
+                entry.continuation.finish(
+                    throwing: CodexCommandOutputRouterError.disconnected(
+                        connectionEpoch: connectionEpoch
+                    )
                 )
-            )
+            }
+            index = nextIndex
         }
-        return keys.count
+        return disconnectedCount
     }
 }
