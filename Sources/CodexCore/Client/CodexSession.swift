@@ -620,8 +620,10 @@ public actor CodexSession:
     private var outboundDrainTask: Task<Void, Never>?
     private var outboundWriteInFlightToken: UInt64?
     private var leaseEffectQueue: [ThreadLeaseEffect] = []
+    private var leaseEffectQueueHead = 0
     private var leaseEffectDrainTask: Task<Void, Never>?
     private var historyEffectQueue: [PaginatedHistoryEffect] = []
+    private var historyEffectQueueHead = 0
     private var historyEffectDrainTask: Task<Void, Never>?
     private var historyRequestTasks: [PaginatedHistoryRequestID: Task<Void, Never>] = [:]
     private var startWaiters: [UInt64: CheckedContinuation<InitializeResponse, Error>] = [:]
@@ -710,9 +712,11 @@ public actor CodexSession:
         leaseEffectDrainTask?.cancel()
         leaseEffectDrainTask = nil
         leaseEffectQueue.removeAll(keepingCapacity: false)
+        leaseEffectQueueHead = 0
         historyEffectDrainTask?.cancel()
         historyEffectDrainTask = nil
         historyEffectQueue.removeAll(keepingCapacity: false)
+        historyEffectQueueHead = 0
         for task in historyRequestTasks.values {
             task.cancel()
         }
@@ -3498,7 +3502,7 @@ private extension CodexSession {
                 evictThreadDetailAfterUnsubscribe(threadID)
             }
         }
-        guard !leaseEffectQueue.isEmpty else { return }
+        guard leaseEffectQueueHead < leaseEffectQueue.count else { return }
         guard leaseEffectDrainTask == nil else { return }
         leaseEffectDrainTask = Task { [weak self] in
             await self?.drainLeaseEffects()
@@ -3506,10 +3510,13 @@ private extension CodexSession {
     }
 
     func drainLeaseEffects() async {
-        while !leaseEffectQueue.isEmpty {
-            let effect = leaseEffectQueue.removeFirst()
+        while leaseEffectQueueHead < leaseEffectQueue.count {
+            let effect = leaseEffectQueue[leaseEffectQueueHead]
+            leaseEffectQueueHead += 1
             await executeLeaseEffect(effect)
         }
+        leaseEffectQueue.removeAll(keepingCapacity: true)
+        leaseEffectQueueHead = 0
         leaseEffectDrainTask = nil
     }
 
@@ -3694,8 +3701,9 @@ private extension CodexSession {
     }
 
     func drainHistoryEffects() async {
-        while !historyEffectQueue.isEmpty {
-            let effect = historyEffectQueue.removeFirst()
+        while historyEffectQueueHead < historyEffectQueue.count {
+            let effect = historyEffectQueue[historyEffectQueueHead]
+            historyEffectQueueHead += 1
             switch effect {
             case .requestResume(let request):
                 launchHistoryRequest(effect, id: request.requestID)
@@ -3707,6 +3715,8 @@ private extension CodexSession {
                 await executeHistoryEffect(effect)
             }
         }
+        historyEffectQueue.removeAll(keepingCapacity: true)
+        historyEffectQueueHead = 0
         historyEffectDrainTask = nil
     }
 
