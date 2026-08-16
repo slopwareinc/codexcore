@@ -58,4 +58,21 @@ struct CodexBlockProjectionTests {
         #expect(items[0].text == "first paragraph\n\nsecond paragraph")
         #expect(items[1].text == "second item")
     }
+
+    @Test func listIndentUnitKeepsTheSmallestPositiveNestingDelta() {
+        #expect(
+            CodexBlockProjector.listIndentUnit(
+                lines: ["- parent", "        - deep", "    - child"],
+                startIndex: 0,
+                rootIndent: 0
+            ) == 4
+        )
+        #expect(
+            CodexBlockProjector.listIndentUnit(
+                lines: ["- parent", "plain text"],
+                startIndex: 0,
+                rootIndent: 0
+            ) == 4
+        )
+    }
 }
