@@ -97,11 +97,21 @@ public enum CodexComposerModelMenuModel {
         selectedReasoning: CodexReasoningSelection
     ) -> CodexComposerModelMenuState {
         let options = modelOptions.isEmpty ? CodexModelSelection.defaultOptions : modelOptions
-        let fastOptions = options.filter(isSpeedModel)
-        let gptOptions = options.filter { !isSpeedModel($0) }
+        var fastOptions: [CodexModelSelection] = []
+        var gptOptions: [CodexModelSelection] = []
+        fastOptions.reserveCapacity(options.count)
+        gptOptions.reserveCapacity(options.count)
+        for option in options {
+            if isSpeedModel(option) {
+                fastOptions.append(option)
+            } else {
+                gptOptions.append(option)
+            }
+        }
         let standardOptions = gptOptions.isEmpty ? options : gptOptions
         let standardSelection = standardOptions.first(where: { $0.id == selectedModel.id }) ?? standardOptions.first
         let fastSelection = fastOptions.first(where: { $0.id == selectedModel.id }) ?? fastOptions.first
+        let selectedIsSpeedModel = isSpeedModel(selectedModel)
         let supportedReasoning = selectedModel.supportedReasoning.isEmpty
             ? CodexReasoningSelection.defaultOptions
             : selectedModel.supportedReasoning
@@ -128,7 +138,7 @@ public enum CodexComposerModelMenuModel {
                     title: "Standard",
                     detail: "Default speed",
                     selection: standardSelection,
-                    isSelected: !isSpeedModel(selectedModel),
+                    isSelected: !selectedIsSpeedModel,
                     isEnabled: standardSelection != nil
                 ),
                 CodexComposerSpeedMenuItem(
@@ -136,7 +146,7 @@ public enum CodexComposerModelMenuModel {
                     title: "Fast",
                     detail: "1.5x speed, increased usage",
                     selection: fastSelection,
-                    isSelected: isSpeedModel(selectedModel),
+                    isSelected: selectedIsSpeedModel,
                     isEnabled: fastSelection != nil
                 )
             ]
