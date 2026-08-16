@@ -199,6 +199,18 @@ final class CodexThreadGraphTests: XCTestCase {
             [ThreadID("a"), ThreadID("z")]
         )
     }
+
+    func testWaitTargetDeduplicationPreservesFirstOccurrenceOrder() {
+        let first = key("first")
+        let second = key("second")
+
+        XCTAssertEqual(
+            CodexThreadGraphService.stableUniqueTargets([
+                first, second, first, first, second,
+            ]),
+            [first, second]
+        )
+    }
 }
 
 extension CodexThreadGraphTests {

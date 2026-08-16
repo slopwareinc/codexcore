@@ -228,9 +228,7 @@ public actor CodexThreadGraphService {
         timeout: Duration? = nil
     ) async throws -> [CodexThreadWaitResult] {
         try targets.forEach(validateHost)
-        let uniqueTargets = targets.reduce(into: [CodexThreadGraphKey]()) { result, target in
-            if !result.contains(target) { result.append(target) }
-        }
+        let uniqueTargets = Self.stableUniqueTargets(targets)
         guard let timeout else { return try await waitUntilTerminal(uniqueTargets) }
         return try await withThrowingTaskGroup(of: [CodexThreadWaitResult].self) { group in
             group.addTask { try await self.waitUntilTerminal(uniqueTargets) }
@@ -404,6 +402,15 @@ public actor CodexThreadGraphService {
                 actual: target.hostID
             )
         }
+    }
+
+    /// Removes duplicate wait targets in first-occurrence order without the
+    /// repeated linear scan used by the old array-based implementation.
+    nonisolated static func stableUniqueTargets(
+        _ targets: [CodexThreadGraphKey]
+    ) -> [CodexThreadGraphKey] {
+        var seen: Set<CodexThreadGraphKey> = []
+        return targets.filter { seen.insert($0).inserted }
     }
 }
 
