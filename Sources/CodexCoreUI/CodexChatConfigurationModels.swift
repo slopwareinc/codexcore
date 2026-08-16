@@ -1141,11 +1141,13 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         matching draft: String
     ) -> [CodexSlashCommand] {
         guard let invocation = invocation(from: draft) else { return [] }
-        let commands = commands.filter {
+        let query = invocation.query
+        let mayShowCommand: (CodexSlashCommand) -> Bool = {
             $0.isEnabled && (!$0.requiresEmptyComposer || !invocation.hasOtherContent)
         }
-        let query = invocation.query
-        guard !query.isEmpty else { return commands }
+        if query.isEmpty {
+            return commands.filter(mayShowCommand)
+        }
         let needle = query.lowercased()
 
         var prefixMatches: [CodexSlashCommand] = []
@@ -1156,6 +1158,7 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         detailMatches.reserveCapacity(commands.count)
 
         for command in commands {
+            guard mayShowCommand(command) else { continue }
             let id = command.id.lowercased()
             let title = command.title.lowercased()
             if id.hasPrefix(needle) || title.hasPrefix(needle) {
