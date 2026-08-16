@@ -200,6 +200,27 @@ final class CodexThreadGraphTests: XCTestCase {
         )
     }
 
+    func testDuplicateThreadOrderEntriesDoNotChangeProjection() {
+        let threads = [
+            thread("root"),
+            thread("child", parent: "root"),
+        ]
+        let uniqueGraph = CodexThreadGraphProjector.project(
+            makeSnapshot(threadOrder: ["root", "child"], threads: threads, items: []),
+            hostID: "host"
+        )
+        let duplicateGraph = CodexThreadGraphProjector.project(
+            makeSnapshot(
+                threadOrder: ["root", "root", "child", "root", "child"],
+                threads: threads,
+                items: []
+            ),
+            hostID: "host"
+        )
+
+        XCTAssertEqual(duplicateGraph, uniqueGraph)
+    }
+
     func testWaitTargetDeduplicationPreservesFirstOccurrenceOrder() {
         let first = key("first")
         let second = key("second")

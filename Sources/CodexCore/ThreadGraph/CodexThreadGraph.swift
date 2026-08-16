@@ -366,7 +366,7 @@ public enum CodexThreadGraphProjector {
             if edgeSet.insert(edge).inserted { edges.append(edge) }
         }
 
-        for threadID in snapshot.threadOrder + sortedThreadIDs {
+        for threadID in orderedThreadIDs {
             guard let thread = snapshot.threads[threadID] else { continue }
             ensure(threadID)
             let graphKey = key(threadID)
