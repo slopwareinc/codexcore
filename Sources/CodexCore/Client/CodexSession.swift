@@ -2553,14 +2553,26 @@ private extension CodexSession {
         cursor: CodexWireCursor
     ) {
         do {
-            let adaptation = try adapter.adaptNotification(
-                method: notification.method,
-                params: notification.params
-            )
-
             let knownMethod = CodexAppServerNotificationMethod(
                 rawValue: notification.method
             )
+            // Keep the enum classification from the routing switch and feed
+            // it directly to the adapter. Operation notifications are common
+            // on long-running processes, so looking up the same raw method a
+            // second time needlessly repeats the protocol dispatch work.
+            let adaptation: ProtocolStateAdaptation
+            if let knownMethod {
+                adaptation = try adapter.adaptNotification(
+                    method: knownMethod,
+                    params: notification.params
+                )
+            } else {
+                adaptation = try adapter.adaptNotification(
+                    method: notification.method,
+                    params: notification.params
+                )
+            }
+
             if let knownMethod {
                 switch knownMethod {
                 case .commandExecOutputDelta:

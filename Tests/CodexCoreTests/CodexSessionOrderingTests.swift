@@ -24,6 +24,36 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
+    func testProcessOutputNotificationReachesItsRegisteredObserver() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+
+        let events = try await session.observeProcessEvents(processHandle: "process")
+        let output = CodexSchemaProcessOutputDeltaNotification(
+            capReached: false,
+            deltaBase64: "aGVsbG8=",
+            processHandle: "process",
+            stream: .stdout
+        )
+        let params = try XCTUnwrap(
+            CodexJSONValue(encoding: output).objectValue
+        )
+        try await transport.sendNotification(
+            method: CodexAppServerNotificationMethod.processOutputDelta.rawValue,
+            params: params
+        )
+
+        var iterator = events.makeAsyncIterator()
+        let event = try await iterator.next()
+        XCTAssertEqual(event, .output(output))
+
+        await session.stop()
+    }
+
     func testInitializationBuffersEveryNonHandshakeFrameAndDrainsInWireOrder() async throws {
         let transport = ControllableCodexFrameTransport(autoInitialize: false)
         let session = CodexSession(
