@@ -47,6 +47,20 @@ struct CodexChatRuntimeCanonicalStateTests {
         #expect(!runtime.isSending)
     }
 
+    @Test func canonicalSnapshotSkipsMissingTrailingTurnReferences() {
+        let runtime = CodexChatRuntimeSession()
+        runtime.selectThread("thread")
+
+        runtime.applyCanonicalSnapshot(snapshot(
+            status: .inProgress,
+            threadStatus: .active(flags: []),
+            turnOrder: ["turn", "missing"]
+        ))
+
+        #expect(runtime.currentPlan == [TurnPlanStep(step: "Inspect", status: .inProgress)])
+        #expect(runtime.currentPlanExplanation == "Reading canonical state")
+    }
+
     @Test func optimisticLifecycleFinishesOnlyTheMatchingTurnAndFlushesQueue() throws {
         let runtime = CodexChatRuntimeSession()
         _ = runtime.beginMainTurnSubmission(.init(prompt: "Hello"))
@@ -107,7 +121,8 @@ struct CodexChatRuntimeCanonicalStateTests {
 
     private func snapshot(
         status: CanonicalTurnStatus,
-        threadStatus: CanonicalThreadStatus
+        threadStatus: CanonicalThreadStatus,
+        turnOrder: [TurnID] = ["turn"]
     ) -> CodexSessionStateSnapshot {
         let revision = StateRevision(1)
         let threadID: ThreadID = "thread"
@@ -126,7 +141,7 @@ struct CodexChatRuntimeCanonicalStateTests {
         let thread = CanonicalThread(
             id: threadID,
             status: threadStatus,
-            turnOrder: [turnID],
+            turnOrder: turnOrder,
             goal: goal,
             consistency: .authoritative,
             lastChangedRevision: revision
