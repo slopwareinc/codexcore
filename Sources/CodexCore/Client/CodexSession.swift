@@ -537,6 +537,69 @@ public actor CodexSession:
         let data: Data
     }
 
+    /// FIFO storage for outbound frames. A head index keeps normal dequeue
+    /// operations constant-time, while consumed slots are cleared immediately
+    /// so large frame payloads do not remain retained until compaction.
+    private struct OutboundFrameQueue: Sendable {
+        private var storage: [OutboundFrame?] = []
+        private var head = 0
+
+        var first: OutboundFrame? {
+            guard head < storage.count else { return nil }
+            return storage[head]
+        }
+
+        mutating func append(_ frame: OutboundFrame) {
+            storage.append(frame)
+        }
+
+        mutating func removeFirst() {
+            guard head < storage.count else { return }
+            storage[head] = nil
+            head += 1
+            reclaimConsumedPrefix()
+        }
+
+        mutating func removeAll(where shouldRemove: (OutboundFrame) -> Bool) {
+            guard head < storage.count else { return }
+
+            var writeIndex = head
+            for readIndex in head..<storage.count {
+                guard let frame = storage[readIndex] else { continue }
+                if shouldRemove(frame) {
+                    storage[readIndex] = nil
+                } else {
+                    if writeIndex != readIndex {
+                        storage[writeIndex] = frame
+                        storage[readIndex] = nil
+                    }
+                    writeIndex += 1
+                }
+            }
+
+            if writeIndex < storage.count {
+                storage.removeSubrange(writeIndex..<storage.count)
+            }
+            if writeIndex == head {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else {
+                reclaimConsumedPrefix()
+            }
+        }
+
+        private mutating func reclaimConsumedPrefix() {
+            guard head > 0 else { return }
+            if head == storage.count {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else if head >= 32, head * 2 >= storage.count {
+                storage.removeSubrange(0..<head)
+                head = 0
+            }
+        }
+    }
+
     private struct BufferedEnvelope: Sendable {
         let cursor: CodexWireCursor
         let envelope: CodexJSONRPCEnvelope
@@ -616,7 +679,7 @@ public actor CodexSession:
     private var pendingClientRequests: [ClientRequestKey: PendingClientRequest] = [:]
     private var handshakeRequestKey: ClientRequestKey?
     private var bufferedHandshakeEnvelopes: [BufferedEnvelope] = []
-    private var outboundFrames: [OutboundFrame] = []
+    private var outboundFrames = OutboundFrameQueue()
     private var outboundDrainTask: Task<Void, Never>?
     private var outboundWriteInFlightToken: UInt64?
     private var leaseEffectQueue: [ThreadLeaseEffect] = []
