@@ -512,6 +512,39 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         XCTAssertEqual(current.skills.map(\.displayName), ["Writer"])
     }
 
+    func testPluginResponseKeepsProtocolAndSummaryIDsDistinct() {
+        let raw: CodexJSONValue = .dictionary([
+            "marketplaces": .array([
+                .dictionary([
+                    "name": .string("local"),
+                    "plugins": .array([
+                        .dictionary([
+                            "id": .string("github@local"),
+                            "name": .string("github"),
+                            "installed": .bool(true),
+                            "enabled": .bool(true),
+                            "installPolicy": .string("INSTALLED_BY_DEFAULT"),
+                            "authPolicy": .string("ON_USE")
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        var session = CodexIntegrationCatalogSession(
+            loadingPluginReadIDs: ["local:github@local", "stale"]
+        )
+
+        _ = session.applyPluginResponse(
+            raw,
+            configuredEnabled: ["github@local": false]
+        )
+
+        XCTAssertEqual(session.plugins.map(\.id), ["local:github@local"])
+        XCTAssertEqual(session.plugins.map(\.protocolID), ["github@local"])
+        XCTAssertEqual(session.plugins.map(\.enabled), [false])
+        XCTAssertEqual(session.loadingPluginReadIDs, ["local:github@local"])
+    }
+
     func testCatalogSessionOptimisticallyTogglesAndRestoresPluginsAndSkillsByCanonicalIdentity() throws {
         let firstPlugin = plugin(
             name: "github",
