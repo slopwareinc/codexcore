@@ -74,6 +74,7 @@ public struct CanonicalThreadIndexSummary: Sendable, Equatable, Identifiable {
 public struct CanonicalThreadIndexSnapshot: Sendable, Equatable {
     public let revision: StateRevision
     public let threads: [CanonicalThreadIndexSummary]
+    private let summaryIndexesByID: [ThreadID: Int]
 
     public init(
         revision: StateRevision,
@@ -81,6 +82,14 @@ public struct CanonicalThreadIndexSnapshot: Sendable, Equatable {
     ) {
         self.revision = revision
         self.threads = threads
+        self.summaryIndexesByID = threads.enumerated().reduce(into: [:]) {
+            summaryIndexesByID, pair in
+            // Keep the existing first-match behavior if a malformed caller
+            // supplies duplicate IDs.
+            if summaryIndexesByID[pair.element.id] == nil {
+                summaryIndexesByID[pair.element.id] = pair.offset
+            }
+        }
     }
 
     public var threadIDs: [ThreadID] {
@@ -88,7 +97,8 @@ public struct CanonicalThreadIndexSnapshot: Sendable, Equatable {
     }
 
     public func summary(for threadID: ThreadID) -> CanonicalThreadIndexSummary? {
-        threads.first { $0.id == threadID }
+        guard let index = summaryIndexesByID[threadID] else { return nil }
+        return threads[index]
     }
 
     static let attentionFields: StateFieldMask = [

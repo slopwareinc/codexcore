@@ -79,6 +79,44 @@ final class CanonicalStateModelTests: XCTestCase {
         XCTAssertEqual(snapshot.items(in: firstTurn).map(\.key), [item])
     }
 
+    func testThreadIndexSummaryLookupUsesFirstSummaryForDuplicateIDs() {
+        let first = makeThreadIndexSummary(id: "thread", order: 3)
+        let duplicate = makeThreadIndexSummary(id: "thread", order: 9)
+        let snapshot = CanonicalThreadIndexSnapshot(
+            revision: StateRevision(4),
+            threads: [first, duplicate]
+        )
+
+        XCTAssertEqual(snapshot.summary(for: "thread")?.order, 3)
+        XCTAssertNil(snapshot.summary(for: "missing"))
+    }
+
+    private func makeThreadIndexSummary(
+        id: ThreadID,
+        order: Int
+    ) -> CanonicalThreadIndexSummary {
+        CanonicalThreadIndexSummary(
+            id: id,
+            order: order,
+            status: .idle,
+            latestTurnID: nil,
+            latestTurnStatus: nil,
+            isArchived: nil,
+            isLoaded: true,
+            name: nil,
+            preview: nil,
+            cwd: nil,
+            parentThreadID: nil,
+            agentNickname: nil,
+            agentRole: nil,
+            path: nil,
+            updatedAt: nil,
+            lastChangedRevision: .zero,
+            attentionRevision: .zero,
+            hasPendingServerRequest: false
+        )
+    }
+
     func testLifecycleTypesAndAuthorityRemainDistinct() {
         let key = ItemKey(threadID: "thread", turnID: "turn", itemID: "item")
         let item = CanonicalItem(
