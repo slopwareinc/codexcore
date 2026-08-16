@@ -144,6 +144,21 @@ final class ThreadRuntimeRegistryTests: XCTestCase {
         ))
     }
 
+    func testReconnectEffectsStaySortedWhenNewThreadsInvalidateOrderingCache() throws {
+        var registry = ThreadRuntimeRegistry()
+        _ = registry.connectionReady(20)
+        _ = registry.retain("b")
+        _ = registry.connectionReady(21)
+        _ = registry.retain("a")
+
+        let firstReconnect = registry.connectionReady(22)
+        XCTAssertEqual(firstReconnect.map(threadID), ["a", "b"])
+
+        _ = registry.retain("c")
+        let secondReconnect = registry.connectionReady(23)
+        XCTAssertEqual(secondReconnect.map(threadID), ["a", "b", "c"])
+    }
+
     func testHydrationTracksOpaquePagesAtResumeGeneration() throws {
         var registry = ThreadRuntimeRegistry()
         _ = registry.connectionReady(12)
@@ -196,6 +211,13 @@ final class ThreadRuntimeRegistryTests: XCTestCase {
             throw ThreadRuntimeTestFailure.unexpectedEffect
         }
         return command
+    }
+
+    private func threadID(_ effect: ThreadRuntimeEffect) -> ThreadID {
+        switch effect {
+        case .resume(let command), .unsubscribe(let command):
+            return command.threadID
+        }
     }
 }
 

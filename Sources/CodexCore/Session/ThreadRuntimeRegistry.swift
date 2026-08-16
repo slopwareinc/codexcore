@@ -96,6 +96,10 @@ struct ThreadRuntimeRegistry: Sendable {
     }
 
     private var entries: [ThreadID: Entry] = [:]
+    // Entries remain in the registry after their last retainer is released so
+    // stale completions can still be rejected. Cache the stable ordering used
+    // by reconnect traversal and invalidate it only when a new thread appears.
+    private var sortedThreadIDs: [ThreadID]?
     private var activeConnectionEpoch: UInt64?
     private var nextRetainerRawValue: UInt64 = 1
 
@@ -115,6 +119,9 @@ struct ThreadRuntimeRegistry: Sendable {
 
     mutating func retain(_ threadID: ThreadID) -> ThreadRuntimeAcquisition {
         let retainer = allocateRetainer(threadID: threadID)
+        if entries[threadID] == nil {
+            sortedThreadIDs = nil
+        }
         var entry = entries[threadID] ?? Entry()
         entry.retainers.insert(retainer)
         let effects = converge(threadID: threadID, entry: &entry)
@@ -144,7 +151,7 @@ struct ThreadRuntimeRegistry: Sendable {
     mutating func connectionReady(_ connectionEpoch: UInt64) -> [ThreadRuntimeEffect] {
         activeConnectionEpoch = connectionEpoch
         var effects: [ThreadRuntimeEffect] = []
-        for threadID in entries.keys.sorted() {
+        for threadID in orderedThreadIDs() {
             guard var entry = entries[threadID] else { continue }
             invalidateTransition(entry: &entry)
             entry.actual = .unsubscribed(connectionEpoch: connectionEpoch)
@@ -157,7 +164,7 @@ struct ThreadRuntimeRegistry: Sendable {
     mutating func connectionLost(_ connectionEpoch: UInt64) {
         guard activeConnectionEpoch == connectionEpoch else { return }
         activeConnectionEpoch = nil
-        for threadID in entries.keys.sorted() {
+        for threadID in orderedThreadIDs() {
             guard var entry = entries[threadID] else { continue }
             invalidateTransition(entry: &entry)
             entry.actual = .unknown(connectionEpoch: connectionEpoch)
@@ -337,6 +344,15 @@ struct ThreadRuntimeRegistry: Sendable {
         }
         entry.actual = .unsubscribed(connectionEpoch: epoch)
         return []
+    }
+
+    private mutating func orderedThreadIDs() -> [ThreadID] {
+        if let sortedThreadIDs {
+            return sortedThreadIDs
+        }
+        let sortedThreadIDs = entries.keys.sorted()
+        self.sortedThreadIDs = sortedThreadIDs
+        return sortedThreadIDs
     }
 
     private func hydrationAccepts(
