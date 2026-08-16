@@ -86,6 +86,23 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             CodexSlashCommand.filteredCommands(matching: "/rea").map(\.title),
             ["Reasoning"]
         )
+        let precedenceCommands = [
+            CodexSlashCommand(id: "prefix", title: "Needle", detail: "detail needle", systemImage: "1"),
+            CodexSlashCommand(id: "contains", title: "Contains needle", detail: "detail", systemImage: "2"),
+            CodexSlashCommand(id: "detail", title: "Other", detail: "Needle detail", systemImage: "3")
+        ]
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: precedenceCommands, matching: "/needle").map(\.id),
+            ["prefix"]
+        )
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: Array(precedenceCommands.dropFirst()), matching: "/needle").map(\.id),
+            ["contains"]
+        )
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: [precedenceCommands[2]], matching: "/needle").map(\.id),
+            ["detail"]
+        )
         XCTAssertEqual(
             CodexSlashCommand.filteredCommands(matching: "/").map(\.title),
             CodexSlashCommand.observedCommands.map(\.title)
