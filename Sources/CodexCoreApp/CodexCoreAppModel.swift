@@ -961,10 +961,18 @@ final class CodexCoreAppModel {
         // Preload the catalog after authentication. A Plugins route selected
         // while startup was still connecting otherwise kept the empty result
         // from its earlier, connection-less refresh indefinitely.
-        await refreshPlugins()
-        await refreshRecentChats(using: codex)
-        await refreshRemoteEnvironment(using: codex)
-        try await refreshRateLimits(using: codex)
+        // These reads update disjoint stores, so let the app-server and local
+        // filesystem work overlap while awaiting them in the old order. The
+        // order of observable updates and rate-limit error propagation stays
+        // unchanged.
+        async let plugins = refreshPlugins()
+        async let recentChats = refreshRecentChats(using: codex)
+        async let remoteEnvironment = refreshRemoteEnvironment(using: codex)
+        async let rateLimits = refreshRateLimits(using: codex)
+        await plugins
+        await recentChats
+        await remoteEnvironment
+        try await rateLimits
         refreshGitBranch()
     }
 
