@@ -793,11 +793,19 @@ actor CodexTranscriptRenderProjector {
                                 ))
                             } else if isRowExpanded, let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
-                                let prepared = Self.prepareExpandedOutput(
-                                    bounded,
-                                    row: row,
-                                    theme: theme
-                                )
+                                let prepared = cachedPreparedText(
+                                    content: bounded,
+                                    style: Self.expandedOutputCacheStyle(for: row),
+                                    theme: theme,
+                                    cacheHits: &preparedTextCacheHits,
+                                    cacheMisses: &preparedTextCacheMisses
+                                ) {
+                                    Self.prepareExpandedOutput(
+                                        bounded,
+                                        row: row,
+                                        theme: theme
+                                    )
+                                }
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
                                     fingerprint: "detail:\(bounded)",
@@ -2023,6 +2031,15 @@ private extension CodexTranscriptRenderProjector {
             defaultForeground: theme.textSecondary,
             paragraphStyle: style
         ))
+    }
+
+    static func expandedOutputCacheStyle(for row: CodexWorkRowV2) -> String {
+        switch row {
+        case .command:
+            return "expanded-output-command"
+        default:
+            return "expanded-output-plain"
+        }
     }
 
     static func prepareUserMessage(
