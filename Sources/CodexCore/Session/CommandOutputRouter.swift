@@ -135,7 +135,6 @@ struct CodexCommandOutputRouter {
         var disconnectedCount = 0
         var index = entries.startIndex
         while index != entries.endIndex {
-            let nextIndex = entries.index(after: index)
             let key = entries[index].key
             if key.connectionEpoch == connectionEpoch {
                 let entry = entries.remove(at: index).value
@@ -145,8 +144,12 @@ struct CodexCommandOutputRouter {
                         connectionEpoch: connectionEpoch
                     )
                 )
+                // Dictionary removal invalidates the current index (and may
+                // invalidate later indices), so restart from a fresh index.
+                index = entries.startIndex
+            } else {
+                index = entries.index(after: index)
             }
-            index = nextIndex
         }
         return disconnectedCount
     }
