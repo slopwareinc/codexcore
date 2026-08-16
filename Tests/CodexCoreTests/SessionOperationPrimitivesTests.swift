@@ -325,6 +325,21 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertTrue(epochHub.cancel(newEpoch.id))
     }
 
+    func testFilesystemHubFansOutAndCleansUpIndexedObservers() {
+        var hub = CodexFSChangeObserverHub()
+        let first = hub.observe(connectionEpoch: 1, watchID: "watch", maximumChangeCount: 1)
+        let second = hub.observe(connectionEpoch: 1, watchID: "watch", maximumChangeCount: 2)
+        let change = CodexSchemaFSChangedNotification(changedPaths: [], watchID: "watch")
+
+        XCTAssertEqual(hub.publish(connectionEpoch: 1, notification: change), 2)
+        XCTAssertEqual(hub.publish(connectionEpoch: 1, notification: change), 1)
+        XCTAssertEqual(hub.observerCount, 1)
+        XCTAssertTrue(hub.cancel(second.id))
+        XCTAssertEqual(hub.observerCount, 0)
+        XCTAssertEqual(hub.finish(connectionEpoch: 1, watchID: "watch"), 0)
+        withExtendedLifetime(first) {}
+    }
+
     func testGlobalAndImportOperationHubsSupportCancellationAndEpochTeardown() async throws {
         var appHub = CodexAppListObserverHub()
         let appObservation = appHub.observe(connectionEpoch: 5)

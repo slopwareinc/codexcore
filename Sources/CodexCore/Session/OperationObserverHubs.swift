@@ -25,6 +25,7 @@ struct CodexFSChangeObserverHub {
 
     private var nextID: UInt64 = 1
     private var entries: [CodexFSChangeObservationID: Entry] = [:]
+    private var idsByKey: [Key: Set<CodexFSChangeObservationID>] = [:]
 
     var observerCount: Int { entries.count }
 
@@ -46,12 +47,23 @@ struct CodexFSChangeObserverHub {
             Error
         >.makeStream(bufferingPolicy: .bufferingOldest(maximumChangeCount))
         pair.continuation.onTermination = { @Sendable _ in onTermination?(id) }
+        let key = Key(connectionEpoch: connectionEpoch, watchID: watchID)
         entries[id] = Entry(
-            key: .init(connectionEpoch: connectionEpoch, watchID: watchID),
+            key: key,
             maximumChangeCount: maximumChangeCount,
             continuation: pair.continuation
         )
+        idsByKey[key, default: []].insert(id)
         return (id, pair.stream)
+    }
+
+    private mutating func removeEntry(for id: CodexFSChangeObservationID) -> Entry? {
+        guard let entry = entries.removeValue(forKey: id) else { return nil }
+        idsByKey[entry.key]?.remove(id)
+        if idsByKey[entry.key]?.isEmpty == true {
+            idsByKey.removeValue(forKey: entry.key)
+        }
+        return entry
     }
 
     @discardableResult
@@ -59,59 +71,53 @@ struct CodexFSChangeObserverHub {
         connectionEpoch: UInt64,
         notification: CodexSchemaFSChangedNotification
     ) -> Int {
+        let key = Key(connectionEpoch: connectionEpoch, watchID: notification.watchID)
+        let matchingIDs = idsByKey[key] ?? []
         var delivered = 0
-        var terminated: [CodexFSChangeObservationID] = []
-        for (id, entry) in entries
-        where entry.key.connectionEpoch == connectionEpoch
-            && entry.key.watchID == notification.watchID {
+        for id in matchingIDs {
+            guard let entry = entries[id] else { continue }
             switch entry.continuation.yield(notification) {
             case .enqueued:
                 delivered += 1
             case .dropped:
-                entries.removeValue(forKey: id)
+                _ = removeEntry(for: id)
                 entry.continuation.finish(throwing: CodexFSChangeObserverError.bufferOverflow(
                     watchID: notification.watchID,
                     maximumChangeCount: entry.maximumChangeCount
                 ))
             case .terminated:
-                terminated.append(id)
+                _ = removeEntry(for: id)
             @unknown default:
-                terminated.append(id)
+                _ = removeEntry(for: id)
             }
-        }
-        for id in terminated {
-            entries.removeValue(forKey: id)
         }
         return delivered
     }
 
     @discardableResult
     mutating func finish(connectionEpoch: UInt64, watchID: String) -> Int {
-        let ids: [CodexFSChangeObservationID] = entries.compactMap {
-            (id: CodexFSChangeObservationID, entry: Entry) -> CodexFSChangeObservationID? in
-            entry.key == .init(connectionEpoch: connectionEpoch, watchID: watchID) ? id : nil
-        }
+        let key = Key(connectionEpoch: connectionEpoch, watchID: watchID)
+        let ids = idsByKey[key] ?? []
         for id in ids {
-            entries.removeValue(forKey: id)?.continuation.finish()
+            removeEntry(for: id)?.continuation.finish()
         }
         return ids.count
     }
 
     @discardableResult
     mutating func cancel(_ id: CodexFSChangeObservationID) -> Bool {
-        guard let entry = entries.removeValue(forKey: id) else { return false }
+        guard let entry = removeEntry(for: id) else { return false }
         entry.continuation.finish(throwing: CancellationError())
         return true
     }
 
     @discardableResult
     mutating func disconnect(connectionEpoch: UInt64) -> Int {
-        let ids: [CodexFSChangeObservationID] = entries.compactMap { element in
-            let (id, entry) = element
-            return entry.key.connectionEpoch == connectionEpoch ? id : nil
-        }
+        let ids: [CodexFSChangeObservationID] = idsByKey.compactMap { key, ids in
+            key.connectionEpoch == connectionEpoch ? ids : nil
+        }.flatMap { $0 }
         for id in ids {
-            entries.removeValue(forKey: id)?.continuation.finish(
+            removeEntry(for: id)?.continuation.finish(
                 throwing: CodexFSChangeObserverError.disconnected(
                     connectionEpoch: connectionEpoch
                 )
