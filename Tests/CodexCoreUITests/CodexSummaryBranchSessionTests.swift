@@ -70,7 +70,11 @@ final class CodexSummaryBranchSessionTests: XCTestCase {
         XCTAssertEqual(session.newBranchNameProblem, "Branch already exists.")
         XCTAssertFalse(session.canCreateBranch)
 
-        session.newBranchName = "feature/five"
+        session.newBranchName = " feature/four "
+        XCTAssertEqual(session.newBranchNameProblem, "Branch already exists.")
+        XCTAssertFalse(session.canCreateBranch)
+
+        session.newBranchName = " feature/five "
         XCTAssertNil(session.newBranchNameProblem)
         XCTAssertTrue(session.canCreateBranch)
     }
