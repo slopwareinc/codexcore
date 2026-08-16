@@ -480,12 +480,15 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         let orderedProjects = orderedProjects(visibleProjects)
         let pinnedProjectIDSet = Set(pinnedProjectIDs)
         var chatsByWorkspacePath: [String: [CodexThreadSummary]] = [:]
+        var chatOrderByID: [String: Int] = [:]
         chatsByWorkspacePath.reserveCapacity(projectChats.count)
-        for chat in projectChats {
+        chatOrderByID.reserveCapacity(projectChats.count)
+        for (order, chat) in projectChats.enumerated() {
             let path = CodexProjectSummary.normalizedPath(
                 chat.workspacePath ?? normalizedCurrent
             )
             chatsByWorkspacePath[path, default: []].append(chat)
+            chatOrderByID[chat.id] = order
         }
 
         let projectGroups = orderedProjects.map { project in
@@ -501,7 +504,10 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
                     let leftPinned = pinnedIDSet.contains(lhs.id)
                     let rightPinned = pinnedIDSet.contains(rhs.id)
                     if leftPinned != rightPinned { return leftPinned && !rightPinned }
-                    return Self.compareByRecency(lhs, rhs)
+                    if Self.compareByRecency(lhs, rhs) { return true }
+                    if Self.compareByRecency(rhs, lhs) { return false }
+                    return (chatOrderByID[lhs.id] ?? Int.max)
+                        < (chatOrderByID[rhs.id] ?? Int.max)
                 }
             let visibleChats = Array(sortedChats.prefix(Self.projectChatPreviewLimit))
             return CodexSidebarProjectGroup(
