@@ -216,6 +216,38 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertEqual(hub.publish(connectionEpoch: 7, event: event), 0)
     }
 
+    func testRealtimeHubDisconnectRemovesEveryThreadInOneEpochOnly() async throws {
+        var hub = CodexRealtimeObserverHub()
+        let first = hub.observe(connectionEpoch: 7, threadID: "voice-a")
+        let second = hub.observe(connectionEpoch: 7, threadID: "voice-b")
+        let retained = hub.observe(connectionEpoch: 8, threadID: "voice-a")
+
+        XCTAssertEqual(hub.disconnect(connectionEpoch: 7), 2)
+        let event = CodexRealtimeEvent.transcriptDone(.init(
+            role: "assistant",
+            text: "Ready",
+            threadID: "voice-a"
+        ))
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: event), 0)
+        XCTAssertEqual(hub.publish(connectionEpoch: 8, event: event), 1)
+
+        var firstIterator = first.events.makeAsyncIterator()
+        var secondIterator = second.events.makeAsyncIterator()
+        do {
+            _ = try await firstIterator.next()
+            XCTFail("Disconnected observer should fail")
+        } catch let error as CodexRealtimeObserverError {
+            XCTAssertEqual(error, .disconnected(connectionEpoch: 7))
+        }
+        do {
+            _ = try await secondIterator.next()
+            XCTFail("Disconnected observer should fail")
+        } catch let error as CodexRealtimeObserverError {
+            XCTAssertEqual(error, .disconnected(connectionEpoch: 7))
+        }
+        XCTAssertTrue(hub.cancel(retained.id))
+    }
+
     func testOperationHubsRouteKeyedEventsAndTearDownByEpoch() async throws {
         var fileHub = CodexFSChangeObserverHub()
         let fileObservation = fileHub.observe(connectionEpoch: 4, watchID: "watch")

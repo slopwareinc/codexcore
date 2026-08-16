@@ -107,8 +107,9 @@ struct CodexRealtimeObserverHub {
 
     @discardableResult
     mutating func disconnect(connectionEpoch: UInt64) -> Int {
-        let ids = entries.compactMap { id, entry in
-            entry.key.connectionEpoch == connectionEpoch ? id : nil
+        var ids: [CodexRealtimeObservationID] = []
+        for (key, matchingIDs) in observerIDsByKey where key.connectionEpoch == connectionEpoch {
+            ids.append(contentsOf: matchingIDs)
         }
         for id in ids {
             removeEntry(for: id)?.continuation.finish(
