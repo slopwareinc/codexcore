@@ -327,6 +327,26 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(composer.dequeueQueuedFollowUpSubmission(isSending: false), submission)
     }
 
+    func testComposerFollowUpQueueDrainsLargeFIFOWithoutChangingOrder() {
+        var composer = CodexComposerStateSession(activeThreadID: "thread-a")
+        for index in 0..<1_024 {
+            composer.enqueueFollowUp(CodexComposerSubmission(
+                prompt: "follow-up-\(index)",
+                clientID: "client-\(index)",
+                threadID: "thread-a"
+            ))
+        }
+
+        for index in 0..<1_024 {
+            XCTAssertEqual(
+                composer.dequeueQueuedFollowUp(isSending: false),
+                "follow-up-\(index)"
+            )
+        }
+        XCTAssertTrue(composer.queuedFollowUps.isEmpty)
+        XCTAssertNil(composer.dequeueQueuedFollowUp(isSending: false))
+    }
+
     func testQueuedAndFailedAttachmentSubmissionsStayWithOriginThread() throws {
         let file = CodexReferencedFile(path: "/tmp/thread-a.txt", kind: .file)
         var composer = CodexComposerStateSession(activeThreadID: "thread-a")

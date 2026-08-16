@@ -85,6 +85,74 @@ public struct CodexComposerSlashCommandRoute: Equatable, Sendable {
     }
 }
 
+/// FIFO storage for follow-up submissions. Dequeueing advances a head index
+/// instead of shifting every remaining submission with `removeFirst()`.
+private struct CodexComposerSubmissionQueue: Equatable, Sendable {
+    private var storage: [CodexComposerSubmission?] = []
+    private var head = 0
+
+    var isEmpty: Bool { head >= storage.count }
+    var elements: [CodexComposerSubmission] {
+        guard head < storage.count else { return [] }
+        return storage[head...].compactMap { $0 }
+    }
+
+    func firstIndex(
+        where predicate: (CodexComposerSubmission) -> Bool
+    ) -> Int? {
+        guard head < storage.count else { return nil }
+        for (index, submission) in storage[head...].enumerated() {
+            if let submission, predicate(submission) { return index }
+        }
+        return nil
+    }
+
+    mutating func append(_ submission: CodexComposerSubmission) {
+        storage.append(submission)
+    }
+
+    mutating func prepend(_ submission: CodexComposerSubmission) {
+        if head > 0 {
+            head -= 1
+            storage[head] = submission
+        } else {
+            storage.insert(submission, at: 0)
+        }
+    }
+
+    mutating func removeFirst() -> CodexComposerSubmission? {
+        guard head < storage.count else { return nil }
+        let submission = storage[head]
+        storage[head] = nil
+        head += 1
+        reclaimConsumedPrefix()
+        return submission
+    }
+
+    mutating func remove(at index: Int) -> CodexComposerSubmission? {
+        let storageIndex = head + index
+        guard index >= 0, storageIndex < storage.count else { return nil }
+        let submission = storage.remove(at: storageIndex)
+        if head == storage.count {
+            storage.removeAll(keepingCapacity: true)
+            head = 0
+        }
+        return submission
+    }
+
+    private mutating func reclaimConsumedPrefix() {
+        guard head > 0 else { return }
+        // Amortize compaction so repeated dequeues stay constant-time.
+        if head != storage.count && (head < 64 || head * 2 < storage.count) { return }
+        storage.removeSubrange(0..<head)
+        head = 0
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.elements == rhs.elements
+    }
+}
+
 public struct CodexComposerStateSession: Equatable, Sendable {
     private static let unassignedDraftKey = "__codex_unassigned_draft__"
 
@@ -116,7 +184,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public private(set) var mentionResults: [FuzzyFileSearchResult]
     public private(set) var attachedSkills: [CodexSlashCommand]
     private var selectedMentionsByName: [String: FuzzyFileSearchResult]
-    private var queuedFollowUpSubmissionsByThreadID: [String: [CodexComposerSubmission]]
+    private var queuedFollowUpSubmissionsByThreadID: [String: CodexComposerSubmissionQueue]
 
     public init(
         draft: String = "",
@@ -147,9 +215,11 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         self.selectedMentionsByName = selectedMentionsByName
         self.queuedFollowUpSubmissionsByThreadID = [:]
         if !queuedFollowUps.isEmpty {
-            self.queuedFollowUpSubmissionsByThreadID[Self.draftKey(for: self.activeThreadID)] = queuedFollowUps.map {
-                CodexComposerSubmission(prompt: $0, threadID: self.activeThreadID)
+            var queue = CodexComposerSubmissionQueue()
+            for prompt in queuedFollowUps {
+                queue.append(CodexComposerSubmission(prompt: prompt, threadID: self.activeThreadID))
             }
+            self.queuedFollowUpSubmissionsByThreadID[Self.draftKey(for: self.activeThreadID)] = queue
         }
     }
 
@@ -338,7 +408,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public mutating func enqueueFollowUp(_ submission: CodexComposerSubmission) {
         let threadID = submission.threadID ?? activeThreadID
         let key = Self.draftKey(for: threadID)
-        var queue = queuedFollowUpSubmissionsByThreadID[key] ?? []
+        var queue = queuedFollowUpSubmissionsByThreadID[key] ?? CodexComposerSubmissionQueue()
         var ownedSubmission = submission
         ownedSubmission.threadID = threadID
         queue.append(ownedSubmission)
@@ -370,8 +440,8 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public mutating func dequeueQueuedFollowUpSubmission(isSending: Bool) -> CodexComposerSubmission? {
         guard !isSending else { return nil }
         let key = Self.draftKey(for: activeThreadID)
-        guard var queue = queuedFollowUpSubmissionsByThreadID[key], !queue.isEmpty else { return nil }
-        let submission = queue.removeFirst()
+        guard var queue = queuedFollowUpSubmissionsByThreadID[key], !queue.isEmpty,
+              let submission = queue.removeFirst() else { return nil }
         if queue.isEmpty {
             queuedFollowUpSubmissionsByThreadID.removeValue(forKey: key)
         } else {
@@ -387,10 +457,10 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public mutating func requeueFollowUp(_ submission: CodexComposerSubmission) {
         let threadID = submission.threadID ?? activeThreadID
         let key = Self.draftKey(for: threadID)
-        var queue = queuedFollowUpSubmissionsByThreadID[key] ?? []
+        var queue = queuedFollowUpSubmissionsByThreadID[key] ?? CodexComposerSubmissionQueue()
         var ownedSubmission = submission
         ownedSubmission.threadID = threadID
-        queue.insert(ownedSubmission, at: 0)
+        queue.prepend(ownedSubmission)
         queuedFollowUpSubmissionsByThreadID[key] = queue
     }
 
@@ -469,7 +539,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     }
 
     public func queuedFollowUpSubmissions(for threadID: String?) -> [CodexComposerSubmission] {
-        queuedFollowUpSubmissionsByThreadID[Self.draftKey(for: threadID)] ?? []
+        queuedFollowUpSubmissionsByThreadID[Self.draftKey(for: threadID)]?.elements ?? []
     }
 
     private func mentionInputs(for prompt: String) -> [CodexInput] {
