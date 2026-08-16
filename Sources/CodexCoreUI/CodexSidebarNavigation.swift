@@ -504,8 +504,13 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
                     let leftPinned = pinnedIDSet.contains(lhs.id)
                     let rightPinned = pinnedIDSet.contains(rhs.id)
                     if leftPinned != rightPinned { return leftPinned && !rightPinned }
-                    if Self.compareByRecency(lhs, rhs) { return true }
-                    if Self.compareByRecency(rhs, lhs) { return false }
+                    let leftRecency = lhs.recencyAt ?? lhs.updatedAt ?? lhs.createdAt ?? 0
+                    let rightRecency = rhs.recencyAt ?? rhs.updatedAt ?? rhs.createdAt ?? 0
+                    if leftRecency != rightRecency { return leftRecency > rightRecency }
+                    let titleComparison = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+                    if titleComparison != .orderedSame {
+                        return titleComparison == .orderedAscending
+                    }
                     return (chatOrderByID[lhs.id] ?? Int.max)
                         < (chatOrderByID[rhs.id] ?? Int.max)
                 }
