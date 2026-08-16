@@ -120,6 +120,35 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
         XCTAssertNil(session.skillErrorMessage)
     }
 
+    func testSkillListErrorsPreserveEntryAndErrorOrder() {
+        let response: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "cwd": .string("/repo-a"),
+                    "errors": .array([
+                        .dictionary(["message": .string("first")]),
+                        .string("malformed"),
+                        .dictionary(["message": .string("second")]),
+                    ])
+                ]),
+                .dictionary([
+                    "cwd": .string("/repo-b"),
+                    "errors": .array([
+                        .dictionary([
+                            "path": .string("/repo-b/SKILL.md"),
+                            "message": .string("third")
+                        ])
+                    ])
+                ])
+            ])
+        ])
+
+        XCTAssertEqual(
+            CodexSkillSummary.loadErrorMessages(from: response),
+            ["/repo-a: first", "/repo-a: second", "/repo-b/SKILL.md: third"]
+        )
+    }
+
 
     func testMalformedPluginLifecycleIsNotDefaultedIntoAnActionableRecord() {
         let response: CodexJSONValue = .dictionary([
