@@ -13,9 +13,19 @@ public struct CodexInlineDirective: Sendable, Equatable {
 }
 
 public enum CodexInlineDirectiveParser {
+    private static let expression: NSRegularExpression = {
+        // NSRegularExpression is immutable and safe to share across calls.
+        // Directive parsing runs once per transcript line, so compiling this
+        // pattern on every call needlessly adds work to every projection.
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(pattern: #"^\s*::([a-zA-Z0-9-]+)\{(.*)\}\s*$"#)
+    }()
+
     public static func parse(line: String) -> CodexInlineDirective? {
-        let pattern = #"^\s*::([a-zA-Z0-9-]+)\{(.*)\}\s*$"#
-        guard let expression = try? NSRegularExpression(pattern: pattern),
+        // Most transcript lines are ordinary prose. Avoid entering the regex
+        // engine when the first non-whitespace character is not a directive.
+        guard let firstNonWhitespace = line.firstIndex(where: { !$0.isWhitespace }),
+              line[firstNonWhitespace...].hasPrefix("::"),
               let match = expression.firstMatch(
                 in: line,
                 range: NSRange(location: 0, length: (line as NSString).length)
