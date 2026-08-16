@@ -17,6 +17,38 @@ final class CodexGitReviewModelTests: XCTestCase {
         XCTAssertEqual(session.commitStats.summary, "3 files +15 -4")
     }
 
+    func testStagedProjectionUsesFileStateWhenAggregateStatsAreSupplied() {
+        let snapshot = CodexGitReviewSnapshot(
+            branchName: "codex/review-panel",
+            files: [
+                CodexGitReviewFileChange(
+                    path: "Sources/Staged.swift",
+                    status: .modified,
+                    isStaged: true,
+                    addedLines: 3,
+                    removedLines: 1
+                ),
+                CodexGitReviewFileChange(
+                    path: "Sources/Partial.swift",
+                    status: .modified,
+                    isStaged: false,
+                    stagingState: .partiallyStaged,
+                    addedLines: 8,
+                    removedLines: 2
+                )
+            ],
+            diffStats: CodexGitReviewDiffStats(changedFiles: 9, addedLines: 90, removedLines: 90)
+        )
+
+        XCTAssertEqual(snapshot.branchSummary.stagedFileCount, 1)
+        XCTAssertEqual(snapshot.branchSummary.unstagedFileCount, 1)
+        XCTAssertEqual(
+            snapshot.commitStats(includeUnstaged: false),
+            CodexGitReviewDiffStats(changedFiles: 1, addedLines: 3, removedLines: 1)
+        )
+        XCTAssertEqual(snapshot.commitStats(includeUnstaged: true), CodexGitReviewDiffStats(changedFiles: 9, addedLines: 90, removedLines: 90))
+    }
+
     func testBranchPickerShowsDirtyCountAndDisablesCreateCheckoutWhenDirty() {
         let snapshot = CodexGitReviewSnapshot(
             branchName: "codex/review-panel",
