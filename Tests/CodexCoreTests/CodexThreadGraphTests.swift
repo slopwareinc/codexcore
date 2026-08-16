@@ -161,6 +161,44 @@ final class CodexThreadGraphTests: XCTestCase {
         XCTAssertEqual(graph.nodes[key("child")]?.lifecycle, .running)
         XCTAssertFalse(graph.nodes[key("child")]?.isLoaded ?? true)
     }
+
+    func testPartialThreadOrderUsesStableSortedFallbackForGraphAndItems() {
+        let graph = CodexThreadGraphProjector.project(
+            makeSnapshot(
+                threadOrder: ["root"],
+                threads: [
+                    thread("z", parent: "root"),
+                    thread("root"),
+                    thread("a", parent: "root"),
+                ],
+                items: [
+                    collabItem(
+                        parent: "z",
+                        turn: "turn-z",
+                        item: "item-z",
+                        receivers: [],
+                        status: "completed",
+                        agentStates: [:]
+                    ),
+                    collabItem(
+                        parent: "a",
+                        turn: "turn-a",
+                        item: "item-a",
+                        receivers: [],
+                        status: "completed",
+                        agentStates: [:]
+                    ),
+                ]
+            ),
+            hostID: "host"
+        )
+
+        XCTAssertEqual(graph.nodes[key("root")]?.children, [key("a"), key("z")])
+        XCTAssertEqual(
+            graph.actions.map { $0.sourceItem.threadID },
+            [ThreadID("a"), ThreadID("z")]
+        )
+    }
 }
 
 extension CodexThreadGraphTests {
