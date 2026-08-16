@@ -74,24 +74,25 @@ public actor CodexPromptLibrary {
 
     static func parse(content: String, name: String, path: String) -> CodexPromptLibraryEntry {
         let parsed = frontMatter(in: content)
-        let description = parsed.values["description"]?.nilIfBlank ?? "Personal prompt"
+        let description = parsed.description?.nilIfBlank ?? "Personal prompt"
         return CodexPromptLibraryEntry(
             name: name,
             description: description,
-            argumentHint: parsed.values["argument-hint"]?.nilIfBlank,
+            argumentHint: parsed.argumentHint?.nilIfBlank,
             body: parsed.body.trimmingCharacters(in: .whitespacesAndNewlines),
             path: path
         )
     }
 
-    private static func frontMatter(in content: String) -> (values: [String: String], body: String) {
+    private static func frontMatter(in content: String) -> (description: String?, argumentHint: String?, body: String) {
         let lines = content.components(separatedBy: .newlines)
         guard lines.first == "---",
               let closing = lines.dropFirst().firstIndex(of: "---") else {
-            return ([:], content)
+            return (nil, nil, content)
         }
 
-        var values: [String: String] = [:]
+        var description: String?
+        var argumentHint: String?
         for line in lines[1..<closing] {
             guard let separator = line.firstIndex(of: ":") else { continue }
             let key = line[..<separator].trimmingCharacters(in: .whitespaces).lowercased()
@@ -101,10 +102,14 @@ public actor CodexPromptLibrary {
                 value.removeFirst()
                 value.removeLast()
             }
-            values[key] = value
+            switch key {
+            case "description": description = value
+            case "argument-hint": argumentHint = value
+            default: continue
+            }
         }
         let bodyStart = lines.index(after: closing)
-        return (values, lines[bodyStart...].joined(separator: "\n"))
+        return (description, argumentHint, lines[bodyStart...].joined(separator: "\n"))
     }
 }
 

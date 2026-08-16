@@ -105,6 +105,34 @@ final class CodexPromptLibraryTests: XCTestCase {
         ])
     }
 
+    func testPromptFrontMatterPreservesLastKnownValuesAndIgnoresMalformedFields() async throws {
+        let fileSystem = TestRemoteFileSystem(
+            directories: [
+                "/home/codex": [.directory("prompts")],
+                "/home/codex/prompts": [.file("review.md")]
+            ],
+            files: [
+                "/home/codex/prompts/review.md": Data("""
+                ---
+                DESCRIPTION: First description
+                ignored metadata: not projected
+                malformed metadata
+                description: Final description
+                ARGUMENT-HINT: "[focus]"
+                argument-hint: '[last]'
+                ---
+                Review the changes.
+                """.utf8)
+            ]
+        )
+
+        let prompts = try await CodexPromptLibrary(fileSystem: fileSystem).load(codexHome: "/home/codex")
+
+        XCTAssertEqual(prompts.first?.description, "Final description")
+        XCTAssertEqual(prompts.first?.argumentHint, "[last]")
+        XCTAssertEqual(prompts.first?.body, "Review the changes.")
+    }
+
     func testMissingPromptDirectoryProducesEmptyLibrary() async throws {
         let fileSystem = TestRemoteFileSystem(directories: ["/home/codex": []], files: [:])
 
