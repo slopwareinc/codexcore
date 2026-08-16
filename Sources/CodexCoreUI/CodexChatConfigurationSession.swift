@@ -347,10 +347,10 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         }()
 
         let (
-            permissionProfiles,
-            collaborationModes,
-            modelOptions,
-            slashCommands
+            permissionProfilesResult,
+            collaborationModesResult,
+            modelOptionsResult,
+            slashCommandsResult
         ) = await (
             permissionProfiles,
             collaborationModes,
@@ -359,7 +359,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         )
 
         let permissionActivity: CodexChatConfigurationActivity
-        switch permissionProfiles {
+        switch permissionProfilesResult {
         case .success(let raw):
             permissionActivity = applyPermissionProfileResponse(raw)
         case .failure(let error):
@@ -367,7 +367,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         }
 
         let collaborationActivity: CodexChatConfigurationActivity
-        switch collaborationModes {
+        switch collaborationModesResult {
         case .success(let raw):
             collaborationActivity = applyCollaborationModeResponse(raw)
         case .failure(let error):
@@ -375,7 +375,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         }
 
         let modelActivity: CodexChatConfigurationActivity
-        switch modelOptions {
+        switch modelOptionsResult {
         case .success(let response):
             modelActivity = applyModelResponse(response)
         case .failure(let error):
@@ -383,7 +383,7 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         }
 
         let slashActivity: CodexChatConfigurationActivity
-        switch slashCommands {
+        switch slashCommandsResult {
         case .success(let raw):
             slashActivity = applySlashCommandResponse(raw)
         case .failure(let error):
