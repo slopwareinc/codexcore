@@ -323,13 +323,13 @@ struct CodexTranscriptRenderSnapshot: @unchecked Sendable {
     var threadID: String
     var sectionIDs: [String]
     var itemIDsBySection: [String: [CodexTranscriptRenderItemID]]
+    /// The flattened display order is shared by collection, find, and minimap
+    /// paths. Keep it with the immutable snapshot so repeated reads do not
+    /// allocate and flatten every section again.
+    let orderedItemIDs: [CodexTranscriptRenderItemID]
     var itemsByID: [CodexTranscriptRenderItemID: CodexTranscriptRenderItem]
     var changedItemIDs: Set<CodexTranscriptRenderItemID>
     var diagnostics: CodexTranscriptRenderDiagnostics
-
-    var orderedItemIDs: [CodexTranscriptRenderItemID] {
-        sectionIDs.flatMap { itemIDsBySection[$0] ?? [] }
-    }
 }
 
 struct CodexTranscriptAppKitTheme: @unchecked Sendable {
@@ -1055,6 +1055,11 @@ actor CodexTranscriptRenderProjector {
         })
         previousBlocksBySourceID = previousBlocksBySourceID.filter { liveSourcePrefixes.contains($0.key) }
         sourceTextBySourceID = sourceTextBySourceID.filter { liveSourcePrefixes.contains($0.key) }
+        var orderedItemIDs: [CodexTranscriptRenderItemID] = []
+        orderedItemIDs.reserveCapacity(itemsByID.count)
+        for sectionID in sections {
+            orderedItemIDs.append(contentsOf: itemIDsBySection[sectionID] ?? [])
+        }
         projectionCount += 1
         let elapsed = startedAt.duration(to: .now)
         let milliseconds = Double(elapsed.components.seconds) * 1_000
@@ -1074,6 +1079,7 @@ actor CodexTranscriptRenderProjector {
             threadID: presentation.threadID,
             sectionIDs: sections,
             itemIDsBySection: itemIDsBySection,
+            orderedItemIDs: orderedItemIDs,
             itemsByID: itemsByID,
             changedItemIDs: changedIDs,
             diagnostics: diagnostics
