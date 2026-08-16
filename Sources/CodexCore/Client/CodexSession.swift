@@ -600,6 +600,61 @@ public actor CodexSession:
         }
     }
 
+    /// Ordered retention storage with constant-time head eviction. Consumed
+    /// prefixes are periodically reclaimed so repeated bounded churn cannot
+    /// retain an ever-growing backing array.
+    private struct IndexedRetentionOrder<Element> {
+        private var storage: [Element] = []
+        private var head = 0
+
+        var count: Int { storage.count - head }
+
+        mutating func append(_ element: Element) {
+            storage.append(element)
+        }
+
+        mutating func removeFirst() -> Element? {
+            guard head < storage.count else { return nil }
+            let element = storage[head]
+            head += 1
+            reclaimConsumedPrefix()
+            return element
+        }
+
+        mutating func removeAll(where shouldRemove: (Element) -> Bool) {
+            guard head < storage.count else { return }
+
+            var writeIndex = head
+            for readIndex in head..<storage.count {
+                let element = storage[readIndex]
+                guard !shouldRemove(element) else { continue }
+                if writeIndex != readIndex {
+                    storage[writeIndex] = element
+                }
+                writeIndex += 1
+            }
+
+            if writeIndex == head {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else {
+                storage.removeSubrange(writeIndex..<storage.count)
+                reclaimConsumedPrefix()
+            }
+        }
+
+        private mutating func reclaimConsumedPrefix() {
+            guard head > 0 else { return }
+            if head == storage.count {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else if head >= 32, head * 2 >= storage.count {
+                storage.removeSubrange(0..<head)
+                head = 0
+            }
+        }
+    }
+
     private struct BufferedEnvelope: Sendable {
         let cursor: CodexWireCursor
         let envelope: CodexJSONRPCEnvelope
@@ -694,13 +749,13 @@ public actor CodexSession:
     private var historyWaiters: [ThreadID: [UInt64: HistoryWaiter]] = [:]
     private var loginWaiters: [CodexLoginKey: [UInt64: CheckedContinuation<CodexLoginCompletion, Error>]] = [:]
     private var retainedLoginCompletions: [CodexLoginKey: CodexLoginCompletion] = [:]
-    private var retainedLoginOrder: [CodexLoginKey] = []
+    private var retainedLoginOrder = IndexedRetentionOrder<CodexLoginKey>()
     private var activeLoginKeys: Set<CodexLoginKey> = []
     private var anonymousLoginRequestEpochs: Set<UInt64> = []
     private var resumeGenerationByThread: [ThreadID: UInt64] = [:]
     private var threadAttentionRevisions: [ThreadID: StateRevision] = [:]
     private var threadLiveAgentMessageRevisions: [ThreadID: StateRevision] = [:]
-    private var unleasedThreadDetailLRU: [ThreadID] = []
+    private var unleasedThreadDetailLRU = IndexedRetentionOrder<ThreadID>()
 
     public init(
         transport: any CodexFrameTransport,
@@ -3407,7 +3462,7 @@ private extension CodexSession {
         while retainedLoginOrder.count
                 > configuration.maximumRetainedLoginCompletions
         {
-            let evicted = retainedLoginOrder.removeFirst()
+            guard let evicted = retainedLoginOrder.removeFirst() else { break }
             retainedLoginCompletions.removeValue(forKey: evicted)
         }
 
@@ -3726,7 +3781,7 @@ private extension CodexSession {
 
         while unleasedThreadDetailLRU.count
             > configuration.maximumRetainedUnleasedThreadDetails {
-            let threadID = unleasedThreadDetailLRU.removeFirst()
+            guard let threadID = unleasedThreadDetailLRU.removeFirst() else { break }
             guard isWarmUnleasedThreadDetail(threadID) else { continue }
             try commit(.threadDetailEvicted(threadID))
         }
