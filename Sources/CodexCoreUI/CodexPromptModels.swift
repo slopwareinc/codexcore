@@ -499,7 +499,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 threadId: scope.threadID,
                 turnId: scope.turnID,
                 itemId: scope.itemID,
-                questions: Self.elicitationQuestions(from: mode),
+                questions: Self.elicitationQuestions(from: mode, supported: supported),
                 mcpElicitationMode: mode,
                 createdAt: createdAt
             )
@@ -603,9 +603,10 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
     }
 
     private static func elicitationQuestions(
-        from mode: CodexMCPElicitationMode
+        from mode: CodexMCPElicitationMode,
+        supported: Bool
     ) -> [CodexUserInputQuestion] {
-        guard isSupportedElicitationMode(mode) else { return [] }
+        guard supported else { return [] }
         let schemaValue: CodexJSONValue
         switch mode {
         case .form(let value), .openAIForm(let value): schemaValue = value
