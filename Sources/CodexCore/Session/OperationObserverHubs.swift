@@ -194,34 +194,31 @@ struct CodexProcessObserverHub {
         case .exited(let exited): processHandle = exited.processHandle
         }
         let key = Key(connectionEpoch: connectionEpoch, processHandle: processHandle)
-        let matches = entries.filter { $0.value.key == key }
-        var delivered = 0
-        var terminated: [UInt64] = []
-        for (id, entry) in matches {
-            switch entry.continuation.yield(event) {
-            case .enqueued:
-                delivered += 1
-            case .dropped:
-                entries.removeValue(forKey: id)
-                entry.continuation.finish(throwing: CodexProcessObserverError.bufferOverflow(
-                    processHandle: processHandle,
-                    maximumEventCount: entry.maximumEventCount
-                ))
-            case .terminated:
-                terminated.append(id)
-            @unknown default:
-                terminated.append(id)
-            }
+        // `observe` rejects duplicate keys, so at most one active observer can
+        // match this event. Avoid copying and then rescanning the whole table.
+        guard let (id, entry) = entries.first(where: { $0.value.key == key }) else {
+            return 0
         }
-        for id in terminated {
-            entries.removeValue(forKey: id)
-        }
-        if case .exited = event {
-            for (id, entry) in entries where entry.key == key {
+        switch entry.continuation.yield(event) {
+        case .enqueued:
+            if case .exited = event {
                 entries.removeValue(forKey: id)?.continuation.finish()
             }
+            return 1
+        case .dropped:
+            entries.removeValue(forKey: id)
+            entry.continuation.finish(throwing: CodexProcessObserverError.bufferOverflow(
+                processHandle: processHandle,
+                maximumEventCount: entry.maximumEventCount
+            ))
+            return 0
+        case .terminated:
+            entries.removeValue(forKey: id)
+            return 0
+        @unknown default:
+            entries.removeValue(forKey: id)
+            return 0
         }
-        return delivered
     }
 
     @discardableResult

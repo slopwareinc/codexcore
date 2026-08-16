@@ -242,6 +242,15 @@ final class SessionOperationPrimitivesTests: XCTestCase {
             connectionEpoch: 2,
             processHandle: "process"
         )
+        XCTAssertThrowsError(try processHub.observe(
+            connectionEpoch: 2,
+            processHandle: "process"
+        )) { error in
+            XCTAssertEqual(
+                error as? CodexProcessObserverError,
+                .duplicateActiveProcess(connectionEpoch: 2, processHandle: "process")
+            )
+        }
         let output = CodexSchemaProcessOutputDeltaNotification(
             capReached: false,
             deltaBase64: "aGVsbG8=",
@@ -271,6 +280,7 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertEqual(processIteratorValue2, .exited(exited))
         let processIteratorValue3 = try await processIterator.next()
         XCTAssertNil(processIteratorValue3)
+        XCTAssertEqual(processHub.observerCount, 0)
 
         var fuzzyHub = CodexFuzzyFileSearchObserverHub()
         let fuzzyObservation = fuzzyHub.observe(connectionEpoch: 8, sessionID: "search")
