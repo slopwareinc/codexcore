@@ -643,6 +643,34 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(reducer.bufferedOrphanUTF8ByteCount, 0)
     }
 
+    func testOrphanBufferHighChurnKeepsNewestPerItemDeltasInOrder() throws {
+        let perItemLimit = 256
+        var reducer = CanonicalStateReducer(configuration: .init(
+            maximumOrphanDeltaCount: perItemLimit,
+            maximumOrphanUTF8Bytes: 1_000_000,
+            maximumOrphanDeltasPerItem: perItemLimit
+        ))
+        var graph = CanonicalStateGraph()
+        let key = itemKey()
+
+        for index in 0..<(perItemLimit * 4) {
+            _ = reducer.apply(
+                .itemDelta(key: key, delta: .agentMessage("delta-\(index)")),
+                to: &graph
+            )
+        }
+
+        XCTAssertEqual(reducer.bufferedOrphanDeltaCount, perItemLimit)
+        _ = reducer.apply(.itemStarted(item(key)), to: &graph)
+
+        XCTAssertEqual(
+            graph.items[key]?.liveOverlay.agentMessage.chunks,
+            (perItemLimit * 3..<(perItemLimit * 4)).map { "delta-\($0)" }
+        )
+        XCTAssertEqual(reducer.bufferedOrphanDeltaCount, 0)
+        XCTAssertEqual(reducer.bufferedOrphanUTF8ByteCount, 0)
+    }
+
     func testUserMessageEchoReconcilesIntentByClientIdentifier() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()
