@@ -101,6 +101,7 @@ final class CodexCoreAppModel {
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
     private var pendingSteerSubmissions: [CodexComposerSubmission] = []
+    private var pendingSteerSubmissionHead = 0
     private var isProcessingSteerSubmissions = false
     private var processActivityTokens: [String: NSObjectProtocol] = [:]
     private var announcedNotificationPromptIDs: Set<CodexServerRequestKey> = []
@@ -538,10 +539,13 @@ final class CodexCoreAppModel {
             flushQueuedFollowUps()
         }
 
-        while !pendingSteerSubmissions.isEmpty {
-            let next = pendingSteerSubmissions.removeFirst()
+        while pendingSteerSubmissionHead < pendingSteerSubmissions.count {
+            let next = pendingSteerSubmissions[pendingSteerSubmissionHead]
+            pendingSteerSubmissionHead += 1
             await processSteerSubmission(next)
         }
+        pendingSteerSubmissions.removeAll(keepingCapacity: true)
+        pendingSteerSubmissionHead = 0
     }
 
     private func processSteerSubmission(_ submission: CodexComposerSubmission) async {
