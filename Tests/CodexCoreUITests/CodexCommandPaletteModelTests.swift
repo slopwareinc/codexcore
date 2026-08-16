@@ -58,6 +58,26 @@ final class CodexCommandPaletteModelTests: XCTestCase {
         XCTAssertTrue(rows[1].accessibilityLabel.contains("validation-project"))
     }
 
+    func testTypedPaletteAssignsChatShortcutsOnlyToMatchingResults() throws {
+        let results = [
+            searchResult(id: "thread-unrelated", title: "Unrelated chat", snippet: "Nothing relevant", path: "/repo/other"),
+            searchResult(id: "thread-first", title: "First validation chat", snippet: "Matching result", path: "/repo/validation"),
+            searchResult(id: "thread-second", title: "Second validation chat", snippet: "Another matching result", path: "/repo/validation")
+        ]
+
+        let model = CodexCommandPaletteModel(
+            query: "validation",
+            commandRows: [],
+            chatResults: results,
+            isLoading: false,
+            errorMessage: nil
+        )
+
+        let rows = try XCTUnwrap(model.sections.first?.rows)
+        XCTAssertEqual(rows.map(\.id), ["chat-thread-first", "chat-thread-second"])
+        XCTAssertEqual(rows.map(\.shortcutBadge), ["⌘1", "⌘2"])
+    }
+
     func testTypedPaletteCanReturnCommandMatchesWithoutChatResults() {
         let model = CodexCommandPaletteModel(
             query: "plugin",

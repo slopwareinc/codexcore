@@ -187,22 +187,7 @@ public struct CodexCommandPaletteModel: Equatable, Sendable {
 
         let matchingCommands = Self.matchingCommands(commandRows, query: trimmed)
         let needle = trimmed.localizedLowercase
-        let chatRows = chatResults
-            .filter { result in
-                let searchable = [
-                    result.thread.title,
-                    result.thread.detail,
-                    result.thread.workspacePath,
-                    result.snippet
-                ]
-                .compactMap { $0?.localizedLowercase }
-                .joined(separator: " ")
-                return searchable.contains(needle)
-            }
-            .enumerated()
-            .map { offset, result in
-            Self.chatRow(result, index: offset)
-        }
+        let chatRows = Self.matchingChatRows(chatResults, needle: needle)
         var typedSections: [CodexCommandPaletteSection] = []
         if !matchingCommands.isEmpty {
             typedSections.append(CodexCommandPaletteSection(title: "Commands", rows: matchingCommands))
@@ -285,5 +270,28 @@ public struct CodexCommandPaletteModel: Equatable, Sendable {
                 row.detail.lowercased().contains(needle) ||
                 row.category.lowercased().contains(needle)
         }
+    }
+
+    private static func matchingChatRows(
+        _ chatResults: [CodexThreadSearchResult],
+        needle: String
+    ) -> [CodexCommandPaletteRow] {
+        var rows: [CodexCommandPaletteRow] = []
+        rows.reserveCapacity(chatResults.count)
+
+        for result in chatResults {
+            let searchable = [
+                result.thread.title,
+                result.thread.detail,
+                result.thread.workspacePath,
+                result.snippet
+            ]
+            .compactMap { $0?.localizedLowercase }
+            .joined(separator: " ")
+            guard searchable.contains(needle) else { continue }
+
+            rows.append(Self.chatRow(result, index: rows.count))
+        }
+        return rows
     }
 }
