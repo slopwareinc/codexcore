@@ -186,6 +186,36 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         }
     }
 
+    func testRealtimeHubIndexRemovesCancelledObserversAndRetainsMatchingSiblings() async throws {
+        var hub = CodexRealtimeObserverHub()
+        let cancelled = hub.observe(connectionEpoch: 7, threadID: "voice")
+        let retained = hub.observe(connectionEpoch: 7, threadID: "voice")
+        _ = hub.observe(connectionEpoch: 7, threadID: "other")
+        XCTAssertTrue(hub.cancel(cancelled.id))
+
+        let event = CodexRealtimeEvent.transcriptDone(.init(
+            role: "assistant",
+            text: "Ready",
+            threadID: "voice"
+        ))
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: event), 1)
+
+        var cancelledIterator = cancelled.events.makeAsyncIterator()
+        do {
+            _ = try await cancelledIterator.next()
+            XCTFail("Cancelled realtime stream should fail")
+        } catch is CancellationError {
+            // Expected.
+        }
+
+        var retainedIterator = retained.events.makeAsyncIterator()
+        let received = try await retainedIterator.next()
+        XCTAssertEqual(received, event)
+
+        XCTAssertEqual(hub.disconnect(connectionEpoch: 7), 2)
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: event), 0)
+    }
+
     func testOperationHubsRouteKeyedEventsAndTearDownByEpoch() async throws {
         var fileHub = CodexFSChangeObserverHub()
         let fileObservation = fileHub.observe(connectionEpoch: 4, watchID: "watch")
