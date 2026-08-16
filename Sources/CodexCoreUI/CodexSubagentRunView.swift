@@ -203,24 +203,44 @@ struct CodexSubagentRunSummary: Equatable {
     ) -> [Milestone] {
         var rows: [Milestone] = []
 
-        let spawnEvents = events.filter { isSpawnEvent($0) }
-        if !spawnEvents.isEmpty {
-            let isStarted = spawnEvents.contains { $0.status != .spawning || $0.title.hasPrefix("Spawned ") }
+        var hasSpawn = false
+        var hasStartedSpawn = false
+        var hasWaitComplete = false
+        var lastWaitingTitle: String?
+        var lastFailedTitle: String?
+        for event in events {
+            if isSpawnEvent(event) {
+                hasSpawn = true
+                hasStartedSpawn = hasStartedSpawn
+                    || event.status != .spawning
+                    || event.title.hasPrefix("Spawned ")
+            }
+            if isWaitCompleteEvent(event) {
+                hasWaitComplete = true
+            } else if isWaitEvent(event) {
+                lastWaitingTitle = event.title
+            }
+            if event.status == .failed {
+                lastFailedTitle = event.title
+            }
+        }
+
+        if hasSpawn {
             rows.append(Milestone(
                 id: "spawn",
-                status: isStarted ? .completed : .spawning,
-                title: isStarted ? "Spawned \(agentLabel(names: names, count: count))" : "Starting \(agentLabel(names: names, count: count))"
+                status: hasStartedSpawn ? .completed : .spawning,
+                title: hasStartedSpawn ? "Spawned \(agentLabel(names: names, count: count))" : "Starting \(agentLabel(names: names, count: count))"
             ))
         }
 
-        if events.contains(where: isWaitCompleteEvent) {
+        if hasWaitComplete {
             rows.append(Milestone(id: "wait-complete", status: .completed, title: "Received agent output"))
-        } else if let waiting = events.last(where: isWaitEvent) {
-            rows.append(Milestone(id: "wait", status: .running, title: normalizedDetailTitle(waiting.title)))
+        } else if let lastWaitingTitle {
+            rows.append(Milestone(id: "wait", status: .running, title: normalizedDetailTitle(lastWaitingTitle)))
         }
 
-        if let failed = events.last(where: { $0.status == .failed }) {
-            rows.append(Milestone(id: "failed", status: .failed, title: normalizedDetailTitle(failed.title)))
+        if let lastFailedTitle {
+            rows.append(Milestone(id: "failed", status: .failed, title: normalizedDetailTitle(lastFailedTitle)))
         }
 
         if rows.isEmpty, let latest = events.last {
