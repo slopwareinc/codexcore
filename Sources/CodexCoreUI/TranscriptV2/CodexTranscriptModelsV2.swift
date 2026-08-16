@@ -322,6 +322,14 @@ extension CodexCollabAgentRowV2 {
              }
          }()
     }
+
+    /// Message order used by expanded transcript details. Named agents retain
+    /// source order and duplicates; only otherwise-unlisted agents are sorted.
+    var orderedMessageAgentNames: [String] {
+        let namedAgents = Set(agentNames)
+        return agentNames.filter { agentMessages[$0] != nil }
+            + agentMessages.keys.filter { !namedAgents.contains($0) }.sorted()
+    }
 }
 
 private extension CodexWorkItemStatusV2 {

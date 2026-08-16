@@ -361,6 +361,27 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(CodexProductToolPresentationV2.label(tool) == "Create issue")
     }
 
+    @Test func collabDetailKeepsNamedOrderAndDuplicateNames() {
+        let row = CodexWorkRowV2.collabAgent(.init(
+            id: "collab-detail",
+            action: .waited,
+            agentNames: ["Reviewer", "Reviewer", "Planner"],
+            instructions: nil,
+            agentMessages: [
+                "Planner": "planned",
+                "Reviewer": "reviewed",
+                "Unlisted": "reported",
+            ],
+            status: .completed
+        ))
+
+        guard case .collabAgent(let value) = row else {
+            Issue.record("Expected collab-agent row")
+            return
+        }
+        #expect(value.orderedMessageAgentNames == ["Reviewer", "Reviewer", "Planner", "Unlisted"])
+    }
+
     @Test func completedActivitySummaryUsesOfficialCategoryOrderAndPhrasing() {
         func command(
             _ id: String,

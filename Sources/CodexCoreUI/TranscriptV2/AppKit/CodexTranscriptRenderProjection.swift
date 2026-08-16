@@ -2289,8 +2289,7 @@ private extension CodexTranscriptRenderProjector {
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
-            let ordered = value.agentNames.filter { value.agentMessages[$0] != nil }
-                + value.agentMessages.keys.filter { !value.agentNames.contains($0) }.sorted()
+            let ordered = value.orderedMessageAgentNames
             let replies = ordered.compactMap { agent in
                 value.agentMessages[agent].map { "\(agent)\n\($0)" }
             }.joined(separator: "\n\n")
