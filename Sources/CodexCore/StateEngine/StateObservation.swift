@@ -111,10 +111,20 @@ struct StateInvalidation: Sendable, Hashable {
         turnKeys: Set<TurnKey> = [],
         itemKeys: Set<ItemKey> = []
     ) {
+        // Normalize descendant indexes once so scope matching can stay at set
+        // intersection speed. Callers may provide only item or turn keys while
+        // thread and turn observers still need to include their descendants.
+        var normalizedThreadIDs = threadIDs
+        normalizedThreadIDs.formUnion(turnKeys.lazy.map(\.threadID))
+        normalizedThreadIDs.formUnion(itemKeys.lazy.map(\.threadID))
+
+        var normalizedTurnKeys = turnKeys
+        normalizedTurnKeys.formUnion(itemKeys.lazy.map(\.turnKey))
+
         self.revision = revision
         self.fields = fields
-        self.threadIDs = threadIDs
-        self.turnKeys = turnKeys
+        self.threadIDs = normalizedThreadIDs
+        self.turnKeys = normalizedTurnKeys
         self.itemKeys = itemKeys
     }
 
@@ -158,12 +168,9 @@ struct StateInvalidation: Sendable, Hashable {
         case .threads(let observed):
             guard !observed.isEmpty else { return false }
             return !threadIDs.isDisjoint(with: observed)
-                || turnKeys.contains { observed.contains($0.threadID) }
-                || itemKeys.contains { observed.contains($0.threadID) }
         case .turns(let observed):
             guard !observed.isEmpty else { return false }
             return !turnKeys.isDisjoint(with: observed)
-                || itemKeys.contains { observed.contains($0.turnKey) }
         case .items(let observed):
             return !observed.isEmpty && !itemKeys.isDisjoint(with: observed)
         }
