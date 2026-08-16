@@ -107,6 +107,11 @@ final class CodexPreferenceStorageTests: XCTestCase {
             store.loadStrings(forKey: CodexUnreadThreadStorage.key),
             ["thread-a", "thread-b"]
         )
+        XCTAssertEqual(
+            store.loadCount(forKey: CodexUnreadThreadStorage.key),
+            4,
+            "Unread migration should reuse its initial current-key read (including the final verification read)"
+        )
     }
 
     func testSelectedThreadIDPersistsAndCanBeCleared() {
@@ -136,6 +141,7 @@ private final class FailureRecorder: @unchecked Sendable {
 private final class PreferenceStore: CodexStringListPreferenceStore, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: [String]]
+    private var loadCounts: [String: Int] = [:]
     var rejectedKeys: Set<String> = []
 
     init(values: [String: [String]] = [:]) {
@@ -143,7 +149,14 @@ private final class PreferenceStore: CodexStringListPreferenceStore, @unchecked 
     }
 
     func loadStrings(forKey key: String) -> [String] {
-        lock.withLock { values[key] ?? [] }
+        lock.withLock {
+            loadCounts[key, default: 0] += 1
+            return values[key] ?? []
+        }
+    }
+
+    func loadCount(forKey key: String) -> Int {
+        lock.withLock { loadCounts[key, default: 0] }
     }
 
     func saveStrings(_ strings: [String], forKey key: String) {
