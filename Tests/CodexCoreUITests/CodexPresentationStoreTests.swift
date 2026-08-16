@@ -423,6 +423,34 @@ struct CodexPresentationStoreTests {
         #expect(store.activePresentation?.rawScrollOffset == 0)
         #expect(store.activePresentation?.isPinnedToBottom == true)
     }
+
+    @Test func memoizesUnreadAttentionRevisionUntilSnapshotChanges() async throws {
+        let source = PresentationStateFixture(
+            initial: sessionState(revision: 1, text: "Answer", turnRevision: 1)
+        )
+        let store = CodexPresentationStore(
+            adapter: adapter(source),
+            coalescingInterval: .milliseconds(5)
+        )
+        store.select(threadID: "thread")
+        try await eventually { store.activePresentation?.transcript.turns.count == 1 }
+
+        for _ in 0..<100 {
+            _ = store.hasUnreadAttention(for: "thread")
+            store.markSeen(threadID: "thread")
+        }
+
+        #expect(store.diagnostics.attentionRevisionCacheMissCount == 1)
+
+        await source.install(
+            sessionState(revision: 2, text: "Updated", turnRevision: 2),
+            change: change(revision: 2, fields: .itemContent)
+        )
+        try await eventually { store.observedRevision == StateRevision(2) }
+        store.markSeen(threadID: "thread")
+
+        #expect(store.diagnostics.attentionRevisionCacheMissCount == 2)
+    }
 }
 
 private actor PresentationStateFixture: CodexSessionStateObserving {
