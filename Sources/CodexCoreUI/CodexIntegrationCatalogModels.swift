@@ -723,22 +723,25 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     public static func plugins(from response: CodexJSONValue) -> [CodexPluginSummary] {
         let featuredIDs = featuredPluginIDs(from: response)
-        return marketplaces(from: response)
-            .flatMap { marketplace in
-                marketplace.plugins.compactMap { CodexPluginSummary(raw: $0, marketplace: marketplace.context) }
-            }
-            .map { plugin in
-                var plugin = plugin
+        let marketplaceEntries = marketplaces(from: response)
+        var plugins: [CodexPluginSummary] = []
+        plugins.reserveCapacity(marketplaceEntries.reduce(0) { $0 + $1.plugins.count })
+        for marketplace in marketplaceEntries {
+            for rawPlugin in marketplace.plugins {
+                guard var plugin = CodexPluginSummary(raw: rawPlugin, marketplace: marketplace.context) else {
+                    continue
+                }
                 plugin.isFeatured = featuredIDs.contains(plugin.protocolID)
                     || featuredIDs.contains(plugin.id)
                     || featuredIDs.contains(plugin.name)
-                return plugin
+                plugins.append(plugin)
             }
-            .sorted { lhs, rhs in
-                if lhs.installed != rhs.installed { return lhs.installed && !rhs.installed }
-                if lhs.enabled != rhs.enabled { return lhs.enabled && !rhs.enabled }
-                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }
+        }
+        return plugins.sorted { lhs, rhs in
+            if lhs.installed != rhs.installed { return lhs.installed && !rhs.installed }
+            if lhs.enabled != rhs.enabled { return lhs.enabled && !rhs.enabled }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
     }
 
     private static func featuredPluginIDs(from response: CodexJSONValue) -> Set<String> {

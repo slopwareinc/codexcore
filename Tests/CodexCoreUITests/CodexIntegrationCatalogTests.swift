@@ -346,6 +346,33 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         )
     }
 
+    func testPluginCatalogSkipsMalformedEntriesAndMarksFeaturedPlugins() {
+        let response: CodexJSONValue = .dictionary([
+            "marketplaces": .array([
+                .dictionary([
+                    "name": .string("local"),
+                    "plugins": .array([
+                        .dictionary([
+                            "authPolicy": .string("ON_USE"),
+                            "enabled": .bool(false),
+                            "id": .string("valid"),
+                            "installPolicy": .string("AVAILABLE"),
+                            "installed": .bool(false),
+                            "name": .string("valid")
+                        ]),
+                        .string("malformed")
+                    ])
+                ])
+            ]),
+            "featuredPluginIds": .array([.string("valid")])
+        ])
+
+        let plugins = CodexPluginSummary.plugins(from: response)
+
+        XCTAssertEqual(plugins.map(\.id), ["local:valid"])
+        XCTAssertTrue(plugins[0].isFeatured)
+    }
+
     func testPluginSummaryResolvesRelativeManifestIconsAgainstPublishedSourcePath() throws {
         let raw: CodexJSONValue = .dictionary([
             "id": .string("gmail@openai-curated-remote"),
