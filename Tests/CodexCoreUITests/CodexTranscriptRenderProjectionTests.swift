@@ -167,6 +167,23 @@ struct CodexTranscriptRenderProjectionTests {
         ])
     }
 
+    @Test func fileCitationLinksRoundTripAndKeepFirstQueryValues() throws {
+        let reference = CodexTranscriptFileReference(
+            path: "Sources/CodexCoreUI/View.swift",
+            line: 42,
+            column: 7
+        )
+        let url = try #require(CodexTranscriptFileCitationLink.url(for: reference))
+        #expect(CodexTranscriptFileCitationLink.reference(from: url) == reference)
+
+        let duplicate = try #require(URL(string: "codex-file://workspace?path=first.swift&path=second.swift&line=42&line=99&column=7"))
+        #expect(CodexTranscriptFileCitationLink.reference(from: duplicate) == .init(
+            path: "first.swift",
+            line: 42,
+            column: 7
+        ))
+    }
+
     @Test func workspaceFileNavigationRejectsMissingAndEscapingPaths() {
         let workspace = URL(fileURLWithPath: "/tmp/project")
         let existing = Set([

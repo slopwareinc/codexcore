@@ -72,11 +72,31 @@ enum CodexTranscriptFileCitationLink {
         else { url = nil }
         guard let url, url.scheme == "codex-file",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let path = components.queryItems?.first(where: { $0.name == "path" })?.value
+              let queryItems = components.queryItems
         else { return nil }
-        let line = components.queryItems?.first(where: { $0.name == "line" })?.value.flatMap(Int.init)
-        let column = components.queryItems?.first(where: { $0.name == "column" })?.value.flatMap(Int.init)
-        return .init(path: path, line: line, column: column)
+        var path: String?
+        var line: String?
+        var column: String?
+        var sawPath = false
+        var sawLine = false
+        var sawColumn = false
+        for item in queryItems {
+            switch item.name {
+            case "path" where !sawPath:
+                path = item.value
+                sawPath = true
+            case "line" where !sawLine:
+                line = item.value
+                sawLine = true
+            case "column" where !sawColumn:
+                column = item.value
+                sawColumn = true
+            default:
+                continue
+            }
+        }
+        guard let path else { return nil }
+        return .init(path: path, line: line.flatMap(Int.init), column: column.flatMap(Int.init))
     }
 }
 
