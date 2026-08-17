@@ -43,9 +43,9 @@ Run the app against a representative long transcript before `just trace`. Preser
 
 1. Complete the exact-runtime upgrade and local verification matrix.
 2. Update `Tools/UPSTREAM_VERSION`, compatibility docs, and the CodexCore version.
-3. Generate the release bundle with a Developer ID identity, injected Sparkle feed/public key, and a monotonically increasing `CODEXCORE_BUILD_NUMBER` if the Git commit count is not suitable.
-4. Enable notarization and appcast generation using the credential/profile variables documented in [Run the reference app](../getting-started/run-the-app.md), then publish the generated archive and appcast together.
+3. Generate the release bundle with a Developer ID identity and a monotonically increasing `CODEXCORE_BUILD_NUMBER` if the Git commit count is not suitable.
+4. Enable notarization using the credential/profile variables documented in [Run the reference app](../getting-started/run-the-app.md), then publish the notarized archive.
 5. Merge the issue-linked PR from a dedicated `codex/…` branch.
 6. Tag the merge as `v<codex-cli>+codexcore.<version>` and publish release notes covering compatibility and limitations.
 
-The non-credentialed packaging path and code signature are locally verifiable. A release operator with access to the Apple notary profile and Sparkle private key must verify notarization acceptance, stapling, update signatures, and a real update installation before publishing.
+The non-credentialed packaging path and code signature are locally verifiable. A release operator with access to the Apple notary profile must verify notarization acceptance and stapling before publishing.

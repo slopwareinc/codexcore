@@ -24,7 +24,7 @@ just run
 
 ## Build a macOS application bundle
 
-`swift run` launches an unbundled development executable. To produce a registered Finder/Dock app with `Info.plist`, icon, hardened-runtime signature, and Sparkle framework:
+`swift run` launches an unbundled development executable. To produce a registered Finder/Dock app with `Info.plist`, icon, and hardened-runtime signature:
 
 ```bash
 ./scripts/package-app.sh --release
@@ -43,17 +43,7 @@ notarization.
 
 CodexCore is intentionally not App Sandbox-enabled because Codex workflows launch the selected Codex runtime and arbitrary user-approved subprocesses. Its hardened-runtime entitlements are limited to microphone input, speech recognition, and outbound network access.
 
-## Updates, notarization, and appcasts
-
-The checked-in Sparkle feed URL and Ed25519 public key are inert placeholders. A distributable build must inject real public configuration:
-
-```bash
-CODEXCORE_UPDATE_FEED_URL=https://downloads.example.com/codexcore/appcast.xml \
-CODEXCORE_SPARKLE_PUBLIC_KEY='<public key from generate_keys>' \
-./scripts/package-app.sh --release
-```
-
-Download Sparkle's release tools or locate them in the SwiftPM artifact, then run `generate_keys` once. It stores the private update-signing key in the login Keychain and prints the public key; never commit or expose the private key. Every update must retain the matching public key in its packaged `Info.plist`.
+## Notarization
 
 Notarization is opt-in. Store Apple credentials in a Keychain profile once, then pass only the profile name to the packager:
 
@@ -69,20 +59,6 @@ CODEXCORE_NOTARY_KEYCHAIN_PROFILE=codexcore-notary \
 ```
 
 When the profile variable is present, the script submits the zip with `notarytool`, waits for acceptance, staples and validates the app, then recreates the zip with the stapled bundle. Without it, notarization is skipped cleanly.
-
-Appcast generation is independently opt-in. The destination should contain the retained prior release archives so Sparkle can generate deltas:
-
-```bash
-CODEXCORE_UPDATE_FEED_URL=https://downloads.example.com/codexcore/appcast.xml \
-CODEXCORE_SPARKLE_PUBLIC_KEY='<public key from generate_keys>' \
-CODEXCORE_GENERATE_APPCAST=/absolute/path/to/generate_appcast \
-CODEXCORE_APPCAST_DIRECTORY=/absolute/path/to/publish-directory \
-./scripts/package-app.sh --release
-```
-
-The tool copies the new archive into that directory and runs `generate_appcast`; the Sparkle private key must already be available to the tool through Keychain. Production releases should enable notarization and appcast generation together. This repository cannot verify either credentialed leg without the maintainer's Apple Developer and Sparkle signing credentials; it can verify the signed bundle, archive construction, and disabled paths locally.
-
-Sparkle starts only when the packaged feed/key are real and the `CodexCoreInAppUpdatesEnabled` preference is true (the default). Managed deployments can force that preference to `false` with a configuration profile to disable both automatic and user-initiated in-app updates.
 
 ## First session
 
