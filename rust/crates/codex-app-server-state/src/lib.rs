@@ -7,6 +7,17 @@ use std::fmt::{self, Display};
 
 use serde::{Deserialize, Serialize};
 
+mod model;
+mod reducer;
+
+pub use model::{
+    CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalState, CanonicalThread,
+    CanonicalTurn, LifecycleStatus, ThreadStatus,
+};
+pub use reducer::{
+    CanonicalMutation, CanonicalStateReducer, ItemTextDelta, ReducerConfiguration, ReducerError,
+};
+
 macro_rules! string_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
