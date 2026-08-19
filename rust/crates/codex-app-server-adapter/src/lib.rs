@@ -123,6 +123,68 @@ pub fn adapt_notification(
     }
 }
 
+/// Validate and map a standalone thread response into canonical mutations.
+///
+/// # Errors
+///
+/// Returns [`AdapterError`] when generated validation or identity mapping fails.
+pub fn adapt_thread_snapshot(value: &Value) -> Result<Vec<CanonicalMutation>, AdapterError> {
+    codex_app_server_types::validate_thread(value)
+        .map_err(|error| AdapterError::GeneratedValidation(error.to_string()))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid("thread", "thread"))?;
+    let mut mutations = vec![CanonicalMutation::ThreadUpsert(map_thread(
+        "thread", object,
+    )?)];
+    append_thread_turns("thread", object, &mut mutations)?;
+    Ok(mutations)
+}
+
+/// Validate and map one standalone turn page record.
+///
+/// # Errors
+///
+/// Returns [`AdapterError`] when generated validation or identity mapping fails.
+pub fn adapt_turn_snapshot(
+    thread_id: &ThreadId,
+    value: &Value,
+) -> Result<Vec<CanonicalMutation>, AdapterError> {
+    codex_app_server_types::validate_turn(value)
+        .map_err(|error| AdapterError::GeneratedValidation(error.to_string()))?;
+    let object = value.as_object().ok_or_else(|| invalid("turn", "turn"))?;
+    map_turn_with_items("turn", thread_id.as_str(), object)
+}
+
+/// Validate and map one `thread/items/list` entry.
+///
+/// # Errors
+///
+/// Returns [`AdapterError`] when generated validation or identity mapping fails.
+pub fn adapt_item_entry(
+    thread_id: &ThreadId,
+    value: &Value,
+) -> Result<CanonicalMutation, AdapterError> {
+    codex_app_server_types::validate_thread_item_entry(value)
+        .map_err(|error| AdapterError::GeneratedValidation(error.to_string()))?;
+    let object = value.as_object().ok_or_else(|| invalid("item", "entry"))?;
+    let turn_id = object
+        .get("turnId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("item", "turnId"))?;
+    let item = object
+        .get("item")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("item", "item"))?;
+    Ok(CanonicalMutation::ItemUpsert(map_item(
+        "item",
+        thread_id.as_str(),
+        turn_id,
+        item,
+        LifecycleStatus::Completed,
+    )?))
+}
+
 fn validate(method: &str, params: &Value) -> Result<(), AdapterError> {
     codex_app_server_types::validate_server_notification(method, params)
         .map_err(|error| AdapterError::GeneratedValidation(error.to_string()))

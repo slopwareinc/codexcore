@@ -14,7 +14,9 @@ use codex_app_server_lease::{
     LeaseAction, LeaseId, LeaseOperationId, LeaseReason, ThreadLeaseRegistry,
 };
 use codex_app_server_state::ThreadId;
-use codex_app_server_state::{CanonicalState, CanonicalStateReducer, StateRevision};
+use codex_app_server_state::{
+    CanonicalChangeBatch, CanonicalMutation, CanonicalState, CanonicalStateReducer, StateRevision,
+};
 use codex_app_server_transport::{StdioConfig, StdioConnection, TransportError, TransportLimits};
 use codex_app_server_wire::{
     Envelope, JsonRpcErrorObject, JsonRpcId, NotificationEnvelope, ResponseOutcome,
@@ -445,6 +447,22 @@ impl AppServerClient {
         response.await.map_err(|_| SessionError::Closed)
     }
 
+    /// Atomically apply protocol-adapted canonical mutations through the sole owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] when the actor is closed or the reducer rejects
+    /// the transaction.
+    pub async fn apply_canonical(
+        &self,
+        mutations: Vec<CanonicalMutation>,
+    ) -> Result<Option<CanonicalChangeBatch>, SessionError> {
+        let (reply, response) = oneshot::channel();
+        self.send_command(Command::ApplyCanonical { mutations, reply })
+            .await?;
+        response.await.map_err(|_| SessionError::Closed)?
+    }
+
     /// Register an atomic snapshot seed plus coalesced revision invalidations.
     ///
     /// # Errors
@@ -613,6 +631,10 @@ enum Command {
     },
     CanonicalSnapshot {
         reply: oneshot::Sender<CanonicalState>,
+    },
+    ApplyCanonical {
+        mutations: Vec<CanonicalMutation>,
+        reply: oneshot::Sender<Result<Option<CanonicalChangeBatch>, SessionError>>,
     },
     ResolveServerRequest {
         key: ServerRequestKey,
@@ -1029,6 +1051,32 @@ async fn handle_command(
         Command::CanonicalSnapshot { reply } => {
             let _ = reply.send(state.canonical.snapshot().clone());
             CommandOutcome::Continue
+        }
+        Command::ApplyCanonical { mutations, reply } => {
+            let result = state
+                .canonical
+                .apply(&mutations)
+                .map_err(|error| SessionError::Canonical(error.to_string()));
+            match result {
+                Ok(batch) => {
+                    if let Some(batch) = &batch {
+                        state.snapshot.canonical_revision = batch.revision;
+                        if let Err(error) = state.commit(None) {
+                            let _ = reply.send(Err(error.clone()));
+                            return CommandOutcome::Fatal(error);
+                        }
+                        let _ = reply.send(Ok(Some(batch.clone())));
+                        CommandOutcome::Committed
+                    } else {
+                        let _ = reply.send(Ok(None));
+                        CommandOutcome::Continue
+                    }
+                }
+                Err(error) => {
+                    let _ = reply.send(Err(error));
+                    CommandOutcome::Continue
+                }
+            }
         }
         Command::ResolveServerRequest {
             key,
@@ -1488,6 +1536,37 @@ mod tests {
             .expect("read canonical state");
         assert_eq!(snapshot.canonical_revision, canonical.revision);
         assert_eq!(canonical.revision, StateRevision::new(1));
+        client.close().await.expect("close session");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn adapted_history_batch_installs_through_actor() {
+        let script =
+            format!("read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; sleep 1");
+        let client = AppServerClient::connect_local(shell_config(&script))
+            .await
+            .expect("connect session");
+        let thread_id = ThreadId::from("history-thread");
+        let batch = client
+            .apply_canonical(vec![CanonicalMutation::ThreadUpsert(
+                codex_app_server_state::CanonicalThread {
+                    id: thread_id.clone(),
+                    status: codex_app_server_state::ThreadStatus::Idle,
+                    coverage: codex_app_server_state::StateCoverage::Full,
+                    turn_ids: Vec::new(),
+                    metadata: BTreeMap::new(),
+                },
+            )])
+            .await
+            .expect("apply history batch")
+            .expect("batch changed state");
+        let canonical = client
+            .canonical_snapshot()
+            .await
+            .expect("canonical snapshot");
+        assert_eq!(canonical.revision, batch.revision);
+        assert!(canonical.threads.contains_key(&thread_id));
         client.close().await.expect("close session");
     }
 

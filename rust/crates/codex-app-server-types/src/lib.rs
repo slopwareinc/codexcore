@@ -29,6 +29,33 @@ pub fn validate_server_notification(
     serde_json::from_value::<ServerNotification>(value).map(drop)
 }
 
+/// Validate one standalone thread record from a response/page.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_thread(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<Thread>(value.clone()).map(drop)
+}
+
+/// Validate one standalone turn record from a response/page.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_turn(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<Turn>(value.clone()).map(drop)
+}
+
+/// Validate one thread item entry returned by `thread/items/list`.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_thread_item_entry(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ThreadItemEntry>(value.clone()).map(drop)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
