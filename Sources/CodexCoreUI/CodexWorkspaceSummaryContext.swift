@@ -117,7 +117,17 @@ enum CodexWorkspaceGitProbe {
         return commonDirectory != worktreeGitDirectory
     }
 
-    static func repositoryRoot(at url: URL) -> URL? {
+    /// Resolve a repository root without making the caller's actor wait on a
+    /// Git subprocess. This is used while preparing the worktree modal; the
+    /// modal has an immediate path fallback and may refine it after this task
+    /// completes.
+    static func repositoryRoot(at url: URL) async -> URL? {
+        await Task.detached(priority: .utility) {
+            repositoryRootSynchronously(at: url)
+        }.value
+    }
+
+    private static func repositoryRootSynchronously(at url: URL) -> URL? {
         let directory = url.standardizedFileURL
         let process = Process()
         let output = Pipe()

@@ -204,6 +204,46 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         )
     }
 
+    func testModalTargetPathRefinementPreservesUserEdits() throws {
+        var session = CodexProjectEnvironmentPanelSession(environment: CodexProjectEnvironmentState(
+            workspacePath: "/repo/packages/web"
+        ))
+        let fallback = "/repo/packages/web-worktrees/abcd/thread"
+        session.prepareModal(threadTitle: "Thread", targetPath: fallback)
+
+        session.replaceModalTargetPath(
+            "/repo-worktrees/ef01/thread",
+            replacing: fallback
+        )
+        XCTAssertEqual(session.modal?.targetPath, "/repo-worktrees/ef01/thread")
+
+        session.modal?.targetPath = "/Users/me/custom-worktree"
+        session.replaceModalTargetPath(
+            "/repo-worktrees/1234/thread",
+            replacing: fallback
+        )
+        XCTAssertEqual(session.modal?.targetPath, "/Users/me/custom-worktree")
+    }
+
+    func testRepositoryRootLookupRunsAsynchronouslyForNestedWorkspace() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-git-root-\(UUID().uuidString)")
+        let nested = root.appendingPathComponent("packages/web")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["init", "-q"]
+        process.currentDirectoryURL = root
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+
+        let resolved = await CodexWorkspaceGitProbe.repositoryRoot(at: nested)
+        XCTAssertEqual(resolved, root.standardizedFileURL)
+    }
+
     func testEnvironmentPanelRowsRepresentRuntimeLoadingAvailableAndFailure() {
         var environment = CodexProjectEnvironmentState(workspacePath: "/repo", runtimeInfo: .loading)
         var session = CodexProjectEnvironmentPanelSession(environment: environment)
