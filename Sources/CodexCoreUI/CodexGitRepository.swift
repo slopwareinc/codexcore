@@ -165,9 +165,6 @@ public actor CodexGitRepository {
     ) async throws -> CodexGitReviewSnapshot {
         precondition(source != .lastTurn, "Last Turn comes from canonical transcript state")
         _ = try await repositoryRoot()
-        async let branchResult = optional(["symbolic-ref", "--quiet", "--short", "HEAD"])
-        async let headResult = run(["rev-parse", "HEAD"])
-        async let upstreamResult = optional(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
         async let branchesResult = run(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
         async let remotesResult = run(["remote"])
         async let commitsResult = run([
@@ -180,10 +177,17 @@ public actor CodexGitRepository {
             ? untrackedSnapshot()
             : UntrackedSnapshot.empty
 
-        let branch = try await branchResult?.stdout.nilIfBlank ?? "HEAD"
-        let headOID = try await headResult.stdout
-        let upstream = try await upstreamResult?.stdout.nilIfBlank
         let status = try await statusResult
+        let statusMetadata = parseStatusMetadata(status.stdout)
+        let branch = statusMetadata.branchName ?? "HEAD"
+        let headOID: String
+        if let statusHeadOID = statusMetadata.headOID, statusHeadOID != "(initial)" {
+            headOID = statusHeadOID
+        } else {
+            // Preserve the existing failure behavior for an unborn HEAD.
+            headOID = try await run(["rev-parse", "HEAD"]).stdout
+        }
+        let upstream = statusMetadata.upstream
         let untracked = try await untrackedResult
         let revisionStatus = status.stdout + untracked.porcelainStatus
         let branchNames = try await branchesResult.stdout
@@ -659,7 +663,10 @@ public actor CodexGitRepository {
         var fingerprint = CodexStableFingerprint()
         fingerprint.combine(source.rawValue)
         fingerprint.combine(branch)
-        fingerprint.combine(headOID)
+        // `rev-parse` includes a trailing newline while porcelain-v2 headers
+        // do not. Normalize the equivalent values so snapshot and mutation
+        // revision checks remain identical after metadata reuse.
+        fingerprint.combine(headOID.trimmingCharacters(in: .whitespacesAndNewlines))
         fingerprint.combine(status)
         fingerprint.combine(comparisonRef ?? "")
         if source != .staged {
@@ -891,6 +898,33 @@ public actor CodexGitRepository {
         var path: String
         var previousPath: String?
         var status: CodexGitReviewFileStatus
+    }
+
+    private struct StatusMetadata {
+        var branchName: String?
+        var headOID: String?
+        var upstream: String?
+    }
+
+    private func parseStatusMetadata(_ output: String) -> StatusMetadata {
+        var metadata = StatusMetadata()
+        for record in output.split(separator: "\0", omittingEmptySubsequences: true) {
+            guard record.hasPrefix("# branch.") else { continue }
+            let fields = record.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard fields.count == 3 else { continue }
+            switch fields[1] {
+            case "branch.oid":
+                metadata.headOID = String(fields[2])
+            case "branch.head":
+                let value = String(fields[2])
+                metadata.branchName = value == "(detached)" ? "HEAD" : value
+            case "branch.upstream":
+                metadata.upstream = String(fields[2])
+            default:
+                continue
+            }
+        }
+        return metadata
     }
 
     private func parseNameStatus(_ output: String) -> [NameStatus] {
