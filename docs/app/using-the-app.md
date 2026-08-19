@@ -41,6 +41,13 @@ toggles so the app cannot shadow package-managed configuration. OAuth remains
 available and offers automatic discovery (recommended), Client ID Metadata
 Document, or Dynamic Client Registration for the current login attempt.
 
+Settings → Hooks reads the resolved hook catalog on demand. It distinguishes
+sync and async command handlers from MCP tool handlers, including server/tool,
+timeout, context spill limit, plugin ownership, source, trust, and status text.
+Enable/disable and Trust update only `hooks.state` through an upserted
+`config/batchWrite` with reload; hook definitions remain in their owning user,
+project, managed, or plugin file.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to

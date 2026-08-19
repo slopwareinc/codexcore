@@ -191,7 +191,7 @@ final class CodexExtensibilitySurfaceTests: XCTestCase {
         XCTAssertTrue(marketplace.hasKnownUpdate)
     }
 
-    func testHooksCatalogPreservesEventMatcherSourceAndTrust() {
+    func testHooksCatalogPreservesEventMatcherSourceAndTrust() throws {
         let response: CodexJSONValue = .dictionary([
             "data": .array([.dictionary([
                 "cwd": .string("/repo"),
@@ -208,17 +208,62 @@ final class CodexExtensibilitySurfaceTests: XCTestCase {
                     "isManaged": .bool(false),
                     "handlerType": .string("command"),
                     "command": .string("policy-check"),
+                    "async": .bool(true),
+                    "timeoutSec": .int(9),
+                    "additionalContextLimit": .int(4096),
+                    "currentHash": .string("trusted-command-hash"),
                     "statusMessage": .string("Shell use blocked by project hook"),
+                ]), .dictionary([
+                    "key": .string("mcp-audit"),
+                    "eventName": .string("postToolUse"),
+                    "source": .string("plugin"),
+                    "sourcePath": .string("/repo/.codex/hooks.json"),
+                    "pluginId": .string("audit@market"),
+                    "trustStatus": .string("trusted"),
+                    "enabled": .bool(true),
+                    "isManaged": .bool(false),
+                    "handlerType": .string("mcpTool"),
+                    "server": .string("audit-server"),
+                    "tool": .string("record"),
+                    "timeoutSec": .int(5),
+                    "currentHash": .string("trusted-mcp-hash"),
                 ])]),
             ])]),
         ])
         let catalog = CodexHooksCatalog(raw: response)
-        XCTAssertEqual(catalog.hooks.count, 1)
-        XCTAssertEqual(catalog.hooks[0].event, .preToolUse)
-        XCTAssertEqual(catalog.hooks[0].matcher, "Bash|Shell")
-        XCTAssertEqual(catalog.hooks[0].sourceLabel, "Project")
-        XCTAssertEqual(catalog.hooks[0].trustStatus, .untrusted)
-        XCTAssertEqual(catalog.hooks[0].statusMessage, "Shell use blocked by project hook")
+        XCTAssertEqual(catalog.hooks.count, 2)
+        let command = try XCTUnwrap(catalog.hooks.first(where: { $0.handlerType == .command }))
+        XCTAssertEqual(command.event, .preToolUse)
+        XCTAssertEqual(command.matcher, "Bash|Shell")
+        XCTAssertEqual(command.sourceLabel, "Project")
+        XCTAssertEqual(command.trustStatus, .untrusted)
+        XCTAssertEqual(command.statusMessage, "Shell use blocked by project hook")
+        XCTAssertTrue(command.isAsync)
+        XCTAssertEqual(command.handlerDescription, "policy-check · Async")
+        XCTAssertEqual(command.timeoutSeconds, 9)
+        XCTAssertEqual(command.additionalContextLimit, 4096)
+
+        let mcp = try XCTUnwrap(catalog.hooks.first(where: { $0.handlerType == .mcpTool }))
+        XCTAssertEqual(mcp.pluginID, "audit@market")
+        XCTAssertEqual(mcp.handlerDescription, "MCP · audit-server/record")
+
+        guard case .configBatchWrite(let disable) = CodexHookProtocolMutation.setEnabled(
+            false,
+            for: command
+        ) else { return XCTFail("Expected hook state batch write") }
+        XCTAssertEqual(disable.reloadUserConfig, true)
+        XCTAssertEqual(disable.edits.first?.keyPath, "hooks.state")
+        XCTAssertEqual(disable.edits.first?.mergeStrategy, .upsert)
+        XCTAssertEqual(disable.edits.first?.value, .dictionary([
+            "deny-shell": .dictionary(["enabled": .bool(false)]),
+        ]))
+
+        guard case .configBatchWrite(let trust) = try CodexHookProtocolMutation.trust(command) else {
+            return XCTFail("Expected hook trust batch write")
+        }
+        XCTAssertEqual(trust.edits.first?.value, .dictionary([
+            "deny-shell": .dictionary(["trusted_hash": .string("trusted-command-hash")]),
+        ]))
     }
 }
 

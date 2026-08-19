@@ -78,6 +78,9 @@ final class CodexCoreAppModel {
     private(set) var threadSections: [CodexSchemaThreadSection] = []
     private(set) var isLoadingThreadSections = false
     private(set) var threadSectionsError: String?
+    private(set) var hooksCatalog = CodexHooksCatalog()
+    private(set) var isLoadingHooks = false
+    private(set) var hooksError: String?
 
     var codex: Codex?
     var authSession = CodexAuthSession()
@@ -2350,6 +2353,23 @@ final class CodexCoreAppModel {
         }
     }
 
+    func refreshHooks() async {
+        guard !isLoadingHooks else { return }
+        guard let provider = integrationControlPlaneProvider else {
+            hooksError = "Connect to Codex before inspecting hooks."
+            return
+        }
+        isLoadingHooks = true
+        hooksError = nil
+        defer { isLoadingHooks = false }
+        do {
+            let response = try await provider.perform(.hooksList(.init(cwds: workspaceRoots)))
+            hooksCatalog = CodexHooksCatalog(raw: response)
+        } catch {
+            hooksError = friendlyError(error)
+        }
+    }
+
     private func upsertThreadSection(_ section: CodexSchemaThreadSection) {
         if let index = threadSections.firstIndex(where: { $0.id == section.id }) {
             threadSections[index] = section
@@ -3514,6 +3534,9 @@ final class CodexCoreAppModel {
         threadSections = []
         threadSectionsError = nil
         isLoadingThreadSections = false
+        hooksCatalog = .init()
+        hooksError = nil
+        isLoadingHooks = false
         announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         loginTask?.cancel()
         loginTask = nil

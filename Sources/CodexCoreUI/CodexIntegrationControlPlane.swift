@@ -351,6 +351,36 @@ public enum CodexMCPProtocolMutation {
     }
 }
 
+public enum CodexHookProtocolMutation {
+    public static func setEnabled(
+        _ enabled: Bool,
+        for hook: CodexHookSummary
+    ) -> CodexIntegrationControlPlaneRequest {
+        stateUpdate(hook: hook, values: ["enabled": .bool(enabled)])
+    }
+
+    public static func trust(_ hook: CodexHookSummary) throws -> CodexIntegrationControlPlaneRequest {
+        guard let hash = hook.currentHash.nilIfBlank else {
+            throw CodexIntegrationControlPlaneError("Hook did not report a trust hash.")
+        }
+        return stateUpdate(hook: hook, values: ["trusted_hash": .string(hash)])
+    }
+
+    private static func stateUpdate(
+        hook: CodexHookSummary,
+        values: [String: CodexJSONValue]
+    ) -> CodexIntegrationControlPlaneRequest {
+        .configBatchWrite(.init(
+            edits: [.init(
+                keyPath: "hooks.state",
+                mergeStrategy: .upsert,
+                value: .dictionary([hook.protocolKey: .dictionary(values)])
+            )],
+            reloadUserConfig: true
+        ))
+    }
+}
+
 /// Operation state and last successful responses for host/UI coordination.
 public struct CodexIntegrationControlPlaneSession: Equatable, Sendable {
     public private(set) var phases: [CodexIntegrationControlPlaneSurface: CodexIntegrationControlPlanePhase]

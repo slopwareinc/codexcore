@@ -381,6 +381,13 @@ struct CodexCoreAppShell: View {
                 onDeleteThreadSection: { id in
                     Task { await model.deleteThreadSection(id: id) }
                 },
+                hooksCatalog: model.hooksCatalog,
+                isLoadingHooks: model.isLoadingHooks,
+                hooksError: model.hooksError,
+                hooksProvider: model.integrationControlPlaneProvider,
+                onRefreshHooks: {
+                    Task { await model.refreshHooks() }
+                },
                 onBackToApp: { model.selectAppRoute(.chat) }
             )
                 .codexAgentTheme(model.theme)

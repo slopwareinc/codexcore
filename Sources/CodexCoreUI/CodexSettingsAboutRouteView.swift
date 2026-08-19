@@ -9,6 +9,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
     case agents
     case integrations
     case sections
+    case hooks
     case about
 
     public var id: String { rawValue }
@@ -26,6 +27,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .agents: return "Agent instructions"
         case .integrations: return "Integrations"
         case .sections: return "Chat sections"
+        case .hooks: return "Hooks"
         case .about: return "About"
         }
     }
@@ -39,6 +41,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .agents: return "doc.text.magnifyingglass"
         case .integrations: return "puzzlepiece.extension"
         case .sections: return "rectangle.3.group"
+        case .hooks: return "bolt.shield"
         case .about: return "info.circle"
         }
     }
@@ -47,7 +50,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general, .appearance, .profile, .configuration:
             return "Personal"
-        case .agents, .sections:
+        case .agents, .sections, .hooks:
             return "Coding"
         case .integrations:
             return "Integrations"
@@ -72,6 +75,8 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
             return ["mcp", "browser", "computer use", "plugins"]
         case .sections:
             return ["chats", "groups", "icons", "colors", "pinned"]
+        case .hooks:
+            return ["automation", "command", "async", "mcp", "trust", "tool gates"]
         case .about:
             return ["version", "build", "metadata", "about"]
         }
@@ -98,6 +103,11 @@ public struct CodexSettingsAboutRouteView: View {
     public let onCreateThreadSection: ((String, CodexSchemaThreadSectionAppearance?) -> Void)?
     public let onUpdateThreadSection: ((String, String, CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) -> Void)?
     public let onDeleteThreadSection: ((String) -> Void)?
+    public let hooksCatalog: CodexHooksCatalog
+    public let isLoadingHooks: Bool
+    public let hooksError: String?
+    public let hooksProvider: (any CodexIntegrationControlPlaneProvider)?
+    public let onRefreshHooks: (() -> Void)?
     public let onBackToApp: (() -> Void)?
 
     @Binding private var appearanceSettings: CodexAppearanceSettings
@@ -143,6 +153,11 @@ public struct CodexSettingsAboutRouteView: View {
         onCreateThreadSection: ((String, CodexSchemaThreadSectionAppearance?) -> Void)? = nil,
         onUpdateThreadSection: ((String, String, CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) -> Void)? = nil,
         onDeleteThreadSection: ((String) -> Void)? = nil,
+        hooksCatalog: CodexHooksCatalog = .init(),
+        isLoadingHooks: Bool = false,
+        hooksError: String? = nil,
+        hooksProvider: (any CodexIntegrationControlPlaneProvider)? = nil,
+        onRefreshHooks: (() -> Void)? = nil,
         onBackToApp: (() -> Void)? = nil
     ) {
         self.metadata = metadata
@@ -172,6 +187,11 @@ public struct CodexSettingsAboutRouteView: View {
         self.onCreateThreadSection = onCreateThreadSection
         self.onUpdateThreadSection = onUpdateThreadSection
         self.onDeleteThreadSection = onDeleteThreadSection
+        self.hooksCatalog = hooksCatalog
+        self.isLoadingHooks = isLoadingHooks
+        self.hooksError = hooksError
+        self.hooksProvider = hooksProvider
+        self.onRefreshHooks = onRefreshHooks
         self.onBackToApp = onBackToApp
     }
 
@@ -187,6 +207,8 @@ public struct CodexSettingsAboutRouteView: View {
                 onRefreshServerDiagnostics?()
             } else if selectedRoute == .sections {
                 onRefreshThreadSections?()
+            } else if selectedRoute == .hooks {
+                onRefreshHooks?()
             }
         }
     }
@@ -310,6 +332,14 @@ public struct CodexSettingsAboutRouteView: View {
                 onCreate: onCreateThreadSection,
                 onUpdate: onUpdateThreadSection,
                 onDelete: onDeleteThreadSection
+            )
+        case .hooks:
+            CodexHooksListView(
+                catalog: hooksCatalog,
+                isLoading: isLoadingHooks,
+                errorMessage: hooksError,
+                provider: hooksProvider,
+                onRefresh: { onRefreshHooks?() }
             )
         case .about:
             CodexSettingsAboutPage(
