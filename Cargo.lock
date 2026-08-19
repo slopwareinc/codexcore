@@ -69,6 +69,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-app-server-interaction"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "codex-app-server-client",
+ "codex-app-server-state",
+ "codex-app-server-types",
+ "codex-app-server-wire",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "codex-app-server-lease"
 version = "0.1.0-alpha.1"
 dependencies = [

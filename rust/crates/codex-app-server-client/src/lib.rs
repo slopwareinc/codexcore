@@ -1220,12 +1220,19 @@ async fn handle_server_resolution(
     resolution: ServerRequestResolution,
     reply: oneshot::Sender<Result<(), SessionError>>,
 ) -> CommandOutcome {
-    if !state.pending_server_requests.contains_key(&key) {
+    let Some(pending_request) = state.pending_server_requests.get(&key) else {
         let _ = reply.send(Err(SessionError::PendingServerRequestNotFound));
         return CommandOutcome::Continue;
-    }
+    };
+    let method = pending_request.method.clone();
     let frame = match resolution {
-        ServerRequestResolution::Result(result) => encode_result(key.request_id.clone(), result),
+        ServerRequestResolution::Result(result) => {
+            if let Err(error) = codex_app_server_types::validate_server_response(&method, &result) {
+                let _ = reply.send(Err(SessionError::Protocol(error.to_string())));
+                return CommandOutcome::Continue;
+            }
+            encode_result(key.request_id.clone(), result)
+        }
         ServerRequestResolution::Error(error) => encode_error(key.request_id.clone(), error),
     };
     let frame = match frame {
@@ -1370,6 +1377,14 @@ fn apply_envelope(
             state.commit(Some(cursor))?;
         }
         Envelope::ServerRequest(ServerRequestEnvelope { id, method, params }) => {
+            let params_value = Value::Object(
+                params
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            );
+            codex_app_server_types::validate_server_request(&method, &params_value)
+                .map_err(|error| SessionError::Protocol(error.to_string()))?;
             let key = ServerRequestKey {
                 connection_epoch: state.snapshot.connection_epoch,
                 request_id: id,
@@ -1483,7 +1498,7 @@ mod tests {
     #[tokio::test]
     async fn server_request_enters_exact_epoch_inbox_and_resolves_once() {
         let script = format!(
-            "read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; printf '%s\\n' '{{\"id\":\"approval-1\",\"method\":\"item/commandExecution/requestApproval\",\"params\":{{\"reason\":\"test\"}}}}'; read resolution; sleep 1"
+            "read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; printf '%s\\n' '{{\"id\":\"approval-1\",\"method\":\"item/commandExecution/requestApproval\",\"params\":{{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"item\",\"startedAtMs\":1,\"reason\":\"test\"}}}}'; read resolution; sleep 1"
         );
         let client = AppServerClient::connect_local(shell_config(&script))
             .await
@@ -1499,16 +1514,37 @@ mod tests {
             .expect("pending request")
             .clone();
         assert_eq!(request.key.connection_epoch, 1);
+        assert!(matches!(
+            client
+                .resolve_server_request(
+                    request.key.clone(),
+                    ServerRequestResolution::Result(json!({})),
+                )
+                .await,
+            Err(SessionError::Protocol(_))
+        ));
+        assert_eq!(
+            client
+                .snapshot()
+                .await
+                .expect("invalid reply keeps inbox")
+                .pending_server_requests
+                .len(),
+            1
+        );
         client
             .resolve_server_request(
                 request.key.clone(),
-                ServerRequestResolution::Result(json!({})),
+                ServerRequestResolution::Result(json!({"decision": "decline"})),
             )
             .await
             .expect("resolve once");
         assert_eq!(
             client
-                .resolve_server_request(request.key, ServerRequestResolution::Result(json!({})))
+                .resolve_server_request(
+                    request.key,
+                    ServerRequestResolution::Result(json!({"decision": "decline"})),
+                )
                 .await,
             Err(SessionError::PendingServerRequestNotFound)
         );

@@ -19,6 +19,8 @@ Initial crates:
   owned-lease facade.
 - `codex-app-server-history`: cut-based, cursor-guarded paginated history
   reconciliation with bounded item-page concurrency.
+- `codex-app-server-interaction`: typed approvals, questions, MCP elicitation,
+  dynamic-tool, auth, attestation, time, and legacy request models.
 - `codex-app-server-wire`: lossless JSON-RPC envelopes and runtime pin.
 - `codex-app-server-transport`: bounded frame transport primitives.
 - `codex-app-server-types`: generated v2 request, response, notification, and

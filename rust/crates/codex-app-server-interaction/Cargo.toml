@@ -1,0 +1,20 @@
+[package]
+name = "codex-app-server-interaction"
+description = "Typed server-request prompts and responses for Codex App Server hosts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+codex-app-server-client = { path = "../codex-app-server-client" }
+codex-app-server-state = { path = "../codex-app-server-state" }
+codex-app-server-types = { path = "../codex-app-server-types" }
+codex-app-server-wire = { path = "../codex-app-server-wire" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

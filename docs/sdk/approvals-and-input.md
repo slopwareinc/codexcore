@@ -45,6 +45,21 @@ let codex = try await Codex(
 
 Production policy should be explicit about commands, paths, network access, and session-scoped grants. Do not copy `codex-run`'s auto-approval handler into an end-user application.
 
+## Rust interaction layer
+
+`codex-app-server-interaction` parses the actor's exact pending inbox entries
+into stable request families for command/file/permission approval, user input,
+MCP elicitation, dynamic tools, token refresh, attestation, current time, and
+legacy command/patch approval. Unknown methods remain explicit with their full
+raw parameters.
+
+Every known parameter and response shape is checked against schema artifacts
+generated from `Tools/UPSTREAM_VERSION`. An invalid result is rejected locally
+and the request stays pending; only a validated result or explicit JSON-RPC
+error is written. Use `ServerRequestReply.into_resolution()` and pass the result
+to `AppServerClient::resolve_server_request` with the original epoch-qualified
+key.
+
 Approval policies include `untrusted`, `onRequest`, and `never`, plus the
 structured `AskForApproval.granular` form for independently controlling MCP
 elicitation, rules, sandbox approval, permission requests, and skill approval.

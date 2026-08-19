@@ -3,6 +3,7 @@ members = [
     "rust/crates/codex-app-server-adapter",
     "rust/crates/codex-app-server-client",
     "rust/crates/codex-app-server-history",
+    "rust/crates/codex-app-server-interaction",
     "rust/crates/codex-app-server-lease",
     "rust/crates/codex-app-server-state",
     "rust/crates/codex-app-server-transport",

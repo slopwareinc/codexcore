@@ -46,6 +46,29 @@ generate_app_server_rust_schema() {
         "$out"
 }
 
+generate_app_server_rust_server_request_schemas() {
+    local schema_dir="$1"
+    local out_dir="$2"
+    local schemas=(
+        ApplyPatchApprovalParams ApplyPatchApprovalResponse
+        AttestationGenerateParams AttestationGenerateResponse
+        ChatgptAuthTokensRefreshParams ChatgptAuthTokensRefreshResponse
+        CommandExecutionRequestApprovalParams CommandExecutionRequestApprovalResponse
+        CurrentTimeReadParams CurrentTimeReadResponse
+        DynamicToolCallParams DynamicToolCallResponse
+        ExecCommandApprovalParams ExecCommandApprovalResponse
+        FileChangeRequestApprovalParams FileChangeRequestApprovalResponse
+        McpServerElicitationRequestParams McpServerElicitationRequestResponse
+        PermissionsRequestApprovalParams PermissionsRequestApprovalResponse
+        ToolRequestUserInputParams ToolRequestUserInputResponse
+    )
+    install -d -m 0755 "$out_dir"
+    local schema
+    for schema in "${schemas[@]}"; do
+        install -m 0644 "$schema_dir/$schema.json" "$out_dir/$schema.json"
+    done
+}
+
 generate_pinned_runtime_swift() {
     local out="$1"
     python3 "$ROOT/Tools/generate_pinned_runtime_version.py" \
