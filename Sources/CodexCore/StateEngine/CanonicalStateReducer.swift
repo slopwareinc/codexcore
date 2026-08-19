@@ -1123,6 +1123,8 @@ private extension CanonicalStateReducer {
         if let value = incoming.path { current.path = value }
         if let value = incoming.preview { current.preview = value }
         if let value = incoming.recencyAt { current.recencyAt = value }
+        if let value = incoming.section { current.section = value }
+        if let value = incoming.sectionEnteredAt { current.sectionEnteredAt = value }
         if let value = incoming.sessionID { current.sessionID = value }
         if let value = incoming.source { current.source = value }
         if let value = incoming.threadSource { current.threadSource = value }

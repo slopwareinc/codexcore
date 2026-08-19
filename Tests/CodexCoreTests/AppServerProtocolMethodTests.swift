@@ -58,6 +58,12 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.modelSafetyBufferingUpdated))
 
         XCTAssertTrue(CodexAppServerServerRequestMethod.allCases.contains(.currentTimeRead))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.pluginSearch))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionMove))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionList))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionCreate))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionUpdate))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionDelete))
 
         XCTAssertEqual(
             CodexAppServerSchemaInventory.notificationPayloadByMethod["externalAgentConfig/import/progress"]?.typeName,
@@ -77,6 +83,9 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(definitions.contains("ExternalAgentConfigImportProgressNotification"))
         XCTAssertTrue(definitions.contains("LegacyAppPathString"))
         XCTAssertTrue(definitions.contains("EnvironmentStatusResponse"))
+        XCTAssertTrue(definitions.contains("PluginSearchResponse"))
+        XCTAssertTrue(definitions.contains("PluginDisabledReason"))
+        XCTAssertTrue(definitions.contains("ThreadSection"))
     }
 
     func testGeneratedSchemaTypeInventoryIsConsistent() {

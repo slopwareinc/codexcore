@@ -1,7 +1,6 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 root := justfile_directory()
-build_jobs := env_var_or_default("CODEXCORE_BUILD_JOBS", "4")
 
 default:
     @just run
@@ -40,17 +39,17 @@ kill:
     fi
 
 build:
-    swift build --jobs "{{build_jobs}}" --target CodexCoreApp
+    swift build --target CodexCoreApp
 
 test *ARGS:
-    swift test --jobs "{{build_jobs}}" {{ARGS}}
+    swift test {{ARGS}}
 
 # Render component scenes to build/gallery for visual review.
 # Every theme family, both appearances. Liquid Glass renders as its opaque
 # fallback: the window server composites real glass from behind the window, so
 # it cannot be captured offscreen.
 gallery *ARGS:
-    swift run --jobs "{{build_jobs}}" codex-ui-gallery --out "{{root}}/build/gallery" {{ARGS}}
+    swift run codex-ui-gallery --out "{{root}}/build/gallery" {{ARGS}}
 
 # Assemble a registered, ad-hoc signed macOS application bundle.
 package:

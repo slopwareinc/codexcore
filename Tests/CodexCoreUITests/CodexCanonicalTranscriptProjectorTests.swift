@@ -84,6 +84,37 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(rows.contains { $0.id == "image" })
     }
 
+    @Test func pendingSubmissionHidesServerPlaceholderAboveOptimisticUser() throws {
+        let threadID: ThreadID = "thread"
+        let serverTurnID: TurnID = "server-turn"
+        let intent = SubmissionIntent(
+            id: "client-message",
+            threadID: threadID,
+            input: [.string("hello")],
+            localOrdinal: 0
+        )
+        let snapshot = state(
+            revision: 2,
+            threadID: threadID,
+            turns: [turn(
+                serverTurnID,
+                threadID: threadID,
+                status: .inProgress,
+                revision: 2
+            )],
+            items: [],
+            intents: [intent.id: intent]
+        )
+
+        let turns = CodexCanonicalTranscriptProjector()
+            .rebuild(snapshot: snapshot, threadID: threadID)
+            .presentation.transcript.turns
+
+        #expect(turns.count == 1)
+        #expect(turns.first?.id == "local-client-message")
+        #expect(turns.first?.userMessage?.text == "hello")
+    }
+
     @Test func realtimeDelegationEnvelopeIsNeverRenderedAsUserContent() throws {
         let threadID: ThreadID = "thread"
         let handoffTurnID: TurnID = "handoff"
@@ -260,6 +291,7 @@ struct CodexCanonicalTranscriptProjectorTests {
             "server": .string("future-server"),
             "tool": .string("future-tool"),
             "status": .string("awaitingPolicy"),
+            "readOnlyHint": .bool(true),
         ])
         let projected = try #require(
             CodexCanonicalTranscriptProjector().rebuild(
@@ -287,6 +319,7 @@ struct CodexCanonicalTranscriptProjectorTests {
         }
         if case .mcpToolCall(let tool) = rows[1] {
             #expect(tool.status == .unknown("awaitingPolicy"))
+            #expect(tool.readOnlyHint == true)
         } else {
             Issue.record("Expected unknown MCP row")
         }
@@ -478,6 +511,7 @@ struct CodexCanonicalTranscriptProjectorTests {
             "savedPath": .string("/tmp/generated.png"),
             "result": .string("fallback-base64"),
             "revisedPrompt": .string("A precise native developer workspace"),
+            "transparentBackground": .bool(true),
         ])
         let snapshot = state(
             revision: 1,
@@ -496,7 +530,8 @@ struct CodexCanonicalTranscriptProjectorTests {
             .init(
                 id: "generation",
                 source: "/tmp/generated.png",
-                revisedPrompt: "A precise native developer workspace"
+                revisedPrompt: "A precise native developer workspace",
+                hasTransparentBackground: true
             )
         ])
         #expect(projected.narrative.flatMap(\.workRows).contains { $0.id == "generation" })

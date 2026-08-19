@@ -726,7 +726,9 @@ actor CodexTranscriptRenderProjector {
                                 id: agent.id,
                                 label: threadID.flatMap { presentation.agentDisplayNameByThreadID[$0] }
                                     ?? Self.agentChipLabel(agent),
-                                status: agent.displayStatus,
+                                status: threadID.flatMap {
+                                    presentation.agentDisplayStatusByThreadID[$0]
+                                } ?? agent.displayStatus,
                                 threadID: threadID,
                                 taskSummary: agent.instructions?.codexAppKitNilIfEmpty,
                                 latestUpdate: agent.agentMessages.values.first?.codexAppKitNilIfEmpty
@@ -953,7 +955,10 @@ actor CodexTranscriptRenderProjector {
                 if case .working = turn.status,
                    let tail = turn.liveTail?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !tail.isEmpty,
-                   !(tail == "Thinking" && turn.narrative.isEmpty) {
+                   CodexWorkBlockViewV2.shouldRenderLiveTail(
+                       narrative: turn.narrative,
+                       liveTail: tail
+                   ) {
                     append(ItemDraft(
                         id: "\(sectionID):live-tail",
                         fingerprint: "tail:\(tail)",
@@ -1819,7 +1824,9 @@ private extension CodexTranscriptRenderProjector {
         var rows: CGFloat = 1
         for chip in chips {
             let isAttachmentImage = chip.attachmentKind == .image
-            let title = chip.threadID == nil ? chip.label : "\(chip.label) · \(agentStatusTitle(chip.status).lowercased())"
+            let title = chip.threadID == nil
+                ? chip.label
+                : "\(chip.label) · \(chip.status.transcriptLabel.lowercased())"
             let labelWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
             let chipWidth = isAttachmentImage
                 ? chip.imagePreviewSize
@@ -1850,25 +1857,8 @@ private extension CodexTranscriptRenderProjector {
         _ chips: [CodexTranscriptAgentChipRender]
     ) -> String {
         chips.map { chip in
-            let status = switch chip.status {
-            case .starting: "starting"
-            case .working: "working"
-            case .done: "done"
-            case .failed: "failed"
-            case .closed: "closed"
-            }
-            return "\(chip.label), \(status)"
+            "\(chip.label), \(chip.status.transcriptLabel.lowercased())"
         }.joined(separator: "; ")
-    }
-
-    static func agentStatusTitle(_ status: CodexAgentDisplayStatusV2) -> String {
-        switch status {
-        case .starting: "Starting"
-        case .working: "Working"
-        case .done: "Done"
-        case .failed: "Failed"
-        case .closed: "Closed"
-        }
     }
 
     static func prepare(block: CodexBlock, role: CodexTranscriptTextRole, theme: CodexTranscriptAppKitTheme) -> CodexPreparedTranscriptText {

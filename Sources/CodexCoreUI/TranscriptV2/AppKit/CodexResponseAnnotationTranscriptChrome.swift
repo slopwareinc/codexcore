@@ -69,8 +69,15 @@ final class CodexResponseAnnotationEditorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+@MainActor
+final class CodexResponseSelectionActionPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 struct CodexResponseSelectionActionView: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let onAddToChat: () -> Void
 
@@ -79,11 +86,27 @@ struct CodexResponseSelectionActionView: View {
             Text("Add to chat")
                 .font(theme.fonts.caption.weight(.medium))
                 .foregroundStyle(theme.colors.textPrimary)
-                .padding(.horizontal, 12)
-                .frame(height: 32)
+                .padding(.horizontal, 9)
+                .frame(height: 30)
+                .background(
+                    isHovered ? theme.colors.hover.opacity(theme.effects.hoverOpacity) : .clear
+                )
+                .contentShape(Rectangle())
         }
-        .codexGlassButtonStyle()
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .accessibilityLabel("Add selected response text to chat")
+        .fixedSize()
+        .background(
+            theme.colors.surfaceElevated.opacity(0.96),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.colors.border.opacity(0.7), lineWidth: 1)
+        }
+        .shadow(color: theme.colors.shadow.opacity(0.28), radius: 10, y: 5)
     }
 }
 

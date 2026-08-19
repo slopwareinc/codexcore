@@ -492,6 +492,11 @@ public struct CodexChatWorkspaceView: View {
                 agentDisplayNameByThreadID: Dictionary(
                     uniqueKeysWithValues: subagents.map { ($0.id, $0.name) }
                 ),
+                agentDisplayStatusByThreadID: Dictionary(
+                    uniqueKeysWithValues: subagents.map {
+                        ($0.id, $0.status.transcriptDisplayStatus)
+                    }
+                ),
                 pendingApprovals: approvalPrompts,
                 onResolveApproval: onResolveApproval
             ) {
@@ -1118,4 +1123,15 @@ private struct ChatActionsMenu: View {
 
 private func codexShortPath(_ path: String) -> String {
     CodexPathFormatter.abbreviatingHome(path)
+}
+
+private extension CodexSubagentState.Status {
+    var transcriptDisplayStatus: CodexAgentDisplayStatusV2 {
+        switch self {
+        case .running: .working
+        case .completed: .done
+        case .closed: .closed
+        case .failed: .failed
+        }
+    }
 }

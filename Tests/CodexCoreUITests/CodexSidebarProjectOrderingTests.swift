@@ -239,6 +239,21 @@ struct CodexSidebarProjectOrderingTests {
         #expect(summary?.threadSource == "realtime_voice")
     }
 
+    @Test func threadSummaryPreservesGA147SectionMetadata() {
+        let summary = CodexThreadSummary(raw: .dictionary([
+            "id": .string("sectioned-task"),
+            "section": .dictionary([
+                "id": .string("section-1"),
+                "name": .string("In progress"),
+            ]),
+            "sectionEnteredAt": .int(1_723_000_000),
+        ]))
+
+        #expect(summary?.sectionID == "section-1")
+        #expect(summary?.sectionName == "In progress")
+        #expect(summary?.sectionEnteredAt == 1_723_000_000)
+    }
+
     @Test func projectAliasesAndHiddenProjectsChangePresentationWithoutChangingIdentity() {
         let now = Date().timeIntervalSince1970
         let alpha = CodexProjectSummary(workspacePath: "/tmp/Alpha", updatedAt: now)

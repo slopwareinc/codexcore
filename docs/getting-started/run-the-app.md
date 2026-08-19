@@ -10,7 +10,7 @@ The reference app demonstrates the SDK and reusable UI. It is not required by li
 git clone https://github.com/slopwareinc/codexcore.git
 cd codexcore
 codex --version  # verifies only the PATH candidate
-swift build --jobs 4 --target CodexCoreApp
+swift build --target CodexCoreApp
 swift run --skip-build codex-core-app
 ```
 
@@ -58,7 +58,7 @@ CODEXCORE_NOTARY_KEYCHAIN_PROFILE=codexcore-notary \
 ./scripts/package-app.sh --release
 ```
 
-When the profile variable is present, the script submits the zip with `notarytool`, waits for acceptance, staples and validates the app, then recreates the zip with the stapled bundle. Without it, notarization is skipped cleanly.
+When the profile variable is present, the script submits the zip with `notarytool`, waits for acceptance, staples and validates the app, then recreates the zip with the stapled bundle. Without it, notarization is skipped cleanly. CodexCore has no embedded updater; distribution and upgrades are handled outside the application.
 
 ## Capture a live CPU sample
 

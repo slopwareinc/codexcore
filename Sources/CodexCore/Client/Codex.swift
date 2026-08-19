@@ -159,13 +159,11 @@ private struct CodexSemanticVersion: Sendable, Hashable, Comparable {
     var displayText: String { "\(major).\(minor).\(patch)" }
 }
 
-/// `CodexPinnedRuntime` records the runtime the generated protocol types were
-/// dumped from, which is allowed to be a prerelease. This is the oldest runtime
-/// the SDK still accepts. Schema additions landed after it are optional on the
-/// wire, so an older GA runtime keeps working; a request that only the newer
-/// server implements fails per call instead of blocking startup.
+/// `CodexPinnedRuntime` records the exact runtime used to generate the protocol
+/// types. CodexCore 0.10.0 depends on the 0.147 thread-section and plugin-search
+/// surfaces, so older runtimes are rejected during launch.
 public enum CodexSupportedRuntime {
-    fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 145, patch: 0)
+    fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 147, patch: 0)
 
     /// Oldest accepted `codex-cli` version, for diagnostics and documentation.
     public static var minimum: String { minimumVersion.displayText }
@@ -176,8 +174,7 @@ public enum CodexSupportedRuntime {
 }
 
 private func runtimeVersionMismatchComponent(expected: String, actual: String) -> String {
-    let expectedVersion = expected.split(separator: " ").last.map(String.init)
-        .flatMap(CodexSemanticVersion.init)
+    let expectedVersion = CodexSemanticVersion(CodexPinnedRuntime.version)
     let actualVersion = actual.split(separator: " ").last.map(String.init)
         .flatMap(CodexSemanticVersion.init)
 
@@ -594,13 +591,11 @@ public final class Codex: Sendable {
                     reason: "`--version` returned an unsupported semantic version: \(components[1])"
                 )
             }
-            // Generated types track the newest schema we have dumped, which may
-            // be a prerelease. Requiring an exact match would refuse every GA
-            // runtime in the supported range, so the contract is a floor plus a
-            // major-version gate: fields added after the floor are optional on
-            // the wire, and a request the older server does not know still fails
-            // per-call rather than bricking startup.
+            // Patch releases within the pinned major/minor are accepted. Older
+            // minors are rejected because handwritten state and UI code depend
+            // on the generated 0.147 surface.
             guard actualVersion.major == expectedVersion.major,
+                  actualVersion.minor == expectedVersion.minor,
                   actualVersion >= CodexSupportedRuntime.minimumVersion else {
                 throw CodexSDKError.runtimeVersionMismatch(
                     path: executablePath,

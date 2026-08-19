@@ -1503,33 +1503,15 @@ public actor CodexSession:
             resolved.excludeTurns = nil
             resolved.initialTurnsPage = nil
         case .paginated:
-            // Alpha.20 requires this exact shape and rejects an inline page.
+            // Stable 0.147 supports an optional first turns page in the resume
+            // round trip. Preserve it while selecting metadata-only history.
             resolved.excludeTurns = true
-            resolved.initialTurnsPage = nil
         case .unknown(let rawValue):
             throw CodexSessionError.protocolViolation(
                 "Unsupported thread history mode \(rawValue) for \(requested.threadID)"
             )
         }
         return resolved
-    }
-
-    func validateForkHistoryMode(
-        threadID: ThreadID
-    ) async throws {
-        let mode = try await resolvedThreadHistoryMode(for: threadID)
-        guard mode != .paginated else {
-            throw CodexSessionError.unsupportedThreadOperation(
-                threadID: threadID,
-                method: CodexAppServerClientMethod.threadFork.rawValue,
-                historyMode: mode
-            )
-        }
-        if case .unknown(let rawValue) = mode {
-            throw CodexSessionError.protocolViolation(
-                "Unsupported thread history mode \(rawValue) for \(threadID)"
-            )
-        }
     }
 
     func acquireThreadLease(

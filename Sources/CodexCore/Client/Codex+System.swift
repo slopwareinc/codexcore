@@ -99,6 +99,44 @@ extension Codex {
         try await perform(CodexRequest.pluginList(params))
     }
 
+    public func pluginSearch(
+        _ params: CodexSchemaPluginSearchParams
+    ) async throws -> CodexSchemaPluginSearchResponse {
+        try await perform(CodexRequest.pluginSearch(params))
+    }
+
+    public func threadSectionList(
+        _ params: CodexSchemaThreadSectionListParams = .init()
+    ) async throws -> CodexSchemaThreadSectionListResponse {
+        try await perform(CodexRequest.threadSectionList(params))
+    }
+
+    public func threadSectionCreate(
+        _ params: CodexSchemaThreadSectionCreateParams
+    ) async throws -> CodexSchemaThreadSectionCreateResponse {
+        try await perform(CodexRequest.threadSectionCreate(params))
+    }
+
+    public func threadSectionUpdate(
+        _ params: CodexSchemaThreadSectionUpdateParams
+    ) async throws -> CodexSchemaThreadSectionUpdateResponse {
+        try await perform(CodexRequest.threadSectionUpdate(params))
+    }
+
+    @discardableResult
+    public func threadSectionDelete(
+        _ params: CodexSchemaThreadSectionDeleteParams
+    ) async throws -> CodexJSONValue {
+        try CodexJSONValue(encoding: await perform(CodexRequest.threadSectionDelete(params)))
+    }
+
+    @discardableResult
+    public func threadSectionMove(
+        _ params: CodexSchemaThreadSectionMoveParams
+    ) async throws -> CodexJSONValue {
+        try CodexJSONValue(encoding: await perform(CodexRequest.threadSectionMove(params)))
+    }
+
     public func marketplaceAdd(
         _ params: CodexSchemaMarketplaceAddParams
     ) async throws -> CodexSchemaMarketplaceAddResponse {

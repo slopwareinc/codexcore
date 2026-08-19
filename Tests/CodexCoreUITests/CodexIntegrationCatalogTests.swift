@@ -263,6 +263,8 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "id": .string("resume-from-opencode"),
                             "installPolicy": .string("INSTALLED_BY_DEFAULT"),
                             "installed": .bool(true),
+                            "installedAt": .int(1_723_000_000),
+                            "eligiblePlanTypes": .array([.string("pro"), .string("business")]),
                             "name": .string("resume-from-opencode"),
                             "source": .dictionary([
                                 "type": .string("local"),
@@ -292,6 +294,7 @@ final class CodexIntegrationCatalogTests: XCTestCase {
                             "id": .string("example-remote"),
                             "installPolicy": .string("AVAILABLE"),
                             "installed": .bool(false),
+                            "disabledReason": .string("plan_not_eligible"),
                             "name": .string("example-remote"),
                             "source": .dictionary([
                                 "type": .string("remote")
@@ -337,8 +340,11 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         )
         XCTAssertEqual(CodexPluginRouteDetail(plugin: plugins[0]).icon, plugins[0].icon)
         XCTAssertEqual(plugins[0].capabilities, ["skills", "prompts"])
+        XCTAssertEqual(plugins[0].eligiblePlanTypes, ["pro", "business"])
+        XCTAssertEqual(plugins[0].installedAt, 1_723_000_000)
         XCTAssertEqual(plugins[0].detail, "Resume a previous OpenCode session")
-        XCTAssertEqual(plugins[1].statusLabel, "Available")
+        XCTAssertEqual(plugins[1].statusLabel, "Unavailable on your plan")
+        XCTAssertFalse(plugins[1].canInstall)
         XCTAssertEqual(plugins[1].sourceLabel, "Remote")
         XCTAssertEqual(
             CodexPluginSummary.loadErrorMessages(from: response),

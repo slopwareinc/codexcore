@@ -819,6 +819,8 @@ private extension ProtocolStateAdapter {
         metadata.path = value.path
         metadata.preview = value.preview
         metadata.recencyAt = value.recencyAt.map { ProtocolSeconds(Int64($0)) }
+        metadata.section = value.section
+        metadata.sectionEnteredAt = value.sectionEnteredAt.map { ProtocolSeconds(Int64($0)) }
         metadata.sessionID = value.sessionID
         metadata.source = value.source.rawValue
         metadata.threadSource = value.threadSource?.rawValue
@@ -1082,7 +1084,7 @@ private extension ProtocolStateAdapter {
     static let threadWireFields: Set<String> = [
         "agentNickname", "agentRole", "canAcceptDirectInput", "cliVersion", "createdAt", "cwd", "ephemeral",
         "extra", "forkedFromId", "gitInfo", "historyMode", "id", "modelProvider",
-        "name", "parentThreadId", "path", "preview", "recencyAt", "sessionId",
+        "name", "parentThreadId", "path", "preview", "recencyAt", "section", "sectionEnteredAt", "sessionId",
         "source", "status", "threadSource", "turns", "updatedAt",
     ]
 
@@ -1240,12 +1242,22 @@ private extension ProtocolStateAdapter {
 
         case .threadResume:
             let value: CodexSchemaThreadResumeResponse = try decodeResponse(context, result)
+            guard let rawHistoryMode = value.thread.historyMode?.rawValue else {
+                throw ProtocolStateAdapterError.malformedResponse(
+                    method: context.method.rawValue,
+                    message: "thread omitted experimental historyMode"
+                )
+            }
+            let historyMode = CanonicalHistoryMode(rawValue: rawHistoryMode)
+            let resumeItemPolicy: CanonicalItemCollectionMergePolicy = historyMode == .legacy
+                ? .authoritativeReplacement
+                : context.itemCollectionPolicy
 
             var mutations = try threadMutations(
                 value.thread,
                 rawThread: result.object(at: "thread"),
                 isLoaded: true,
-                itemPolicy: context.itemCollectionPolicy
+                itemPolicy: resumeItemPolicy
             )
             let threadID = ThreadID(value.thread.id)
             mutations.append(.threadSettingsReplaced(
@@ -1257,13 +1269,6 @@ private extension ProtocolStateAdapter {
                 )
             ))
             let initialPage = value.initialTurnsPage
-            guard let rawHistoryMode = value.thread.historyMode?.rawValue else {
-                throw ProtocolStateAdapterError.malformedResponse(
-                    method: context.method.rawValue,
-                    message: "thread omitted experimental historyMode"
-                )
-            }
-            let historyMode = CanonicalHistoryMode(rawValue: rawHistoryMode)
             let isPaginated = historyMode == .paginated
             let history = CanonicalHistoryState(
                 mode: historyMode,

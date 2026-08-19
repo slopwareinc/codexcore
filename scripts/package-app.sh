@@ -4,12 +4,6 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 configuration="debug"
-build_jobs="${CODEXCORE_BUILD_JOBS:-4}"
-
-if [[ ! "${build_jobs}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "CODEXCORE_BUILD_JOBS must be a positive integer." >&2
-    exit 64
-fi
 
 if [[ "${1:-}" == "--release" ]]; then
     configuration="release"
@@ -32,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-swift build --package-path "${repo_root}" --configuration "${configuration}" --jobs "${build_jobs}" --product codex-core-app
+swift build --package-path "${repo_root}" --configuration "${configuration}" --product codex-core-app
 bin_dir="$(swift build --package-path "${repo_root}" --configuration "${configuration}" --show-bin-path)"
 
 rm -rf "${app_dir}"
@@ -47,7 +41,6 @@ if [[ ! "${build_number}" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
     exit 64
 fi
 git_commit="$(git -C "${repo_root}" rev-parse HEAD)"
-
 plutil -replace CFBundleVersion -string "${build_number}" "${contents_dir}/Info.plist"
 plutil -replace CodexCoreGitCommit -string "${git_commit}" "${contents_dir}/Info.plist"
 

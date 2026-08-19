@@ -97,6 +97,7 @@ final class CodexCoreAppModel {
     private var accountPreferredDisplayName: String?
     private var skillsChangedObservationTask: Task<Void, Never>?
     private var skillsChangedObservationGeneration: UInt64 = 0
+    private var connectedSessionBackgroundTasks: [Task<Void, Never>] = []
     private var integrationCatalogRefreshGeneration: UInt64 = 0
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
@@ -338,7 +339,7 @@ final class CodexCoreAppModel {
             startAccountObservation(session: codex.session)
             guard shouldContinue else { return }
 
-            try await refreshConnectedSession(using: codex)
+            await refreshConnectedSession(using: codex)
         } catch {
             appendActivity(authSession.connectionFailed(message: friendlyError(error)))
         }
@@ -359,6 +360,7 @@ final class CodexCoreAppModel {
         cancelThreadIndexObservation()
         cancelAccountObservation()
         cancelSkillsChangedObservation()
+        cancelConnectedSessionBackgroundRefreshes()
         mentionSearchSession.reset()
         loginTask?.cancel()
         loginTask = nil
@@ -438,7 +440,7 @@ final class CodexCoreAppModel {
             }
             apiKey = ""
             appendActivity(authSession.apiKeyAccepted())
-            try await refreshConnectedSession(using: codex)
+            await refreshConnectedSession(using: codex)
         } catch {
             appendActivity(authSession.apiKeyFailed(message: friendlyError(error)))
         }
@@ -956,44 +958,56 @@ final class CodexCoreAppModel {
 
     private func finishDeviceCodeLogin() async {
         appendActivity(authSession.deviceCodeCompleted())
-        do {
-            guard let codex else { return }
-            try await refreshConnectedSession(using: codex)
-        } catch {
-            appendActivity(.turn, title: "Session refresh failed", detail: friendlyError(error))
-        }
+        guard let codex else { return }
+        await refreshConnectedSession(using: codex)
     }
 
-    private func refreshConnectedSession(using codex: Codex) async throws {
-        await refreshStartupCatalogs(using: codex)
-        // Preload the catalog after authentication. A Plugins route selected
-        // while startup was still connecting otherwise kept the empty result
-        // from its earlier, connection-less refresh indefinitely.
-        // These reads update disjoint stores, so let the app-server and local
-        // filesystem work overlap while awaiting them in the old order. The
-        // order of observable updates and rate-limit error propagation stays
-        // unchanged.
-        async let plugins = refreshPlugins()
-        async let recentChats = refreshRecentChats(using: codex)
-        async let remoteEnvironment = refreshRemoteEnvironment(using: codex)
-        async let rateLimits = refreshRateLimits(using: codex)
-        await plugins
-        await recentChats
-        await remoteEnvironment
-        try await rateLimits
+    /// Hydrates the sidebar before starting inventories that are not required
+    /// to navigate the app. In particular, a slow `app/list` must never hold
+    /// project discovery behind the plugin catalog.
+    func refreshConnectedSession(using codex: Codex) async {
+        await refreshRecentChats(using: codex)
+        startConnectedSessionBackgroundRefresh(using: codex)
         refreshGitBranch()
+    }
+
+    private func startConnectedSessionBackgroundRefresh(using codex: Codex) {
+        cancelConnectedSessionBackgroundRefreshes()
+        connectedSessionBackgroundTasks = [
+            Task { [weak self] in await self?.refreshStartupCatalogs(using: codex) },
+            Task { [weak self] in await self?.refreshPlugins() },
+            Task { [weak self] in await self?.refreshRemoteEnvironment(using: codex) },
+            Task { [weak self] in await self?.refreshRateLimitsInBackground(using: codex) },
+        ]
+    }
+
+    private func cancelConnectedSessionBackgroundRefreshes() {
+        connectedSessionBackgroundTasks.forEach { $0.cancel() }
+        connectedSessionBackgroundTasks.removeAll(keepingCapacity: true)
     }
 
     private func refreshRemoteEnvironment(using codex: Codex) async {
         guard let status = try? await codex.perform(CodexRequest.remoteControlStatusRead()) else {
+            guard !Task.isCancelled, self.codex === codex else { return }
             environmentInfoState = .unavailable
             return
         }
+        guard !Task.isCancelled, self.codex === codex else { return }
         await refreshEnvironmentInfo(environmentID: status.environmentID)
+    }
+
+    private func refreshRateLimitsInBackground(using codex: Codex) async {
+        do {
+            try await refreshRateLimits(using: codex)
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            appendActivity(.notice, title: "Rate limits unavailable", detail: friendlyError(error))
+        }
     }
 
     private func refreshRateLimits(using codex: Codex) async throws {
         let response = try await codex.perform(CodexRequest.accountRateLimitsRead())
+        guard !Task.isCancelled, self.codex === codex else { return }
         accountRateLimitsSnapshot = response.rateLimits
     }
 
@@ -1349,6 +1363,7 @@ final class CodexCoreAppModel {
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
         )
+        guard !Task.isCancelled, self.codex === codex else { return }
         configurationSession = session
         applyPreferredModel(for: currentThreadID)
         appendConfigurationActivities(activities)
@@ -3459,6 +3474,7 @@ final class CodexCoreAppModel {
         cancelThreadIndexObservation()
         cancelAccountObservation()
         cancelSkillsChangedObservation()
+        cancelConnectedSessionBackgroundRefreshes()
         mentionSearchSession.reset()
         structuredPanelDismissalState = CodexStructuredPanelDismissalState()
         configRequirements = nil

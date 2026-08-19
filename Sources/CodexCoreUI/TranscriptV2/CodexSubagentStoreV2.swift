@@ -109,6 +109,26 @@ public struct CodexSubagentDiscoveryV2: Sendable, Equatable {
     }
 }
 
+extension CodexThreadGraphSnapshot {
+    func subagentDescendants(of root: CodexThreadGraphKey) -> [CodexThreadGraphKey] {
+        var pending = nodes[root]?.children ?? []
+        var seen: Set<CodexThreadGraphKey> = [root]
+        var result: [CodexThreadGraphKey] = []
+        var index = 0
+        while index < pending.count {
+            let key = pending[index]
+            index += 1
+            guard seen.insert(key).inserted,
+                  let node = nodes[key],
+                  node.kind == .collabChild
+            else { continue }
+            result.append(key)
+            pending.append(contentsOf: node.children)
+        }
+        return result
+    }
+}
+
 /// The small child-thread slice needed by MainActor lifecycle presentation.
 ///
 /// The latest turn follows canonical `turnOrder` exactly and is resolved with
@@ -225,9 +245,8 @@ public struct CodexSubagentStoreV2: Sendable {
         _ graph: CodexThreadGraphSnapshot,
         root: CodexThreadGraphKey
     ) -> [CodexSubagentDiscoveryV2] {
-        let descendants = graph.descendants(of: root)
         var discoveries: [CodexSubagentDiscoveryV2] = []
-        for key in descendants {
+        for key in graph.subagentDescendants(of: root) {
             guard let node = graph.nodes[key] else { continue }
             let discovery = CodexSubagentDiscoveryV2(
                 threadID: key.threadID.rawValue,
@@ -247,12 +266,18 @@ public struct CodexSubagentStoreV2: Sendable {
             agent.statusMessage = node.errorMessage ?? node.resultMessage ?? agent.statusMessage
             agentsByID[discovery.threadID] = agent
             if let lifecycle = node.lifecycle {
-                mergeStatus(
-                    Self.status(from: lifecycle, message: agent.statusMessage),
-                    threadID: discovery.threadID,
-                    revision: .zero,
-                    authority: .graph
-                )
+                let status = Self.status(from: lifecycle, message: agent.statusMessage)
+                if Self.shouldApplyDiscoveryStatus(
+                    status,
+                    over: agentsByID[discovery.threadID]?.status
+                ) {
+                    mergeStatus(
+                        status,
+                        threadID: discovery.threadID,
+                        revision: .zero,
+                        authority: .graph
+                    )
+                }
             }
         }
         return discoveries
@@ -333,7 +358,7 @@ public struct CodexSubagentStoreV2: Sendable {
             let discovery = CodexSubagentDiscoveryV2(
                 threadID: id,
                 parentThreadID: parentThreadID.rawValue,
-                agentPath: nil,
+                agentPath: summary.agentPath,
                 prompt: discoveriesByID[id]?.prompt
             )
             _ = register(discovery)
@@ -343,11 +368,11 @@ public struct CodexSubagentStoreV2: Sendable {
                 nickname: summary.agentNickname,
                 role: summary.agentRole,
                 prompt: nil,
-                agentPath: nil,
+                agentPath: summary.agentPath,
                 parentThreadID: parentThreadID.rawValue
             )
             if let status = Self.status(from: summary),
-               !Self.isClosed(agentsByID[id]?.status) {
+               Self.shouldApplyIndexStatus(summary, over: agentsByID[id]?.status) {
                 mergeStatus(
                     status,
                     threadID: id,
@@ -403,20 +428,23 @@ public struct CodexSubagentStoreV2: Sendable {
     ) -> Bool? {
         let threadID = summary.threadID
         let id = threadID.rawValue
-        let logicalAgentPath = Self.logicalAgentPath(from: summary.metadata)
         if agentsByID[id] == nil {
             _ = register(.init(
                 threadID: id,
                 parentThreadID: summary.metadata.parentThreadID?.rawValue,
-                agentPath: logicalAgentPath
+                agentPath: summary.metadata.agentPathFromSource
             ))
         }
         guard var agent = agentsByID[id] else { return nil }
         let previous = agent
 
-        agent.nickname = summary.metadata.agentNickname ?? agent.nickname
-        agent.role = summary.metadata.agentRole ?? agent.role
-        agent.agentPath = logicalAgentPath ?? agent.agentPath
+        agent.nickname = summary.metadata.agentNickname
+            ?? summary.metadata.agentNicknameFromSource
+            ?? agent.nickname
+        agent.role = summary.metadata.agentRole
+            ?? summary.metadata.agentRoleFromSource
+            ?? agent.role
+        agent.agentPath = summary.metadata.agentPathFromSource ?? agent.agentPath
         agent.parentThreadID =
             summary.metadata.parentThreadID?.rawValue ?? agent.parentThreadID
         agent.depth = agent.agentPath.map(Self.depth) ?? agent.depth
@@ -606,12 +634,15 @@ private extension CodexSubagentStoreV2 {
             let message = state.string("message")
             agentsByID[id]?.collaborationLifecycle = lifecycle
             agentsByID[id]?.statusMessage = message
-            mergeStatus(
-                Self.status(from: lifecycle, message: message),
-                threadID: id,
-                revision: revision,
-                authority: .parent
-            )
+            let status = Self.status(from: lifecycle, message: message)
+            if Self.shouldApplyDiscoveryStatus(status, over: agentsByID[id]?.status) {
+                mergeStatus(
+                    status,
+                    threadID: id,
+                    revision: revision,
+                    authority: .parent
+                )
+            }
         }
     }
 
@@ -694,24 +725,37 @@ private extension CodexSubagentStoreV2 {
         max(1, path.split(separator: "/").count - 1)
     }
 
-    static func logicalAgentPath(from metadata: CanonicalThreadMetadata) -> String? {
-        for rawSource in [metadata.threadSource, metadata.source] {
-            guard let source = CodexJSONCoercion.dictionary(from: rawSource),
-                  let spawn = CodexJSONCoercion.dictionary(in: source, key: "thread_spawn"),
-                  let path = CodexJSONCoercion.string(
-                      in: spawn,
-                      keys: ["agent_path", "agentPath"]
-                  )?.nilIfBlank
-            else { continue }
-            return path
-        }
-        return nil
-    }
-
     static func isClosed(_ status: CodexSubagentLiveStatusV2?) -> Bool {
         guard case .closed? = status else { return false }
         return true
     }
+
+    static func isTerminal(_ status: CodexSubagentLiveStatusV2?) -> Bool {
+        switch status {
+        case .completed?, .closed?, .failed?: true
+        case .pending?, .working?, nil: false
+        }
+    }
+
+    static func shouldApplyDiscoveryStatus(
+        _ incoming: CodexSubagentLiveStatusV2,
+        over current: CodexSubagentLiveStatusV2?
+    ) -> Bool {
+        guard isTerminal(current) else { return true }
+        guard case .closed = incoming else { return false }
+        return true
+    }
+
+    static func shouldApplyIndexStatus(
+        _ summary: CanonicalThreadIndexSummary,
+        over current: CodexSubagentLiveStatusV2?
+    ) -> Bool {
+        switch summary.latestTurnStatus {
+        case .completed?, .failed?, .interrupted?, .inProgress?: true
+        case .unknown?, nil: !isTerminal(current)
+        }
+    }
+
 }
 
 private extension Dictionary where Key == String, Value == CodexJSONValue {

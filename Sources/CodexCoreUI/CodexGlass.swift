@@ -63,6 +63,12 @@ public enum CodexGlassRole: Sendable, Hashable, CaseIterable {
         }
     }
 
+    /// Dark window chrome needs a controlled tint so desktop wallpaper does
+    /// not wash a sidebar back into a mid-tone material.
+    var usesDarkAppearanceTint: Bool {
+        self == .chrome
+    }
+
     /// Elevation the opaque fallback simulates, as a fraction of the theme's
     /// surface opacity. Chrome sits lowest, sheets highest.
     var fallbackElevation: Double {
@@ -110,6 +116,7 @@ public extension View {
 private struct CodexGlassModifier<S: Shape>: ViewModifier {
     @Environment(\.codexAgentTheme) private var theme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
 
     let shape: S
     let role: CodexGlassRole
@@ -120,7 +127,7 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
             // Real glass draws its own highlight and shadow. Nothing is layered
             // over or under it here, deliberately.
             content.glassEffect(
-                codexGlassConfiguration(role: role, tint: tint),
+                codexGlassConfiguration(role: role, tint: effectiveTint),
                 in: shape
             )
         } else {
@@ -137,10 +144,22 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
         }
     }
 
+    private var effectiveTint: Color? {
+        if let tint { return tint }
+        guard role.usesDarkAppearanceTint, colorScheme == .dark else { return nil }
+        return theme.colors.surfaceSunken.opacity(0.55)
+    }
+
     /// An opaque stand-in. A material underlay would be invisible behind this
     /// and is omitted; the point of the fallback is that it is *not* see-through.
     private var fallbackFill: Color {
-        let base = theme.colors.surfaceElevated
+        // Chrome is part of the window frame, not content floating above it.
+        // Keeping it on the recessed surface gives sidebars their intended
+        // depth when glass is unavailable or transparency is reduced.
+        let surface = role == .chrome
+            ? theme.colors.surfaceSunken
+            : theme.colors.surfaceElevated
+        let base = surface
             .opacity(theme.effects.surfaceOpacity * role.fallbackElevation)
         guard let tint else { return base }
         return base.opacity(1).mix(with: tint, by: theme.effects.tintStrength)

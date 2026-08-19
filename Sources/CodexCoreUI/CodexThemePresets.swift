@@ -19,10 +19,10 @@ public extension CodexPaletteSpec {
     /// highlighting or diff colors.
     static var slate: CodexPaletteSpec {
         CodexPaletteSpec(
-            canvas: .init(light: 0xF7F7F8, dark: 0x0F0F10),
-            surface: .init(light: 0xFFFFFF, dark: 0x161618),
-            surfaceSunken: .init(light: 0xEFEFF1, dark: 0x101012),
-            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x1F1F22),
+            canvas: .init(light: 0xF7F7F8, dark: 0x080809),
+            surface: .init(light: 0xFFFFFF, dark: 0x101011),
+            surfaceSunken: .init(light: 0xEFEFF1, dark: 0x070708),
+            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x18181A),
             textPrimary: .init(light: 0x18181B, dark: 0xFAFAFA),
             textSecondary: .init(light: 0x52525B, dark: 0xA8A8B0),
             textTertiary: .init(light: 0x7E7E88, dark: 0x76767E),
@@ -50,10 +50,10 @@ public extension CodexPaletteSpec {
     /// Cool deep blue. The most "night" of the families without going black.
     static var midnight: CodexPaletteSpec {
         CodexPaletteSpec(
-            canvas: .init(light: 0xF1F4FA, dark: 0x070A12),
-            surface: .init(light: 0xFFFFFF, dark: 0x0C1120),
-            surfaceSunken: .init(light: 0xE6EBF5, dark: 0x0A0F1C),
-            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x16203A),
+            canvas: .init(light: 0xF1F4FA, dark: 0x03050A),
+            surface: .init(light: 0xFFFFFF, dark: 0x080C16),
+            surfaceSunken: .init(light: 0xE6EBF5, dark: 0x040711),
+            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x10182B),
             textPrimary: .init(light: 0x101728, dark: 0xF4F7FF),
             textSecondary: .init(light: 0x475069, dark: 0xB4BED4),
             textTertiary: .init(light: 0x77809A, dark: 0x707B94),
@@ -81,10 +81,10 @@ public extension CodexPaletteSpec {
     /// Warm sand. Paper-like in light, lamplit in dark.
     static var warmSand: CodexPaletteSpec {
         CodexPaletteSpec(
-            canvas: .init(light: 0xF6F1E9, dark: 0x17130F),
-            surface: .init(light: 0xFFFCF7, dark: 0x1E1915),
-            surfaceSunken: .init(light: 0xEDE6DA, dark: 0x141110),
-            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x2B2420),
+            canvas: .init(light: 0xF6F1E9, dark: 0x0D0A08),
+            surface: .init(light: 0xFFFCF7, dark: 0x15100D),
+            surfaceSunken: .init(light: 0xEDE6DA, dark: 0x0A0807),
+            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x211A16),
             textPrimary: .init(light: 0x2A2118, dark: 0xFFF8EF),
             textSecondary: .init(light: 0x5C5044, dark: 0xD8C9B8),
             textTertiary: .init(light: 0x8A7B6B, dark: 0x9A8976),
@@ -112,10 +112,10 @@ public extension CodexPaletteSpec {
     /// Muted green. Low-chroma and restful; the calmest of the families.
     static var sage: CodexPaletteSpec {
         CodexPaletteSpec(
-            canvas: .init(light: 0xF0F3EB, dark: 0x121611),
-            surface: .init(light: 0xFAFBF6, dark: 0x1A1F18),
-            surfaceSunken: .init(light: 0xE7EBDF, dark: 0x0F130E),
-            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x242B21),
+            canvas: .init(light: 0xF0F3EB, dark: 0x090C08),
+            surface: .init(light: 0xFAFBF6, dark: 0x11150F),
+            surfaceSunken: .init(light: 0xE7EBDF, dark: 0x070A06),
+            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x1A2018),
             textPrimary: .init(light: 0x242C22, dark: 0xF2F0E8),
             textSecondary: .init(light: 0x54604F, dark: 0xBCC5B7),
             textTertiary: .init(light: 0x7D8878, dark: 0x8B9686),
@@ -143,10 +143,10 @@ public extension CodexPaletteSpec {
     /// Dusty rose. Warm without the sand family's yellow.
     static var rose: CodexPaletteSpec {
         CodexPaletteSpec(
-            canvas: .init(light: 0xF6EEEC, dark: 0x1A1414),
-            surface: .init(light: 0xFDF6F4, dark: 0x221A1A),
-            surfaceSunken: .init(light: 0xEDE0DC, dark: 0x151010),
-            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x2E2323),
+            canvas: .init(light: 0xF6EEEC, dark: 0x0E0A0A),
+            surface: .init(light: 0xFDF6F4, dark: 0x171111),
+            surfaceSunken: .init(light: 0xEDE0DC, dark: 0x0B0808),
+            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x221919),
             textPrimary: .init(light: 0x2E2220, dark: 0xF9EFEC),
             textSecondary: .init(light: 0x5F4E4B, dark: 0xD3BEBA),
             textTertiary: .init(light: 0x8C7671, dark: 0x9C8682),
@@ -174,10 +174,10 @@ public extension CodexPaletteSpec {
     /// Cool violet. The most colored of the families, still low-chroma.
     static var violet: CodexPaletteSpec {
         CodexPaletteSpec(
-            canvas: .init(light: 0xF2EFF5, dark: 0x15121A),
-            surface: .init(light: 0xFAF7FC, dark: 0x1D1824),
-            surfaceSunken: .init(light: 0xE8E3EE, dark: 0x120F17),
-            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x282130),
+            canvas: .init(light: 0xF2EFF5, dark: 0x0B080F),
+            surface: .init(light: 0xFAF7FC, dark: 0x15101A),
+            surfaceSunken: .init(light: 0xE8E3EE, dark: 0x08060B),
+            surfaceElevated: .init(light: 0xFFFFFF, dark: 0x1E1725),
             textPrimary: .init(light: 0x282334, dark: 0xF3EEF7),
             textSecondary: .init(light: 0x574F66, dark: 0xC5BACD),
             textTertiary: .init(light: 0x82798F, dark: 0x928699),

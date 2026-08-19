@@ -14,6 +14,9 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     public var createdAt: TimeInterval?
     public var updatedAt: TimeInterval?
     public var recencyAt: TimeInterval?
+    public var sectionID: String?
+    public var sectionName: String?
+    public var sectionEnteredAt: TimeInterval?
 
     public init(
         id: String,
@@ -27,7 +30,10 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         isEphemeral: Bool = false,
         createdAt: TimeInterval? = nil,
         updatedAt: TimeInterval? = nil,
-        recencyAt: TimeInterval? = nil
+        recencyAt: TimeInterval? = nil,
+        sectionID: String? = nil,
+        sectionName: String? = nil,
+        sectionEnteredAt: TimeInterval? = nil
     ) {
         self.id = id
         self.title = title
@@ -41,6 +47,9 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.recencyAt = recencyAt
+        self.sectionID = sectionID
+        self.sectionName = sectionName
+        self.sectionEnteredAt = sectionEnteredAt
     }
 
     public init?(raw value: CodexJSONValue) {
@@ -51,6 +60,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
 
         let name = Self.string(in: object, keys: ["name"])?.nilIfBlank
         let preview = Self.string(in: object, keys: ["preview"])?.nilIfBlank ?? ""
+        let section = Self.dictionary(from: object["section"])
         self.init(
             id: id,
             title: name ?? preview.nilIfBlank ?? "Untitled chat",
@@ -63,7 +73,10 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             isEphemeral: CodexJSONCoercion.bool(in: object, key: "ephemeral") ?? false,
             createdAt: Self.timeInterval(in: object, key: "createdAt"),
             updatedAt: Self.timeInterval(in: object, key: "updatedAt"),
-            recencyAt: Self.timeInterval(in: object, key: "recencyAt")
+            recencyAt: Self.timeInterval(in: object, key: "recencyAt"),
+            sectionID: Self.string(in: section, keys: ["id"]),
+            sectionName: Self.string(in: section, keys: ["name"]),
+            sectionEnteredAt: Self.timeInterval(in: object, key: "sectionEnteredAt")
         )
     }
 
@@ -104,6 +117,11 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             }
         }
         return nil
+    }
+
+    private static func dictionary(from value: CodexJSONValue?) -> [String: CodexJSONValue] {
+        guard case .dictionary(let object) = value else { return [:] }
+        return object
     }
 
     private static func timeInterval(in object: [String: CodexJSONValue], key: String) -> TimeInterval? {

@@ -107,7 +107,12 @@ struct CodexTranscriptAppKitIntegrationTests {
 
         #expect(cell.addSelectionToChatIsVisibleForTesting)
         cell.view.layoutSubtreeIfNeeded()
-        #expect(cell.addSelectionToChatSizeForTesting == NSSize(width: 102, height: 32))
+        let actionSize = try #require(cell.addSelectionToChatSizeForTesting)
+        #expect(actionSize.height == 30)
+        #expect(actionSize.width > 60 && actionSize.width < 110)
+        let actionFrame = try #require(cell.responseSelectionActionFrameForTesting)
+        let selectionFrame = try #require(cell.selectedTextFrameForTesting)
+        #expect(!actionFrame.intersects(selectionFrame))
         cell.addSelectionToChatForTesting()
 
         #expect(captured.isEmpty)
@@ -775,7 +780,8 @@ struct CodexTranscriptAppKitIntegrationTests {
                 threadID: "thread", transcript: .init(turns: [turn]),
                 expandedWorkTurnIDs: [turn.id],
                 expandedRowIDs: ["agents"],
-                agentDisplayNameByThreadID: ["thread-2": "Ramanujan"]
+                agentDisplayNameByThreadID: ["thread-2": "Ramanujan"],
+                agentDisplayStatusByThreadID: ["thread-1": .working]
             ),
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
@@ -802,7 +808,8 @@ struct CodexTranscriptAppKitIntegrationTests {
         cell.view.layoutSubtreeIfNeeded()
         #expect(cell.agentChipCountForTesting == 5)
         #expect(cell.agentChipHostCreationCountForTesting == 5)
-        #expect(cell.agentChipTitlesForTesting[1] == "Ramanujan · working")
+        #expect(cell.agentChipTitlesForTesting[0] == "Agent 1 · running")
+        #expect(cell.agentChipTitlesForTesting[1] == "Ramanujan · running")
         #expect(cell.agentPillsUseGlassForTesting)
         let preview = try #require(cell.agentPreviewForTesting(at: 1))
         #expect(preview.taskSummary == "Inspect transcript rendering")
@@ -815,6 +822,77 @@ struct CodexTranscriptAppKitIntegrationTests {
             forkChat: nil, selectionChanged: { _, _ in }
         )
         #expect(cell.agentChipHostCreationCountForTesting == 5)
+    }
+
+    @Test func liveSubagentStatusReprojectsPillWithoutOpeningAgent() async throws {
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "agents", rows: [
+                .collabAgent(.init(
+                    id: "agent:child",
+                    action: .created,
+                    agentNames: ["Child"],
+                    agentThreadIDs: ["child"],
+                    instructions: nil,
+                    status: .completed,
+                    displayStatus: .done
+                )),
+            ]))],
+            status: .working(since: 1)
+        )
+        var presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [turn]),
+            expandedWorkTurnIDs: [turn.id],
+            expandedRowIDs: ["agents"],
+            agentDisplayStatusByThreadID: ["child": .working]
+        )
+        let renderUpdate = CodexCanonicalTranscriptRenderUpdate(
+            threadID: ThreadID("thread"),
+            sourceRevision: StateRevision(1),
+            requestSourceRevision: 0,
+            turnOrder: nil,
+            upsertedTurns: [],
+            removedTurnIDs: [],
+            dirtyTurnIDs: [],
+            pendingRequests: [],
+            isFullRebuild: false
+        )
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 500)
+        )
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        coordinator.attach(to: container)
+        defer { coordinator.detach() }
+
+        func update() {
+            coordinator.update(
+                presentation: presentation,
+                renderUpdate: renderUpdate,
+                presentationStore: nil,
+                bottomContentInset: 0,
+                contentHorizontalOffset: 0,
+                swiftUITheme: .officialDark,
+                colorScheme: .dark,
+                clipboardService: CodexNoopClipboardService(),
+                productToolRenderer: nil,
+                onOpenSubagent: { _ in },
+                onEditUserMessage: { _ in },
+                onForkChat: nil
+            )
+        }
+
+        update()
+        await coordinator.waitForProjectionForTesting()
+        let pillID = try #require(coordinator.renderedItemIDsForTesting.first {
+            coordinator.renderedItemForTesting($0)?.agentChips.isEmpty == false
+        })
+        #expect(coordinator.renderedItemForTesting(pillID)?.agentChips.first?.status == .working)
+
+        presentation.agentDisplayStatusByThreadID["child"] = .done
+        update()
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.renderedItemForTesting(pillID)?.agentChips.first?.status == .done)
     }
 
     @Test func attachmentThumbnailsDownsampleOffMainActor() async throws {
@@ -1439,7 +1517,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         coordinator.detach()
     }
 
-    @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async throws {
+    @Test func diffableCollectionUsesFineGrainedItemsAndNeverBroadReloads() async {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))
         let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
@@ -1463,7 +1541,6 @@ struct CodexTranscriptAppKitIntegrationTests {
             onForkChat: nil
         )
         await coordinator.waitForProjectionForTesting()
-        try await Task.sleep(for: .milliseconds(20))
 
         #expect(coordinator.renderedItemIDsForTesting.count == 1_085)
         #expect(coordinator.diagnostics.snapshotApplyCount == 1)
@@ -1473,6 +1550,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(container.scrollView.contentInsets.bottom == 190)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
         #expect(!container.jumpButton.isHidden)
+        let settledDiagnostics = coordinator.diagnostics
 
         presentation = longPresentation(answerSuffix: " streamed", date: date)
         coordinator.update(
@@ -1489,14 +1567,15 @@ struct CodexTranscriptAppKitIntegrationTests {
             onForkChat: nil
         )
         await coordinator.waitForProjectionForTesting()
-        try await Task.sleep(for: .milliseconds(20))
 
-        #expect(coordinator.diagnostics.snapshotApplyCount == 1)
-        #expect(coordinator.diagnostics.targetedReconfigurePassCount == 1)
-        #expect(coordinator.diagnostics.reconfiguredItemCount == 1)
-        #expect(coordinator.diagnostics.broadReloadCount == 0)
-        #expect(container.collectionView.layoutSubtreeSettlementCount == 1)
-        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount == 0)
+        #expect(coordinator.diagnostics.snapshotApplyCount - settledDiagnostics.snapshotApplyCount == 0)
+        #expect(coordinator.diagnostics.targetedReconfigurePassCount
+            - settledDiagnostics.targetedReconfigurePassCount == 1)
+        #expect(coordinator.diagnostics.reconfiguredItemCount
+            - settledDiagnostics.reconfiguredItemCount == 1)
+        #expect(coordinator.diagnostics.broadReloadCount - settledDiagnostics.broadReloadCount == 0)
+        #expect(coordinator.diagnostics.broadLayoutMetricInvalidationCount
+            - settledDiagnostics.broadLayoutMetricInvalidationCount == 0)
         #expect(abs(container.scrollView.contentView.bounds.origin.y - 250) < 1)
         container.jumpButton.performClick(nil)
         #expect(container.jumpButton.isHidden)

@@ -13,6 +13,7 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
     public var expandedRowIDs: Set<String>
     public var selectedDiffFileIndexByRowID: [String: Int]
     public var agentDisplayNameByThreadID: [String: String]
+    public var agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2]
     public var presentedAtByTurnID: [String: Date]
     public var pendingApprovals: [CodexApprovalPrompt]
 
@@ -25,6 +26,7 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         expandedRowIDs: Set<String> = [],
         selectedDiffFileIndexByRowID: [String: Int] = [:],
         agentDisplayNameByThreadID: [String: String] = [:],
+        agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2] = [:],
         presentedAtByTurnID: [String: Date] = [:],
         pendingApprovals: [CodexApprovalPrompt] = []
     ) {
@@ -36,6 +38,7 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         self.expandedRowIDs = expandedRowIDs
         self.selectedDiffFileIndexByRowID = selectedDiffFileIndexByRowID
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
+        self.agentDisplayStatusByThreadID = agentDisplayStatusByThreadID
         self.presentedAtByTurnID = presentedAtByTurnID
         self.pendingApprovals = pendingApprovals
     }

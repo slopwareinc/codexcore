@@ -124,12 +124,7 @@ let package = Package(
                 "CodexCoreApp",
             ],
             path: "Tests/CodexCoreAppTests",
-            swiftSettings: [.swiftLanguageMode(.v6)],
-            linkerSettings: [
-                // SwiftPM places binary frameworks beside test bundles but only
-                // adds PackageFrameworks to their runtime search paths.
-                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."]),
-            ]
+            swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],
     swiftLanguageModes: [.v6]

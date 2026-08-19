@@ -170,8 +170,10 @@ final class CodexThreadGraphTests: XCTestCase {
                 parentThreadID: "parent",
                 path: "/Users/test/.codex/sessions/rollout-child.jsonl",
                 source: .dictionary([
-                    "thread_spawn": .dictionary([
-                        "agent_path": .string("/root/extra_subagent_4"),
+                    "subagent": .dictionary([
+                        "thread_spawn": .dictionary([
+                            "agent_path": .string("/root/extra_subagent_4"),
+                        ]),
                     ]),
                 ])
             ),
