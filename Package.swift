@@ -93,7 +93,8 @@ let package = Package(
                 "CodexCoreUI",
             ],
             path: "Sources/CodexCoreApp",
-            exclude: ["Info.plist", "Resources"],
+            exclude: ["Info.plist", "Resources/AppIconDefault.png"],
+            resources: [.process("Resources/CodexAppIconMaster.png")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
