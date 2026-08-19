@@ -17,6 +17,8 @@ Initial crates:
   reconciliation state machine.
 - `codex-app-server-sdk`: ergonomic input, thread, turn, steer, interrupt, and
   owned-lease facade.
+- `codex-app-server-history`: cut-based, cursor-guarded paginated history
+  reconciliation with bounded item-page concurrency.
 - `codex-app-server-wire`: lossless JSON-RPC envelopes and runtime pin.
 - `codex-app-server-transport`: bounded frame transport primitives.
 - `codex-app-server-types`: generated v2 request, response, notification, and

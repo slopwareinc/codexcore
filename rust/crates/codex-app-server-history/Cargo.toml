@@ -1,0 +1,17 @@
+[package]
+name = "codex-app-server-history"
+description = "Paginated history reconciliation for Codex App Server clients"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+codex-app-server-state = { path = "../codex-app-server-state" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

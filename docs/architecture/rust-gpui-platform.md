@@ -42,6 +42,12 @@ The Rust implementation preserves the production Swift runtime semantics:
    a cut, buffers live events, and marks gaps uncertain rather than guessing.
 9. Unknown protocol values remain lossless where the wire contract permits.
 
+Paginated history is a separate pure coordinator. It treats nullable resume
+cursors as opaque persistence anchors, rejects cursor loops and empty
+continuation pages, bounds concurrent per-turn item requests, stages durable
+pages until complete, installs oldest-first, and marks prior coverage stale
+after a physical connection gap. The ordered actor alone executes its effects.
+
 ## Planned crate boundaries
 
 | Layer | Responsibility |
