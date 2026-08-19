@@ -25,6 +25,9 @@ generate_app_server_swift \
     "$WORK_DIR/AppServerProtocolMethods.swift" \
     "$WORK_DIR/AppServerSchemaTypes.swift" \
     "$WORK_DIR/CodexSessionCommands.swift"
+generate_app_server_rust_schema \
+    "$SCHEMA_DIR" \
+    "$WORK_DIR/codex_app_server_protocol.v2.schemas.json"
 generate_pinned_runtime_swift "$WORK_DIR/PinnedRuntimeVersion.swift"
 
 status=0
@@ -35,6 +38,16 @@ for file in AppServerProtocolMethods.swift AppServerSchemaTypes.swift PinnedRunt
         status=1
     fi
 done
+
+if ! diff -u \
+    "$ROOT/rust/protocol/schema/codex_app_server_protocol.v2.schemas.json" \
+    "$WORK_DIR/codex_app_server_protocol.v2.schemas.json" \
+    > "$WORK_DIR/codex_app_server_protocol.v2.schemas.json.diff"
+then
+    echo "DRIFT: Rust v2 App Server schema is stale vs $($CODEX_BIN --version)."
+    head -40 "$WORK_DIR/codex_app_server_protocol.v2.schemas.json.diff"
+    status=1
+fi
 
 if ! diff -u \
     "$ROOT/Sources/CodexCore/Client/CodexSessionCommands.swift" \

@@ -46,7 +46,7 @@ The Rust implementation preserves the production Swift runtime semantics:
 
 | Layer | Responsibility |
 | --- | --- |
-| Wire | Generated protocol types, JSON-RPC framing, runtime compatibility. |
+| Wire | Generated protocol types, lossless JSON-RPC framing, runtime compatibility. |
 | Transport | Bounded stdio, WebSocket, and Unix-socket physical connections. |
 | State | Pure canonical models, reducer, adapter, scopes, revisions, diagnostics. |
 | Engine | Ordered actor, handshake, correlation, reconnect, leases, history, inboxes. |
@@ -64,7 +64,10 @@ global runtime singletons or reduce raw protocol notifications.
 `Tools/UPSTREAM_VERSION` remains the repository authority for the Codex CLI
 runtime. Rust protocol artifacts are generated from that exact binary using
 `codex app-server generate-json-schema --experimental`. Drift verification must
-fail when the schema or the compiled runtime constant differs.
+fail when the schema or the compiled runtime constant differs. Upstream
+workspace crates are not exposed as the SDK contract: the 0.148.0 protocol
+crate depends on workspace-root patches that downstream Cargo dependencies do
+not inherit.
 
 The Rust toolchain is pinned in `rust-toolchain.toml`. GPUI and its companion
 crates will be pinned to one tested upstream Git revision rather than a moving

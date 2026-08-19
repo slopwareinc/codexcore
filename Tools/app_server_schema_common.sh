@@ -38,6 +38,14 @@ generate_app_server_swift() {
         --out "$requests_out"
 }
 
+generate_app_server_rust_schema() {
+    local schema_dir="$1"
+    local out="$2"
+    install -m 0644 \
+        "$schema_dir/codex_app_server_protocol.v2.schemas.json" \
+        "$out"
+}
+
 generate_pinned_runtime_swift() {
     local out="$1"
     python3 "$ROOT/Tools/generate_pinned_runtime_version.py" \

@@ -2,6 +2,7 @@
 members = [
     "rust/crates/codex-app-server-state",
     "rust/crates/codex-app-server-transport",
+    "rust/crates/codex-app-server-types",
     "rust/crates/codex-app-server-wire",
 ]
 resolver = "3"
@@ -16,9 +17,10 @@ authors = ["Slopware Inc."]
 
 [workspace.dependencies]
 bytes = "=1.10.1"
-serde = { version = "=1.0.219", features = ["derive"] }
-serde_json = "=1.0.140"
-thiserror = "=2.0.12"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+thiserror = "=2.0.18"
+typify = "=0.7.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
