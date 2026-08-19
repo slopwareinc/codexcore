@@ -11,6 +11,11 @@ authors.workspace = true
 [dependencies]
 bytes.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+codex-app-server-wire = { path = "../codex-app-server-wire" }
+serde_json.workspace = true
 
 [lints]
 workspace = true
