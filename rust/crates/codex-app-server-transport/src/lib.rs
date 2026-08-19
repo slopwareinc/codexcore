@@ -70,9 +70,8 @@ impl FrameConnectionConfig {
     /// Returns [`TransportError`] when launch/connect/upgrade fails.
     pub async fn connect(&self) -> Result<FrameConnection, TransportError> {
         match self {
-            Self::Stdio { config, limits } => {
-                StdioConnection::spawn(config, *limits).map(FrameConnection::Stdio)
-            }
+            Self::Stdio { config, limits } => StdioConnection::spawn(config, *limits)
+                .map(|connection| FrameConnection::Stdio(Box::new(connection))),
             Self::WebSocket(config) => connect_websocket(config)
                 .await
                 .map(|connection| FrameConnection::WebSocket(Box::new(connection))),
@@ -86,7 +85,7 @@ impl FrameConnectionConfig {
 
 /// Opaque physical connection used by the ordered session actor.
 pub enum FrameConnection {
-    Stdio(StdioConnection),
+    Stdio(Box<StdioConnection>),
     WebSocket(Box<TcpWebSocketConnection>),
     #[cfg(unix)]
     UnixWebSocket(Box<UnixWebSocketConnection>),
@@ -124,7 +123,7 @@ impl FrameConnection {
     /// Returns [`TransportError`] if deterministic shutdown fails.
     pub async fn close(self) -> Result<(), TransportError> {
         match self {
-            Self::Stdio(connection) => connection.close().await,
+            Self::Stdio(connection) => (*connection).close().await,
             Self::WebSocket(connection) => (*connection).close().await,
             #[cfg(unix)]
             Self::UnixWebSocket(connection) => (*connection).close().await,
