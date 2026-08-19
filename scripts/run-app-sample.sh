@@ -46,7 +46,7 @@ just --justfile "${repo_root}/justfile" run-app
 
 pid=""
 for _ in {1..80}; do
-    pid="$(ps -axo pid=,command= | awk -v target="${app_executable}" '$2 == target { print $1; exit }')"
+    pid="$(ps -axo pid=,command= | awk -v target="${app_executable}" '$2 == target && first == "" { first = $1 } END { if (first != "") print first }')"
     [[ -n "${pid}" ]] && break
     sleep 0.25
 done
