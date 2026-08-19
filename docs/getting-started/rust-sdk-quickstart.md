@@ -88,6 +88,28 @@ suppresses stale operation completions, and restores retained threads in
 semantic priority order on a new connection epoch. Dropping a lease only
 enqueues best-effort release; explicit `close()` is the deterministic path.
 
+For a thread that declares `historyMode: "paginated"`, use
+`resume_thread_paginated`. It validates the resume and page responses against
+the generated schema, holds a history lease, rejects cursor loops and malformed
+continuations, and submits one atomic canonical installation only after every
+durable page completes:
+
+```rust
+use codex_app_server_sdk::PaginatedResumeOptions;
+use codex_app_server_state::ThreadId;
+
+# async fn history(codex: &codex_app_server_sdk::Codex) -> Result<(), Box<dyn std::error::Error>> {
+let thread = codex
+    .resume_thread_paginated(
+        ThreadId::from("thread-id"),
+        PaginatedResumeOptions::default(),
+    )
+    .await?;
+thread.close().await?;
+# Ok(())
+# }
+```
+
 Run the live authenticated smoke test on the GCP host with:
 
 ```bash
