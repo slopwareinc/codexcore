@@ -17,6 +17,13 @@ struct CodexSubagentCanonicalPresentationTests {
             nickname: "Cicero"
         )
         #expect(nicknameOnly.displayName == "Cicero")
+
+        let rollout = CodexSubagentV2(
+            threadID: "child",
+            agentPath: "/Users/test/.codex/sessions/rollout-2026-08-19.jsonl",
+            nickname: "Cicero"
+        )
+        #expect(rollout.displayName == "Cicero")
     }
 
     @Test func graphProjectionRegistersRecursiveDescendantsWithExactLifecycle() throws {
@@ -101,7 +108,8 @@ struct CodexSubagentCanonicalPresentationTests {
         let child = try #require(store.agent(threadID: "child"))
         #expect(child.nickname == "Scout")
         #expect(child.role == "explorer")
-        #expect(child.agentPath == "/root/scout")
+        #expect(child.agentPath == nil)
+        #expect(child.displayName == "Scout")
         #expect(child.transcript.turns.isEmpty)
     }
 
@@ -601,7 +609,12 @@ private extension CodexSubagentCanonicalPresentationTests {
             agentRole: "explorer",
             createdAt: ProtocolSeconds(1_700_000_000),
             parentThreadID: "parent",
-            path: "/root/scout",
+            path: "/Users/test/.codex/sessions/rollout-child.jsonl",
+            source: .dictionary([
+                "thread_spawn": .dictionary([
+                    "agent_path": .string("/root/scout"),
+                ]),
+            ]),
             updatedAt: ProtocolSeconds(1_700_000_002)
         )
         return CanonicalStateSnapshot(
@@ -641,7 +654,7 @@ private extension CodexSubagentCanonicalPresentationTests {
             parentThreadID: "parent",
             agentNickname: "Scout",
             agentRole: "explorer",
-            path: "/root/scout",
+            path: "/Users/test/.codex/sessions/rollout-child.jsonl",
             updatedAt: ProtocolSeconds(1_700_000_000),
             lastChangedRevision: revision,
             attentionRevision: revision,

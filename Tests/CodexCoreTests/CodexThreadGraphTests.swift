@@ -162,6 +162,35 @@ final class CodexThreadGraphTests: XCTestCase {
         XCTAssertFalse(graph.nodes[key("child")]?.isLoaded ?? true)
     }
 
+    func testThreadStoragePathNeverBecomesLogicalAgentPath() {
+        let child = CanonicalThread(
+            id: "child",
+            metadata: .init(
+                agentNickname: "Cicero",
+                parentThreadID: "parent",
+                path: "/Users/test/.codex/sessions/rollout-child.jsonl",
+                source: .dictionary([
+                    "thread_spawn": .dictionary([
+                        "agent_path": .string("/root/extra_subagent_4"),
+                    ]),
+                ])
+            ),
+            status: .idle,
+            isLoaded: true,
+            consistency: .authoritative
+        )
+        let graph = CodexThreadGraphProjector.project(
+            makeSnapshot(
+                threadOrder: ["parent", "child"],
+                threads: [thread("parent"), child],
+                items: []
+            ),
+            hostID: "host"
+        )
+
+        XCTAssertEqual(graph.nodes[key("child")]?.agentPath, "/root/extra_subagent_4")
+    }
+
     func testPartialThreadOrderUsesStableSortedFallbackForGraphAndItems() {
         let graph = CodexThreadGraphProjector.project(
             makeSnapshot(

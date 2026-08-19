@@ -61,10 +61,21 @@ public struct CodexSubagentV2: Identifiable, Sendable {
     }
 
     public var displayName: String {
-        let raw = agentPath?.split(separator: "/").last.map(String.init)
+        let raw = Self.logicalPathLeaf(agentPath)
             ?? nickname.flatMap { $0.isEmpty ? nil : $0 }
             ?? "agent-\(threadID.split(separator: "-").first ?? Substring(threadID))"
         return raw.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private static func logicalPathLeaf(_ path: String?) -> String? {
+        guard let path else { return nil }
+        let lowercased = path.lowercased()
+        guard !lowercased.hasSuffix(".jsonl"),
+              !lowercased.contains("/.codex/sessions/")
+        else { return nil }
+        let leaf = path.split(separator: "/").last.map(String.init)
+        guard let leaf, !leaf.lowercased().hasPrefix("rollout-") else { return nil }
+        return leaf
     }
 }
 
@@ -322,7 +333,7 @@ public struct CodexSubagentStoreV2: Sendable {
             let discovery = CodexSubagentDiscoveryV2(
                 threadID: id,
                 parentThreadID: parentThreadID.rawValue,
-                agentPath: summary.path,
+                agentPath: nil,
                 prompt: discoveriesByID[id]?.prompt
             )
             _ = register(discovery)
@@ -332,7 +343,7 @@ public struct CodexSubagentStoreV2: Sendable {
                 nickname: summary.agentNickname,
                 role: summary.agentRole,
                 prompt: nil,
-                agentPath: summary.path,
+                agentPath: nil,
                 parentThreadID: parentThreadID.rawValue
             )
             if let status = Self.status(from: summary),
@@ -392,11 +403,12 @@ public struct CodexSubagentStoreV2: Sendable {
     ) -> Bool? {
         let threadID = summary.threadID
         let id = threadID.rawValue
+        let logicalAgentPath = Self.logicalAgentPath(from: summary.metadata)
         if agentsByID[id] == nil {
             _ = register(.init(
                 threadID: id,
                 parentThreadID: summary.metadata.parentThreadID?.rawValue,
-                agentPath: summary.metadata.path
+                agentPath: logicalAgentPath
             ))
         }
         guard var agent = agentsByID[id] else { return nil }
@@ -404,7 +416,7 @@ public struct CodexSubagentStoreV2: Sendable {
 
         agent.nickname = summary.metadata.agentNickname ?? agent.nickname
         agent.role = summary.metadata.agentRole ?? agent.role
-        agent.agentPath = summary.metadata.path ?? agent.agentPath
+        agent.agentPath = logicalAgentPath ?? agent.agentPath
         agent.parentThreadID =
             summary.metadata.parentThreadID?.rawValue ?? agent.parentThreadID
         agent.depth = agent.agentPath.map(Self.depth) ?? agent.depth
@@ -680,6 +692,20 @@ private extension CodexSubagentStoreV2 {
 
     static func depth(_ path: String) -> Int {
         max(1, path.split(separator: "/").count - 1)
+    }
+
+    static func logicalAgentPath(from metadata: CanonicalThreadMetadata) -> String? {
+        for rawSource in [metadata.threadSource, metadata.source] {
+            guard let source = CodexJSONCoercion.dictionary(from: rawSource),
+                  let spawn = CodexJSONCoercion.dictionary(in: source, key: "thread_spawn"),
+                  let path = CodexJSONCoercion.string(
+                      in: spawn,
+                      keys: ["agent_path", "agentPath"]
+                  )?.nilIfBlank
+            else { continue }
+            return path
+        }
+        return nil
     }
 
     static func isClosed(_ status: CodexSubagentLiveStatusV2?) -> Bool {

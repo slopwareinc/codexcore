@@ -373,7 +373,7 @@ public enum CodexThreadGraphProjector {
             var node = nodes[graphKey]!
             node.agentNickname = thread.metadata.agentNickname
             node.agentRole = thread.metadata.agentRole
-            node.agentPath = thread.metadata.path
+            node.agentPath = logicalAgentPath(from: thread.metadata)
             node.cwd = thread.metadata.cwd
             node.ephemeral = thread.metadata.ephemeral
             node.archived = thread.isArchived
@@ -575,6 +575,22 @@ public enum CodexThreadGraphProjector {
             return .collabChild
         }
         return .topLevel
+    }
+
+    private static func logicalAgentPath(
+        from metadata: CanonicalThreadMetadata
+    ) -> String? {
+        for rawSource in [metadata.threadSource, metadata.source] {
+            guard let source = CodexJSONCoercion.dictionary(from: rawSource),
+                  let spawn = CodexJSONCoercion.dictionary(in: source, key: "thread_spawn"),
+                  let path = CodexJSONCoercion.string(
+                      in: spawn,
+                      keys: ["agent_path", "agentPath"]
+                  )?.nilIfBlank
+            else { continue }
+            return path
+        }
+        return nil
     }
 
     private static func canonicalItemOrder(
