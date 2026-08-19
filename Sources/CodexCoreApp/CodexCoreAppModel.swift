@@ -70,6 +70,11 @@ final class CodexCoreAppModel {
     private(set) var serverDiagnostics: CodexSchemaServerDiagnosticsResponse?
     private(set) var isLoadingServerDiagnostics = false
     private(set) var serverDiagnosticsError: String?
+    private(set) var threadUsage: CodexSchemaThreadUsage?
+    private(set) var threadUsageThreadID: String?
+    private(set) var isLoadingThreadUsage = false
+    private(set) var threadUsageError: String?
+    private var threadUsageRefreshGeneration = 0
 
     var codex: Codex?
     var authSession = CodexAuthSession()
@@ -1022,6 +1027,13 @@ final class CodexCoreAppModel {
 
     private func activateThread(_ lease: CodexThreadLease) async {
         let previous = currentThreadLease
+        if selectedThreadID != lease.id.rawValue {
+            threadUsageRefreshGeneration += 1
+            threadUsage = nil
+            threadUsageThreadID = nil
+            threadUsageError = nil
+            isLoadingThreadUsage = false
+        }
         currentThreadLease = lease
         selectedThreadID = lease.id.rawValue
         selectedThreadSessionSnapshot = nil
@@ -2221,6 +2233,41 @@ final class CodexCoreAppModel {
         }
     }
 
+    func refreshThreadUsage() async {
+        guard !isLoadingThreadUsage else { return }
+        guard let codex, let threadID = currentThreadID else {
+            threadUsage = nil
+            threadUsageThreadID = nil
+            threadUsageError = "Start or open a chat to read its usage estimate."
+            return
+        }
+        isLoadingThreadUsage = true
+        threadUsageRefreshGeneration += 1
+        let generation = threadUsageRefreshGeneration
+        threadUsageError = nil
+        defer {
+            if threadUsageRefreshGeneration == generation {
+                isLoadingThreadUsage = false
+            }
+        }
+        do {
+            let response = try await codex.perform(CodexRequest.accountUsageRead(
+                .value(.init(threadID: threadID))
+            ))
+            guard currentThreadID == threadID else { return }
+            threadUsage = response.threadUsage
+            threadUsageThreadID = response.threadUsage == nil ? nil : threadID
+            if response.threadUsage == nil {
+                threadUsageError = "Usage estimates are unavailable for this workspace."
+            }
+        } catch {
+            guard currentThreadID == threadID else { return }
+            threadUsage = nil
+            threadUsageThreadID = nil
+            threadUsageError = friendlyError(error)
+        }
+    }
+
     func refreshPlugins(forceReloadSkills: Bool = false) async {
         guard let codex else {
             var session = runtimeSession.integrationCatalogSession
@@ -3260,7 +3307,10 @@ final class CodexCoreAppModel {
     var statusPanelModel: CodexStatusPanelModel {
         CodexStatusPanelModel(
             context: statusSummaryContext,
-            rateLimits: accountRateLimitsSnapshot
+            rateLimits: accountRateLimitsSnapshot,
+            threadUsage: threadUsageThreadID == currentThreadID ? threadUsage : nil,
+            isLoadingThreadUsage: isLoadingThreadUsage,
+            threadUsageError: threadUsageError
         )
     }
 
@@ -3366,6 +3416,11 @@ final class CodexCoreAppModel {
         serverDiagnostics = nil
         serverDiagnosticsError = nil
         isLoadingServerDiagnostics = false
+        threadUsage = nil
+        threadUsageThreadID = nil
+        threadUsageError = nil
+        isLoadingThreadUsage = false
+        threadUsageRefreshGeneration += 1
         announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         loginTask?.cancel()
         loginTask = nil

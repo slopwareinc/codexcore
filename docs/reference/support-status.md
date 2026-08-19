@@ -16,6 +16,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | --- | --- | --- |
 | Exact app-server launch and version validation | Supported | Default facade uses the pinned CLI over stdio; custom transports are possible. |
 | On-demand app-server diagnostics | Supported | Settings → About displays process memory and gauges from one explicit snapshot; there is no background polling. |
+| Thread credit and cost estimates | Conditional | `/status` fetches the selected thread estimate on demand; availability depends on the authenticated workspace billing route. |
 | Start/resume threads; turns, steering, interruption | Supported | Both server-declared history modes can resume. |
 | Thread sections and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; thread metadata preserves section identity and entry time. |
 | Paginated backfill | Supported | Uses a canonical cut and buffered live events. |

@@ -17,6 +17,12 @@ shows PID, resident memory, macOS physical footprint, and registered diagnostic
 gauges. Opening other routes performs no diagnostics work, and About never
 polls in the background; use **Refresh** for another point-in-time sample.
 
+The composer `/status` sheet requests the selected thread's estimated credits,
+optional USD estimate, and per-model token breakdown when opened. Unsupported
+workspaces show an unavailable state. The backend request may take longer than
+ordinary local RPCs, so it runs asynchronously and is never part of chat resume,
+turn completion, sidebar loading, or transcript rendering.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to

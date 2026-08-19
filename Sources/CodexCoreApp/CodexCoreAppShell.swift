@@ -192,7 +192,10 @@ struct CodexCoreAppShell: View {
         .sheet(isPresented: $isStatusSheetPresented) {
             CodexStatusSheet(
                 model: model.statusPanelModel,
-                onClose: { isStatusSheetPresented = false }
+                onClose: { isStatusSheetPresented = false },
+                onRefreshThreadUsage: {
+                    Task { await model.refreshThreadUsage() }
+                }
             )
             .codexAgentTheme(model.theme)
         }
