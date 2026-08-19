@@ -277,6 +277,18 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertFalse(children[0].areChildrenLoaded)
     }
 
+    func testFileTreeLoaderAsyncChildrenPreserveOrderingAndFiltering() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("zeta"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: workspace.appendingPathComponent("aardvark.txt").path, contents: Data())
+
+        let entries = await CodexFileTreeLoader.childrenAsync(of: workspace)
+
+        XCTAssertEqual(entries.map(\.name), ["zeta", "aardvark.txt"])
+        XCTAssertEqual(entries.map(\.kind), [.directory, .file])
+    }
+
     func testFileTreeLoaderTreatsSymlinkDirectoryAsLeaf() throws {
         let workspace = try makeTemporaryWorkspace()
         let target = workspace.appendingPathComponent("target")
