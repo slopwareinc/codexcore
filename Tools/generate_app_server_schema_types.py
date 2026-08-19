@@ -72,6 +72,7 @@ public struct CodexAppServerStandaloneSchemaDefinition: Sendable, Equatable {
 # of them to raw JSON would make the generated protocol surface appear complete
 # while moving exhaustiveness and validation back into every caller.
 REQUIRED_TAGGED_UNIONS = frozenset({
+    "ImageGenerationFailure",
     "LoginAccountParams",
     "ThreadItem",
     "ThreadStatus",

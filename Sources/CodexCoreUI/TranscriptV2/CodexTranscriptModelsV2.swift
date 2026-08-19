@@ -24,11 +24,13 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var finalAnswer: CodexAssistantTextV2?
     /// Completed image-generation outputs displayed as persistent turn media.
     public var generatedImages: [CodexGeneratedImageV2]
+    /// Structured terminal failures displayed beside final turn content.
+    public var imageGenerationFailures: [CodexImageGenerationFailureV2]
     public var liveTail: String?
     public var status: CodexTurnStatusV2
     public var presentationStyle: CodexTurnPresentationStyleV2
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, generatedImages: [CodexGeneratedImageV2] = [], liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
+    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, generatedImages: [CodexGeneratedImageV2] = [], imageGenerationFailures: [CodexImageGenerationFailureV2] = [], liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
         self.id = id; self.userMessage = userMessage; self.steeredMessages = steeredMessages; self.narrative = narrative
         self.conversationSegments = conversationSegments ?? [
             CodexTurnConversationSegmentV2(id: "\(id):initial", narrative: narrative)
@@ -39,6 +41,7 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
             )
         }
         self.finalAnswer = finalAnswer; self.generatedImages = generatedImages
+        self.imageGenerationFailures = imageGenerationFailures
         self.liveTail = liveTail; self.status = status
         self.presentationStyle = presentationStyle
     }
@@ -144,6 +147,28 @@ public struct CodexGeneratedImageV2: Identifiable, Sendable, Equatable {
         self.source = source
         self.revisedPrompt = revisedPrompt
         self.hasTransparentBackground = hasTransparentBackground
+    }
+}
+
+public struct CodexImageGenerationFailureV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var type: String
+    public var limitID: String?
+    public var resetsAt: Date?
+    public var message: String
+
+    public init(
+        id: String,
+        type: String,
+        limitID: String? = nil,
+        resetsAt: Date? = nil,
+        message: String
+    ) {
+        self.id = id
+        self.type = type
+        self.limitID = limitID
+        self.resetsAt = resetsAt
+        self.message = message
     }
 }
 

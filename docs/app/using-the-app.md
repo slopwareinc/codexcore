@@ -48,6 +48,11 @@ Enable/disable and Trust update only `hooks.state` through an upserted
 `config/batchWrite` with reload; hook definitions remain in their owning user,
 project, managed, or plugin file.
 
+Image-generation usage-limit failures remain visible beside final turn content
+even when the work transcript is collapsed. The failure card includes the
+reported limit ID and reset time, survives thread read/resume, is accessible and
+copyable in the AppKit transcript, and does not disturb successful image previews.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to

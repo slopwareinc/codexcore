@@ -986,6 +986,32 @@ struct CodexTranscriptRenderProjectionTests {
         )
     }
 
+    @Test func generatedImageFailureRemainsVisibleWhenWorkIsCollapsed() async throws {
+        let message = "Image generation limit reached (image_gen). Resets Aug 8, 2026 at 12:00 PM."
+        let turn = CodexTurnV2(
+            id: "turn",
+            imageGenerationFailures: [.init(
+                id: "generation",
+                type: "usageLimitExceeded",
+                limitID: "image_gen",
+                message: message
+            )],
+            status: .done(durationMs: 1_000)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+
+        let failure = try #require(snapshot.itemsByID.values.first {
+            $0.id.rawValue.hasSuffix(":generated-image-failure:generation")
+        })
+        #expect(failure.copyText == message)
+        #expect(failure.accessibilityLabel == message)
+        #expect(failure.textRole == .notice)
+    }
+
     @Test func defaultActivitySummaryUpdatesOneStableRowAsWorkAccumulates() async throws {
         let projector = CodexTranscriptRenderProjector()
         func presentation(rows: [CodexWorkRowV2]) -> CodexThreadUIPresentation {

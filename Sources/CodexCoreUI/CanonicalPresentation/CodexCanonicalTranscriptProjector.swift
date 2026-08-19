@@ -308,8 +308,11 @@ private extension CodexCanonicalTranscriptProjector {
                 ) {
                     appendWorkRow(row, to: &turn)
                 }
+                turn.generatedImages.removeAll { $0.id == item.key.itemID.rawValue }
+                turn.imageGenerationFailures.removeAll { $0.id == item.key.itemID.rawValue }
+                let imageStatus = workStatus(item, completed: completed)
                 if completed,
-                   workStatus(item, completed: true) == .completed,
+                   imageStatus == .completed,
                    let source = generatedImageSource(item) {
                     let image = CodexGeneratedImageV2(
                         id: item.key.itemID.rawValue,
@@ -322,6 +325,10 @@ private extension CodexCanonicalTranscriptProjector {
                     } else {
                         turn.generatedImages.append(image)
                     }
+                } else if completed,
+                          imageStatus == .failed,
+                          let failure = imageGenerationFailure(item) {
+                    turn.imageGenerationFailures.append(failure)
                 }
             case .collabAgentToolCall:
                 let state = workStatus(item, completed: completed)
@@ -769,6 +776,35 @@ private extension CodexCanonicalTranscriptProjector {
             if let value, !value.isEmpty { return value }
         }
         return nil
+    }
+
+    func imageGenerationFailure(_ item: CanonicalItem) -> CodexImageGenerationFailureV2? {
+        guard let failure = item.payload.object("failure") else { return nil }
+        let type = failure.string("type") ?? "unknown"
+        switch type {
+        case "usageLimitExceeded":
+            let limitID = failure.string("limitId")
+            let resetsAt = failure.int("resetsAt").map {
+                Date(timeIntervalSince1970: TimeInterval($0))
+            }
+            let resetDetail = resetsAt.map {
+                " Resets \($0.formatted(date: .abbreviated, time: .shortened))."
+            } ?? ""
+            let limitDetail = limitID.map { " (\($0))" } ?? ""
+            return .init(
+                id: item.key.itemID.rawValue,
+                type: type,
+                limitID: limitID,
+                resetsAt: resetsAt,
+                message: "Image generation limit reached\(limitDetail).\(resetDetail)"
+            )
+        default:
+            return .init(
+                id: item.key.itemID.rawValue,
+                type: type,
+                message: "Image generation failed (\(type))."
+            )
+        }
     }
 
     func collabToolRows(
