@@ -28,8 +28,6 @@ func defaultWorkspacePath() -> String {
 @Observable
 final class CodexCoreAppModel {
     typealias ConnectionState = CodexConnectionState
-    typealias Activity = CodexActivity
-
     private static let pluginCatalogLogger = Logger(
         subsystem: "com.slopware.codexcore",
         category: "plugin-catalog"
@@ -49,11 +47,6 @@ final class CodexCoreAppModel {
     var appearanceSettings: CodexAppearanceSettings = .official {
         didSet {
             CodexAppearanceSettingsStorage.saveAppearanceSettings(appearanceSettings, to: preferenceStore)
-        }
-    }
-    var gitSettings: CodexGitSettings = .defaults {
-        didSet {
-            CodexGitSettingsStorage.saveGitSettings(gitSettings, to: preferenceStore)
         }
     }
     var newThreadHistoryMode: CodexNewThreadHistoryMode = .defaultForPinnedRelease {
@@ -123,8 +116,6 @@ final class CodexCoreAppModel {
     private var hasStoredExpandedProjectState: Bool
     var configurationSession = CodexChatConfigurationSession()
     var composerSession = CodexComposerStateSession(followUpBehavior: .queue)
-    var activityLog = CodexActivityLogSession()
-    var structuredPanelDismissalState = CodexStructuredPanelDismissalState()
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
@@ -144,16 +135,6 @@ final class CodexCoreAppModel {
     private var automationSchedulerTask: Task<Void, Never>?
     private var automationRunTasks: [String: Task<Void, Never>] = [:]
     private var automationThreadLeases: [String: CodexThreadLease] = [:]
-    private var terminalSession: CodexCommandExecSession?
-    private var terminalOutputTask: Task<Void, Never>?
-    private var terminalCompletionTask: Task<Void, Never>?
-
-    var isBottomTerminalVisible = false
-    var bottomTerminalHeight: CGFloat = 280
-    var bottomTerminalText = ""
-    var bottomTerminalStatus = "Idle"
-    var isBottomTerminalRunning = false
-
     private let clipboardService: any CodexClipboardService
     private let pluginCatalogActionProviderOverride: (any CodexPluginCatalogActionProvider)?
     let preferenceStore: any CodexStringListPreferenceStore
@@ -181,7 +162,6 @@ final class CodexCoreAppModel {
         self.pluginCatalogActionProviderOverride = pluginCatalogActionProvider
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
-        self.gitSettings = CodexGitSettingsStorage.loadGitSettings(from: preferenceStore)
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         self.unreadState = CodexThreadUnreadState(
@@ -295,7 +275,6 @@ final class CodexCoreAppModel {
             await runtimeSession.connect(to: codex)
             promptRuntime.connect(to: codex.session) { [weak self] activity in
                 guard let self else { return }
-                self.appendActivity(.notice, title: activity.title, detail: activity.detail)
                 self.postPromptNotifications(for: activity)
             }
             startThreadIndexObservation(session: codex.session)
@@ -313,11 +292,6 @@ final class CodexCoreAppModel {
                 configRequirements = try await codex.perform(CodexRequest.configRequirementsRead()).requirements
             } catch {
                 configRequirements = nil
-                appendActivity(
-                    .notice,
-                    title: "Managed policy unavailable",
-                    detail: friendlyError(error)
-                )
             }
 
             var shouldContinue = true
@@ -329,19 +303,16 @@ final class CodexCoreAppModel {
                     serverName: server
                 )
                 let authCheck = authSession.applyAccount(account)
-                if let activity = authCheck.activity {
-                    appendActivity(activity)
-                }
                 shouldContinue = authCheck.shouldContinue
             } catch {
-                appendActivity(authSession.accountCheckSkipped(message: friendlyError(error)))
+                _ = authSession.accountCheckSkipped(message: friendlyError(error))
             }
             startAccountObservation(session: codex.session)
             guard shouldContinue else { return }
 
             await refreshConnectedSession(using: codex)
         } catch {
-            appendActivity(authSession.connectionFailed(message: friendlyError(error)))
+            _ = authSession.connectionFailed(message: friendlyError(error))
         }
     }
 
@@ -349,7 +320,6 @@ final class CodexCoreAppModel {
         stopAutomationScheduler()
         dictationSession.abort()
         await voiceSession.stop()
-        await stopBottomTerminalSession()
         for task in automationRunTasks.values { task.cancel() }
         automationRunTasks.removeAll()
         for lease in automationThreadLeases.values { await lease.close() }
@@ -396,7 +366,7 @@ final class CodexCoreAppModel {
         let codex = self.codex
         self.codex = nil
         await codex?.close()
-        appendActivity(authSession.disconnected())
+        _ = authSession.disconnected()
     }
 
     func signOut() async {
@@ -407,10 +377,8 @@ final class CodexCoreAppModel {
 
         do {
             _ = try await codex.perform(CodexRequest.accountLogout())
-            appendActivity(.notice, title: "Signed out", detail: "The Codex account was disconnected")
             await disconnect()
         } catch {
-            appendActivity(.notice, title: "Sign out failed", detail: friendlyError(error))
         }
     }
 
@@ -439,10 +407,10 @@ final class CodexCoreAppModel {
                 )
             }
             apiKey = ""
-            appendActivity(authSession.apiKeyAccepted())
+            _ = authSession.apiKeyAccepted()
             await refreshConnectedSession(using: codex)
         } catch {
-            appendActivity(authSession.apiKeyFailed(message: friendlyError(error)))
+            _ = authSession.apiKeyFailed(message: friendlyError(error))
         }
     }
 
@@ -463,7 +431,7 @@ final class CodexCoreAppModel {
                     value: transaction.response.rawValue
                 )
             }
-            appendActivity(authSession.deviceCodeStarted(url: verificationURL, code: userCode))
+            _ = authSession.deviceCodeStarted(url: verificationURL, code: userCode)
             loginTask?.cancel()
             loginTask = Task { [weak self] in
                 do {
@@ -471,9 +439,9 @@ final class CodexCoreAppModel {
                     guard completion.success else {
                         await CodexMainActorProjection.run {
                             guard let self else { return }
-                            self.appendActivity(self.authSession.deviceCodeEnded(
+                            _ = self.authSession.deviceCodeEnded(
                                 message: completion.error ?? "Device login did not complete"
-                            ))
+                            )
                         }
                         return
                     }
@@ -481,12 +449,12 @@ final class CodexCoreAppModel {
                 } catch {
                     await CodexMainActorProjection.run {
                         guard let self else { return }
-                        self.appendActivity(self.authSession.deviceCodeEnded(message: self.friendlyError(error)))
+                        _ = self.authSession.deviceCodeEnded(message: self.friendlyError(error))
                     }
                 }
             }
         } catch {
-            appendActivity(authSession.deviceCodeFailed(message: friendlyError(error)))
+            _ = authSession.deviceCodeFailed(message: friendlyError(error))
         }
     }
 
@@ -519,7 +487,6 @@ final class CodexCoreAppModel {
         }
 
         composerSession.enqueueFollowUp(submission)
-        appendActivity(.turn, title: "Follow-up queued", detail: submission.prompt)
     }
 
     func steerQueuedFollowUp(clientID: String) async {
@@ -568,7 +535,6 @@ final class CodexCoreAppModel {
             return
         }
 
-        appendActivity(.turn, title: "Steering turn", detail: submission.prompt)
         do {
             _ = try await turn.steer(.init(
                 clientUserMessageID: submission.clientID,
@@ -673,7 +639,6 @@ final class CodexCoreAppModel {
 
     private func requeueFailedSteer(_ submission: CodexComposerSubmission, message: String) {
         composerSession.requeueFollowUp(submission)
-        appendActivity(.turn, title: "Steer failed — queued instead", detail: message)
     }
 
     func removeQueuedFollowUp(clientID: String) {
@@ -707,7 +672,6 @@ final class CodexCoreAppModel {
             isSending: blocksQueueDrain
         ) else { return }
 
-        appendActivity(queued.activity)
 
         Task { [weak self] in
             guard let self else { return }
@@ -737,11 +701,11 @@ final class CodexCoreAppModel {
             runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
             monitorMainTurn(lease)
         } catch {
-            appendActivity(runtimeSession.failQueuedFollowUp(
+            _ = runtimeSession.failQueuedFollowUp(
                 queued,
                 message: friendlyError(error),
                 composerSession: &composerSession
-            ))
+            )
         }
     }
 
@@ -750,7 +714,7 @@ final class CodexCoreAppModel {
         restoreDraftOnFailure: Bool
     ) async {
         var submission = incomingSubmission
-        appendActivity(runtimeSession.beginMainTurnSubmission(submission))
+        _ = runtimeSession.beginMainTurnSubmission(submission)
         do {
             let thread = try await ensureThread()
             if submission.threadID == nil {
@@ -776,7 +740,7 @@ final class CodexCoreAppModel {
             } else {
                 composerSession.requeueFollowUp(submission)
             }
-            appendActivity(runtimeSession.failMainTurnSubmission(message: friendlyError(error)))
+            _ = runtimeSession.failMainTurnSubmission(message: friendlyError(error))
         }
     }
 
@@ -798,11 +762,6 @@ final class CodexCoreAppModel {
                 }
                 _ = runtimeSession.finishMainTurn(id: lease.key.turnID.rawValue)
                 let failed = terminal.turn.status == .failed
-                appendActivity(
-                    .turn,
-                    title: failed ? "Turn failed" : "Turn finished",
-                    detail: terminal.turn.error?.message ?? lease.key.turnID.rawValue
-                )
                 automationNotifications.postTurnCompletion(
                     threadID: lease.key.threadID.rawValue,
                     title: currentChatTitle,
@@ -820,7 +779,6 @@ final class CodexCoreAppModel {
                 }
                 _ = runtimeSession.finishMainTurn(id: lease.key.turnID.rawValue)
                 let message = friendlyError(error)
-                appendActivity(.turn, title: "Turn stream ended", detail: message)
                 automationNotifications.postTurnCompletion(
                     threadID: lease.key.threadID.rawValue,
                     title: currentChatTitle,
@@ -833,7 +791,6 @@ final class CodexCoreAppModel {
 
     private func sendGoalDraft(_ incomingSubmission: CodexComposerSubmission) async {
         var submission = incomingSubmission
-        appendActivity(.turn, title: "Starting goal", detail: submission.prompt)
         do {
             let thread = try await ensureThread()
             if submission.threadID == nil {
@@ -849,10 +806,8 @@ final class CodexCoreAppModel {
                 threadID: thread.id.rawValue
             )))
             goalPursuitEnabled = true
-            appendActivity(.notice, title: "Goal started", detail: submission.prompt)
         } catch {
             composerSession.restore(submission)
-            appendActivity(.turn, title: "Goal failed to start", detail: friendlyError(error))
         }
     }
 
@@ -862,20 +817,12 @@ final class CodexCoreAppModel {
         }
         guard goalPursuitEnabled != enabled else { return }
         goalPursuitEnabled = enabled
-        appendActivity(
-            .notice,
-            title: enabled ? "Goal pursuit enabled" : "Goal pursuit disabled",
-            detail: enabled ? "The next message starts a goal." : "Returning to normal turns."
-        )
         if !enabled, selectedThreadGoal != nil {
             Task { await clearCurrentGoal() }
         }
     }
 
     func handleComposerAddMenuRoute(_ route: CodexComposerAddMenuRoute) {
-        for activity in route.activities {
-            appendActivity(activity)
-        }
         guard route.isEnabled else { return }
         for action in route.hostActions {
             handleComposerAddMenuHostAction(action)
@@ -883,7 +830,6 @@ final class CodexCoreAppModel {
     }
 
     func handleWorktreeHandoffCompletion(_ completion: CodexWorktreeHandoffCompletion) {
-        appendActivity(completion.activity)
         guard completion.resultCard != nil else { return }
         Task { await switchWorkspace(to: completion.environment.workspacePath) }
     }
@@ -910,7 +856,6 @@ final class CodexCoreAppModel {
         case .openPluginLauncher(let target):
             pluginLauncherTarget = target
             selectAppRoute(.plugins)
-            appendActivity(.notice, title: "Plugin detail", detail: "Opened \(target.title)")
         case .openFilesAndChats:
             selectAppRoute(.search)
         }
@@ -919,7 +864,6 @@ final class CodexCoreAppModel {
     func addReferencedFileURLs(_ urls: [URL], to threadID: String?) {
         let references = urls.compactMap(CodexReferencedFile.fromDroppedURL)
         guard !references.isEmpty else {
-            appendActivity(.notice, title: "Files unavailable", detail: "The selected items could not be referenced.")
             return
         }
         composerSession.addReferencedFiles(references, for: threadID)
@@ -949,15 +893,13 @@ final class CodexCoreAppModel {
         do {
             _ = try await codex.perform(CodexRequest.threadGoalClear(.init(threadID: threadID)))
             goalPursuitEnabled = false
-            appendActivity(.notice, title: "Goal cleared", detail: "Thread goal removed")
         } catch {
-            appendActivity(.notice, title: "Goal clear failed", detail: friendlyError(error))
             goalPursuitEnabled = true
         }
     }
 
     private func finishDeviceCodeLogin() async {
-        appendActivity(authSession.deviceCodeCompleted())
+        _ = authSession.deviceCodeCompleted()
         guard let codex else { return }
         await refreshConnectedSession(using: codex)
     }
@@ -1001,7 +943,6 @@ final class CodexCoreAppModel {
             try await refreshRateLimits(using: codex)
         } catch {
             guard !Task.isCancelled, self.codex === codex else { return }
-            appendActivity(.notice, title: "Rate limits unavailable", detail: friendlyError(error))
         }
     }
 
@@ -1156,19 +1097,9 @@ final class CodexCoreAppModel {
                     guard let self,
                           skillsChangedObservationGeneration == generation
                     else { return }
-                    appendActivity(
-                        .notice,
-                        title: "Skill updates unavailable",
-                        detail: friendlyError(error)
-                    )
                 }
             }
         } catch {
-            appendActivity(
-                .notice,
-                title: "Skill updates unavailable",
-                detail: friendlyError(error)
-            )
         }
     }
 
@@ -1197,9 +1128,7 @@ final class CodexCoreAppModel {
             accountRateLimitsSnapshot = try? CodexJSONValue.dictionary(account.rateLimits)
                 .decode(CodexSchemaRateLimitSnapshot.self)
         }
-        if let activity = authSession.applyCanonicalAccount(account).activity {
-            appendActivity(activity)
-        }
+        _ = authSession.applyCanonicalAccount(account)
     }
 
     private func applyThreadIndexSnapshot(_ snapshot: CanonicalThreadIndexSnapshot) {
@@ -1358,7 +1287,7 @@ final class CodexCoreAppModel {
 
     private func refreshStartupCatalogs(using codex: Codex) async {
         var session = configurationSession
-        let activities = await session.refreshStartupCatalogs(
+        _ = await session.refreshStartupCatalogs(
             using: codex,
             cwds: workspaceRoots,
             errorMessage: CodexErrorFormat.localizedDescription
@@ -1366,27 +1295,24 @@ final class CodexCoreAppModel {
         guard !Task.isCancelled, self.codex === codex else { return }
         configurationSession.mergeStartupCatalogs(from: session)
         applyPreferredModel(for: currentThreadID)
-        appendConfigurationActivities(activities)
     }
 
     func refreshSlashCommands(using codex: Codex, forceReload: Bool = false) async {
-        let activity: CodexChatConfigurationActivity
         do {
             let response = try await codex.perform(CodexRequest.skillsList(.init(
                 cwds: workspaceRoots.isEmpty ? nil : workspaceRoots,
                 forceReload: forceReload ? true : nil
             )))
             guard !Task.isCancelled, self.codex === codex else { return }
-            activity = configurationSession.applySlashCommandResponse(
+            _ = configurationSession.applySlashCommandResponse(
                 try CodexJSONValue(encoding: response)
             )
         } catch {
             guard !Task.isCancelled, self.codex === codex else { return }
-            activity = configurationSession.failSlashCommandRefresh(
+            _ = configurationSession.failSlashCommandRefresh(
                 message: CodexErrorFormat.localizedDescription(error)
             )
         }
-        appendConfigurationActivity(activity)
     }
 
     func refreshRecentChats() async {
@@ -1396,7 +1322,7 @@ final class CodexCoreAppModel {
 
     private func refreshRecentChats(using codex: Codex) async {
         var session = threadListSession
-        let activity = await session.refreshRecentChats(
+        _ = await session.refreshRecentChats(
             using: codex,
             currentWorkspacePath: workspacePath,
             errorMessage: CodexErrorFormat.localizedDescription
@@ -1408,10 +1334,6 @@ final class CodexCoreAppModel {
                 CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: session.recentProjects)
             )
             saveExpandedSidebarProjects()
-        }
-
-        if let activity {
-            appendActivity(.notice, title: activity.title, detail: activity.detail)
         }
     }
 
@@ -1489,13 +1411,10 @@ final class CodexCoreAppModel {
         switch action {
         case .save(let automation):
             automationLifecycle.save(automation)
-            persistAutomation(id: automation.id, successTitle: "Automation saved")
+            persistAutomation(id: automation.id)
         case .toggle(let id):
-            guard let automation = automationLifecycle.toggle(id: id) else { return }
-            persistAutomation(
-                id: id,
-                successTitle: automation.status == .disabled ? "Automation paused" : "Automation enabled"
-            )
+            guard automationLifecycle.toggle(id: id) != nil else { return }
+            persistAutomation(id: id)
         case .delete(let id):
             automationRunTasks[id]?.cancel()
             automationRunTasks[id] = nil
@@ -1503,15 +1422,11 @@ final class CodexCoreAppModel {
             do {
                 try automationStore.delete(id: id)
                 automationNotifications.removePendingRequests(forAutomationID: id)
-                appendActivity(.notice, title: "Automation deleted", detail: "Existing chats were kept")
             } catch {
-                appendActivity(.notice, title: "Automation delete failed", detail: friendlyError(error))
             }
         case .runNow(let id):
             startAutomationRun(id: id)
-        case .learnMore:
-            appendActivity(.notice, title: "Automations", detail: "Scheduled automations run as independent Codex chats while the app is open. Their definitions and run state are stored locally in your Codex home.")
-        case .createViaChat, .template, .addForChat:
+        case .learnMore, .createViaChat, .template, .addForChat:
             break
         }
     }
@@ -1652,7 +1567,7 @@ final class CodexCoreAppModel {
         guard automationRunTasks[id] == nil,
               let automation = automationLifecycle.beginRun(id: id, now: now)
         else { return }
-        persistAutomation(id: id, announces: false)
+        persistAutomation(id: id)
 
         automationRunTasks[id] = Task { [weak self] in
             guard let self else { return }
@@ -1668,9 +1583,8 @@ final class CodexCoreAppModel {
         guard let codex else {
             let message = "Connect Codex to run this automation"
             automationLifecycle.finishRun(id: automation.id, threadID: nil, error: message)
-            persistAutomation(id: automation.id, announces: false)
+            persistAutomation(id: automation.id)
             postAutomationNotification(name: automation.name, failure: message)
-            appendActivity(.notice, title: "Automation failed", detail: message)
             return
         }
 
@@ -1703,30 +1617,14 @@ final class CodexCoreAppModel {
             await thread.close()
         }
         automationLifecycle.finishRun(id: automation.id, threadID: threadID, error: failure)
-        persistAutomation(id: automation.id, announces: false)
+        persistAutomation(id: automation.id)
         await refreshRecentChats()
         postAutomationNotification(name: automation.name, failure: failure)
-        appendActivity(
-            failure == nil ? .turn : .notice,
-            title: failure == nil ? "Automation finished" : "Automation failed",
-            detail: failure ?? automation.name
-        )
     }
 
-    private func persistAutomation(
-        id: String,
-        successTitle: String? = nil,
-        announces: Bool = true
-    ) {
+    private func persistAutomation(id: String) {
         guard let automation = automations.first(where: { $0.id == id }) else { return }
-        do {
-            try automationStore.save(automation)
-            if announces, let successTitle {
-                appendActivity(.notice, title: successTitle, detail: automation.schedule.summary)
-            }
-        } catch {
-            appendActivity(.notice, title: "Automation save failed", detail: friendlyError(error))
-        }
+        try? automationStore.save(automation)
     }
 
     private func postAutomationNotification(name: String, failure: String?) {
@@ -1765,7 +1663,6 @@ final class CodexCoreAppModel {
             sidebarNavigationSession.selectRoute(.chat)
         }
         composerSession.setDraft(request.prompt, for: currentThreadID)
-        appendActivity(.notice, title: request.activityTitle, detail: request.activityDetail)
         await refreshRecentChats()
     }
 
@@ -1800,14 +1697,6 @@ final class CodexCoreAppModel {
         _ = sidebarNavigationSession.toggleProjectPin(workspacePath)
         CodexPinnedProjectStorage.savePinnedProjectIDs(
             sidebarNavigationSession.pinnedProjectIDs,
-            to: preferenceStore
-        )
-    }
-
-    func renameSidebarProject(_ workspacePath: String, displayName: String) {
-        sidebarNavigationSession.renameProject(workspacePath, displayName: displayName)
-        CodexProjectAliasStorage.saveProjectAliases(
-            sidebarNavigationSession.projectAliases,
             to: preferenceStore
         )
     }
@@ -1854,11 +1743,6 @@ final class CodexCoreAppModel {
             )
         }
         threadListSession.refreshProjects(currentWorkspacePath: workspacePath)
-        appendActivity(
-            .notice,
-            title: "Updated project",
-            detail: "\(roots.count) source folder\(roots.count == 1 ? "" : "s")"
-        )
         if let codex {
             await refreshSlashCommands(using: codex)
             await refreshRecentChats(using: codex)
@@ -1939,7 +1823,6 @@ final class CodexCoreAppModel {
         saveExpandedSidebarProjects()
         invalidatePendingChatSelection()
         clearThreadState()
-        appendActivity(.notice, title: "Switched project", detail: normalized)
 
         guard let codex else {
             threadListSession.refreshProjects(currentWorkspacePath: workspacePath)
@@ -1969,15 +1852,9 @@ final class CodexCoreAppModel {
             return
         }
         guard canStartVoiceChatFromCurrentContext else {
-            appendActivity(
-                .notice,
-                title: "Voice unavailable",
-                detail: "Start Voice from Home or reopen an existing Voice task."
-            )
             return
         }
         guard let codex else {
-            appendActivity(.notice, title: "Voice unavailable", detail: "Connect to Codex first.")
             return
         }
 
@@ -2040,11 +1917,6 @@ final class CodexCoreAppModel {
                     )))
                     renameChatInSidebar(visibleLease.id.rawValue, title: "Voice chat")
                 } catch {
-                    appendActivity(
-                        .notice,
-                        title: "Voice task naming failed",
-                        detail: friendlyError(error)
-                    )
                 }
             }
 
@@ -2052,11 +1924,9 @@ final class CodexCoreAppModel {
                 codex: codex,
                 threadID: visibleLease.id.rawValue
             )
-            appendActivity(.notice, title: "Voice chat started", detail: visibleLease.id.rawValue)
             await refreshRecentChats(using: codex)
         } catch {
             voiceSession.markFailed(error)
-            appendActivity(.notice, title: "Voice chat failed", detail: friendlyError(error))
         }
     }
 
@@ -2081,16 +1951,13 @@ final class CodexCoreAppModel {
             await showVoiceChat()
         }
         guard let codex else {
-            appendActivity(.notice, title: "Voice unavailable", detail: "Connect to Codex first.")
             return
         }
         do {
             try await voiceSession.start(codex: codex, threadID: threadID)
-            appendActivity(.notice, title: "Voice chat resumed", detail: threadID)
             await refreshRecentChats(using: codex)
         } catch {
             voiceSession.markFailed(error)
-            appendActivity(.notice, title: "Voice chat failed", detail: friendlyError(error))
         }
     }
 
@@ -2100,7 +1967,6 @@ final class CodexCoreAppModel {
 
     func stopVoiceChat() async {
         await voiceSession.stop()
-        appendActivity(.notice, title: "Voice chat ended", detail: "The task remains in your history.")
         await refreshRecentChats()
     }
 
@@ -2195,28 +2061,19 @@ final class CodexCoreAppModel {
                     workspacePath: workspacePath
                 )
             }
-            appendActivity(.notice, title: "Resumed chat", detail: lease.id.rawValue)
             flushQueuedFollowUps()
         } catch {
-            appendActivity(.notice, title: "Resume failed", detail: friendlyError(error))
         }
     }
 
     func searchChats(query: String) async {
         var session = threadListSession
-        let activity = await session.searchChats(query: query, using: codex, errorMessage: CodexErrorFormat.localizedDescription)
+        _ = await session.searchChats(query: query, using: codex, errorMessage: CodexErrorFormat.localizedDescription)
         threadListSession = session
-        if let activity {
-            appendActivity(.notice, title: activity.title, detail: activity.detail)
-        }
     }
 
     func clearSearchResults() {
         threadListSession.clearSearch()
-    }
-
-    func appendPaletteNotice(title: String, detail: String) {
-        appendActivity(.notice, title: title, detail: detail)
     }
 
     func refreshSlashCommandsFromPalette() {
@@ -2232,13 +2089,12 @@ final class CodexCoreAppModel {
         }
 
         var session = runtimeSession.integrationCatalogSession
-        let activity = await session.refreshMCPServers(
+        _ = await session.refreshMCPServers(
             using: codex,
             threadID: currentThreadID,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         publishIntegrationCatalogSession(session)
-        appendIntegrationActivity(activity)
     }
 
     func refreshPlugins(forceReloadSkills: Bool = false) async {
@@ -2256,47 +2112,47 @@ final class CodexCoreAppModel {
         let cwds = workspaceRoots
 
         await withTaskGroup(
-            of: (CodexIntegrationCatalogInventory, CodexIntegrationCatalogSession, CodexIntegrationCatalogActivity).self
+            of: (CodexIntegrationCatalogInventory, CodexIntegrationCatalogSession).self
         ) { group in
             group.addTask {
                 var session = initial
-                let activity = await session.refreshMCPServers(
+                _ = await session.refreshMCPServers(
                     using: codex,
                     threadID: threadID,
                     errorMessage: CodexErrorFormat.localizedDescription
                 )
-                return (.mcpServers, session, activity)
+                return (.mcpServers, session)
             }
             group.addTask {
                 var session = initial
-                let activity = await session.refreshPlugins(
+                _ = await session.refreshPlugins(
                     using: codex,
                     cwds: cwds,
                     errorMessage: CodexErrorFormat.localizedDescription
                 )
-                return (.plugins, session, activity)
+                return (.plugins, session)
             }
             group.addTask {
                 var session = initial
-                let activity = await session.refreshApps(
+                _ = await session.refreshApps(
                     using: codex,
                     threadID: threadID,
                     errorMessage: CodexErrorFormat.localizedDescription
                 )
-                return (.apps, session, activity)
+                return (.apps, session)
             }
             group.addTask {
                 var session = initial
-                let activity = await session.refreshSkills(
+                _ = await session.refreshSkills(
                     using: codex,
                     cwds: cwds,
                     forceReload: forceReloadSkills,
                     errorMessage: CodexErrorFormat.localizedDescription
                 )
-                return (.skills, session, activity)
+                return (.skills, session)
             }
 
-            for await (inventory, refreshed, activity) in group {
+            for await (inventory, refreshed) in group {
                 guard refreshGeneration == integrationCatalogRefreshGeneration else {
                     Self.pluginCatalogLogger.info("discarded stale catalog refresh generation=\(refreshGeneration)")
                     group.cancelAll()
@@ -2305,7 +2161,6 @@ final class CodexCoreAppModel {
                 var current = runtimeSession.integrationCatalogSession
                 current.merge(refreshed, inventory: inventory)
                 publishIntegrationCatalogSession(current)
-                appendIntegrationActivity(activity)
             }
         }
     }
@@ -2333,13 +2188,12 @@ final class CodexCoreAppModel {
         }
         let provider = CodexAppServerIntegrationControlPlaneProvider(codex: codex)
         var session = runtimeSession.integrationControlPlaneSession
-        let activity = await session.perform(
+        _ = await session.perform(
             request,
             provider: provider,
             errorMessage: CodexErrorFormat.localizedDescription
         )
         runtimeSession.integrationControlPlaneSession = session
-        appendIntegrationActivity(activity)
         return session.response(for: request)
     }
 
@@ -2414,10 +2268,6 @@ final class CodexCoreAppModel {
                 if let mutationKey { setPluginCatalogMutationPending(mutationKey, pending: false) }
                 let detail = "Connect to Codex before changing plugins, skills, or marketplaces."
                 if case .some(.marketplace(let id)) = mutationKey { marketplaceActionErrors[id] = detail }
-                appendIntegrationActivity(.init(
-                    title: "Plugin action unavailable",
-                    detail: detail
-                ))
                 return
             }
             let outcome = await performPluginCatalogAction(action, using: provider)
@@ -2443,7 +2293,6 @@ final class CodexCoreAppModel {
                     marketplaceActionErrors[id] = outcome.activity.detail
                 }
             }
-            appendIntegrationActivity(outcome.activity)
             // Mutation pending state belongs to the write itself. Catalog refreshes
             // include unrelated transports and must not leave a successful control
             // displaying "Updating" while, for example, MCP inventory is slow.
@@ -2481,27 +2330,6 @@ final class CodexCoreAppModel {
                 activity: .init(title: "Prepared plugin prompt", detail: prompt),
                 draftPrompt: prompt
             )
-        }
-    }
-
-    func performPluginControlPlaneAction(_ request: CodexIntegrationControlPlaneRequest) {
-        Task {
-            let response = await performIntegrationControlPlaneRequest(request)
-            if case .mcpOAuthLogin = request,
-               case .dictionary(let object)? = response,
-               case .string(let authorizationURL)? = object["authorizationUrl"],
-               let url = URL(string: authorizationURL) {
-                NSWorkspace.shared.open(url)
-            }
-
-            switch request.permissionBoundary {
-            case .pluginMutation, .skillConfigurationWrite, .configurationWrite:
-                await refreshPlugins()
-            case .externalAuthentication:
-                await refreshMCPServers()
-            case .externalResourceRead, .externalToolExecution, nil:
-                break
-            }
         }
     }
 
@@ -2565,7 +2393,6 @@ final class CodexCoreAppModel {
 
     func pinCurrentChat() {
         guard let threadID = currentThreadID else {
-            appendActivity(.notice, title: "Pin unavailable", detail: "No active chat to pin")
             return
         }
         setThreadPinned(threadID, pinned: !pinnedThreadIDs.contains(threadID))
@@ -2602,10 +2429,8 @@ final class CodexCoreAppModel {
                     )
                 }
             }
-            appendActivity(.notice, title: "Archived chat", detail: chat.id)
             await refreshRecentChats(using: codex)
         } catch {
-            appendActivity(.notice, title: "Archive failed", detail: friendlyError(error))
         }
     }
 
@@ -2619,14 +2444,12 @@ final class CodexCoreAppModel {
                 ?? (CodexProjectSummary.normalizedPath(path) == normalizedPath)
         }
         guard !chats.isEmpty else {
-            appendActivity(.notice, title: "No chats to archive", detail: normalizedPath)
             return
         }
 
         let selectedID = currentThreadID ?? sidebarNavigationSession.selectedThreadID
         let archiveGeneration = chatSelectionGeneration
         var archivedIDs: Set<String> = []
-        var failures = 0
         for chat in chats {
             do {
                 _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: chat.id)))
@@ -2634,9 +2457,7 @@ final class CodexCoreAppModel {
                 setThreadPinned(chat.id, pinned: false, announces: false)
                 composerSession.discardThreadState(for: chat.id)
                 removeChatFromSidebar(chat.id)
-            } catch {
-                failures += 1
-            }
+            } catch {}
         }
 
         let currentSelectedID = currentThreadID ?? sidebarNavigationSession.selectedThreadID
@@ -2652,21 +2473,11 @@ final class CodexCoreAppModel {
             sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         }
 
-        if failures == 0 {
-            appendActivity(.notice, title: "Archived project chats", detail: "\(archivedIDs.count) chats · \(normalizedPath)")
-        } else {
-            appendActivity(
-                .notice,
-                title: "Some chats could not be archived",
-                detail: "\(archivedIDs.count) archived, \(failures) failed · \(normalizedPath)"
-            )
-        }
         await refreshRecentChats(using: codex)
     }
 
     func addAutomationForCurrentChat() {
         guard let threadID = currentThreadID else {
-            appendActivity(.notice, title: "Automation unavailable", detail: "No active chat to automate")
             return
         }
         let request = CodexAutomationRouteAction.addForChat(
@@ -2682,12 +2493,9 @@ final class CodexCoreAppModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, approved: approved) {
-                    appendActivity(.notice, title: activity.title, detail: activity.detail)
-                }
+                _ = try await promptRuntime.resolveApprovalPrompt(id: id, approved: approved)
                 notifyDockStateChanged()
             } catch {
-                appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
         }
     }
@@ -2699,12 +2507,9 @@ final class CodexCoreAppModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                if let activity = try await promptRuntime.resolveApprovalPrompt(id: id, decision: decision) {
-                    appendActivity(.notice, title: activity.title, detail: activity.detail)
-                }
+                _ = try await promptRuntime.resolveApprovalPrompt(id: id, decision: decision)
                 notifyDockStateChanged()
             } catch {
-                appendActivity(.notice, title: "Approval failed", detail: friendlyError(error))
             }
         }
     }
@@ -2716,15 +2521,12 @@ final class CodexCoreAppModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                if let activity = try await promptRuntime.submitInteractivePrompt(
+                _ = try await promptRuntime.submitInteractivePrompt(
                     id: id,
                     answers: answers
-                ) {
-                    appendActivity(.notice, title: activity.title, detail: activity.detail)
-                }
+                )
                 notifyDockStateChanged()
             } catch {
-                appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
         }
     }
@@ -2733,12 +2535,9 @@ final class CodexCoreAppModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                if let activity = try await promptRuntime.acceptInteractivePrompt(id: id) {
-                    appendActivity(.notice, title: activity.title, detail: activity.detail)
-                }
+                _ = try await promptRuntime.acceptInteractivePrompt(id: id)
                 notifyDockStateChanged()
             } catch {
-                appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
         }
     }
@@ -2747,12 +2546,9 @@ final class CodexCoreAppModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                if let activity = try await promptRuntime.declineInteractivePrompt(id: id) {
-                    appendActivity(.notice, title: activity.title, detail: activity.detail)
-                }
+                _ = try await promptRuntime.declineInteractivePrompt(id: id)
                 notifyDockStateChanged()
             } catch {
-                appendActivity(.notice, title: "Response failed", detail: friendlyError(error))
             }
         }
     }
@@ -2779,7 +2575,6 @@ final class CodexCoreAppModel {
                 sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
                 invalidatePendingChatSelection()
                 clearThreadState()
-                appendActivity(.notice, title: "Switched project", detail: normalized)
             }
         }
         await resumeChat(id: result.thread.id)
@@ -2813,10 +2608,8 @@ final class CodexCoreAppModel {
                     workspacePath: workspacePath
                 )
             }
-            appendActivity(.notice, title: "Forked chat", detail: sourceID)
             await refreshRecentChats(using: codex)
         } catch {
-            appendActivity(.notice, title: "Fork failed", detail: friendlyError(error))
         }
     }
 
@@ -2841,10 +2634,8 @@ final class CodexCoreAppModel {
                     )
                 }
             }
-            appendActivity(.notice, title: "Archived chat", detail: archivedID)
             await refreshRecentChats(using: codex)
         } catch {
-            appendActivity(.notice, title: "Archive failed", detail: friendlyError(error))
         }
     }
 
@@ -2858,23 +2649,18 @@ final class CodexCoreAppModel {
                 threadID: threadID
             )))
             renameChatInSidebar(threadID, title: trimmed)
-            appendActivity(.notice, title: "Renamed chat", detail: trimmed)
             await refreshRecentChats()
         } catch {
-            appendActivity(.notice, title: "Rename failed", detail: friendlyError(error))
         }
     }
 
     func compactCurrentChat() async {
         guard let codex, let threadID = currentThreadID else {
-            appendActivity(.notice, title: "Compact unavailable", detail: "No active chat to compact")
             return
         }
         do {
             _ = try await codex.perform(CodexRequest.threadCompactStart(.init(threadID: threadID)))
-            appendActivity(.notice, title: "Compact started", detail: "App-server is compacting this chat")
         } catch {
-            appendActivity(.notice, title: "Compact failed", detail: friendlyError(error))
         }
     }
 
@@ -2904,7 +2690,6 @@ final class CodexCoreAppModel {
         }
         syncComposerThreadID()
         workspacePanel.migrateUnassigned(to: thread.id.rawValue)
-        appendActivity(.notice, title: "Thread ready", detail: "Workspace session created")
         return thread
     }
 
@@ -2953,11 +2738,6 @@ final class CodexCoreAppModel {
             guard chatSelectionGeneration == selectionGeneration,
                   currentThreadLease === thread
             else { return }
-            appendActivity(
-                .notice,
-                title: "Active turn controls unavailable",
-                detail: friendlyError(error)
-            )
         }
     }
 
@@ -3146,7 +2926,6 @@ final class CodexCoreAppModel {
             provenance: modelPreferenceByThread[source.id.rawValue]
         )
         activeSideChatThreadLease = lease
-        appendActivity(.notice, title: "Side chat ready", detail: "Forked focused branch")
         return lease
     }
 
@@ -3154,24 +2933,19 @@ final class CodexCoreAppModel {
         guard let activeTurnLease else { return }
         do {
             try await activeTurnLease.interrupt()
-            appendActivity(.turn, title: "Interrupt sent", detail: "Stopping the current turn")
         } catch {
-            appendActivity(.turn, title: "Interrupt failed", detail: friendlyError(error))
         }
     }
 
     func openSideChat() {
-        let activity = runtimeSession.openSideChat()
-        appendActivity(activity.kind, title: activity.title, detail: activity.detail)
+        _ = runtimeSession.openSideChat()
     }
 
     func sendSideChatDraft() async {
         let prompt = composerSession.trimmedSideChatDraft
         guard !prompt.isEmpty else { return }
         composerSession.clearSideChatDraft()
-        for activity in runtimeSession.beginSideChatSubmission(prompt: prompt) {
-            appendActivity(activity)
-        }
+        _ = runtimeSession.beginSideChatSubmission(prompt: prompt)
         do {
             let thread = try await ensureSideChatThread()
             let permissionConfiguration =
@@ -3186,7 +2960,7 @@ final class CodexCoreAppModel {
             runtimeSession.startSideChat(id: lease.key.turnID.rawValue, threadID: thread.id.rawValue)
             monitorSideChatTurn(lease)
         } catch {
-            appendActivity(runtimeSession.failSideChatSubmission(message: friendlyError(error)))
+            _ = runtimeSession.failSideChatSubmission(message: friendlyError(error))
         }
     }
 
@@ -3194,9 +2968,7 @@ final class CodexCoreAppModel {
         guard let activeSideChatTurnLease else { return }
         do {
             try await activeSideChatTurnLease.interrupt()
-            appendActivity(.turn, title: "Side chat interrupt sent", detail: "Stopping the side chat turn")
         } catch {
-            appendActivity(.turn, title: "Side chat interrupt failed", detail: friendlyError(error))
         }
     }
 
@@ -3216,9 +2988,7 @@ final class CodexCoreAppModel {
                 if activeSideChatTurnLease?.key == lease.key {
                     activeSideChatTurnLease = nil
                 }
-                if let activity = runtimeSession.finishSideChat(id: lease.key.turnID.rawValue)?.activity {
-                    appendActivity(activity)
-                }
+                _ = runtimeSession.finishSideChat(id: lease.key.turnID.rawValue)
             } catch is CancellationError {
                 return
             } catch {
@@ -3227,7 +2997,6 @@ final class CodexCoreAppModel {
                     activeSideChatTurnLease = nil
                 }
                 _ = runtimeSession.finishSideChat(id: lease.key.turnID.rawValue)
-                appendActivity(.turn, title: "Side chat ended", detail: friendlyError(error))
             }
         }
     }
@@ -3235,9 +3004,6 @@ final class CodexCoreAppModel {
     func copyChatTranscript() {
         let transcript = CodexChatUtilitySession.transcriptText(transcript: transcriptV2)
         clipboardService.copy(transcript)
-
-        let detail = CodexChatUtilitySession.copiedTranscriptActivityDetail(messageCount: transcriptV2.turns.count)
-        appendActivity(.notice, title: "Copied chat", detail: detail)
     }
 
     func copyText(_ text: String) {
@@ -3246,16 +3012,13 @@ final class CodexCoreAppModel {
 
     func copyWorkingDirectory() {
         copyText(workspacePath)
-        appendActivity(.notice, title: "Copied working directory", detail: workspacePath)
     }
 
     func copySessionID() {
         guard let currentThreadID else {
-            appendActivity(.notice, title: "Session ID unavailable", detail: "Open a chat first")
             return
         }
         copyText(currentThreadID)
-        appendActivity(.notice, title: "Copied session ID", detail: currentThreadID)
     }
 
     func handleSlashCommand(
@@ -3265,9 +3028,6 @@ final class CodexCoreAppModel {
     ) {
         syncComposerThreadID()
         let route = composerSession.routeSlashCommand(command)
-        for activity in route.activities {
-            appendActivity(activity)
-        }
         for action in route.hostActions {
             applySlashCommandHostAction(
                 action,
@@ -3289,10 +3049,8 @@ final class CodexCoreAppModel {
             applyFastCommand()
         case .cycleReasoning:
             applyReasoningCommand()
-        case .openModelSelector:
-            appendActivity(.notice, title: "Model", detail: "Use the composer model selector")
-        case .openReasoningSelector:
-            appendActivity(.notice, title: "Reasoning", detail: "Use the composer reasoning selector")
+        case .openModelSelector, .openReasoningSelector:
+            break
         case .forkCurrentChat:
             Task { await forkCurrentChat() }
         case .compactCurrentChat:
@@ -3310,32 +3068,6 @@ final class CodexCoreAppModel {
         }
     }
 
-    func dismissTranscriptMessage(_ id: UUID) {
-        structuredPanelDismissalState.dismiss(messageID: id)
-    }
-
-    private func appendActivity(_ kind: Activity.Kind, title: String, detail: String) {
-        activityLog.append(kind, title: title, detail: detail)
-    }
-
-    private func appendActivity(_ activity: Activity) {
-        appendActivity(activity.kind, title: activity.title, detail: activity.detail)
-    }
-
-    private func appendConfigurationActivity(_ activity: CodexChatConfigurationActivity) {
-        appendActivity(.notice, title: activity.title, detail: activity.detail)
-    }
-
-    private func appendConfigurationActivities(_ activities: [CodexChatConfigurationActivity]) {
-        for activity in activities {
-            appendConfigurationActivity(activity)
-        }
-    }
-
-    private func appendIntegrationActivity(_ activity: CodexIntegrationCatalogActivity) {
-        appendActivity(.notice, title: activity.title, detail: activity.detail)
-    }
-
     private func friendlyError(_ error: Error) -> String {
         CodexErrorFormat.localizedDescription(error)
     }
@@ -3348,17 +3080,10 @@ final class CodexCoreAppModel {
                 tierExplicit: true
             )
         }
-        appendActivity(
-            .notice,
-            title: result.activity.title,
-            detail: result.activity.detail
-        )
     }
 
     private func applyReasoningCommand() {
-        if let activity = configurationSession.cycleReasoning() {
-            appendActivity(.notice, title: activity.title, detail: activity.detail)
-        }
+        _ = configurationSession.cycleReasoning()
     }
 
     private var statusSummaryContext: CodexChatStatusSummaryContext {
@@ -3435,7 +3160,6 @@ final class CodexCoreAppModel {
     func selectMention(_ result: FuzzyFileSearchResult) {
         syncComposerThreadID()
         composerSession.selectMention(result)
-        appendActivity(.notice, title: "Mentioned file", detail: result.path)
     }
 
     private func clearThreadState(
@@ -3474,7 +3198,6 @@ final class CodexCoreAppModel {
     }
 
     private func resetSessionState() async {
-        await stopBottomTerminalSession()
         endAllProcessActivities()
         await runtimeSession.disconnect()
         promptRuntime.disconnect()
@@ -3484,7 +3207,6 @@ final class CodexCoreAppModel {
         cancelSkillsChangedObservation()
         cancelConnectedSessionBackgroundRefreshes()
         mentionSearchSession.reset()
-        structuredPanelDismissalState = CodexStructuredPanelDismissalState()
         configRequirements = nil
         announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         loginTask?.cancel()
@@ -3524,11 +3246,6 @@ final class CodexCoreAppModel {
         }
         CodexPinnedThreadStorage.savePinnedThreadIDs(pinnedThreadIDs, to: preferenceStore)
         guard announces else { return }
-        appendActivity(
-            .notice,
-            title: pinned ? "Pinned chat" : "Unpinned chat",
-            detail: threadID
-        )
     }
 
     private func saveExpandedSidebarProjects() {
@@ -3560,103 +3277,4 @@ final class CodexCoreAppModel {
         threadListSession = session
     }
 
-    // MARK: - Bottom Terminal Panel
-
-    func toggleBottomTerminalPanel() {
-        isBottomTerminalVisible.toggle()
-    }
-
-    func setBottomTerminalHeight(_ height: CGFloat, maxHeight: CGFloat) {
-        let minHeight: CGFloat = 140
-        let clampedMax = max(minHeight, maxHeight)
-        bottomTerminalHeight = min(max(height, minHeight), clampedMax)
-    }
-
-    func clearBottomTerminalOutput() {
-        bottomTerminalText = ""
-    }
-
-    func openBottomTerminalDemo() async {
-        guard let codex else {
-            appendActivity(.notice, title: "Terminal unavailable", detail: "Connect to Codex before opening terminal output.")
-            return
-        }
-
-        await stopBottomTerminalSession()
-
-        isBottomTerminalVisible = true
-        bottomTerminalText = ""
-        bottomTerminalStatus = "Starting command session..."
-        isBottomTerminalRunning = true
-
-        do {
-            let session = try await codex.session.startCommandExec(.init(
-                command: ["echo", "Codex terminal demo"],
-                cwd: workspacePath,
-                processID: UUID().uuidString,
-                tty: false
-            ))
-            terminalSession = session
-            bottomTerminalStatus = "Running in \(workspacePath)"
-
-            terminalOutputTask = Task { [weak self] in
-                for await delta in session.outputStream {
-                    await CodexMainActorProjection.run {
-                        self?.appendTerminalDelta(delta)
-                    }
-                }
-            }
-
-            terminalCompletionTask = Task { [weak self] in
-                do {
-                    let result = try await session.wait()
-                    await CodexMainActorProjection.run {
-                        self?.finishBottomTerminalSession(result: result)
-                    }
-                } catch {
-                    await CodexMainActorProjection.run {
-                        self?.isBottomTerminalRunning = false
-                        self?.bottomTerminalStatus = "Session failed: \(CodexErrorFormat.localizedDescription(error))"
-                    }
-                }
-            }
-        } catch {
-            isBottomTerminalRunning = false
-            bottomTerminalStatus = "Failed to start session: \(friendlyError(error))"
-        }
-    }
-
-    private func stopBottomTerminalSession() async {
-        terminalOutputTask?.cancel()
-        terminalCompletionTask?.cancel()
-        terminalOutputTask = nil
-        terminalCompletionTask = nil
-        if let session = terminalSession, !(await session.hasCompleted) {
-            try? await session.terminate()
-        }
-        terminalSession = nil
-        isBottomTerminalRunning = false
-    }
-
-    private func appendTerminalDelta(_ delta: PTYDelta) {
-        let chunk = String(decoding: delta.data, as: UTF8.self)
-        let prefix = delta.stream == .stderr ? "stderr: " : ""
-        if !chunk.isEmpty {
-            bottomTerminalText += "\(prefix)\(chunk)"
-        }
-        if delta.capReached {
-            bottomTerminalText += "\n[output cap reached]\n"
-        }
-    }
-
-    private func finishBottomTerminalSession(result: CodexCommandExecResult) {
-        terminalSession = nil
-        terminalOutputTask = nil
-        terminalCompletionTask = nil
-        isBottomTerminalRunning = false
-        bottomTerminalStatus = "Exited \(result.exitCode)"
-        if bottomTerminalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            bottomTerminalText = "Command finished with exit code \(result.exitCode).\n"
-        }
-    }
 }

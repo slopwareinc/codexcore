@@ -79,22 +79,6 @@ final class CodexPreferenceStorageTests: XCTestCase {
         )
     }
 
-    func testGitSettingsDecodesPartialV1PayloadWithFieldDefaults() {
-        let v1Payload = #"{"branchPrefix":"feature/","alwaysForcePush":true}"#
-        let store = PreferenceStore(values: [
-            CodexGitSettingsStorage.key: [v1Payload]
-        ])
-
-        let settings = CodexGitSettingsStorage.loadGitSettings(from: store)
-
-        XCTAssertEqual(settings.branchPrefix, "feature/")
-        XCTAssertTrue(settings.alwaysForcePush)
-        XCTAssertEqual(settings.mergeMethod, .merge)
-        XCTAssertFalse(settings.createsDraftPullRequests)
-        XCTAssertEqual(settings.commitInstructions, "")
-        XCTAssertEqual(settings.pullRequestInstructions, "")
-    }
-
     func testUnreadThreadIDsMigrateFromV1Key() {
         let store = PreferenceStore(values: [
             CodexUnreadThreadStorage.legacyKey: ["thread-b", "thread-a", "thread-a"]

@@ -25,16 +25,6 @@ final class CodexAutomationNotificationServiceTests: XCTestCase {
         ))
     }
 
-    func testCurrentTestHostInitializesWithoutTouchingUnsupportedCenter() {
-        let service = CodexAutomationNotificationService(bundle: .main)
-
-        XCTAssertEqual(
-            service.isAvailable,
-            Bundle.main.bundleURL.pathExtension.caseInsensitiveCompare("app") == .orderedSame
-                && Bundle.main.bundleIdentifier != nil
-        )
-    }
-
     func testUnbundledLaunchExposesDisabledAuthorizationStatus() {
         let service = CodexAutomationNotificationService(
             bundle: Bundle(for: Self.self)

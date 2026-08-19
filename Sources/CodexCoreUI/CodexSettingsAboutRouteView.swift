@@ -7,7 +7,6 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
     case profile
     case configuration
     case agents
-    case git
     case integrations
     case about
 
@@ -24,7 +23,6 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .profile: return "Profile"
         case .configuration: return "Configuration"
         case .agents: return "Agent instructions"
-        case .git: return "Git"
         case .integrations: return "Integrations"
         case .about: return "About"
         }
@@ -37,7 +35,6 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .profile: return "person.crop.circle"
         case .configuration: return "slider.horizontal.3"
         case .agents: return "doc.text.magnifyingglass"
-        case .git: return "point.3.connected.trianglepath.dotted"
         case .integrations: return "puzzlepiece.extension"
         case .about: return "info.circle"
         }
@@ -47,7 +44,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general, .appearance, .profile, .configuration:
             return "Personal"
-        case .agents, .git:
+        case .agents:
             return "Coding"
         case .integrations:
             return "Integrations"
@@ -68,56 +65,11 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
             return ["config", "sandbox", "workspace", "dependencies", "app server"]
         case .agents:
             return ["AGENTS.md", "instructions", "trusted", "authorization", "precedence", "project"]
-        case .git:
-            return ["branch", "pull request", "merge", "commit", "draft"]
         case .integrations:
             return ["mcp", "browser", "computer use", "plugins"]
         case .about:
             return ["version", "build", "metadata", "about"]
         }
-    }
-}
-
-public enum CodexSettingsMergeMethod: String, CaseIterable, Identifiable, Codable, Sendable {
-    case merge
-    case squash
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .merge: return "Merge"
-        case .squash: return "Squash"
-        }
-    }
-}
-
-public struct CodexGitSettings: Codable, Equatable, Sendable {
-    public var branchPrefix: String
-    public var mergeMethod: CodexSettingsMergeMethod
-    public var createsDraftPullRequests: Bool
-    public var alwaysForcePush: Bool
-    public var commitInstructions: String
-    public var pullRequestInstructions: String
-
-    public init(
-        branchPrefix: String = "codex/",
-        mergeMethod: CodexSettingsMergeMethod = .merge,
-        createsDraftPullRequests: Bool = false,
-        alwaysForcePush: Bool = false,
-        commitInstructions: String = "",
-        pullRequestInstructions: String = ""
-    ) {
-        self.branchPrefix = branchPrefix
-        self.mergeMethod = mergeMethod
-        self.createsDraftPullRequests = createsDraftPullRequests
-        self.alwaysForcePush = alwaysForcePush
-        self.commitInstructions = commitInstructions
-        self.pullRequestInstructions = pullRequestInstructions
-    }
-
-    public static var defaults: CodexGitSettings {
-        CodexGitSettings()
     }
 }
 
@@ -143,7 +95,6 @@ public struct CodexSettingsAboutRouteView: View {
     private let modelOptions: [CodexModelSelection]
     @Binding private var reasoningSelection: CodexReasoningSelection
     @Binding private var isBottomPanelVisible: Bool
-    @Binding private var gitSettings: CodexGitSettings
     @Binding private var newThreadHistoryMode: CodexNewThreadHistoryMode
 
     public init(
@@ -160,7 +111,6 @@ public struct CodexSettingsAboutRouteView: View {
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         reasoningSelection: Binding<CodexReasoningSelection> = .constant(.medium),
         isBottomPanelVisible: Binding<Bool> = .constant(false),
-        gitSettings: Binding<CodexGitSettings> = .constant(.defaults),
         newThreadHistoryMode: Binding<CodexNewThreadHistoryMode> = .constant(
             .defaultForPinnedRelease
         ),
@@ -181,7 +131,6 @@ public struct CodexSettingsAboutRouteView: View {
         self.modelOptions = modelOptions
         self._reasoningSelection = reasoningSelection
         self._isBottomPanelVisible = isBottomPanelVisible
-        self._gitSettings = gitSettings
         self._newThreadHistoryMode = newThreadHistoryMode
         self.mcpServers = mcpServers
         self.isLoadingMCPServers = isLoadingMCPServers
@@ -305,8 +254,6 @@ public struct CodexSettingsAboutRouteView: View {
                 codexHome: codexHomePath,
                 workingDirectory: workingDirectory
             )
-        case .git:
-            CodexSettingsGitPage(settings: $gitSettings)
         case .integrations:
             CodexSettingsIntegrationsPage(mcpServers: mcpServers, isLoadingMCPServers: isLoadingMCPServers)
         case .about:
@@ -508,47 +455,6 @@ private extension Sandbox {
             return "Workspace write"
         case .fullAccess:
             return "Full access"
-        }
-    }
-}
-
-public struct CodexSettingsGitPage: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    @Binding var settings: CodexGitSettings
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            CodexSettingsPageTitle("Git")
-            VStack(spacing: 0) {
-                CodexSettingsTextFieldRow(
-                    title: "Branch prefix",
-                    detail: "Prefix used when creating new branches in CodexCore",
-                    text: $settings.branchPrefix
-                )
-                CodexSettingsMergeMethodRow(selection: $settings.mergeMethod)
-                CodexSettingsToggleRow(
-                    title: "Create draft pull requests",
-                    detail: "Use draft pull requests by default when creating PRs from CodexCore",
-                    isOn: $settings.createsDraftPullRequests
-                )
-                CodexSettingsToggleRow(
-                    title: "Always force push",
-                    detail: "Use --force-with-lease when pushing from CodexCore",
-                    isOn: $settings.alwaysForcePush
-                )
-                CodexSettingsMultilineTextRow(
-                    title: "Commit instructions",
-                    detail: "Added to commit message generation prompts",
-                    text: $settings.commitInstructions
-                )
-                CodexSettingsMultilineTextRow(
-                    title: "Pull request instructions",
-                    detail: "Added to PR title and description generation prompts",
-                    text: $settings.pullRequestInstructions
-                )
-            }
-            .settingsPanel(theme: theme)
         }
     }
 }
@@ -950,22 +856,6 @@ public struct CodexSettingsReasoningRow: View {
             value: selection.displayName
         ) {
             ForEach(options.isEmpty ? CodexReasoningSelection.defaultOptions : options) { option in
-                Button(option.displayName) { selection = option }
-            }
-        }
-    }
-}
-
-public struct CodexSettingsMergeMethodRow: View {
-    @Binding var selection: CodexSettingsMergeMethod
-
-    public var body: some View {
-        CodexSettingsMenuRow(
-            title: "Pull request merge method",
-            detail: "Choose how CodexCore merges pull requests",
-            value: selection.displayName
-        ) {
-            ForEach(CodexSettingsMergeMethod.allCases) { option in
                 Button(option.displayName) { selection = option }
             }
         }

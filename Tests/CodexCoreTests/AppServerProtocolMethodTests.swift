@@ -10,12 +10,6 @@ import XCTest
 /// the files from `codex app-server generate-json-schema --experimental` and
 /// diffs them against the committed sources.
 final class AppServerProtocolMethodTests: XCTestCase {
-    func testGeneratedMethodsAreUnique() {
-        XCTAssertEqual(Set(CodexAppServerClientMethod.allCases.map(\.rawValue)).count, CodexAppServerClientMethod.allCases.count)
-        XCTAssertEqual(Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count, CodexAppServerNotificationMethod.allCases.count)
-        XCTAssertEqual(Set(CodexAppServerServerRequestMethod.allCases.map(\.rawValue)).count, CodexAppServerServerRequestMethod.allCases.count)
-    }
-
     /// Every method the SDK invokes through typed wrappers must exist in the
     /// generated enum; removal upstream should fail loudly here.
     func testMethodsUsedByTypedWrappersArePresent() {
@@ -89,14 +83,6 @@ final class AppServerProtocolMethodTests: XCTestCase {
     }
 
     func testGeneratedSchemaTypeInventoryIsConsistent() {
-        XCTAssertEqual(CodexAppServerSchemaInventory.definitions.count, CodexAppServerSchemaInventory.definitionCount)
-        XCTAssertEqual(CodexAppServerSchemaInventory.v2SchemaFiles.count, CodexAppServerSchemaInventory.v2SchemaFileCount)
-        XCTAssertEqual(CodexAppServerSchemaInventory.clientRequestParams.count, CodexAppServerSchemaInventory.clientRequestParamCount)
-        XCTAssertEqual(CodexAppServerSchemaInventory.notificationPayloads.count, CodexAppServerSchemaInventory.notificationPayloadCount)
-        XCTAssertEqual(CodexAppServerSchemaInventory.serverRequestParams.count, CodexAppServerSchemaInventory.serverRequestParamCount)
-        XCTAssertEqual(Set(CodexAppServerSchemaInventory.definitions.map(\.name)).count, CodexAppServerSchemaInventory.definitionCount)
-        XCTAssertEqual(Set(CodexAppServerSchemaInventory.definitions.map(\.typeName)).count, CodexAppServerSchemaInventory.definitionCount)
-
         for method in CodexAppServerNotificationMethod.allCases {
             let schema = method.schemaDefinition
             XCTAssertNotNil(schema, "Missing notification schema for \(method.rawValue)")

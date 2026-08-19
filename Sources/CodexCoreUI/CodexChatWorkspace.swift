@@ -112,11 +112,8 @@ public struct CodexChatWorkspaceView: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let presentationStore: CodexPresentationStore
-    private let lifecycleEvents: [CodexAgentLifecycleEvent]
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
-    private let activities: [CodexActivity]
-    private let connectionState: CodexConnectionState
     private let workspacePath: String
     private let chatTitle: String
     private let currentThreadID: String?
@@ -172,7 +169,6 @@ public struct CodexChatWorkspaceView: View {
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
-    private let onCloseTranscriptMessage: ((UUID) -> Void)?
     private let onSelectSubagentTranscript: (String?) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
     private let onStartReview: (CodexReviewTarget) -> Void
@@ -199,11 +195,8 @@ public struct CodexChatWorkspaceView: View {
     /// in its side panel through `onSelectSubagentTranscript`.
     public init(
         presentationStore: CodexPresentationStore,
-        lifecycleEvents: [CodexAgentLifecycleEvent] = [],
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState] = [],
-        activities: [CodexActivity],
-        connectionState: CodexConnectionState,
         workspacePath: String,
         chatTitle: String = "Codex",
         currentThreadID: String? = nil,
@@ -261,7 +254,6 @@ public struct CodexChatWorkspaceView: View {
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
-        onCloseTranscriptMessage: ((UUID) -> Void)? = nil,
         onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
         onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
@@ -279,11 +271,8 @@ public struct CodexChatWorkspaceView: View {
         supplementalTranscriptPresentedAtByTurnID: [String: Date] = [:]
     ) {
         self.presentationStore = presentationStore
-        self.lifecycleEvents = lifecycleEvents
         self.sideChat = sideChat
         self.subagents = subagents
-        self.activities = activities
-        self.connectionState = connectionState
         self.workspacePath = workspacePath
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
@@ -341,7 +330,6 @@ public struct CodexChatWorkspaceView: View {
         self.onComposerChipClear = onComposerChipClear
         self.onFilesDropped = onFilesDropped
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
-        self.onCloseTranscriptMessage = onCloseTranscriptMessage
         self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.onOpenThread = onOpenThread
         self.onStartReview = onStartReview

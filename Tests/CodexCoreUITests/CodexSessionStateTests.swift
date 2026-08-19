@@ -522,22 +522,4 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(planRoute.hostActions, [.enablePlanMode])
     }
 
-    func testActivityLogSessionOwnsClippingOrderingAndCapacity() {
-        var log = CodexActivityLogSession(limit: 2, detailLimit: 12)
-
-        log.append(.notice, title: "First", detail: "  short\nline  ")
-        log.append(.turn, title: "Second", detail: "123456789012345")
-        log.append(CodexActivity(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
-            kind: .tool,
-            title: "Third",
-            detail: "kept",
-            createdAt: Date(timeIntervalSince1970: 3)
-        ))
-
-        XCTAssertEqual(log.activities.map(\.title), ["Third", "Second"])
-        XCTAssertEqual(log.activities.map(\.detail), ["kept", "123456789012…"])
-        XCTAssertEqual(log.clippedDetail("  one\ntwo  "), "one two")
-    }
-
 }

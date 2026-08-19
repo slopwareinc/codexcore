@@ -2414,24 +2414,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         )
     }
 
-    private static func workRowTitle(
-        _ row: CodexTranscriptWorkRowRender,
-        theme: CodexTranscriptAppKitTheme
-    ) -> NSAttributedString {
-        let glyph = codexStatusGlyphV2(row.status)
-        let duration = row.durationMs.map { "  " + CodexWorkBlockViewV2.duration($0) } ?? ""
-        let disclosure = row.isSubagentLink ? "  ↗" : (row.hasDetail ? (row.isExpanded ? "  ⌄" : "  ›") : "")
-        let result = NSMutableAttributedString(string: glyph, attributes: [
-            .font: theme.captionFont,
-            .foregroundColor: statusColor(row.status, theme: theme)
-        ])
-        result.append(NSAttributedString(
-            string: "  \(row.label)\(duration)\(disclosure)",
-            attributes: [.font: theme.captionFont, .foregroundColor: theme.textTertiary]
-        ))
-        return result
-    }
-
     private static func chipIconName(_ row: CodexTranscriptWorkRowRender) -> String {
         if let systemImage = row.systemImage, !systemImage.isEmpty { return systemImage }
         switch row.status {

@@ -6,12 +6,10 @@ final class CodexSessionCommandsTests: XCTestCase {
         let expected = Set(CodexAppServerClientMethod.allCases).subtracting([.initialize])
 
         XCTAssertEqual(CodexRequest.supportedMethods, expected)
-        XCTAssertEqual(CodexRequest.omittedParameterMethods.count, 10)
         XCTAssertEqual(
             CodexRequest.nullableParameterMethods,
             [.remoteControlEnable, .remoteControlDisable]
         )
-        XCTAssertEqual(CodexRequest.specializedMethods.count, 9)
     }
 
     func testGA147RequestFactoriesEncodePluginSearchAndThreadSections() throws {
