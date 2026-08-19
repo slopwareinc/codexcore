@@ -176,6 +176,33 @@ impl ThreadLeaseRegistry {
         ))
     }
 
+    /// Adopt a thread proven live by a successful start/resume response.
+    ///
+    /// Any older reconciliation operation becomes stale.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LeaseRegistryError`] before an identity could alias.
+    pub fn adopt_live(
+        &mut self,
+        thread_id: ThreadId,
+        reason: LeaseReason,
+    ) -> Result<LeaseId, LeaseRegistryError> {
+        let lease = self.allocate_lease()?;
+        self.lease_threads.insert(lease, thread_id.clone());
+        let entry = self.entries.entry(thread_id).or_insert_with(|| Entry {
+            reasons: BTreeMap::new(),
+            phase: LeasePhase::Live,
+        });
+        entry.reasons.insert(lease, reason);
+        entry.phase = if self.connected {
+            LeasePhase::Live
+        } else {
+            LeasePhase::Stale
+        };
+        Ok(lease)
+    }
+
     /// Release one exact lease; unknown/already-released identities are no-ops.
     ///
     /// # Errors
@@ -523,5 +550,19 @@ mod tests {
         assert!(actions.is_empty());
         assert!(registry.release(lease).expect("release").is_empty());
         assert_eq!(registry.phase(&thread), None);
+    }
+
+    #[test]
+    fn adopt_live_does_not_emit_redundant_subscribe() {
+        let thread = ThreadId::from("thread");
+        let mut registry = ThreadLeaseRegistry::new(true);
+        let lease = registry
+            .adopt_live(thread.clone(), LeaseReason::Selected)
+            .expect("adopt live");
+        assert_eq!(registry.phase(&thread), Some(LeasePhase::Live));
+        assert!(matches!(
+            registry.release(lease).expect("release adopted")[0],
+            LeaseAction::Unsubscribe { .. }
+        ));
     }
 }

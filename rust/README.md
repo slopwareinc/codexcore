@@ -15,6 +15,8 @@ Initial crates:
   and server-request inbox.
 - `codex-app-server-lease`: semantic thread retention and reconnect
   reconciliation state machine.
+- `codex-app-server-sdk`: ergonomic input, thread, turn, steer, interrupt, and
+  owned-lease facade.
 - `codex-app-server-wire`: lossless JSON-RPC envelopes and runtime pin.
 - `codex-app-server-transport`: bounded frame transport primitives.
 - `codex-app-server-types`: generated v2 request, response, notification, and

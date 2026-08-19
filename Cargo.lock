@@ -68,6 +68,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-app-server-sdk"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "codex-app-server-client",
+ "codex-app-server-lease",
+ "codex-app-server-state",
+ "codex-app-server-transport",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "codex-app-server-state"
 version = "0.1.0-alpha.1"
 dependencies = [

@@ -1,0 +1,24 @@
+[package]
+name = "codex-app-server-sdk"
+description = "Ergonomic Rust SDK facade for Codex App Server threads and turns"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+codex-app-server-client = { path = "../codex-app-server-client" }
+codex-app-server-lease = { path = "../codex-app-server-lease" }
+codex-app-server-state = { path = "../codex-app-server-state" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+codex-app-server-transport = { path = "../codex-app-server-transport" }
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

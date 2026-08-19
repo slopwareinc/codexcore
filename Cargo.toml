@@ -7,6 +7,7 @@ members = [
     "rust/crates/codex-app-server-transport",
     "rust/crates/codex-app-server-types",
     "rust/crates/codex-app-server-wire",
+    "rust/crates/codex-app-server-sdk",
 ]
 resolver = "3"
 

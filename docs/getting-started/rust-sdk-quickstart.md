@@ -6,6 +6,27 @@ initialize/initialized negotiation, bounded stdio transport, ordered request
 correlation, revisioned snapshots, coalesced observations, and a pending
 server-request inbox.
 
+Use `codex-app-server-sdk` for the ergonomic facade and
+`codex-app-server-client` when implementing lower-level hosts:
+
+```rust
+use codex_app_server_client::LocalSessionConfig;
+use codex_app_server_sdk::{Codex, StartThreadOptions};
+
+# async fn sdk() -> Result<(), Box<dyn std::error::Error>> {
+let codex = Codex::connect_local(LocalSessionConfig::app_server(
+    "/absolute/path/to/codex",
+)).await?;
+let thread = codex.start_thread(StartThreadOptions::default()).await?;
+
+// Start turns through thread.start_turn(...).
+
+thread.close().await?;
+codex.close().await?;
+# Ok(())
+# }
+```
+
 ```rust
 use codex_app_server_client::{AppServerClient, LocalSessionConfig};
 use serde_json::json;

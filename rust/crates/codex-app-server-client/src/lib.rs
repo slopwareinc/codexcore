@@ -504,6 +504,31 @@ impl AppServerClient {
         })
     }
 
+    /// Adopt a thread proven live by a successful start/resume response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] when lease identity allocation fails.
+    pub async fn adopt_thread(
+        &self,
+        thread_id: ThreadId,
+        reason: LeaseReason,
+    ) -> Result<ThreadLease, SessionError> {
+        let (reply, response) = oneshot::channel();
+        self.send_command(Command::AdoptLease {
+            thread_id: thread_id.clone(),
+            reason,
+            reply,
+        })
+        .await?;
+        let lease_id = response.await.map_err(|_| SessionError::Closed)??;
+        Ok(ThreadLease {
+            client: self.clone(),
+            thread_id,
+            lease_id: Some(lease_id),
+        })
+    }
+
     /// Close and reap the physical session.
     ///
     /// # Errors
@@ -595,6 +620,11 @@ enum Command {
         reply: oneshot::Sender<Result<(), SessionError>>,
     },
     AcquireLease {
+        thread_id: ThreadId,
+        reason: LeaseReason,
+        reply: oneshot::Sender<Result<LeaseId, SessionError>>,
+    },
+    AdoptLease {
         thread_id: ThreadId,
         reason: LeaseReason,
         reply: oneshot::Sender<Result<LeaseId, SessionError>>,
@@ -1010,6 +1040,25 @@ async fn handle_command(
             reason,
             reply,
         } => handle_acquire_lease(state, connection, thread_id, reason, reply).await,
+        Command::AdoptLease {
+            thread_id,
+            reason,
+            reply,
+        } => {
+            let result = state
+                .leases
+                .adopt_live(thread_id, reason)
+                .map_err(|error| SessionError::Lease(error.to_string()));
+            if result.is_ok() {
+                state.snapshot.retained_thread_count = state.leases.retained_thread_count();
+                if let Err(error) = state.commit(None) {
+                    let _ = reply.send(Err(error.clone()));
+                    return CommandOutcome::Fatal(error);
+                }
+            }
+            let _ = reply.send(result);
+            CommandOutcome::Committed
+        }
         Command::ReleaseLease { lease_id, reply } => {
             handle_release_lease(state, connection, lease_id, reply).await
         }
