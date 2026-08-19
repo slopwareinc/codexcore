@@ -384,6 +384,12 @@ public struct ComposerModelGridPicker: View {
                     }
                     isPresented = false
                 }
+                if let lifecycleDetail = model.lifecycleDetail {
+                    Text(lifecycleDetail)
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .padding(.horizontal, 4)
+                }
             }
             .padding(6)
         }

@@ -29,6 +29,12 @@ section APIs; deleting a custom section returns its chats to the unsectioned
 list without deleting history. Section icons/colors render directly from each
 thread summary in the sidebar, so rows perform no additional reads.
 
+The model picker retains 0.148 catalog lifecycle metadata. Its open popover
+labels the model's declared single-agent, multi-agent v1, or multi-agent v2
+runtime and shows scheduled retirement plus the replacement model when the
+catalog provides them. These strings are projected once when `model/list`
+loads; opening or rendering the picker performs no additional RPC or date parse.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to

@@ -127,7 +127,7 @@ public enum CodexComposerModelMenuModel {
                 CodexComposerModelMenuItem(
                     selection: $0,
                     title: $0.displayName,
-                    detail: $0.detail,
+                    detail: [$0.detail, $0.lifecycleDetail].compactMap { $0 }.joined(separator: " · ").nilIfBlank,
                     isSelected: $0.id == selectedModel.id
                 )
             },
