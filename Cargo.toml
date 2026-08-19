@@ -23,12 +23,14 @@ authors = ["Slopware Inc."]
 
 [workspace.dependencies]
 bytes = "=1.10.1"
+futures-util = "=0.3.34"
 nix = { version = "=0.31.3", features = ["process", "signal"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 tempfile = "=3.27.0"
 thiserror = "=2.0.18"
-tokio = { version = "=1.53.1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "=1.53.1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "=0.30.0", features = ["rustls-tls-native-roots"] }
 typify = "=0.7.0"
 
 [workspace.lints.rust]

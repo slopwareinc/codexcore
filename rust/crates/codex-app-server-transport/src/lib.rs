@@ -21,6 +21,12 @@ use tokio::{
     task::JoinHandle,
 };
 
+mod websocket;
+
+#[cfg(unix)]
+pub use websocket::{UnixWebSocketConnectConfig, connect_unix_websocket};
+pub use websocket::{WebSocketConnectConfig, WebSocketConnection, connect_websocket};
+
 #[cfg(unix)]
 use nix::{
     errno::Errno,

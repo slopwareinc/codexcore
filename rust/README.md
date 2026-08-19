@@ -22,7 +22,8 @@ Initial crates:
 - `codex-app-server-interaction`: typed approvals, questions, MCP elicitation,
   dynamic-tool, auth, attestation, time, and legacy request models.
 - `codex-app-server-wire`: lossless JSON-RPC envelopes and runtime pin.
-- `codex-app-server-transport`: bounded frame transport primitives.
+- `codex-app-server-transport`: bounded stdio, TCP/TLS WebSocket, and
+  WebSocket-over-Unix-socket primitives.
 - `codex-app-server-types`: generated v2 request, response, notification, and
   item types from the exact CLI schema.
 - `codex-app-server-state`: framework-neutral canonical identities.
