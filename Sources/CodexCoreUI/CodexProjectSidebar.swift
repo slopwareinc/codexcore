@@ -9,11 +9,11 @@ enum CodexProjectSidebarEnvironmentLabel {
               !workspacePath.isEmpty else {
             return nil
         }
-        let url = URL(fileURLWithPath: workspacePath)
-        if let isWorktree = CodexWorkspaceGitProbe.isLinkedWorktree(at: url) {
-            return isWorktree ? "Worktree" : nil
-        }
-        return CodexWorkspaceGitProbe.heuristicWorktreePath(url) ? "Worktree" : nil
+        // Sidebar rows render on the main thread. Do not launch a synchronous
+        // Git subprocess from a row body; use the cheap path heuristic here.
+        return CodexWorkspaceGitProbe.heuristicWorktreePath(
+            URL(fileURLWithPath: workspacePath)
+        ) ? "Worktree" : nil
     }
 }
 

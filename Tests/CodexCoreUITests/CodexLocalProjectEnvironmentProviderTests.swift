@@ -100,7 +100,7 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
         )
     }
 
-    func testSummaryUsesGitMetadataForLinkedWorktreesOutsideCodexDefaultRoot() throws {
+    func testRenderSafeEnvironmentLabelsAvoidGitProbesForLinkedWorktreesOutsideCodexDefaultRoot() throws {
         let fixture = try makeRepository()
         defer { fixture.remove() }
         let linked = fixture.root.deletingLastPathComponent()
@@ -114,11 +114,12 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
         XCTAssertEqual(
             CodexWorkspaceSummaryContext(workspacePath: linked.path).environmentModeTitle,
             "Local",
-            "The render-safe summary uses path heuristics; the sidebar performs the Git metadata probe"
+            "The render-safe summary uses path heuristics"
         )
         XCTAssertEqual(
             CodexProjectSidebarEnvironmentLabel.title(workspacePath: linked.path),
-            "Worktree"
+            nil,
+            "Sidebar rendering must not launch a synchronous Git probe"
         )
 
         _ = try? runGit(["worktree", "remove", "--force", linked.path], at: fixture.root)
