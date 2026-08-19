@@ -327,6 +327,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onProjectionError: @escaping (String?) -> Void = { _ in }
         ) {
             guard let container else { return }
+            let previousPresentation = currentPresentation
             var presentation = presentation
             if presentationStore == nil,
                let currentPresentation,
@@ -342,6 +343,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 presentation.selectedDiffFileIndexByRowID =
                     currentPresentation.selectedDiffFileIndexByRowID
             }
+            let standaloneInputChanged = presentationStore == nil
+                && (previousPresentation.map { $0 != presentation } ?? true)
             let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme, colorScheme: colorScheme)
             let annotationsChanged = self.responseAnnotations != responseAnnotations
             if appKitTheme?.fingerprint != nextTheme.fingerprint
@@ -397,7 +400,13 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 )
             }
             let canonicalInputChanged = identity != nil && identity != lastRequestedCanonicalIdentity
-            if identity == nil || canonicalInputChanged || forceReconfigureAll {
+            let shouldRequestStandaloneProjection = presentationStore == nil
+                && (standaloneInputChanged
+                    || forceReconfigureAll
+                    || (currentSnapshot == nil && projectionTask == nil))
+            if (presentationStore == nil && shouldRequestStandaloneProjection)
+                || (presentationStore != nil
+                    && (identity == nil || canonicalInputChanged || forceReconfigureAll)) {
                 lastRequestedCanonicalIdentity = identity
                 requestProjection(width: max(container.scrollView.contentSize.width, 320))
             }
