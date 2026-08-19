@@ -13,6 +13,8 @@ Initial crates:
   mutations with lossless unknown notification fallback.
 - `codex-app-server-client`: single-owner handshake, correlation, observations,
   and server-request inbox.
+- `codex-app-server-lease`: semantic thread retention and reconnect
+  reconciliation state machine.
 - `codex-app-server-wire`: lossless JSON-RPC envelopes and runtime pin.
 - `codex-app-server-transport`: bounded frame transport primitives.
 - `codex-app-server-types`: generated v2 request, response, notification, and

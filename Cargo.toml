@@ -2,6 +2,7 @@
 members = [
     "rust/crates/codex-app-server-adapter",
     "rust/crates/codex-app-server-client",
+    "rust/crates/codex-app-server-lease",
     "rust/crates/codex-app-server-state",
     "rust/crates/codex-app-server-transport",
     "rust/crates/codex-app-server-types",
