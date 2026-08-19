@@ -2,7 +2,7 @@
 
 Native Swift infrastructure for the Codex app-server: a Swift SDK, a reusable SwiftUI workspace, and a native macOS reference app.
 
-> **Status:** CodexCore `0.10.0` targets macOS 26+, Swift 6.2, and `codex-cli 0.147.0` or newer. Protocol types are generated from stable `codex-cli 0.147.0`. CodexCore opts into experimental app-server capabilities.
+> **Status:** CodexCore `0.11.0` targets macOS 26+, Swift 6.2, and `codex-cli 0.148.0` or newer. Protocol types are generated from stable `codex-cli 0.148.0`. CodexCore opts into experimental app-server capabilities.
 
 ![CodexCore native macOS workspace](docs/assets/screenshots/hero-workspace.png)
 
@@ -44,7 +44,7 @@ The result is also self-demonstrating: CodexCore hosts Codex workflows, while Co
 ```bash
 git clone https://github.com/slopwareinc/codexcore.git
 cd codexcore
-codex --version       # checks only the PATH candidate; it must print codex-cli 0.147.0 or newer
+codex --version       # checks only the PATH candidate; it must print codex-cli 0.148.0 or newer
 swift run codex-core-app
 ```
 
@@ -71,7 +71,7 @@ See [requirements](docs/getting-started/requirements.md) and [authentication](do
 dependencies: [
     .package(
         url: "https://github.com/slopwareinc/codexcore.git",
-        exact: "0.147.0+codexcore.0.10.0"
+        exact: "0.148.0+codexcore.0.11.0"
     )
 ]
 ```

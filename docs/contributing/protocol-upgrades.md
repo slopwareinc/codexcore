@@ -23,7 +23,7 @@ Protocol upgrades are exact-runtime migrations, not dependency-range bumps.
    swift test
    ```
 
-7. Release with a composite tag such as `v0.147.0+codexcore.0.10.0`.
+7. Release with a composite tag such as `v0.148.0+codexcore.0.11.0`.
 
 The generated pin (`CodexPinnedRuntime`) records the runtime the schema was
 dumped from and may be a prerelease. The oldest accepted runtime is

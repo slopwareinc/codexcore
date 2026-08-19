@@ -333,7 +333,14 @@ private extension ProtocolStateAdapter {
                 )),
             ])
 
-        case .skillsChanged:
+        case .threadReverted:
+            let value: CodexSchemaThreadRevertedNotification = try decodeNotification(method, params)
+            // The notification intentionally carries no replacement history.
+            // Drop potentially stale materialized detail so the next lease
+            // hydrates the durable post-revert cut from app-server.
+            return .state([.threadDetailEvicted(.init(value.threadID))])
+
+        case .skillsChanged, .threadQueueChanged:
             return operation(method)
 
         case .threadNameUpdated:
@@ -1376,6 +1383,34 @@ private extension ProtocolStateAdapter {
             }
             return .state([.threadRollbackReplaced(thread: thread, turns: turns, items: items)])
 
+        case .threadRevert:
+            let value: CodexSchemaThreadRevertResponse = try decodeResponse(context, result)
+            var mutations = try threadMutations(
+                value.thread,
+                rawThread: result.object(at: "thread"),
+                isLoaded: true,
+                itemPolicy: .mergePreservingExistingOrder,
+                turnsCoverageOverride: .notLoaded
+            )
+            let threadID = ThreadID(value.thread.id)
+            mutations.append(.threadDetailEvicted(threadID))
+            mutations.append(.threadHistoryReplaced(
+                id: threadID,
+                history: CanonicalHistoryState(
+                    mode: .paginated,
+                    turnsCoverage: .notLoaded,
+                    turnsPage: CanonicalPageCursorState(
+                        backwardsCursor: value.turnsBackwardsCursor,
+                        nextCursor: value.turnsBackwardsCursor,
+                        isExhausted: value.turnsBackwardsCursor == nil
+                    ),
+                    protocolMetadata: [
+                        "itemsBackwardsCursor": value.itemsBackwardsCursor.map(CodexJSONValue.string) ?? .null,
+                    ]
+                )
+            ))
+            return .state(mutations)
+
         case .threadMetadataUpdate:
             let value: CodexSchemaThreadMetadataUpdateResponse = try decodeResponse(context, result)
             return .state(try threadMutations(
@@ -1693,7 +1728,7 @@ private extension ProtocolStateAdapter {
         do {
             let decodable: CodexJSONValue = switch context.method {
             case .threadStart, .threadResume, .threadFork, .threadUnarchive,
-                 .threadRollback, .threadMetadataUpdate, .threadRead, .threadList,
+                 .threadRollback, .threadRevert, .threadMetadataUpdate, .threadRead, .threadList,
                  .threadSearch, .threadTurnsList, .threadItemsList, .turnStart:
                 ProtocolFileChangeSanitizer.sanitize(result)
             default:

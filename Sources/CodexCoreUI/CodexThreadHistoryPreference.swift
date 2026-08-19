@@ -25,7 +25,7 @@ public enum CodexNewThreadHistoryMode: String, Codable, Sendable, CaseIterable, 
         case .legacy:
             "Inline full history; supports fork and rollback"
         case .paginated:
-            "Experimental cursor-backed history; fork and rollback are unavailable"
+            "Experimental cursor-backed history; supports fork and durable history revert"
         }
     }
 }

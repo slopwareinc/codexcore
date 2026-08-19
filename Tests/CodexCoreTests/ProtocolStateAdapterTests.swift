@@ -9,7 +9,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
             CodexAppServerNotificationMethod.allCases.count,
             CodexAppServerProtocolInventory.notificationMethodCount
         )
-        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 70)
+        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 72)
         XCTAssertEqual(
             Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count,
             CodexAppServerNotificationMethod.allCases.count
@@ -38,7 +38,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
             expectedDisposition(for: $0) == .state
         })
 
-        XCTAssertEqual(fixtures.count, 42)
+        XCTAssertEqual(fixtures.count, 43)
         XCTAssertEqual(
             Set(fixtures.keys),
             stateMethods,
@@ -498,6 +498,41 @@ final class ProtocolStateAdapterTests: XCTestCase {
         XCTAssertEqual(adaptation.mutations.count, 1)
     }
 
+    func testPaginatedRevertResponseEvictsStaleDetailAndInstallsNewCursors() throws {
+        let resumeObject = try objectFixture(resumeResponseJSON(includeItemsCursor: true))
+        let thread = try XCTUnwrap(resumeObject["thread"])
+        let adaptation = try adapter.adaptResponse(
+            ProtocolResponseContext(
+                method: .threadRevert,
+                requestParams: [
+                    "beforeTurnId": .string("active-turn"),
+                    "threadId": .string("thread-1"),
+                ],
+                connectionEpoch: 1
+            ),
+            result: .dictionary([
+                "itemsBackwardsCursor": .string("item-head"),
+                "thread": thread,
+                "turnsBackwardsCursor": .string("turn-head"),
+            ])
+        )
+
+        XCTAssertEqual(adaptation.disposition, .state)
+        XCTAssertEqual(adaptation.mutations.count, 3)
+        guard case .threadDetailEvicted(let threadID) = adaptation.mutations[1] else {
+            return XCTFail("Expected stale materialized detail to be evicted")
+        }
+        XCTAssertEqual(threadID, "thread-1")
+        guard case .threadHistoryReplaced(let historyThreadID, let history) = adaptation.mutations[2] else {
+            return XCTFail("Expected replacement paginated cursors")
+        }
+        XCTAssertEqual(historyThreadID, "thread-1")
+        XCTAssertEqual(history.mode, .paginated)
+        XCTAssertEqual(history.turnsPage.backwardsCursor, "turn-head")
+        XCTAssertEqual(history.turnsPage.nextCursor, "turn-head")
+        XCTAssertEqual(history.protocolMetadata["itemsBackwardsCursor"], .string("item-head"))
+    }
+
     func testPaginatedItemPagesNeverDestructivelyReplaceAnIncompleteChain() throws {
         let context = ProtocolResponseContext(
             method: .threadItemsList,
@@ -760,7 +795,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         switch method {
         case .error,
              .threadStarted, .threadStatusChanged, .threadArchived, .threadDeleted,
-             .threadUnarchived, .threadClosed, .threadNameUpdated, .threadGoalUpdated,
+             .threadUnarchived, .threadClosed, .threadReverted, .threadNameUpdated, .threadGoalUpdated,
              .threadGoalCleared, .threadEnvironmentConnected, .threadEnvironmentDisconnected,
              .threadSettingsUpdated, .threadTokenUsageUpdated,
              .turnStarted, .hookStarted, .turnCompleted, .hookCompleted,
@@ -780,7 +815,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         case .serverRequestResolved:
             .requestResolution
 
-        case .skillsChanged,
+        case .skillsChanged, .threadQueueChanged,
              .commandExecOutputDelta, .processOutputDelta, .processExited,
              .mcpServerOAuthLoginCompleted,
              .appListUpdated, .remoteControlStatusChanged,
@@ -833,6 +868,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
             ),
             .threadArchived: try objectFixture(#"{"threadId":"thread-1"}"#),
             .threadDeleted: try objectFixture(#"{"threadId":"thread-1"}"#),
+            .threadReverted: try objectFixture(#"{"threadId":"thread-1"}"#),
             .threadUnarchived: try objectFixture(#"{"threadId":"thread-1"}"#),
             .threadClosed: try objectFixture(#"{"threadId":"thread-1"}"#),
             .threadNameUpdated: try objectFixture(

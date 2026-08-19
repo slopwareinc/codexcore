@@ -160,10 +160,10 @@ private struct CodexSemanticVersion: Sendable, Hashable, Comparable {
 }
 
 /// `CodexPinnedRuntime` records the exact runtime used to generate the protocol
-/// types. CodexCore 0.10.0 depends on the 0.147 thread-section and plugin-search
-/// surfaces, so older runtimes are rejected during launch.
+/// types. CodexCore 0.11.0 depends on the 0.148 diagnostics, thread-queue,
+/// paginated-revert, and scoped-usage surfaces, so older runtimes are rejected.
 public enum CodexSupportedRuntime {
-    fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 147, patch: 0)
+    fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 148, patch: 0)
 
     /// Oldest accepted `codex-cli` version, for diagnostics and documentation.
     public static var minimum: String { minimumVersion.displayText }
@@ -593,7 +593,7 @@ public final class Codex: Sendable {
             }
             // Patch releases within the pinned major/minor are accepted. Older
             // minors are rejected because handwritten state and UI code depend
-            // on the generated 0.147 surface.
+            // on the generated 0.148 surface.
             guard actualVersion.major == expectedVersion.major,
                   actualVersion.minor == expectedVersion.minor,
                   actualVersion >= CodexSupportedRuntime.minimumVersion else {
