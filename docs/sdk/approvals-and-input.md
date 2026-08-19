@@ -60,6 +60,12 @@ error is written. Use `ServerRequestReply.into_resolution()` and pass the result
 to `AppServerClient::resolve_server_request` with the original epoch-qualified
 key.
 
+`default_resolution` intentionally handles only non-consent policy: it answers
+current-time reads, fails undeclared dynamic tools, and returns configuration
+errors for unavailable token-refresh or attestation providers. Approvals,
+questions, permission grants, MCP elicitation, and legacy approvals remain
+pending until the host makes an explicit decision.
+
 Approval policies include `untrusted`, `onRequest`, and `never`, plus the
 structured `AskForApproval.granular` form for independently controlling MCP
 elicitation, rules, sandbox approval, permission requests, and skill approval.

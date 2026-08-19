@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use codex_app_server_client::{PendingServerRequest, ServerRequestKey, ServerRequestResolution};
+use codex_app_server_client::{
+    PendingServerRequest, ServerRequestKey, ServerRequestResolution, SessionSnapshot,
+};
 use codex_app_server_state::{ItemId, ThreadId, TurnId};
 use codex_app_server_wire::JsonRpcErrorObject;
 use serde_json::{Value, json};
@@ -374,6 +376,69 @@ pub fn parse_request(
     })
 }
 
+/// Parse every pending request in stable actor snapshot order.
+///
+/// # Errors
+///
+/// Returns [`InteractionError`] when a known request is malformed.
+pub fn parse_pending(
+    snapshot: &SessionSnapshot,
+) -> Result<Vec<TypedServerRequest>, InteractionError> {
+    snapshot
+        .pending_server_requests
+        .iter()
+        .map(parse_request)
+        .collect()
+}
+
+/// Safe built-in policy for families that do not require user intent.
+///
+/// `None` means the request must remain pending. This default never approves a
+/// command, file change, permission, question, or MCP elicitation.
+#[must_use]
+pub fn default_resolution(
+    request: &TypedServerRequest,
+    current_unix_seconds: i64,
+) -> Option<ServerRequestReply> {
+    match &request.body {
+        ServerRequestBody::CurrentTime { .. } => Some(ServerRequestReply::CurrentTime {
+            unix_seconds: current_unix_seconds,
+        }),
+        ServerRequestBody::DynamicToolCall { .. } => Some(ServerRequestReply::DynamicTool {
+            success: false,
+            content_items: Vec::new(),
+        }),
+        ServerRequestBody::TokenRefresh { .. } => Some(configuration_error(
+            "host has no ChatGPT token refresh provider",
+        )),
+        ServerRequestBody::Attestation => Some(configuration_error(
+            "host has no client attestation provider",
+        )),
+        ServerRequestBody::Unknown { method, .. } => {
+            Some(ServerRequestReply::Error(JsonRpcErrorObject {
+                code: -32_601,
+                message: format!("unknown server request method: {method}"),
+                data: None,
+            }))
+        }
+        ServerRequestBody::CommandApproval { .. }
+        | ServerRequestBody::FileChangeApproval { .. }
+        | ServerRequestBody::PermissionsApproval { .. }
+        | ServerRequestBody::UserInput { .. }
+        | ServerRequestBody::McpElicitation { .. }
+        | ServerRequestBody::LegacyExecApproval { .. }
+        | ServerRequestBody::LegacyPatchApproval { .. } => None,
+    }
+}
+
+fn configuration_error(message: &str) -> ServerRequestReply {
+    ServerRequestReply::Error(JsonRpcErrorObject {
+        code: -32_000,
+        message: message.to_owned(),
+        data: None,
+    })
+}
+
 fn scope(
     method: &str,
     params: &BTreeMap<String, Value>,
@@ -598,5 +663,29 @@ mod tests {
         };
         assert_eq!(value["contentItems"][0]["type"], "inputText");
         assert_eq!(value["contentItems"][1]["type"], "inputImage");
+    }
+
+    #[test]
+    fn default_policy_never_approves_command() {
+        let request = parse_request(&pending(
+            "item/commandExecution/requestApproval",
+            &json!({
+                "threadId":"thread","turnId":"turn","itemId":"item","startedAtMs":1
+            }),
+        ))
+        .expect("parse command");
+        assert_eq!(default_resolution(&request, 42), None);
+    }
+
+    #[test]
+    fn default_policy_answers_current_time() {
+        let request = parse_request(&pending("currentTime/read", &json!({"threadId":"thread"})))
+            .expect("parse time");
+        let Some(ServerRequestReply::CurrentTime { unix_seconds }) =
+            default_resolution(&request, 42)
+        else {
+            panic!("current time response")
+        };
+        assert_eq!(unix_seconds, 42);
     }
 }
