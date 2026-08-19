@@ -59,5 +59,21 @@ fi
 mkdir -p "${sample_dir}"
 echo "Sampling CodexCore pid ${pid} for ${duration_input} (interval ${sample_interval_ms}ms)."
 echo "Output: ${sample_path}"
+interrupted=0
+trap 'interrupted=1' INT
+set +e
 /usr/bin/sample "${pid}" "${duration_seconds}" "${sample_interval_ms}" -file "${sample_path}"
+sample_exit=$?
+set -e
+trap - INT
+if (( interrupted == 1 || sample_exit == 130 || sample_exit == 141 )); then
+    if [[ -s "${sample_path}" ]]; then
+        echo "Sample interrupted after writing: ${sample_path}"
+        exit 0
+    fi
+fi
+if (( sample_exit != 0 )); then
+    echo "sample failed with exit code ${sample_exit}" >&2
+    exit "${sample_exit}"
+fi
 echo "Sample complete: ${sample_path}"
