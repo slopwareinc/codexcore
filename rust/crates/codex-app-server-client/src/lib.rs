@@ -4,7 +4,10 @@
 //! server-request identity, and revision publication. Callers never reduce raw
 //! frames concurrently with this owner.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::{
+    collections::{BTreeMap, HashMap, VecDeque},
+    time::Duration,
+};
 
 use codex_app_server_adapter::{NotificationDisposition, adapt_notification};
 use codex_app_server_state::{CanonicalState, CanonicalStateReducer, StateRevision};
@@ -51,6 +54,36 @@ impl SessionLimits {
     }
 }
 
+/// Bounded physical reconnection policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReconnectPolicy {
+    /// Maximum new physical connections after one connection is lost.
+    pub maximum_attempts: u32,
+    /// Delay before the first reconnect attempt.
+    pub initial_delay: Duration,
+    /// Upper bound for exponential delay.
+    pub maximum_delay: Duration,
+}
+
+impl Default for ReconnectPolicy {
+    fn default() -> Self {
+        Self {
+            maximum_attempts: 3,
+            initial_delay: Duration::from_millis(100),
+            maximum_delay: Duration::from_secs(2),
+        }
+    }
+}
+
+impl ReconnectPolicy {
+    fn validate(self) -> Result<Self, SessionError> {
+        if self.maximum_attempts > 0 && self.initial_delay > self.maximum_delay {
+            return Err(SessionError::InvalidReconnectPolicy);
+        }
+        Ok(self)
+    }
+}
+
 /// Metadata sent during `initialize`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientInfo {
@@ -71,6 +104,8 @@ pub struct LocalSessionConfig {
     pub transport_limits: TransportLimits,
     /// Session actor resource bounds.
     pub session_limits: SessionLimits,
+    /// Bounded reconnect behavior after transport loss.
+    pub reconnect_policy: ReconnectPolicy,
     /// Initialize metadata.
     pub client_info: ClientInfo,
     /// Enables methods and fields marked experimental by App Server.
@@ -87,6 +122,7 @@ impl LocalSessionConfig {
             stdio: StdioConfig::app_server(executable),
             transport_limits: TransportLimits::default(),
             session_limits: SessionLimits::default(),
+            reconnect_policy: ReconnectPolicy::default(),
             client_info: ClientInfo {
                 name: "codexcore_rust".to_owned(),
                 title: "CodexCore Rust".to_owned(),
@@ -190,6 +226,9 @@ pub enum SessionError {
     /// Configured bound is zero.
     #[error("session limit {0} must be positive")]
     InvalidLimit(&'static str),
+    /// Reconnect delay bounds are inconsistent.
+    #[error("initial reconnect delay exceeds maximum delay")]
+    InvalidReconnectPolicy,
     /// Physical transport failure.
     #[error("transport failure: {0}")]
     Transport(String),
@@ -211,6 +250,9 @@ pub enum SessionError {
     /// Handshake buffer reached its explicit bound.
     #[error("initialize handshake frame buffer overflowed")]
     HandshakeBufferOverflow,
+    /// Every bounded reconnect attempt failed.
+    #[error("reconnect attempts exhausted: {0}")]
+    ReconnectExhausted(String),
     /// Actor command channel ended or session was explicitly closed.
     #[error("App Server session is closed")]
     Closed,
@@ -236,6 +278,12 @@ pub enum SessionError {
 impl From<TransportError> for SessionError {
     fn from(error: TransportError) -> Self {
         Self::Transport(error.to_string())
+    }
+}
+
+impl SessionError {
+    fn permits_reconnect(&self) -> bool {
+        matches!(self, Self::Transport(_) | Self::IndeterminateRequest { .. })
     }
 }
 
@@ -285,24 +333,37 @@ impl AppServerClient {
     /// validation, or bounded handshake buffering fails.
     pub async fn connect_local(config: LocalSessionConfig) -> Result<Self, SessionError> {
         let session_limits = config.session_limits.validate()?;
+        config.reconnect_policy.validate()?;
         let mut connection = StdioConnection::spawn(&config.stdio, config.transport_limits)?;
-        let bootstrap = bootstrap(&mut connection, &config, session_limits).await;
-        let (snapshot, buffered) = match bootstrap {
+        let bootstrap = bootstrap(&mut connection, &config, session_limits, 1).await;
+        let bootstrap = match bootstrap {
             Ok(value) => value,
             Err(error) => {
                 let _ = connection.close().await;
                 return Err(error);
             }
         };
+        let snapshot = SessionSnapshot {
+            revision: StateRevision::new(1),
+            connection_epoch: 1,
+            last_wire_cursor: Some(bootstrap.initialize_cursor),
+            phase: ConnectionPhase::Connected,
+            server: bootstrap.server,
+            committed_notification_count: 0,
+            unhandled_notification_count: 0,
+            canonical_revision: StateRevision::ZERO,
+            pending_server_requests: Vec::new(),
+        };
 
         let (commands, receiver) = mpsc::channel(session_limits.maximum_buffered_commands);
         let (revision_sender, revisions) = watch::channel(snapshot.revision);
         tokio::spawn(run_actor(
+            config,
             connection,
             receiver,
             revision_sender,
             snapshot,
-            buffered,
+            bootstrap.buffered,
         ));
         Ok(Self {
             commands,
@@ -465,6 +526,12 @@ struct BufferedEnvelope {
     envelope: Envelope,
 }
 
+struct BootstrapResult {
+    server: ConnectedServer,
+    initialize_cursor: WireCursor,
+    buffered: VecDeque<BufferedEnvelope>,
+}
+
 struct ActorState {
     snapshot: SessionSnapshot,
     canonical: CanonicalStateReducer,
@@ -501,7 +568,8 @@ async fn bootstrap(
     connection: &mut StdioConnection,
     config: &LocalSessionConfig,
     limits: SessionLimits,
-) -> Result<(SessionSnapshot, VecDeque<BufferedEnvelope>), SessionError> {
+    connection_epoch: u64,
+) -> Result<BootstrapResult, SessionError> {
     let initialize_id = JsonRpcId::Integer(0);
     let initialize = encode_request(
         initialize_id.clone(),
@@ -524,15 +592,14 @@ async fn bootstrap(
     let mut buffered = VecDeque::new();
     let mut ordinal = 0_u64;
     let server = loop {
-        let frame = connection
-            .next_frame()
-            .await
-            .ok_or_else(|| SessionError::Initialize("connection ended".to_owned()))??;
+        let frame = connection.next_frame().await.ok_or_else(|| {
+            SessionError::Transport("connection ended during initialize".to_owned())
+        })??;
         ordinal = ordinal
             .checked_add(1)
             .ok_or(SessionError::RevisionExhausted)?;
         let cursor = WireCursor {
-            connection_epoch: 1,
+            connection_epoch,
             ordinal,
         };
         let envelope =
@@ -559,26 +626,18 @@ async fn bootstrap(
         .map_err(|error| SessionError::Protocol(error.to_string()))?;
     connection.write(&initialized).await?;
 
-    Ok((
-        SessionSnapshot {
-            revision: StateRevision::new(1),
-            connection_epoch: 1,
-            last_wire_cursor: Some(WireCursor {
-                connection_epoch: 1,
-                ordinal,
-            }),
-            phase: ConnectionPhase::Connected,
-            server,
-            committed_notification_count: 0,
-            unhandled_notification_count: 0,
-            canonical_revision: StateRevision::ZERO,
-            pending_server_requests: Vec::new(),
+    Ok(BootstrapResult {
+        server,
+        initialize_cursor: WireCursor {
+            connection_epoch,
+            ordinal,
         },
         buffered,
-    ))
+    })
 }
 
 async fn run_actor(
+    config: LocalSessionConfig,
     mut connection: StdioConnection,
     mut commands: mpsc::Receiver<Command>,
     revisions: watch::Sender<StateRevision>,
@@ -593,50 +652,83 @@ async fn run_actor(
         next_request_id: 1,
     };
 
-    while let Some(buffered) = buffered.pop_front() {
-        if apply_envelope(&mut state, buffered.cursor, buffered.envelope).is_err() {
-            seal_pending(
-                &mut state,
-                &SessionError::Protocol("buffered handshake frame failed".into()),
-            );
-            let _ = connection.close().await;
-            return;
-        }
+    if drain_buffered(&mut state, &mut buffered).is_err() {
+        let _ = connection.close().await;
+        return;
     }
     if *revisions.borrow() != state.snapshot.revision {
         let _ = revisions.send(state.snapshot.revision);
     }
 
+    loop {
+        match drive_connection(&mut state, &mut connection, &mut commands, &revisions).await {
+            ConnectionExit::Close(reply) => {
+                transition_phase(
+                    &mut state,
+                    ConnectionPhase::Closed,
+                    &SessionError::Closed,
+                    &revisions,
+                );
+                let result = connection.close().await.map_err(SessionError::from);
+                let _ = reply.send(result);
+                return;
+            }
+            ConnectionExit::CommandsClosed => {
+                transition_phase(
+                    &mut state,
+                    ConnectionPhase::Closed,
+                    &SessionError::Closed,
+                    &revisions,
+                );
+                let _ = connection.close().await;
+                return;
+            }
+            ConnectionExit::Disconnected(error) => {
+                transition_phase(
+                    &mut state,
+                    ConnectionPhase::Disconnected,
+                    &error,
+                    &revisions,
+                );
+                let _ = connection.close().await;
+                if !error.permits_reconnect() {
+                    return;
+                }
+                match reconnect(&config, &mut state, &revisions).await {
+                    Ok(reconnected) => connection = reconnected,
+                    Err(_) => return,
+                }
+            }
+        }
+    }
+}
+
+enum ConnectionExit {
+    Close(oneshot::Sender<Result<(), SessionError>>),
+    CommandsClosed,
+    Disconnected(SessionError),
+}
+
+async fn drive_connection(
+    state: &mut ActorState,
+    connection: &mut StdioConnection,
+    commands: &mut mpsc::Receiver<Command>,
+    revisions: &watch::Sender<StateRevision>,
+) -> ConnectionExit {
     let mut ordinal = state
         .snapshot
         .last_wire_cursor
+        .filter(|cursor| cursor.connection_epoch == state.snapshot.connection_epoch)
         .map_or(0, |cursor| cursor.ordinal);
-    let mut close_reply = None;
     loop {
         tokio::select! {
             command = commands.recv() => {
-                let Some(command) = command else { break };
-                match handle_command(&mut state, &mut connection, command).await {
+                let Some(command) = command else { return ConnectionExit::CommandsClosed };
+                match handle_command(state, connection, command).await {
                     CommandOutcome::Continue => {}
-                    CommandOutcome::Committed => {
-                        let _ = revisions.send(state.snapshot.revision);
-                    }
-                    CommandOutcome::Close(reply) => {
-                        close_reply = Some(reply);
-                        state.snapshot.phase = ConnectionPhase::Closed;
-                        if state.commit(None).is_ok() {
-                            let _ = revisions.send(state.snapshot.revision);
-                        }
-                        break;
-                    }
-                    CommandOutcome::Fatal(error) => {
-                        seal_pending(&mut state, &error);
-                        state.snapshot.phase = ConnectionPhase::Disconnected;
-                        if state.commit(None).is_ok() {
-                            let _ = revisions.send(state.snapshot.revision);
-                        }
-                        break;
-                    }
+                    CommandOutcome::Committed => { let _ = revisions.send(state.snapshot.revision); }
+                    CommandOutcome::Close(reply) => return ConnectionExit::Close(reply),
+                    CommandOutcome::Fatal(error) => return ConnectionExit::Disconnected(error),
                 }
             }
             frame = connection.next_frame() => {
@@ -644,33 +736,101 @@ async fn run_actor(
                     Some(Ok(frame)) => {
                         ordinal = match ordinal.checked_add(1) {
                             Some(value) => value,
-                            None => break,
+                            None => return ConnectionExit::Disconnected(SessionError::RevisionExhausted),
                         };
-                        let cursor = WireCursor { connection_epoch: state.snapshot.connection_epoch, ordinal };
+                        let cursor = WireCursor {
+                            connection_epoch: state.snapshot.connection_epoch,
+                            ordinal,
+                        };
                         decode_frame(&frame)
                             .map_err(|error| SessionError::Protocol(error.to_string()))
-                            .and_then(|envelope| apply_envelope(&mut state, cursor, envelope))
+                            .and_then(|envelope| apply_envelope(state, cursor, envelope))
                     }
                     Some(Err(error)) => Err(SessionError::Transport(error.to_string())),
                     None => Err(SessionError::Transport("transport ingress ended".to_owned())),
                 };
                 match result {
                     Ok(()) => { let _ = revisions.send(state.snapshot.revision); }
-                    Err(error) => {
-                        seal_pending(&mut state, &error);
-                        state.snapshot.phase = ConnectionPhase::Disconnected;
-                        if state.commit(None).is_ok() { let _ = revisions.send(state.snapshot.revision); }
-                        break;
-                    }
+                    Err(error) => return ConnectionExit::Disconnected(error),
                 }
             }
         }
     }
+}
 
-    let close_result = connection.close().await.map_err(SessionError::from);
-    if let Some(reply) = close_reply {
-        let _ = reply.send(close_result);
+fn transition_phase(
+    state: &mut ActorState,
+    phase: ConnectionPhase,
+    cause: &SessionError,
+    revisions: &watch::Sender<StateRevision>,
+) {
+    state.snapshot.phase = phase;
+    state.pending_server_requests.clear();
+    state.rebuild_pending_projection();
+    if state.commit(None).is_ok() {
+        let _ = revisions.send(state.snapshot.revision);
     }
+    seal_pending(state, cause);
+}
+
+async fn reconnect(
+    config: &LocalSessionConfig,
+    state: &mut ActorState,
+    revisions: &watch::Sender<StateRevision>,
+) -> Result<StdioConnection, SessionError> {
+    let policy = config.reconnect_policy;
+    let mut delay = policy.initial_delay;
+    let mut next_epoch = state.snapshot.connection_epoch;
+    let mut last_error = SessionError::Closed;
+
+    for _ in 0..policy.maximum_attempts {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        next_epoch = next_epoch
+            .checked_add(1)
+            .ok_or(SessionError::RevisionExhausted)?;
+        let mut connection = match StdioConnection::spawn(&config.stdio, config.transport_limits) {
+            Ok(connection) => connection,
+            Err(error) => {
+                last_error = SessionError::from(error);
+                delay = delay.saturating_mul(2).min(policy.maximum_delay);
+                continue;
+            }
+        };
+        match bootstrap(&mut connection, config, config.session_limits, next_epoch).await {
+            Ok(mut bootstrap) => {
+                state.snapshot.connection_epoch = next_epoch;
+                state.snapshot.last_wire_cursor = Some(bootstrap.initialize_cursor);
+                state.snapshot.server = bootstrap.server;
+                state.snapshot.phase = ConnectionPhase::Connected;
+                state.commit(None)?;
+                drain_buffered(state, &mut bootstrap.buffered)?;
+                let _ = revisions.send(state.snapshot.revision);
+                return Ok(connection);
+            }
+            Err(error) => {
+                if !error.permits_reconnect() {
+                    let _ = connection.close().await;
+                    return Err(error);
+                }
+                last_error = error;
+                let _ = connection.close().await;
+            }
+        }
+        delay = delay.saturating_mul(2).min(policy.maximum_delay);
+    }
+    Err(SessionError::ReconnectExhausted(last_error.to_string()))
+}
+
+fn drain_buffered(
+    state: &mut ActorState,
+    buffered: &mut VecDeque<BufferedEnvelope>,
+) -> Result<(), SessionError> {
+    while let Some(buffered) = buffered.pop_front() {
+        apply_envelope(state, buffered.cursor, buffered.envelope)?;
+    }
+    Ok(())
 }
 
 enum CommandOutcome {
@@ -755,7 +915,6 @@ async fn handle_request_command(
     );
     if connection.write(&frame).await.is_err() {
         let error = SessionError::IndeterminateRequest { method, id };
-        seal_pending(state, &error);
         return CommandOutcome::Fatal(error);
     }
     CommandOutcome::Continue
@@ -1002,5 +1161,90 @@ mod tests {
         assert_eq!(snapshot.canonical_revision, canonical.revision);
         assert_eq!(canonical.revision, StateRevision::new(1));
         client.close().await.expect("close session");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reconnects_without_replaying_written_request() {
+        let directory = tempfile::tempdir().expect("temporary marker directory");
+        let marker = directory.path().join("first-connection-finished");
+        let script = format!(
+            r#"
+read init
+printf '%s\n' '{INITIALIZE_RESPONSE}'
+read initialized
+if [ ! -e '{marker}' ]; then
+  touch '{marker}'
+  read first_request
+  exit 9
+fi
+read second_request
+case "$second_request" in
+  *'"id":2'*) printf '%s\n' '{{"id":2,"result":{{"recovered":true}}}}' ;;
+  *) exit 10 ;;
+esac
+sleep 1
+"#,
+            marker = marker.display(),
+        );
+        let mut config = shell_config(&script);
+        config.reconnect_policy = ReconnectPolicy {
+            maximum_attempts: 2,
+            initial_delay: Duration::from_millis(10),
+            maximum_delay: Duration::from_millis(20),
+        };
+        let client = AppServerClient::connect_local(config)
+            .await
+            .expect("connect first physical session");
+
+        let first = client
+            .request("thread/start", json!({}))
+            .await
+            .expect_err("written request becomes indeterminate");
+        assert!(matches!(
+            first,
+            SessionError::IndeterminateRequest {
+                id: JsonRpcId::Integer(1),
+                ..
+            }
+        ));
+
+        let reconnected = client.snapshot().await.expect("actor reconnected");
+        assert_eq!(reconnected.connection_epoch, 2);
+        assert_eq!(reconnected.phase, ConnectionPhase::Connected);
+
+        let second = client
+            .request("model/list", json!({}))
+            .await
+            .expect("new explicit request succeeds");
+        assert_eq!(second.value, json!({"recovered": true}));
+        client.close().await.expect("close reconnected session");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn malformed_known_notification_is_fatal_without_reconnect() {
+        let directory = tempfile::tempdir().expect("temporary marker directory");
+        let marker = directory.path().join("launches");
+        let script = format!(
+            r#"
+printf 'launch\n' >> '{marker}'
+read init
+printf '%s\n' '{INITIALIZE_RESPONSE}'
+read initialized
+printf '%s\n' '{{"method":"item/agentMessage/delta","params":{{"threadId":"thread"}}}}'
+sleep 1
+"#,
+            marker = marker.display(),
+        );
+        let client = AppServerClient::connect_local(shell_config(&script))
+            .await
+            .expect("initial handshake succeeds");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            std::fs::read_to_string(marker).expect("read launch count"),
+            "launch\n"
+        );
+        assert_eq!(client.snapshot().await, Err(SessionError::Closed));
     }
 }

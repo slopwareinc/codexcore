@@ -31,6 +31,13 @@ contains the local revision that was already committed before the awaiting
 caller resumed. UI consumers should use `observe()` as an invalidation signal
 and reread `snapshot()`; the signal stream is not an event journal.
 
+Local sessions use a bounded `ReconnectPolicy`. Only physical transport loss
+reconnects; malformed protocol/schema/canonical input seals the session. A
+request whose write attempt began is completed locally with
+`IndeterminateRequest` and is never replayed on the new physical connection.
+The successful connection receives a new epoch, so old pending server-request
+identities cannot be resolved against it.
+
 Every pending server request is keyed by `(connection epoch, JSON-RPC id)`.
 Resolve that exact key once with `resolve_server_request`. Production hosts must
 eventually provide explicit policy or UI for every request family documented in
