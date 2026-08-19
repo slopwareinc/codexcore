@@ -33,6 +33,21 @@ final class CodexAuthTokenProfileReaderTests: XCTestCase {
         )
     }
 
+    func testAsyncDisplayNameReadsAuthFileOffCaller() async throws {
+        let token = try jwt(payload: ["name": "Async Profile"])
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-auth-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let json = "{\"tokens\":{\"id_token\":\"\(token)\"}}"
+        try Data(json.utf8).write(to: url)
+
+        let displayName = await CodexAuthTokenProfileReader.displayNameAsync(
+            authFileURL: url
+        )
+
+        XCTAssertEqual(displayName, "Async Profile")
+    }
+
     private func jwt(payload: [String: Any]) throws -> String {
         let header = try base64URLString(["alg": "none", "typ": "JWT"])
         let payload = try base64URLString(payload)

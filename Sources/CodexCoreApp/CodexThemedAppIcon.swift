@@ -10,6 +10,7 @@ enum CodexThemedAppIcon {
     static let internalScale: CGFloat = 0.87
     static let gradientAngle: CGFloat = 265
     static let slateTint: UInt32 = 0x7E9DA5
+    private static var cachedMasterImage: NSImage?
 
     static func apply(settings: CodexAppearanceSettings, colorScheme: ColorScheme) {
         guard let image = render(settings: settings, colorScheme: colorScheme) else { return }
@@ -93,18 +94,30 @@ enum CodexThemedAppIcon {
     }
 
     private static func masterImage() -> NSImage? {
+        if let cachedMasterImage {
+            return cachedMasterImage
+        }
+
+        let image: NSImage?
         if let url = Bundle.main.url(forResource: "CodexAppIconMaster", withExtension: "png"),
-           let image = NSImage(contentsOf: url) {
-            return image
+           let bundledImage = NSImage(contentsOf: url) {
+            image = bundledImage
+        } else {
+            #if SWIFT_PACKAGE
+            if let url = Bundle.module.url(forResource: "CodexAppIconMaster", withExtension: "png") {
+                image = NSImage(contentsOf: url)
+            } else {
+                image = nil
+            }
+            #else
+            image = nil
+            #endif
         }
 
-        #if SWIFT_PACKAGE
-        if let url = Bundle.module.url(forResource: "CodexAppIconMaster", withExtension: "png") {
-            return NSImage(contentsOf: url)
+        if let image {
+            cachedMasterImage = image
         }
-        #endif
-
-        return nil
+        return image
     }
 
     private static func tintedMaster(_ master: NSImage, tint: NSColor) -> NSImage {

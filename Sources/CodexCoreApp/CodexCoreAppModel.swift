@@ -302,7 +302,9 @@ final class CodexCoreAppModel {
             // complete, so ready is never exposed during the wire handshake.
             authSession.connectedAfterHandshake(server: server)
             accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
-            accountPreferredDisplayName = CodexAuthTokenProfileReader.displayName(codexHome: codex.codexHome)
+            accountPreferredDisplayName = await CodexAuthTokenProfileReader.displayNameAsync(
+                codexHome: codex.codexHome
+            )
 
             do {
                 configRequirements = try await codex.perform(CodexRequest.configRequirementsRead()).requirements
