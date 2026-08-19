@@ -61,8 +61,8 @@ public struct CodexSubagentV2: Identifiable, Sendable {
     }
 
     public var displayName: String {
-        if let nickname, !nickname.isEmpty { return nickname }
         let raw = agentPath?.split(separator: "/").last.map(String.init)
+            ?? nickname.flatMap { $0.isEmpty ? nil : $0 }
             ?? "agent-\(threadID.split(separator: "-").first ?? Substring(threadID))"
         return raw.replacingOccurrences(of: "_", with: " ").capitalized
     }

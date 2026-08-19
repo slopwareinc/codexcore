@@ -4,6 +4,21 @@ import Foundation
 import Testing
 
 struct CodexSubagentCanonicalPresentationTests {
+    @Test func logicalAgentPathPrecedesGeneratedNicknameForDisplay() {
+        let agent = CodexSubagentV2(
+            threadID: "child",
+            agentPath: "/root/extra_subagent_4",
+            nickname: "Cicero"
+        )
+        #expect(agent.displayName == "Extra Subagent 4")
+
+        let nicknameOnly = CodexSubagentV2(
+            threadID: "child",
+            nickname: "Cicero"
+        )
+        #expect(nicknameOnly.displayName == "Cicero")
+    }
+
     @Test func graphProjectionRegistersRecursiveDescendantsWithExactLifecycle() throws {
         let root = CodexThreadGraphKey(hostID: "host-a", threadID: "root")
         let child = CodexThreadGraphKey(hostID: "host-a", threadID: "child")
