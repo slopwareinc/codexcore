@@ -63,6 +63,11 @@ package-release:
 run-app: kill package
     open "{{root}}/build/CodexCore.app"
 
+# Package, launch, and capture a text stack sample. Duration accepts seconds or
+# an integer with an s/m/h suffix, for example `just run-app-sample 30s`.
+run-app-sample duration:
+    ./scripts/run-app-sample.sh "{{duration}}"
+
 # Kill any running instance, rebuild, and launch the CodexCore app.
 run: kill build
     swift run --skip-build codex-core-app

@@ -60,6 +60,18 @@ CODEXCORE_NOTARY_KEYCHAIN_PROFILE=codexcore-notary \
 
 When the profile variable is present, the script submits the zip with `notarytool`, waits for acceptance, staples and validates the app, then recreates the zip with the stapled bundle. Without it, notarization is skipped cleanly.
 
+## Capture a live CPU sample
+
+To package, launch, and capture a text stack sample from the running app:
+
+```bash
+just run-app-sample 30s
+```
+
+The sample is written under `build/samples/`. Durations may be plain seconds or
+use an integer `s`, `m`, or `h` suffix. Set `CODEXCORE_SAMPLE_INTERVAL_MS` to
+change the sampling interval; the default is 10 ms.
+
 ## First session
 
 1. Authenticate with ChatGPT device login or an API key.
